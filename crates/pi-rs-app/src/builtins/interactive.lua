@@ -4324,23 +4324,31 @@ local function pending_messages_lines(state, width)
   return lines
 end
 
--- The statusContainer's working loader (tui Loader.render(): a leading
--- blank line plus the padded spinner/message text).
+-- The statusContainer's Loader.render(): a leading blank line plus the
+-- padded spinner/message text. Working/compaction use accent; retry uses warning.
 local function status_container_lines(state, width)
   local loader = state.loader
   if not loader then return {} end
   local theme = state.theme
   local frame = loader.loader:frame()
   local text = theme:fg("muted", loader.message)
-  if frame ~= "" then text = theme:fg("accent", frame) .. " " .. text end
+  if frame ~= "" then text = theme:fg(loader.color or "accent", frame) .. " " .. text end
   local lines = { "" }
   append(lines, pi.tui.text_render(text, width, 1, 0))
   return lines
 end
 
--- interactive-mode.ts agent_start's working-loader body (retry and
--- compaction loaders join items 4/6).
+function clear_retry_ui(state)
+  if state.retry_escape_restore ~= nil then
+    state.escape_override = state.retry_escape_restore or nil
+    state.retry_escape_restore = nil
+  end
+  state.retry_countdown = nil
+  if state.loader and state.loader.kind == "retry" then state.loader = nil end
+end
+
 local function start_working_loader(state)
+  clear_retry_ui(state)
   local message = state.working_message or "Working..."
   state.loader = { loader = pi.tui.loader(message), message = message,
     last_ms = pi.monotonic_ms() }
@@ -4561,8 +4569,11 @@ local function handle_agent_event(state, event)
     if message.role == "assistant" and state.streaming_row then
       local error_message
       if message.stopReason == "aborted" then
-        -- The session retryAttempt variant joins the retry rung (item 4/5).
-        error_message = "Operation aborted"
+        local retry_attempt = state.session.retry_attempt and state.session.retry_attempt() or 0
+        error_message = retry_attempt > 0
+          and ("Aborted after " .. retry_attempt .. " retry attempt"
+            .. (retry_attempt > 1 and "s" or ""))
+          or "Operation aborted"
         message.errorMessage = error_message
       end
       state.streaming_row.message = message
@@ -4582,6 +4593,7 @@ local function handle_agent_event(state, event)
     end
     -- agent-session.ts _handleAgentEvent: session persistence.
     persist_agent_event(state.session_manager, event)
+
   elseif event.type == "tool_execution_start" then
     local row = state.pending_tools[event.toolCallId]
     if row == nil then
@@ -4657,8 +4669,31 @@ local function handle_agent_event(state, event)
       end
     end
     flush_compaction_queue(state, { willRetry = event.willRetry })
+  elseif event.type == "auto_retry_start" then
+    -- Save the normal editor Escape path and temporarily make Escape abort
+    -- the backoff sleep.
+    state.retry_escape_restore = state.escape_override or false
+    state.escape_override = function() state.session.abort_retry() end
+    local function retry_message(seconds)
+      local interrupt = format_key(DEFAULT_KEYS["app.interrupt"] or "", false)
+      return "Retrying (" .. event.attempt .. "/" .. event.maxAttempts .. ") in "
+        .. seconds .. "s... (" .. interrupt .. " to cancel)"
+    end
+    local seconds = math.ceil(event.delayMs / 1000)
+    local message = retry_message(seconds)
+    state.loader = { kind = "retry", loader = pi.tui.loader(message), message = message,
+      color = "warning", last_ms = pi.monotonic_ms() }
+    state.retry_countdown = { remaining = seconds,
+      next_ms = pi.monotonic_ms() + 1000, message = retry_message }
+  elseif event.type == "auto_retry_end" then
+    clear_retry_ui(state)
+    if not event.success then
+      show_error(state, "Retry failed after " .. event.attempt .. " attempts: "
+        .. (event.finalError or "Unknown error"))
+    end
   end
 end
+
 
 -- interactive-mode.ts getUserMessageText.
 local function get_user_message_text(message)
@@ -5510,7 +5545,7 @@ local function get_latest_compaction_entry(entries)
   return nil
 end
 
--- The compaction slice bound to one runtime (recreated on every
+-- The compaction/retry slice bound to one runtime (recreated on every
 -- bind_session_runtime, like the AgentSession fields it ports).
 local function create_compaction_slice(state, agent, session_manager)
   local slice = {
@@ -5518,6 +5553,8 @@ local function create_compaction_slice(state, agent, session_manager)
     overflow_recovery_attempted = false,
     manual_signal = nil,
     auto_signal = nil,
+    retry_signal = nil,
+    retry_attempt = 0,
   }
 
   local function emit(event)
@@ -5526,9 +5563,35 @@ local function create_compaction_slice(state, agent, session_manager)
     if state.event_hook then state.event_hook(event) end
   end
 
-  -- agent-session.ts _handleAgentEvent's compaction bookkeeping: track
-  -- the last assistant message for the post-run check and reset the
-  -- overflow-recovery latch.
+  local non_retryable_limit_pattern =
+    "GoUsageLimitError|FreeUsageLimitError|Monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing"
+  local retryable_pattern =
+    "overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|stream ended before message_stop|http2 request did not get a response|timed? out|timeout|terminated|retry delay"
+
+  function slice.is_retryable_error(message)
+    if not message or message.stopReason ~= "error"
+       or not message.errorMessage or message.errorMessage == "" then return false end
+    local context_window = state.model and state.model.contextWindow or 0
+    if compaction_lib.is_context_overflow(message, context_window) then return false end
+    if pi.tui.js_regex_search(non_retryable_limit_pattern, message.errorMessage) ~= nil then
+      return false
+    end
+    return pi.tui.js_regex_search(retryable_pattern, message.errorMessage) ~= nil
+  end
+
+  function slice.will_retry_after_agent_end(event)
+    local settings = pi.settings.retry_settings()
+    if not settings.enabled or slice.retry_attempt >= settings.maxRetries then return false end
+    for i = #(event.messages or {}), 1, -1 do
+      if event.messages[i].role == "assistant" then
+        return slice.is_retryable_error(event.messages[i])
+      end
+    end
+    return false
+  end
+
+  -- agent-session.ts _handleAgentEvent bookkeeping. This runs after the UI
+  -- listener, matching AgentSession's listener-before-persistence ordering.
   function slice.note_event(event)
     if event.type == "message_start" and event.message
        and event.message.role == "user" then
@@ -5538,6 +5601,10 @@ local function create_compaction_slice(state, agent, session_manager)
       slice.last_assistant = event.message
       if event.message.stopReason ~= "error" then
         slice.overflow_recovery_attempted = false
+        if slice.retry_attempt > 0 then
+          emit({ type = "auto_retry_end", success = true, attempt = slice.retry_attempt })
+          slice.retry_attempt = 0
+        end
       end
     end
   end
@@ -5736,12 +5803,58 @@ local function create_compaction_slice(state, agent, session_manager)
     return false
   end
 
-  -- agent-session.ts _handlePostAgentRun — the compaction slice
-  -- (_isRetryableError/_prepareRetry auto-retry joins items 4/5/7).
+  -- agent-session.ts _prepareRetry: remove the persisted error from live
+  -- context, expose the retry event, and wait with abortable exponential backoff.
+  function slice.prepare_retry(message)
+    local settings = pi.settings.retry_settings()
+    if not settings.enabled then return false end
+    slice.retry_attempt = slice.retry_attempt + 1
+    if slice.retry_attempt > settings.maxRetries then
+      slice.retry_attempt = slice.retry_attempt - 1
+      return false
+    end
+    local delay_ms = settings.baseDelayMs * (2 ^ (slice.retry_attempt - 1))
+    -- Arm cancellation before notifying listeners. Pi assigns its controller
+    -- immediately after emit; Lua listeners are synchronous, so this preserves
+    -- the same user-visible ordering without an unabortable callback window.
+    local signal = pi.abort_signal()
+    slice.retry_signal = signal
+    emit({ type = "auto_retry_start", attempt = slice.retry_attempt,
+      maxAttempts = settings.maxRetries, delayMs = delay_ms,
+      errorMessage = message.errorMessage or "Unknown error" })
+    local messages = agent:get_state().messages
+    if #messages > 0 and messages[#messages].role == "assistant" then
+      local trimmed = {}
+      for i = 1, #messages - 1 do trimmed[i] = messages[i] end
+      agent:set_messages(trimmed)
+    end
+    local completed = pcall(pi.sleep, delay_ms, signal)
+    slice.retry_signal = nil
+    if not completed then
+      local attempt = slice.retry_attempt
+      slice.retry_attempt = 0
+      emit({ type = "auto_retry_end", success = false, attempt = attempt,
+        finalError = "Retry cancelled" })
+      return false
+    end
+    return true
+  end
+
+  function slice.abort_retry()
+    if slice.retry_signal then slice.retry_signal:abort() end
+  end
+
+  -- agent-session.ts _handlePostAgentRun: provider retry precedes compaction.
   function slice.handle_post_agent_run()
     local message = slice.last_assistant
     slice.last_assistant = nil
     if not message then return false end
+    if slice.is_retryable_error(message) and slice.prepare_retry(message) then return true end
+    if message.stopReason == "error" and slice.retry_attempt > 0 then
+      emit({ type = "auto_retry_end", success = false, attempt = slice.retry_attempt,
+        finalError = message.errorMessage })
+      slice.retry_attempt = 0
+    end
     if slice.check_compaction(message, true) then return true end
     -- Messages queued by agent_end handlers need a continuation.
     return agent:has_queued_messages()
@@ -5876,6 +5989,8 @@ function bind_session_runtime(state, session_manager)
   state.session = {
     is_streaming = function() return agent:get_state().isStreaming end,
     is_compacting = compaction.is_compacting,
+    retry_attempt = function() return compaction.retry_attempt end,
+    abort_retry = compaction.abort_retry,
     abort = function() agent:abort() end,
     abort_compaction = compaction.abort_compaction,
     compact = compaction.compact,
@@ -5928,11 +6043,14 @@ function bind_session_runtime(state, session_manager)
     -- A disposed runtime's late events must not reach the current UI
     -- (the spec unsubscribes in AgentSession.dispose()).
     if state.agent ~= agent then return end
-    compaction.note_event(event)
+    if event.type == "agent_end" then
+      event.willRetry = compaction.will_retry_after_agent_end(event)
+    end
     handle_agent_event(state, event)
-    -- Parity-harness seam: scripted sequences capture frames at exact
-    -- agent-event points (the pi driver's awaited listener equivalent).
+    -- Parity-harness seam is another listener: capture before AgentSession's
+    -- post-listener persistence/retry bookkeeping.
     if state.event_hook then state.event_hook(event) end
+    compaction.note_event(event)
   end)
   -- rebindCurrentSession: updateAvailableProviderCount refreshes the
   -- footer after every runtime replacement (and at start()).
@@ -8430,6 +8548,18 @@ local function run_interactive_state(state)
         local elapsed = now - (state.loader.last_ms or now)
         state.loader.last_ms = now
         if state.loader.loader:advance(elapsed) then render = true end
+      end
+      if state.retry_countdown and now >= state.retry_countdown.next_ms then
+        local countdown = state.retry_countdown
+        while now >= countdown.next_ms and countdown.remaining > 0 do
+          countdown.remaining = countdown.remaining - 1
+          countdown.next_ms = countdown.next_ms + 1000
+        end
+        if state.loader and state.loader.kind == "retry" then
+          state.loader.message = countdown.message(countdown.remaining)
+        end
+        if countdown.remaining <= 0 then state.retry_countdown = nil end
+        render = true
       end
       -- A running bash command animates its component loader and streams
       -- output; one more render settles the completed frame.
