@@ -97,6 +97,7 @@ pub fn parse_thinking_level(level: &str) -> Option<ModelThinkingLevel> {
         "medium" => Some(ModelThinkingLevel::Medium),
         "high" => Some(ModelThinkingLevel::High),
         "xhigh" => Some(ModelThinkingLevel::XHigh),
+        "max" => Some(ModelThinkingLevel::Max),
         _ => None,
     }
 }

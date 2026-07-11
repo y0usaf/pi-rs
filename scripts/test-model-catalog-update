@@ -26,6 +26,8 @@ cmp "$tmp/provenance.first.json" "$tmp/provenance.json"
 jq -e '
   length == 2 and
   .[0].provider == "z-provider" and
+  .[0].models[0].thinkingLevelMap.max == "max" and
+  .[0].models[0].cost.tiers[0].inputTokensAbove == 500 and
   .[1].provider == "a-provider" and
   .[1].models[0].name == "Corrected Name" and
   (.[1].models[0] | has("compat") | not)

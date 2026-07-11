@@ -6,7 +6,7 @@
   "baseUrl": "https://api.anthropic.com",
   "compat": { "forceAdaptiveThinking": true, "supportsTemperature": false },
   "reasoning": true,
-  "thinkingLevelMap": { "xhigh": "xhigh" },
+  "thinkingLevelMap": { "xhigh": "xhigh", "max": "max" },
   "input": ["text", "image"],
   "cost": { "input": 5, "output": 25, "cacheRead": 0.5, "cacheWrite": 6.25 },
   "contextWindow": 1000000,

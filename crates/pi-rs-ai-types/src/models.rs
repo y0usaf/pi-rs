@@ -7,22 +7,39 @@
 use crate::types::{Model, ModelThinkingLevel, ThinkingLevelMap, Usage, UsageCost};
 
 /// Spec: `EXTENDED_THINKING_LEVELS`.
-pub const EXTENDED_THINKING_LEVELS: [ModelThinkingLevel; 6] = [
+pub const EXTENDED_THINKING_LEVELS: [ModelThinkingLevel; 7] = [
     ModelThinkingLevel::Off,
     ModelThinkingLevel::Minimal,
     ModelThinkingLevel::Low,
     ModelThinkingLevel::Medium,
     ModelThinkingLevel::High,
     ModelThinkingLevel::XHigh,
+    ModelThinkingLevel::Max,
 ];
 
-/// Spec: `calculateCost` — writes `usage.cost` from the model's per-million
-/// rates and returns it.
+/// Spec: `calculateCost` — selects the highest matching request-wide pricing
+/// tier, writes `usage.cost`, and returns it.
 pub fn calculate_cost(model: &Model, usage: &mut Usage) -> UsageCost {
-    usage.cost.input = (model.cost.input / 1_000_000.0) * usage.input as f64;
-    usage.cost.output = (model.cost.output / 1_000_000.0) * usage.output as f64;
-    usage.cost.cache_read = (model.cost.cache_read / 1_000_000.0) * usage.cache_read as f64;
-    usage.cost.cache_write = (model.cost.cache_write / 1_000_000.0) * usage.cache_write as f64;
+    let input_tokens = usage.input + usage.cache_read + usage.cache_write;
+    let mut rates = (
+        model.cost.input,
+        model.cost.output,
+        model.cost.cache_read,
+        model.cost.cache_write,
+    );
+    let mut matched_threshold = None;
+    for tier in &model.cost.tiers {
+        if input_tokens > tier.input_tokens_above
+            && matched_threshold.is_none_or(|threshold| tier.input_tokens_above > threshold)
+        {
+            rates = (tier.input, tier.output, tier.cache_read, tier.cache_write);
+            matched_threshold = Some(tier.input_tokens_above);
+        }
+    }
+    usage.cost.input = (rates.0 / 1_000_000.0) * usage.input as f64;
+    usage.cost.output = (rates.1 / 1_000_000.0) * usage.output as f64;
+    usage.cost.cache_read = (rates.2 / 1_000_000.0) * usage.cache_read as f64;
+    usage.cost.cache_write = (rates.3 / 1_000_000.0) * usage.cache_write as f64;
     usage.cost.total =
         usage.cost.input + usage.cost.output + usage.cost.cache_read + usage.cost.cache_write;
     usage.cost
@@ -32,8 +49,8 @@ pub fn calculate_cost(model: &Model, usage: &mut Usage) -> UsageCost {
 ///
 /// A non-reasoning model supports only `off`. For a reasoning model, an
 /// explicit `null` in `thinkingLevelMap` marks a level unsupported, a missing
-/// key falls back to provider defaults — except `xhigh`, which is supported
-/// only when explicitly mapped.
+/// key falls back to provider defaults — except `xhigh` and `max`, which are
+/// supported only when explicitly mapped.
 pub fn get_supported_thinking_levels(model: &Model) -> Vec<ModelThinkingLevel> {
     supported_thinking_levels_for(model.reasoning, model.thinking_level_map.as_ref())
 }
@@ -56,7 +73,7 @@ pub fn supported_thinking_levels_for(
             match mapped {
                 Some(None) => false,
                 Some(Some(_)) => true,
-                None => *level != ModelThinkingLevel::XHigh,
+                None => !matches!(level, ModelThinkingLevel::XHigh | ModelThinkingLevel::Max),
             }
         })
         .collect()

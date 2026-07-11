@@ -1380,6 +1380,7 @@ fn map_thinking_level_to_effort(model: &Model, level: Option<ThinkingLevel>) -> 
         Some(ThinkingLevel::Minimal | ThinkingLevel::Low) => "low",
         Some(ThinkingLevel::Medium) => "medium",
         Some(ThinkingLevel::High) => "high",
+        Some(ThinkingLevel::Max) => "max",
         _ => "high",
     }
     .to_string()

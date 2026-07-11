@@ -89,7 +89,7 @@ pub const KNOWN_PROVIDERS: &[&str] = &[
 /// Spec: `KnownImagesProvider`.
 pub const KNOWN_IMAGES_PROVIDERS: &[&str] = &["openrouter"];
 
-/// Spec: `ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh"`.
+/// Spec: `ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "max"`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThinkingLevel {
@@ -98,6 +98,7 @@ pub enum ThinkingLevel {
     Medium,
     High,
     XHigh,
+    Max,
 }
 
 /// Spec: `ModelThinkingLevel = "off" | ThinkingLevel`.
@@ -113,6 +114,7 @@ pub enum ModelThinkingLevel {
     Medium,
     High,
     XHigh,
+    Max,
 }
 
 impl From<ThinkingLevel> for ModelThinkingLevel {
@@ -123,6 +125,7 @@ impl From<ThinkingLevel> for ModelThinkingLevel {
             ThinkingLevel::Medium => Self::Medium,
             ThinkingLevel::High => Self::High,
             ThinkingLevel::XHigh => Self::XHigh,
+            ThinkingLevel::Max => Self::Max,
         }
     }
 }
@@ -768,14 +771,27 @@ pub enum Modality {
     Image,
 }
 
-/// Spec: `Model["cost"]` — dollars per million tokens.
+/// Spec: `ModelCostTier` — request-wide rates above an input-token threshold.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelCostTier {
+    pub input_tokens_above: u64,
+    pub input: f64,
+    pub output: f64,
+    pub cache_read: f64,
+    pub cache_write: f64,
+}
+
+/// Spec: `Model["cost"]` — dollars per million tokens.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelCost {
     pub input: f64,
     pub output: f64,
     pub cache_read: f64,
     pub cache_write: f64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tiers: Vec<ModelCostTier>,
 }
 
 /// Spec: `Model<TApi>`.
