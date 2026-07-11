@@ -6,9 +6,11 @@
 // handleSessionCommand — plus the restore path from pi-resume-turn.ts.
 // The scenario pins `fixedCwd` (absolute, recreated per run) because
 // /session and the missing-cwd prompt surface absolute paths, `nowMs`
-// (a fixed Date) for session ages, and PATH="" so the delete flow's
-// `trash` probe fails deterministically into unlink.
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+// (a fixed Date) for session ages, and a bin-only PATH so the delete flow's
+// `trash` probe fails deterministically while `/share` sees only scripted `gh`.
+import { spawn, spawnSync } from "node:child_process";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { AgentMessage, AssistantMessage } from "../../ref/pi/packages/agent/src/types.ts";
 import type { Model } from "../../ref/pi/packages/ai/src/models.ts";
@@ -28,6 +30,7 @@ import {
 import { SessionManager } from "../../ref/pi/packages/coding-agent/src/core/session-manager.ts";
 import { exportSessionToHtml } from "../../ref/pi/packages/coding-agent/src/core/export-html/index.ts";
 import { AssistantMessageComponent } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/assistant-message.ts";
+import { BorderedLoader } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/bordered-loader.ts";
 import { CustomEditor } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/custom-editor.ts";
 import { ExtensionSelectorComponent } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/extension-selector.ts";
 import { FooterComponent } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/footer.ts";
@@ -48,7 +51,7 @@ import { setCapabilities } from "../../ref/pi/packages/tui/src/terminal-image.ts
 import { Container, TUI } from "../../ref/pi/packages/tui/src/tui.ts";
 import type { Terminal } from "../../ref/pi/packages/tui/src/terminal.ts";
 
-type Step = { name: string; input?: string[]; resize?: { columns: number; rows: number } };
+type Step = { name: string; input?: string[]; resize?: { columns: number; rows: number }; sleepMs?: number };
 type Scenario = {
   columns: number;
   rows: number;
@@ -61,6 +64,8 @@ type Scenario = {
   sessionFile: string;
   sessionDir: string;
   files: Record<string, string>;
+  executables?: string[];
+  env?: Record<string, string>;
   model: Model<"anthropic-messages">;
   steps: Step[];
 };
@@ -85,7 +90,6 @@ const scenario = JSON.parse(readFileSync(process.argv[2]!, "utf8")) as Scenario;
 
 // Deterministic environment.
 setCapabilities({ images: null, trueColor: true, hyperlinks: false });
-process.env.PATH = "";
 const RealDate = Date;
 class FixedDate extends RealDate {
   constructor(...args: ConstructorParameters<typeof RealDate>) {
@@ -113,6 +117,8 @@ for (const [name, contents] of Object.entries(scenario.files ?? {})) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, contents);
 }
+for (const name of scenario.executables ?? []) chmodSync(join(root, name), 0o755);
+for (const [key, value] of Object.entries(scenario.env ?? {})) process.env[key] = value;
 process.env.HOME = root;
 const keybindings = new KeybindingsManager();
 setKeybindings(keybindings);
@@ -680,13 +686,61 @@ async function handleImportCommand(text: string): Promise<void> {
   } catch (error) { throw error; }
 }
 
+async function handleShareCommand(): Promise<void> {
+  try {
+    const authResult = spawnSync("gh", ["auth", "status"], { encoding: "utf-8" });
+    if (authResult.status !== 0) { showError("GitHub CLI is not logged in. Run 'gh auth login' first."); return; }
+  } catch {
+    showError("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/");
+    return;
+  }
+
+  const tmpFile = join(tmpdir(), "session.html");
+  try {
+    await exportSessionToHtml(sessionManager, agentState as never, tmpFile);
+  } catch (error) {
+    showError(`Failed to export session: ${error instanceof Error ? error.message : "Unknown error"}`);
+    return;
+  }
+
+  const loader = new BorderedLoader(ui, theme, "Creating gist...");
+  editorContainer.clear(); editorContainer.addChild(loader); ui.setFocus(loader); ui.requestRender();
+  const restoreEditor = () => {
+    loader.dispose(); editorContainer.clear(); editorContainer.addChild(editor); ui.setFocus(editor);
+    try { unlinkSync(tmpFile); } catch {}
+  };
+  let proc: ReturnType<typeof spawn> | null = null;
+  loader.onAbort = () => { proc?.kill(); restoreEditor(); showStatus("Share cancelled"); };
+  try {
+    const result = await new Promise<{ stdout: string; stderr: string; code: number | null }>((done) => {
+      proc = spawn("gh", ["gist", "create", "--public=false", tmpFile]);
+      let stdout = "", stderr = "";
+      proc.stdout?.on("data", (data) => { stdout += data.toString(); });
+      proc.stderr?.on("data", (data) => { stderr += data.toString(); });
+      proc.on("close", (code) => done({ stdout, stderr, code }));
+    });
+    if (loader.signal.aborted) return;
+    restoreEditor();
+    if (result.code !== 0) { showError(`Failed to create gist: ${result.stderr.trim() || "Unknown error"}`); return; }
+    const gistUrl = result.stdout.trim();
+    const gistId = gistUrl.split("/").pop();
+    if (!gistId) { showError("Failed to parse gist ID from gh output"); return; }
+    const base = process.env.PI_SHARE_VIEWER_URL || "https://pi.dev/session/";
+    showStatus(`Share URL: ${base}#${gistId}\nGist: ${gistUrl}`);
+  } catch (error) {
+    if (!loader.signal.aborted) {
+      restoreEditor();
+      showError(`Failed to create gist: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }
+}
+
 function handleCopyCommand(): void {
   const message = [...agentState.messages].reverse().find((candidate) => candidate.role === "assistant") as AssistantMessage | undefined;
   const text = message?.content.filter((part) => part.type === "text").map((part) => part.text).join("").trim();
   if (!text) { showError("No agent messages to copy yet."); return; }
   showStatus("Copied last agent message to clipboard");
 }
-
 
 // interactive-mode.ts setupEditorSubmitHandler (the routed slice).
 editor.onSubmit = async (text: string) => {
@@ -708,6 +762,12 @@ editor.onSubmit = async (text: string) => {
     editor.setText("");
     return;
   }
+  if (text === "/share") {
+    void handleShareCommand();
+    editor.setText("");
+    return;
+  }
+
   if (text === "/name" || text.startsWith("/name ")) {
     handleNameCommand(text);
     editor.setText("");
@@ -749,6 +809,7 @@ async function main() {
       // keystrokes (the component awaits its async loaders).
       await new Promise<void>((resolve) => setTimeout(resolve, 10));
     }
+    if (step.sleepMs) await new Promise<void>((resolve) => setTimeout(resolve, step.sleepMs));
     await capture(step.name, Boolean(step.resize));
   }
   ui.stop();

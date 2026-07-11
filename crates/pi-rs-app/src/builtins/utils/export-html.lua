@@ -214,7 +214,24 @@ local function pre_render_tools(entries, theme, cwd)
 end
 
 local function replace_literal(value, marker, replacement)
-  return (value:gsub(marker, function() return replacement end, 1))
+  local first, last = value:find(marker, 1, true)
+  if not first then return value end
+  local prefix, suffix, expanded, index = value:sub(1, first - 1), value:sub(last + 1), {}, 1
+  -- JavaScript String.replace replacement-string substitutions. Pi passes
+  -- vendored JS as the replacement string, so its literal `$&`, `$`` and
+  -- `$$` sequences intentionally acquire native replace semantics.
+  while index <= #replacement do
+    local dollar = replacement:find("$", index, true)
+    if not dollar then expanded[#expanded + 1] = replacement:sub(index); break end
+    expanded[#expanded + 1] = replacement:sub(index, dollar - 1)
+    local token = replacement:sub(dollar + 1, dollar + 1)
+    if token == "$" then expanded[#expanded + 1], index = "$", dollar + 2
+    elseif token == "&" then expanded[#expanded + 1], index = marker, dollar + 2
+    elseif token == "`" then expanded[#expanded + 1], index = prefix, dollar + 2
+    elseif token == "'" then expanded[#expanded + 1], index = suffix, dollar + 2
+    else expanded[#expanded + 1], index = "$", dollar + 1 end
+  end
+  return prefix .. table.concat(expanded) .. suffix
 end
 
 function export_html.generate(state, output_path)
@@ -225,13 +242,16 @@ function export_html.generate(state, output_path)
   local entries, agent_state = manager:get_entries(), state.agent:get_state()
   local tools = {}
   for _, tool in ipairs(agent_state.tools or {}) do
-    tools[#tools + 1] = { name = tool.name, description = tool.description, parameters = tool.parameters }
+    local exported_tool = pi.json.decode('{"name":null,"description":null,"parameters":null}')
+    exported_tool.name, exported_tool.description, exported_tool.parameters = tool.name, tool.description, tool.parameters
+    tools[#tools + 1] = exported_tool
   end
-  local session_data = {
-    header = manager:get_header(), entries = entries, leafId = manager:get_leaf_id(),
-    systemPrompt = agent_state.systemPrompt, tools = tools,
-    renderedTools = pre_render_tools(entries, state.theme, state.cwd),
-  }
+  -- Seed from JSON so the bridge retains JavaScript object construction
+  -- order and explicit null slots through JSON.stringify.
+  local session_data = pi.json.decode('{"header":null,"entries":null,"leafId":null,"systemPrompt":null,"tools":null}')
+  session_data.header, session_data.entries, session_data.leafId = manager:get_header(), entries, manager:get_leaf_id()
+  session_data.systemPrompt, session_data.tools = agent_state.systemPrompt, tools
+  session_data.renderedTools = pre_render_tools(entries, state.theme, state.cwd)
   local encoded = base64_encode(pi.json.encode(session_data, false))
   local colors = resolved_colors(state.theme_data)
   local derived = derived_export_colors(colors.userMessageBg or "#343541")

@@ -1,6 +1,8 @@
 //! Differential Pi/pi-rs terminal-cell harness.
 
 use std::io::{Read as _, Write as _};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt as _;
 use std::{fs, path::PathBuf, process::ExitCode};
 
 use pi_rs_host::{Host, HostConfig};
@@ -294,6 +296,20 @@ fn run() -> Result<ExitCode, HarnessError> {
                 fs::create_dir_all(parent).map_err(io_error)?;
             }
             fs::write(&path, contents.as_str().unwrap_or_default()).map_err(io_error)?;
+        }
+        #[cfg(unix)]
+        if let Some(executables) = scenario
+            .get("executables")
+            .and_then(|value| value.as_array())
+        {
+            for name in executables.iter().filter_map(serde_json::Value::as_str) {
+                let path = root.join(name);
+                let io_error = |source| HarnessError::Io {
+                    path: path.clone(),
+                    source,
+                };
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).map_err(io_error)?;
+            }
         }
         let cwd = root.to_string_lossy().into_owned();
         // Resume scenarios (PLAN 6.2): the session fixture materializes
