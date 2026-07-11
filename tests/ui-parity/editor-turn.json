@@ -1,0 +1,27 @@
+{
+  "command": "interactive-editor-parity-sequence",
+  "columns": 60,
+  "rows": 24,
+  "steps": [
+    { "name": "typed-wrap", "input": ["The", " ", "quick", " ", "brown", " ", "fox", " ", "jumps", " ", "over", " ", "the", " ", "lazy", " ", "dog", " ", "while", "\u001b[32;2u", "wrapping", " ", "across", " ", "the", " ", "line"] },
+    { "name": "moved", "input": ["\u0001", "\u001b[1;5C", "\u001b[1;5C", "\u001b[C", "\u001b[C", "\u001b[C", "\u001d", "z"] },
+    { "name": "killed-end", "input": ["\u000b"] },
+    { "name": "yanked", "input": ["\u0019"] },
+    { "name": "undone", "input": ["\u001f", "\u001f"] },
+    { "name": "multiline", "input": ["\u0005", "\n", "second", " ", "line"] },
+    { "name": "backslash-newline", "input": ["\\", "\r"] },
+    { "name": "submitted", "input": ["third", "\r"] },
+    { "name": "history-up", "input": ["\u001b[A"] },
+    { "name": "history-exit", "input": ["\u001b[B", "\u001b[B", "\u001b[B", "\u001b[B", "\u001b[B", "\u001b[B", "\u001b[B", "\u001b[B"] },
+    { "name": "pasted-marker", "input": ["\u001b[200~l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\nl11\nl12\u001b[201~"] },
+    { "name": "marker-deleted", "input": ["\u007f"] },
+    { "name": "tall", "input": ["L1", "\n", "L2", "\n", "L3", "\n", "L4", "\n", "L5", "\n", "L6", "\n", "L7", "\n", "L8", "\n", "L9", "\n", "L10"] },
+    { "name": "page-up", "input": ["\u001b[5~"] },
+    { "name": "page-down", "input": ["\u001b[6~"] },
+    { "name": "submit-tall", "input": ["\r"] },
+    { "name": "whitespace-submit", "input": [" ", " ", "\r"] },
+    { "name": "retyped", "input": ["wide", " ", "words", " ", "spread", " ", "over", " ", "the", " ", "available", " ", "width", " ", "here"] },
+    { "name": "resize-narrow", "resize": { "columns": 40, "rows": 24 } },
+    { "name": "resize-wide", "resize": { "columns": 100, "rows": 24 } }
+  ]
+}

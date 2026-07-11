@@ -1,0 +1,69 @@
+{
+  "command": "interactive-provider-parity-sequence",
+  "columns": 72,
+  "rows": 24,
+  "theme": "dark",
+  "colorMode": "truecolor",
+  "appName": "pi",
+  "version": "0.79.0",
+  "branch": "main",
+  "home": "/home/user",
+  "providerCount": 1,
+  "sessionFile": "session.jsonl",
+  "modelFromCli": true,
+  "files": {
+    "session.jsonl": "{\"type\": \"session\", \"version\": 3, \"id\": \"0198a5c0-0000-7000-8000-000000000001\", \"timestamp\": \"2026-07-01T10:00:00.000Z\", \"cwd\": \"/home/user/project\"}\n{\"type\": \"model_change\", \"id\": \"e1\", \"parentId\": null, \"timestamp\": \"2026-07-01T10:00:00.000Z\", \"provider\": \"anthropic\", \"modelId\": \"claude-parity-1\"}\n{\"type\": \"thinking_level_change\", \"id\": \"e2\", \"parentId\": \"e1\", \"timestamp\": \"2026-07-01T10:00:00.000Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"e3\", \"parentId\": \"e2\", \"timestamp\": \"2026-07-01T10:00:01.000Z\", \"message\": {\"role\": \"user\", \"timestamp\": 0, \"content\": [{\"type\": \"text\", \"text\": \"read the config file\"}]}}\n{\"type\": \"message\", \"id\": \"e4\", \"parentId\": \"e3\", \"timestamp\": \"2026-07-01T10:00:02.000Z\", \"message\": {\"role\": \"assistant\", \"timestamp\": 0, \"content\": [{\"type\": \"text\", \"text\": \"Reading it now.\"}, {\"type\": \"toolCall\", \"id\": \"tool_1\", \"name\": \"read\", \"arguments\": {\"path\": \"config.json\"}}], \"api\": \"anthropic-messages\", \"provider\": \"anthropic\", \"model\": \"claude-parity-1\", \"usage\": {\"input\": 1200, \"output\": 40, \"cacheRead\": 300, \"cacheWrite\": 100, \"totalTokens\": 1640, \"cost\": {\"input\": 0.0036, \"output\": 0.0006, \"cacheRead\": 9e-05, \"cacheWrite\": 0.000375, \"total\": 0.004365}}, \"stopReason\": \"toolUse\"}}\n{\"type\": \"message\", \"id\": \"e5\", \"parentId\": \"e4\", \"timestamp\": \"2026-07-01T10:00:03.000Z\", \"message\": {\"role\": \"toolResult\", \"timestamp\": 0, \"toolCallId\": \"tool_1\", \"toolName\": \"read\", \"content\": [{\"type\": \"text\", \"text\": \"{\\n  \\\"retries\\\": 3,\\n  \\\"port\\\": 8080\\n}\"}], \"isError\": false}}\n{\"type\": \"message\", \"id\": \"e6\", \"parentId\": \"e5\", \"timestamp\": \"2026-07-01T10:00:04.000Z\", \"message\": {\"role\": \"user\", \"timestamp\": 0, \"content\": [{\"type\": \"text\", \"text\": \"and the log?\"}]}}\n{\"type\": \"message\", \"id\": \"e7\", \"parentId\": \"e6\", \"timestamp\": \"2026-07-01T10:00:05.000Z\", \"message\": {\"role\": \"assistant\", \"timestamp\": 0, \"content\": [{\"type\": \"text\", \"text\": \"Checking the log.\"}, {\"type\": \"toolCall\", \"id\": \"tool_2\", \"name\": \"bash\", \"arguments\": {\"command\": \"tail -n 5 app.log\"}}], \"api\": \"anthropic-messages\", \"provider\": \"anthropic\", \"model\": \"claude-parity-1\", \"usage\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 0, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}, \"stopReason\": \"aborted\", \"errorMessage\": \"Request was aborted\"}}\n"
+  },
+  "model": {
+    "id": "claude-parity-1",
+    "name": "Claude Parity",
+    "provider": "anthropic",
+    "api": "anthropic-messages",
+    "reasoning": false,
+    "contextWindow": 200000,
+    "maxTokens": 8192,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 3,
+      "output": 15,
+      "cacheRead": 0.3,
+      "cacheWrite": 3.75
+    },
+    "baseUrl": ""
+  },
+  "steps": [
+    {
+      "name": "expanded",
+      "input": [
+        "\u000f"
+      ]
+    },
+    {
+      "name": "collapsed",
+      "input": [
+        "\u000f"
+      ]
+    },
+    {
+      "name": "history",
+      "input": [
+        "\u001b[A"
+      ]
+    },
+    {
+      "name": "history-walk",
+      "input": [
+        "\u001b[A"
+      ]
+    },
+    {
+      "name": "resize",
+      "resize": {
+        "columns": 100,
+        "rows": 30
+      }
+    }
+  ]
+}

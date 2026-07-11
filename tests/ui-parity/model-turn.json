@@ -1,0 +1,48 @@
+{
+  "command": "interactive-model-parity-sequence",
+  "columns": 72,
+  "rows": 30,
+  "cwd": "/home/user/w/proj",
+  "home": "/home/user",
+  "branch": "main",
+  "providerCount": 3,
+  "thinkingLevel": "off",
+  "subscription": false,
+  "usage": { "input": 5200, "output": 1800, "cacheRead": 12000, "cacheWrite": 3000, "cost": 0.42 },
+  "contextUsage": { "percent": 12.5, "contextWindow": 200000 },
+  "model": { "provider": "anthropic", "id": "claude-opus-4-8", "name": "Claude Opus 4.8", "api": "anthropic-messages", "reasoning": true, "baseUrl": "", "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "maxTokens": 8192, "contextWindow": 200000 },
+  "models": [
+    { "provider": "openai", "id": "gpt-5.4", "name": "GPT-5.4", "api": "openai-responses", "reasoning": true, "baseUrl": "", "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "maxTokens": 8192, "contextWindow": 272000 },
+    { "provider": "openai", "id": "gpt-5.2", "name": "GPT-5.2", "api": "openai-responses", "reasoning": true, "baseUrl": "", "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "maxTokens": 8192, "contextWindow": 272000 },
+    { "provider": "openai", "id": "gpt-5-mini", "name": "GPT-5 Mini", "api": "openai-responses", "reasoning": false, "baseUrl": "", "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "maxTokens": 8192, "contextWindow": 272000 },
+    { "provider": "openai", "id": "o4-mini", "name": "o4-mini", "api": "openai-responses", "reasoning": true, "baseUrl": "", "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "maxTokens": 8192, "contextWindow": 200000 },
+    { "provider": "anthropic", "id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5", "api": "anthropic-messages", "reasoning": true, "baseUrl": "", "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "maxTokens": 8192, "contextWindow": 200000 },
+    { "provider": "anthropic", "id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "api": "anthropic-messages", "reasoning": true, "baseUrl": "", "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "maxTokens": 8192, "contextWindow": 200000 },
+    { "provider": "anthropic", "id": "claude-opus-4-6", "name": "Claude Opus 4.6", "api": "anthropic-messages", "reasoning": true, "baseUrl": "", "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "maxTokens": 8192, "contextWindow": 200000 },
+    { "provider": "anthropic", "id": "claude-3-7-sonnet", "name": "Claude 3.7 Sonnet", "api": "anthropic-messages", "reasoning": false, "baseUrl": "", "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "maxTokens": 8192, "contextWindow": 200000 },
+    { "provider": "anthropic", "id": "claude-3-5-haiku", "name": "Claude 3.5 Haiku", "api": "anthropic-messages", "reasoning": false, "baseUrl": "", "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "maxTokens": 8192, "contextWindow": 200000 },
+    { "provider": "anthropic", "id": "claude-opus-4-8", "name": "Claude Opus 4.8", "api": "anthropic-messages", "reasoning": true, "baseUrl": "", "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "maxTokens": 8192, "contextWindow": 200000 },
+    { "provider": "google", "id": "gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro Preview", "api": "google-generative-ai", "reasoning": true, "baseUrl": "", "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "maxTokens": 8192, "contextWindow": 1048576 },
+    { "provider": "google", "id": "gemini-3-flash", "name": "Gemini 3 Flash", "api": "google-generative-ai", "reasoning": false, "baseUrl": "", "input": ["text"], "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }, "maxTokens": 8192, "contextWindow": 1048576 }
+  ],
+  "scopedModels": [
+    { "provider": "anthropic", "id": "claude-opus-4-8", "thinkingLevel": "high" },
+    { "provider": "openai", "id": "gpt-5.4" }
+  ],
+  "steps": [
+    { "name": "open", "show": true },
+    { "name": "wrap-up", "input": ["\u001b[A"] },
+    { "name": "filter", "input": ["g", "p", "t"] },
+    { "name": "no-match", "input": ["z", "z"] },
+    { "name": "select-sonnet", "input": ["\u007f", "\u007f", "\u007f", "\u007f", "\u007f", "\u001b[B", "\r"] },
+    { "name": "command-exact", "command": "google/gemini-3-flash" },
+    { "name": "command-prefill", "command": "claude" },
+    { "name": "prefill-cancel", "input": ["\u001b"] },
+    { "name": "cycle-forward", "cycle": "forward" },
+    { "name": "cycle-backward", "cycle": "backward" },
+    { "name": "scoped-open", "show": true, "scoped": true },
+    { "name": "scoped-tab", "input": ["\t"] },
+    { "name": "scoped-tab-back", "input": ["\t"] },
+    { "name": "scoped-cancel", "input": ["\u001b", "h", "i"] }
+  ]
+}

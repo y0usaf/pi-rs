@@ -1,0 +1,38 @@
+{
+  "command": "interactive-selector-parity-sequence",
+  "columns": 72,
+  "rows": 24,
+  "mode": "login",
+  "providers": [
+    { "id": "anthropic", "name": "Anthropic", "authType": "oauth" },
+    { "id": "openai-codex", "name": "OpenAI Codex", "authType": "oauth" },
+    { "id": "openai", "name": "OpenAI", "authType": "api_key" },
+    { "id": "google", "name": "Google", "authType": "api_key" },
+    { "id": "groq", "name": "Groq", "authType": "api_key" },
+    { "id": "mistral", "name": "Mistral", "authType": "api_key" },
+    { "id": "cerebras", "name": "Cerebras", "authType": "api_key" },
+    { "id": "xai", "name": "xAI", "authType": "api_key" },
+    { "id": "openrouter", "name": "OpenRouter", "authType": "api_key" },
+    { "id": "zai", "name": "Z.ai", "authType": "api_key" }
+  ],
+  "credentials": {
+    "anthropic": { "type": "oauth" },
+    "groq": { "type": "oauth" },
+    "mistral": { "type": "api_key" }
+  },
+  "authStatus": {
+    "openai": { "configured": false, "source": "environment", "label": "OPENAI_API_KEY" },
+    "cerebras": { "configured": false, "source": "models_json_key" },
+    "xai": { "configured": false, "source": "models_json_command" },
+    "openrouter": { "configured": false, "source": "runtime" },
+    "zai": { "configured": false, "source": "fallback" }
+  },
+  "steps": [
+    { "name": "selector-open", "show": true },
+    { "name": "selector-down", "input": ["\u001b[B", "\u001b[B", "\u001b[B", "\u001b[B", "\u001b[B", "\u001b[B"] },
+    { "name": "selector-filter", "input": ["o", "p", "e", "n"] },
+    { "name": "selector-no-match", "input": ["z", "z", "z"] },
+    { "name": "selector-cancel", "input": ["\u001b"] },
+    { "name": "editor-restored", "input": ["h", "i"] }
+  ]
+}

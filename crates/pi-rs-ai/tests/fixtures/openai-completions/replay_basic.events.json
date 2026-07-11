@@ -1,0 +1,26 @@
+[
+  { "type": "start" },
+  { "type": "thinking_start", "contentIndex": 0 },
+  { "type": "thinking_delta", "contentIndex": 0, "delta": "Think" },
+  { "type": "thinking_delta", "contentIndex": 0, "delta": " more" },
+  { "type": "text_start", "contentIndex": 1 },
+  { "type": "text_delta", "contentIndex": 1, "delta": "Hello" },
+  { "type": "text_delta", "contentIndex": 1, "delta": " world" },
+  { "type": "toolcall_start", "contentIndex": 2 },
+  { "type": "toolcall_delta", "contentIndex": 2, "delta": "" },
+  { "type": "toolcall_delta", "contentIndex": 2, "delta": "{\"path\":" },
+  { "type": "toolcall_delta", "contentIndex": 2, "delta": "\"a.txt\"}" },
+  { "type": "thinking_end", "contentIndex": 0, "content": "Think more" },
+  { "type": "text_end", "contentIndex": 1, "content": "Hello world" },
+  {
+    "type": "toolcall_end",
+    "contentIndex": 2,
+    "toolCall": {
+      "type": "toolCall",
+      "id": "call_1",
+      "name": "read",
+      "arguments": { "path": "a.txt" }
+    }
+  },
+  { "type": "done", "reason": "toolUse" }
+]

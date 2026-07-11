@@ -1,0 +1,28 @@
+{
+  "id": "Ring-2.6-1T",
+  "name": "Ring 2.6 1T",
+  "api": "openai-completions",
+  "provider": "ant-ling",
+  "baseUrl": "https://api.ant-ling.com/v1",
+  "compat": {
+    "supportsStore": false,
+    "supportsDeveloperRole": false,
+    "supportsReasoningEffort": false,
+    "maxTokensField": "max_tokens",
+    "supportsLongCacheRetention": false,
+    "thinkingFormat": "ant-ling"
+  },
+  "reasoning": true,
+  "thinkingLevelMap": {
+    "off": null,
+    "minimal": null,
+    "low": null,
+    "medium": null,
+    "high": "high",
+    "xhigh": "xhigh"
+  },
+  "input": ["text"],
+  "cost": { "input": 0.06, "output": 0.25, "cacheRead": 0, "cacheWrite": 0 },
+  "contextWindow": 262144,
+  "maxTokens": 65536
+}

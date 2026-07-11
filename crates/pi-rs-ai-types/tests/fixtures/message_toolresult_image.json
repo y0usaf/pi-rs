@@ -1,0 +1,12 @@
+{
+  "role": "toolResult",
+  "toolCallId": "call_img",
+  "toolName": "read",
+  "content": [
+    { "type": "text", "text": "screenshot follows" },
+    { "type": "image", "data": "R0lGODlhAQABAAAAACw=", "mimeType": "image/gif" }
+  ],
+  "details": { "path": "/tmp/shot.png" },
+  "isError": false,
+  "timestamp": 1700000000000
+}

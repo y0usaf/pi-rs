@@ -1,0 +1,148 @@
+{
+  "lines": [
+    { "name": "identical", "old": "a\nb\n", "new": "a\nb\n" },
+    { "name": "replace-middle", "old": "one\ntwo\nthree\n", "new": "one\nTWO\nthree\n" },
+    { "name": "insert-lines", "old": "a\nb\n", "new": "a\nx\ny\nb\n" },
+    { "name": "delete-lines", "old": "a\nx\ny\nb\n", "new": "a\nb\n" },
+    { "name": "no-trailing-newline-change", "old": "a\nb", "new": "a\nc" },
+    { "name": "add-trailing-newline", "old": "a", "new": "a\n" },
+    { "name": "empty-old", "old": "", "new": "x\ny\n" },
+    { "name": "empty-new", "old": "x\ny\n", "new": "" },
+    { "name": "empty-both", "old": "", "new": "" },
+    { "name": "crlf", "old": "a\r\nb\r\n", "new": "a\r\nc\r\n" },
+    { "name": "shifted-repeated-block", "old": "x\nx\nx\n", "new": "y\nx\nx\nx\n" },
+    { "name": "interleaved-changes", "old": "a\nb\nc\nd\ne\nf\n", "new": "a\nB\nc\nD\ne\nF\n" },
+    { "name": "moved-block", "old": "a\nb\nc\nd\n", "new": "c\nd\na\nb\n" },
+    { "name": "whitespace-only-line-change", "old": "a\n \nb\n", "new": "a\n  \nb\n" },
+    {
+      "name": "distant-changes",
+      "old": "h1\nc1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\nc9\nc10\nh2\n",
+      "new": "H1\nc1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\nc9\nc10\nH2\n"
+    },
+    { "name": "empty-vs-no-newline", "old": "", "new": "x" },
+    { "name": "blank-line-insert", "old": "a\nb\n", "new": "a\n\nb\n" }
+  ],
+  "words": [
+    { "name": "delete-middle-word", "old": "foo bar baz", "new": "foo baz" },
+    { "name": "replace-middle-word", "old": "foo bar baz", "new": "foo qux baz" },
+    { "name": "newline-deletion", "old": "foo\nbar baz", "new": "foo baz" },
+    { "name": "newline-insertion", "old": "foo baz", "new": "foo\nbar baz" },
+    { "name": "multi-space-collapse", "old": "foo   bar baz", "new": "foo  baz" },
+    { "name": "insert-start", "old": "bar baz", "new": "foo bar baz" },
+    { "name": "delete-start", "old": "foo bar baz", "new": "bar baz" },
+    { "name": "insert-end", "old": "foo bar", "new": "foo bar baz" },
+    { "name": "delete-end", "old": "foo bar baz", "new": "foo bar" },
+    { "name": "punctuation-change", "old": "a.b", "new": "a,b" },
+    { "name": "unicode-words", "old": "café naïve test", "new": "café naïve prüfung" },
+    { "name": "whitespace-only", "old": " ", "new": "  " },
+    { "name": "empty-vs-word", "old": "", "new": "foo" },
+    { "name": "empty-both", "old": "", "new": "" },
+    { "name": "tab-newline-mix", "old": "foo\tbar\nbaz", "new": "foo baz" },
+    { "name": "trailing-space-trim-equal", "old": "foo ", "new": "foo" },
+    { "name": "identical", "old": "same text", "new": "same text" },
+    { "name": "sentence-rewrite", "old": "The quick brown fox", "new": "The slow brown cat" },
+    { "name": "leading-ws-change", "old": "  foo bar", "new": " foo bar" },
+    { "name": "intra-line-code", "old": "return foo(bar, baz);", "new": "return foo(bar, qux);" }
+  ],
+  "patch": [
+    {
+      "name": "pi-simple",
+      "oldName": "file.txt",
+      "newName": "file.txt",
+      "old": "one\ntwo\nthree\n",
+      "new": "one\nTWO\nthree\n",
+      "context": 4,
+      "headers": "file"
+    },
+    {
+      "name": "pi-no-newline-at-eof",
+      "oldName": "edit.txt",
+      "newName": "edit.txt",
+      "old": "Hello, world!",
+      "new": "Hello, testing!",
+      "context": 4,
+      "headers": "file"
+    },
+    {
+      "name": "pi-insertion-only",
+      "oldName": "file.txt",
+      "newName": "file.txt",
+      "old": "a\nb\n",
+      "new": "a\nx\nb\n",
+      "context": 4,
+      "headers": "file"
+    },
+    {
+      "name": "zero-lines-quirk",
+      "oldName": "file.txt",
+      "newName": "file.txt",
+      "old": "a\nb\nc\n",
+      "new": "a\nc\n",
+      "context": 0,
+      "headers": "file"
+    },
+    {
+      "name": "two-hunks",
+      "oldName": "file.txt",
+      "newName": "file.txt",
+      "old": "h1\nc1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\nc9\nc10\nh2\n",
+      "new": "H1\nc1\nc2\nc3\nc4\nc5\nc6\nc7\nc8\nc9\nc10\nH2\n",
+      "context": 1,
+      "headers": "file"
+    },
+    {
+      "name": "identical-files",
+      "oldName": "file.txt",
+      "newName": "file.txt",
+      "old": "a\nb\n",
+      "new": "a\nb\n",
+      "context": 4,
+      "headers": "file"
+    },
+    {
+      "name": "include-headers-same-name",
+      "oldName": "file.txt",
+      "newName": "file.txt",
+      "old": "one\ntwo\nthree\n",
+      "new": "one\nTWO\nthree\n",
+      "context": 4,
+      "headers": "include"
+    },
+    {
+      "name": "include-headers-different-names",
+      "oldName": "old.txt",
+      "newName": "new.txt",
+      "old": "one\ntwo\nthree\n",
+      "new": "one\nTWO\nthree\n",
+      "context": 4,
+      "headers": "include"
+    },
+    {
+      "name": "omit-headers",
+      "oldName": "file.txt",
+      "newName": "file.txt",
+      "old": "one\ntwo\nthree\n",
+      "new": "one\nTWO\nthree\n",
+      "context": 4,
+      "headers": "omit"
+    },
+    {
+      "name": "crlf-file",
+      "oldName": "file.txt",
+      "newName": "file.txt",
+      "old": "a\r\nb\r\n",
+      "new": "a\r\nc\r\n",
+      "context": 4,
+      "headers": "file"
+    },
+    {
+      "name": "no-newline-then-context",
+      "oldName": "file.txt",
+      "newName": "file.txt",
+      "old": "a\nb\nc",
+      "new": "a\nB\nc",
+      "context": 1,
+      "headers": "file"
+    }
+  ]
+}

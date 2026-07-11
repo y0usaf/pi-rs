@@ -1,0 +1,186 @@
+{
+  "models": {
+    "default": {
+      "id": "scripted",
+      "name": "Scripted",
+      "api": "scripted-api",
+      "provider": "scripted",
+      "baseUrl": "http://scripted.test",
+      "reasoning": false,
+      "input": ["text"],
+      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+      "contextWindow": 200000,
+      "maxTokens": 4096
+    },
+    "alt": {
+      "id": "scripted-alt",
+      "name": "Scripted Alt",
+      "api": "scripted-api",
+      "provider": "scripted",
+      "baseUrl": "http://scripted.test",
+      "reasoning": false,
+      "input": ["text"],
+      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+      "contextWindow": 200000,
+      "maxTokens": 4096
+    }
+  },
+  "cases": [
+    {
+      "name": "empty-session-no-file",
+      "options": { "systemPrompt": "sys" },
+      "turns": [],
+      "ops": []
+    },
+    {
+      "name": "single-turn",
+      "options": { "systemPrompt": "sys" },
+      "turns": [
+        { "blocks": [{ "type": "text", "text": "hello there" }], "stopReason": "stop" }
+      ],
+      "ops": [{ "op": "prompt", "text": "hi" }]
+    },
+    {
+      "name": "two-turns",
+      "options": { "systemPrompt": "sys" },
+      "turns": [
+        { "blocks": [{ "type": "text", "text": "first reply" }], "stopReason": "stop" },
+        { "blocks": [{ "type": "text", "text": "second reply" }], "stopReason": "stop" }
+      ],
+      "ops": [
+        { "op": "prompt", "text": "one" },
+        { "op": "prompt", "text": "two" }
+      ]
+    },
+    {
+      "name": "thinking-turn",
+      "options": { "systemPrompt": "sys" },
+      "turns": [
+        {
+          "blocks": [
+            { "type": "thinking", "thinking": "plan the reply" },
+            { "type": "text", "text": "planned" }
+          ],
+          "stopReason": "stop"
+        }
+      ],
+      "ops": [{ "op": "prompt", "text": "think first" }]
+    },
+    {
+      "name": "tool-turn",
+      "options": { "systemPrompt": "sys" },
+      "tools": [
+        {
+          "name": "lookup",
+          "parameters": {
+            "type": "object",
+            "properties": { "key": { "type": "string" } },
+            "required": ["key"]
+          },
+          "invocations": [
+            {
+              "result": {
+                "content": [{ "type": "text", "text": "value-9" }],
+                "details": { "hits": 1 }
+              }
+            }
+          ]
+        }
+      ],
+      "turns": [
+        {
+          "blocks": [
+            { "type": "text", "text": "checking" },
+            { "type": "toolCall", "id": "tc-1", "name": "lookup", "arguments": { "key": "alpha" } }
+          ],
+          "stopReason": "toolUse"
+        },
+        { "blocks": [{ "type": "text", "text": "found value-9" }], "stopReason": "stop" }
+      ],
+      "ops": [{ "op": "prompt", "text": "look up alpha" }]
+    },
+    {
+      "name": "error-turn",
+      "options": { "systemPrompt": "sys" },
+      "turns": [
+        {
+          "blocks": [{ "type": "text", "text": "partial" }],
+          "stopReason": "error",
+          "errorMessage": "provider exploded"
+        }
+      ],
+      "ops": [{ "op": "prompt", "text": "fail please" }]
+    },
+    {
+      "name": "aborted-turn",
+      "options": { "systemPrompt": "sys" },
+      "turns": [
+        {
+          "blocks": [
+            { "type": "text", "text": "long answer under way" },
+            { "type": "text", "text": "never finished" }
+          ],
+          "stopReason": "stop"
+        }
+      ],
+      "triggers": [
+        { "on": { "event": "message_update", "count": 3 }, "action": "abort" }
+      ],
+      "ops": [{ "op": "prompt", "text": "start something long" }]
+    },
+    {
+      "name": "set-name-then-turn",
+      "options": { "systemPrompt": "sys" },
+      "turns": [
+        { "blocks": [{ "type": "text", "text": "named reply" }], "stopReason": "stop" }
+      ],
+      "ops": [
+        { "op": "setName", "name": "My named session" },
+        { "op": "prompt", "text": "hello" }
+      ]
+    },
+    {
+      "name": "set-name-only-no-file",
+      "options": { "systemPrompt": "sys" },
+      "turns": [],
+      "ops": [{ "op": "setName", "name": "Never flushed" }]
+    },
+    {
+      "name": "set-model-between-turns",
+      "options": { "systemPrompt": "sys" },
+      "turns": [
+        { "blocks": [{ "type": "text", "text": "from default" }], "stopReason": "stop" },
+        { "blocks": [{ "type": "text", "text": "from alt" }], "stopReason": "stop" }
+      ],
+      "ops": [
+        { "op": "prompt", "text": "one" },
+        { "op": "setModel", "model": "alt" },
+        { "op": "prompt", "text": "two" }
+      ]
+    },
+    {
+      "name": "steering-queued",
+      "options": { "systemPrompt": "sys" },
+      "turns": [
+        { "blocks": [{ "type": "text", "text": "first chunk of work" }], "stopReason": "stop" },
+        { "blocks": [{ "type": "text", "text": "steered answer" }], "stopReason": "stop" }
+      ],
+      "triggers": [
+        { "on": { "event": "message_update", "count": 2 }, "action": "steer", "text": "also do this" }
+      ],
+      "ops": [{ "op": "prompt", "text": "start" }]
+    },
+    {
+      "name": "follow-up-queued",
+      "options": { "systemPrompt": "sys" },
+      "turns": [
+        { "blocks": [{ "type": "text", "text": "first answer" }], "stopReason": "stop" },
+        { "blocks": [{ "type": "text", "text": "follow-up answer" }], "stopReason": "stop" }
+      ],
+      "triggers": [
+        { "on": { "event": "message_update", "count": 2 }, "action": "followUp", "text": "and then this" }
+      ],
+      "ops": [{ "op": "prompt", "text": "start" }]
+    }
+  ]
+}

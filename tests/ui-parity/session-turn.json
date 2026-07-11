@@ -1,0 +1,236 @@
+{
+ "command": "interactive-session-parity-sequence",
+ "columns": 80,
+ "rows": 30,
+ "theme": "dark",
+ "colorMode": "truecolor",
+ "appName": "pi",
+ "version": "0.79.0",
+ "branch": "main",
+ "homeFromCwd": true,
+ "providerCount": 1,
+ "fixedCwd": "/tmp/pi-rs-ui-parity-session",
+ "nowMs": 1751364000000,
+ "sessionFile": "sessions/s1.jsonl",
+ "sessionDir": "sessions",
+ "modelFromCli": true,
+ "env": {
+  "PATH": ""
+ },
+ "files": {
+  "project/": "",
+  "sessions/s1.jsonl": "{\"type\": \"session\", \"version\": 3, \"id\": \"0198a5c0-0000-7000-8000-000000000001\", \"timestamp\": \"2025-07-01T09:20:00.000Z\", \"cwd\": \"/tmp/pi-rs-ui-parity-session/project\"}\n{\"type\": \"model_change\", \"timestamp\": \"2025-07-01T09:20:00.000Z\", \"provider\": \"anthropic\", \"modelId\": \"claude-parity-1\", \"id\": \"e1\", \"parentId\": null}\n{\"type\": \"thinking_level_change\", \"timestamp\": \"2025-07-01T09:20:00.000Z\", \"thinkingLevel\": \"off\", \"id\": \"e2\", \"parentId\": \"e1\"}\n{\"type\": \"message\", \"timestamp\": \"2025-07-01T09:20:00.000Z\", \"message\": {\"role\": \"user\", \"timestamp\": 1751361600000, \"content\": [{\"type\": \"text\", \"text\": \"hi there\"}]}, \"id\": \"e3\", \"parentId\": \"e2\"}\n{\"type\": \"message\", \"timestamp\": \"2025-07-01T09:20:01.000Z\", \"message\": {\"role\": \"assistant\", \"timestamp\": 1751361601000, \"content\": [{\"type\": \"text\", \"text\": \"Hello! How can I help?\"}], \"api\": \"anthropic-messages\", \"provider\": \"anthropic\", \"model\": \"claude-parity-1\", \"usage\": {\"input\": 800, \"output\": 30, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 830, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0.001}}, \"stopReason\": \"stop\"}, \"id\": \"e4\", \"parentId\": \"e3\"}\n",
+  "sessions/s2.jsonl": "{\"type\": \"session\", \"version\": 3, \"id\": \"0198a5c0-0000-7000-8000-000000000002\", \"timestamp\": \"2025-07-01T09:54:58.000Z\", \"cwd\": \"/tmp/pi-rs-ui-parity-session/project\"}\n{\"type\": \"model_change\", \"timestamp\": \"2025-07-01T09:54:58.000Z\", \"provider\": \"anthropic\", \"modelId\": \"claude-parity-1\", \"id\": \"e1\", \"parentId\": null}\n{\"type\": \"thinking_level_change\", \"timestamp\": \"2025-07-01T09:54:58.000Z\", \"thinkingLevel\": \"off\", \"id\": \"e2\", \"parentId\": \"e1\"}\n{\"type\": \"message\", \"timestamp\": \"2025-07-01T09:54:58.000Z\", \"message\": {\"role\": \"user\", \"timestamp\": 1751363698000, \"content\": [{\"type\": \"text\", \"text\": \"review the alpha plan\"}]}, \"id\": \"e3\", \"parentId\": \"e2\"}\n{\"type\": \"message\", \"timestamp\": \"2025-07-01T09:54:59.000Z\", \"message\": {\"role\": \"assistant\", \"timestamp\": 1751363699000, \"content\": [{\"type\": \"text\", \"text\": \"The alpha plan looks solid.\"}], \"api\": \"anthropic-messages\", \"provider\": \"anthropic\", \"model\": \"claude-parity-1\", \"usage\": {\"input\": 1200, \"output\": 40, \"cacheRead\": 300, \"cacheWrite\": 100, \"totalTokens\": 1640, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0.0043}}, \"stopReason\": \"stop\"}, \"id\": \"e4\", \"parentId\": \"e3\"}\n{\"type\": \"message\", \"timestamp\": \"2025-07-01T09:55:00.000Z\", \"message\": {\"role\": \"user\", \"timestamp\": 1751363700000, \"content\": [{\"type\": \"text\", \"text\": \"ship it\"}]}, \"id\": \"e5\", \"parentId\": \"e4\"}\n{\"type\": \"message\", \"timestamp\": \"2025-07-01T09:55:01.000Z\", \"message\": {\"role\": \"assistant\", \"timestamp\": 1751363701000, \"content\": [{\"type\": \"text\", \"text\": \"Shipping the alpha now.\"}], \"api\": \"anthropic-messages\", \"provider\": \"anthropic\", \"model\": \"claude-parity-1\", \"usage\": {\"input\": 900, \"output\": 25, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 925, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0.0021}}, \"stopReason\": \"stop\"}, \"id\": \"e6\", \"parentId\": \"e5\"}\n{\"type\": \"session_info\", \"timestamp\": \"2025-07-01T09:55:58.000Z\", \"name\": \"alpha work\", \"id\": \"e7\", \"parentId\": \"e6\"}\n",
+  "sessions/s3.jsonl": "{\"type\": \"session\", \"version\": 3, \"id\": \"0198a5c0-0000-7000-8000-000000000003\", \"timestamp\": \"2025-07-01T08:00:00.000Z\", \"cwd\": \"/tmp/pi-rs-ui-parity-session/project\", \"parentSession\": \"/tmp/pi-rs-ui-parity-session/sessions/s2.jsonl\"}\n{\"type\": \"model_change\", \"timestamp\": \"2025-07-01T08:00:00.000Z\", \"provider\": \"anthropic\", \"modelId\": \"claude-parity-1\", \"id\": \"e1\", \"parentId\": null}\n{\"type\": \"thinking_level_change\", \"timestamp\": \"2025-07-01T08:00:00.000Z\", \"thinkingLevel\": \"off\", \"id\": \"e2\", \"parentId\": \"e1\"}\n{\"type\": \"message\", \"timestamp\": \"2025-07-01T08:00:00.000Z\", \"message\": {\"role\": \"user\", \"timestamp\": 1751356800000, \"content\": [{\"type\": \"text\", \"text\": \"tail the log\"}]}, \"id\": \"e3\", \"parentId\": \"e2\"}\n{\"type\": \"message\", \"timestamp\": \"2025-07-01T08:00:01.000Z\", \"message\": {\"role\": \"assistant\", \"timestamp\": 1751356801000, \"content\": [{\"type\": \"text\", \"text\": \"Tailing the log now.\"}], \"api\": \"anthropic-messages\", \"provider\": \"anthropic\", \"model\": \"claude-parity-1\", \"usage\": {\"input\": 500, \"output\": 12, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 512, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0.0007}}, \"stopReason\": \"stop\"}, \"id\": \"e4\", \"parentId\": \"e3\"}\n",
+  "sessions/s4.jsonl": "{\"type\": \"session\", \"version\": 3, \"id\": \"0198a5c0-0000-7000-8000-000000000004\", \"timestamp\": \"2025-06-28T10:00:00.000Z\", \"cwd\": \"/tmp/pi-rs-ui-parity-session/gone\"}\n{\"type\": \"model_change\", \"timestamp\": \"2025-06-28T10:00:00.000Z\", \"provider\": \"anthropic\", \"modelId\": \"claude-parity-1\", \"id\": \"e1\", \"parentId\": null}\n{\"type\": \"thinking_level_change\", \"timestamp\": \"2025-06-28T10:00:00.000Z\", \"thinkingLevel\": \"off\", \"id\": \"e2\", \"parentId\": \"e1\"}\n{\"type\": \"message\", \"timestamp\": \"2025-06-28T10:00:00.000Z\", \"message\": {\"role\": \"user\", \"timestamp\": 1751104800000, \"content\": [{\"type\": \"text\", \"text\": \"old work\"}]}, \"id\": \"e3\", \"parentId\": \"e2\"}\n{\"type\": \"message\", \"timestamp\": \"2025-06-28T10:00:01.000Z\", \"message\": {\"role\": \"assistant\", \"timestamp\": 1751104801000, \"content\": [{\"type\": \"text\", \"text\": \"Done long ago.\"}], \"api\": \"anthropic-messages\", \"provider\": \"anthropic\", \"model\": \"claude-parity-1\", \"usage\": {\"input\": 400, \"output\": 10, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 410, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0.0004}}, \"stopReason\": \"stop\"}, \"id\": \"e4\", \"parentId\": \"e3\"}\n"
+ },
+ "model": {
+  "id": "claude-parity-1",
+  "name": "Claude Parity",
+  "provider": "anthropic",
+  "api": "anthropic-messages",
+  "reasoning": false,
+  "contextWindow": 200000,
+  "maxTokens": 8192,
+  "input": [
+   "text"
+  ],
+  "cost": {
+   "input": 3,
+   "output": 15,
+   "cacheRead": 0.3,
+   "cacheWrite": 3.75
+  },
+  "baseUrl": ""
+ },
+ "steps": [
+  {
+   "name": "resume-open",
+   "input": [
+    "\u001b[200~/resume\u001b[201~",
+    "\r"
+   ]
+  },
+  {
+   "name": "resume-down",
+   "input": [
+    "\u001b[B"
+   ]
+  },
+  {
+   "name": "resume-filter",
+   "input": [
+    "t",
+    "a",
+    "i",
+    "l"
+   ]
+  },
+  {
+   "name": "resume-regex",
+   "input": [
+    "\u007f",
+    "\u007f",
+    "\u007f",
+    "\u007f",
+    "r",
+    "e",
+    ":",
+    "a",
+    "l",
+    "p",
+    "h",
+    "a"
+   ]
+  },
+  {
+   "name": "resume-all",
+   "input": [
+    "\u007f",
+    "\u007f",
+    "\u007f",
+    "\u007f",
+    "\u007f",
+    "\u007f",
+    "\u007f",
+    "\u007f",
+    "\t"
+   ]
+  },
+  {
+   "name": "resume-paths",
+   "input": [
+    "\u0010"
+   ]
+  },
+  {
+   "name": "resume-sort",
+   "input": [
+    "\u0013"
+   ]
+  },
+  {
+   "name": "resume-named",
+   "input": [
+    "\u000e"
+   ]
+  },
+  {
+   "name": "resume-restore",
+   "input": [
+    "\u000e",
+    "\u0013",
+    "\u0013",
+    "\u0010"
+   ]
+  },
+  {
+   "name": "delete-confirm",
+   "input": [
+    "\u001b[B",
+    "\u0004"
+   ]
+  },
+  {
+   "name": "delete-cancel",
+   "input": [
+    "\u001b"
+   ]
+  },
+  {
+   "name": "delete-done",
+   "input": [
+    "\u0004",
+    "\r"
+   ]
+  },
+  {
+   "name": "delete-current",
+   "input": [
+    "\u0004"
+   ]
+  },
+  {
+   "name": "rename-open",
+   "input": [
+    "\u001b[A",
+    "\u0012"
+   ]
+  },
+  {
+   "name": "rename-typed",
+   "input": [
+    "x"
+   ]
+  },
+  {
+   "name": "rename-saved",
+   "input": [
+    "\r"
+   ]
+  },
+  {
+   "name": "resume-select",
+   "input": [
+    "\r"
+   ]
+  },
+  {
+   "name": "session-info",
+   "input": [
+    "\u001b[200~/session\u001b[201~",
+    "\r"
+   ]
+  },
+  {
+   "name": "name-set",
+   "input": [
+    "\u001b[200~/name eos\u001b[201~",
+    "\r"
+   ]
+  },
+  {
+   "name": "name-show",
+   "input": [
+    "\u001b[200~/name\u001b[201~",
+    "\r"
+   ]
+  },
+  {
+   "name": "missing-open",
+   "input": [
+    "\u001b[200~/resume\u001b[201~",
+    "\r"
+   ]
+  },
+  {
+   "name": "missing-select",
+   "input": [
+    "\t",
+    "\u001b[B",
+    "\u001b[B",
+    "\r"
+   ]
+  },
+  {
+   "name": "missing-continue",
+   "input": [
+    "\r"
+   ]
+  },
+  {
+   "name": "new-session",
+   "input": [
+    "\u001b[200~/new\u001b[201~",
+    "\r"
+   ]
+  },
+  {
+   "name": "resize",
+   "resize": {
+    "columns": 100,
+    "rows": 30
+   }
+  }
+ ]
+}

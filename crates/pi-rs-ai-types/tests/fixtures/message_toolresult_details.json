@@ -1,0 +1,1 @@
+{"role":"toolResult","toolCallId":"call_39a5e33a35024baebf46675f","toolName":"bash","content":[{"type":"text","text":"---\n---\n/home/y0usaf/nixos/modules/dev/opencode/opencode.nix:    model = mkStrOption \"neuralwatt/glm-5.2\" \"Default model to use\";\n---\n\n\nCommand exited with code 1"}],"details":{},"isError":true,"timestamp":1783461364358}

@@ -1,0 +1,40 @@
+{
+  "command": "interactive-autocomplete-parity-sequence",
+  "columns": 72,
+  "rows": 24,
+  "fdPath": "tests/ui-parity/fd-stub",
+  "models": [
+    { "id": "claude-opus-4", "provider": "anthropic" },
+    { "id": "gpt-5.4", "provider": "openai" },
+    { "id": "gemini-3-pro", "provider": "google" }
+  ],
+  "files": {
+    "src/main.rs": "fn main() {}\n",
+    "src/lib.rs": "pub fn lib() {}\n",
+    "docs/guide.md": "# guide\n",
+    "README.md": "# readme\n",
+    "update.sh": "#!/bin/sh\n",
+    "utils.ts": "export {};\n",
+    "my folder/notes.txt": "notes\n"
+  },
+  "steps": [
+    { "name": "slash-open", "input": ["/"] },
+    { "name": "slash-scrolled", "input": ["\u001b[B", "\u001b[B", "\u001b[B", "\u001b[B", "\u001b[B", "\u001b[B", "\u001b[B"] },
+    { "name": "slash-filtered", "input": ["m", "o"] },
+    { "name": "slash-applied", "input": ["\t"] },
+    { "name": "model-arguments", "input": ["g"] },
+    { "name": "model-chosen", "input": ["\r"] },
+    { "name": "model-submitted", "input": ["\r"] },
+    { "name": "file-tab-single", "input": ["u", "p", "\t"] },
+    { "name": "file-tab-menu", "input": ["\u0015", "u", "\t"] },
+    { "name": "file-menu-cancelled", "input": ["\u001b"] },
+    { "name": "at-open", "input": ["\u0015", "@"], "waitMs": 80 },
+    { "name": "at-filtered", "input": ["m", "a"], "waitMs": 80 },
+    { "name": "at-applied", "input": ["\r"] },
+    { "name": "at-quoted", "input": ["@", "m", "y"], "waitMs": 80 },
+    { "name": "at-quoted-applied", "input": ["\r"] },
+    { "name": "attachments-submitted", "input": ["\r"] },
+    { "name": "slash-reopened", "input": ["/"] },
+    { "name": "resized-wide", "resize": { "columns": 100, "rows": 24 } }
+  ]
+}

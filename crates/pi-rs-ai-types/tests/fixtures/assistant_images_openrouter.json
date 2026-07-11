@@ -1,0 +1,19 @@
+{
+  "api": "openrouter-images",
+  "provider": "openrouter",
+  "model": "black-forest-labs/flux.2-flex",
+  "output": [
+    { "type": "image", "data": "iVBORw0KGgoAAAANSUhEUg==", "mimeType": "image/png" }
+  ],
+  "responseId": "gen-1234567890",
+  "usage": {
+    "input": 12,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 12,
+    "cost": { "input": 0.001, "output": 0.02, "cacheRead": 0, "cacheWrite": 0, "total": 0.021 }
+  },
+  "stopReason": "stop",
+  "timestamp": 1700000000000
+}

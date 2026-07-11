@@ -1,0 +1,28 @@
+{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "Fixed: extracted repeated type expressions into let bindings in modules/core/services/mullvad/config.nix (`bool`, `nullOrBool`) and replaced the repeated `lib.types.*` usages."
+    }
+  ],
+  "api": "openai-codex-responses",
+  "provider": "openai-codex",
+  "model": "gpt-5.4",
+  "usage": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 0,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+    }
+  },
+  "stopReason": "stop",
+  "timestamp": 1781087149250
+}

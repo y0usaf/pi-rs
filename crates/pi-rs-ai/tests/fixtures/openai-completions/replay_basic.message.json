@@ -1,0 +1,38 @@
+{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "thinking",
+      "thinking": "Think more",
+      "thinkingSignature": "reasoning_content"
+    },
+    { "type": "text", "text": "Hello world" },
+    {
+      "type": "toolCall",
+      "id": "call_1",
+      "name": "read",
+      "arguments": { "path": "a.txt" }
+    }
+  ],
+  "api": "openai-completions",
+  "provider": "openai",
+  "model": "gpt-5-mini",
+  "responseModel": "gpt-5-mini-2025",
+  "responseId": "chatcmpl-1",
+  "usage": {
+    "input": 15,
+    "output": 10,
+    "cacheRead": 5,
+    "cacheWrite": 0,
+    "totalTokens": 30,
+    "cost": {
+      "input": 0.0,
+      "output": 0.0,
+      "cacheRead": 0.0,
+      "cacheWrite": 0.0,
+      "total": 0.0
+    }
+  },
+  "stopReason": "toolUse",
+  "timestamp": 0
+}

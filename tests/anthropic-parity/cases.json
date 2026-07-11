@@ -1,0 +1,446 @@
+{
+  "models": {
+    "opus": {
+      "id": "claude-opus-4-7",
+      "name": "Claude Opus 4.7",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "baseUrl": "http://placeholder",
+      "compat": { "forceAdaptiveThinking": true, "supportsTemperature": false },
+      "reasoning": true,
+      "thinkingLevelMap": { "xhigh": "xhigh" },
+      "input": ["text", "image"],
+      "cost": { "input": 5, "output": 25, "cacheRead": 0.5, "cacheWrite": 6.25 },
+      "contextWindow": 1000000,
+      "maxTokens": 128000
+    },
+    "sonnet": {
+      "id": "claude-sonnet-4-5",
+      "name": "Claude Sonnet 4.5",
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "baseUrl": "http://placeholder",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": { "input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75 },
+      "contextWindow": 1000000,
+      "maxTokens": 64000
+    },
+    "fireworks": {
+      "id": "accounts/fireworks/models/kimi-k2",
+      "name": "Kimi K2",
+      "api": "anthropic-messages",
+      "provider": "fireworks",
+      "baseUrl": "http://placeholder",
+      "reasoning": false,
+      "input": ["text"],
+      "headers": { "x-model-header": "from-model" },
+      "cost": { "input": 1, "output": 3, "cacheRead": 0.1, "cacheWrite": 0 },
+      "contextWindow": 262144,
+      "maxTokens": 16384
+    }
+  },
+  "sse": {
+    "minimal": [
+      { "event": "message_start", "data": { "type": "message_start", "message": { "id": "msg_1", "type": "message", "role": "assistant", "content": [], "stop_reason": null, "usage": { "input_tokens": 10, "output_tokens": 1 } } } },
+      { "event": "content_block_start", "data": { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } } },
+      { "event": "content_block_delta", "data": { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "ok" } } },
+      { "event": "content_block_stop", "data": { "type": "content_block_stop", "index": 0 } },
+      { "event": "message_delta", "data": { "type": "message_delta", "delta": { "stop_reason": "end_turn", "stop_sequence": null }, "usage": { "output_tokens": 2 } } },
+      { "event": "message_stop", "data": { "type": "message_stop" } }
+    ]
+  },
+  "cases": [
+    {
+      "name": "request-api-key-full",
+      "model": "sonnet",
+      "context": {
+        "systemPrompt": "You are helpful.",
+        "messages": [
+          { "role": "user", "content": "Hello", "timestamp": 1 },
+          { "role": "user", "content": [ { "type": "text", "text": "   " }, { "type": "image", "data": "aGVsbG8=", "mimeType": "image/png" } ], "timestamp": 1 },
+          {
+            "role": "assistant",
+            "content": [
+              { "type": "thinking", "thinking": "Consider the file.", "thinkingSignature": "sig1" },
+              { "type": "thinking", "thinking": "Unsigned draft." },
+              { "type": "thinking", "thinking": "[Reasoning redacted]", "thinkingSignature": "opaque-blob", "redacted": true },
+              { "type": "text", "text": "Reading." },
+              { "type": "toolCall", "id": "toolu_1", "name": "read", "arguments": { "path": "a.txt" } },
+              { "type": "toolCall", "id": "toolu_2!!", "name": "bash", "arguments": { "command": "ls" } }
+            ],
+            "api": "anthropic-messages",
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-5",
+            "usage": { "input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2, "cost": { "input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0, "total": 0.0 } },
+            "stopReason": "toolUse",
+            "timestamp": 1
+          },
+          { "role": "toolResult", "toolCallId": "toolu_1", "toolName": "read", "content": [ { "type": "text", "text": "file contents" } ], "isError": false, "timestamp": 1 },
+          { "role": "toolResult", "toolCallId": "toolu_2!!", "toolName": "bash", "content": [ { "type": "text", "text": "a.txt" }, { "type": "image", "data": "aGVsbG8=", "mimeType": "image/jpeg" } ], "isError": false, "timestamp": 1 },
+          { "role": "user", "content": "", "timestamp": 1 },
+          { "role": "user", "content": "Continue", "timestamp": 1 }
+        ],
+        "tools": [
+          { "name": "read", "description": "Read a file", "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] } },
+          { "name": "bash", "description": "Run a command", "parameters": { "type": "object", "properties": { "command": { "type": "string" } }, "required": ["command"] } }
+        ]
+      },
+      "options": {
+        "apiKey": "sk-test",
+        "maxTokens": 4000,
+        "temperature": 0.5,
+        "sessionId": "sess-1",
+        "metadata": { "user_id": "abc", "ignored": 123 },
+        "toolChoice": { "type": "tool", "name": "read" },
+        "headers": { "x-extra": "1" }
+      },
+      "responses": [ { "status": 200, "sse": "minimal" } ]
+    },
+    {
+      "name": "request-oauth",
+      "model": "opus",
+      "context": {
+        "systemPrompt": "Be brief.",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [ { "type": "toolCall", "id": "toolu_0", "name": "todowrite", "arguments": {} } ],
+            "api": "anthropic-messages",
+            "provider": "anthropic",
+            "model": "claude-opus-4-7",
+            "usage": { "input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2, "cost": { "input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0, "total": 0.0 } },
+            "stopReason": "toolUse",
+            "timestamp": 1
+          },
+          { "role": "toolResult", "toolCallId": "toolu_0", "toolName": "todowrite", "content": [ { "type": "text", "text": "noted" } ], "isError": false, "timestamp": 1 },
+          { "role": "user", "content": "read x", "timestamp": 1 }
+        ],
+        "tools": [
+          { "name": "read", "description": "Read a file", "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] } },
+          { "name": "todowrite", "description": "Track todos", "parameters": { "type": "object", "properties": {}, "required": [] } }
+        ]
+      },
+      "options": { "apiKey": "sk-ant-oat01-xyz" },
+      "responses": [
+        {
+          "status": 200,
+          "events": [
+            { "event": "message_start", "data": { "type": "message_start", "message": { "id": "msg_2", "type": "message", "role": "assistant", "content": [], "stop_reason": null, "usage": { "input_tokens": 5, "output_tokens": 1 } } } },
+            { "event": "content_block_start", "data": { "type": "content_block_start", "index": 0, "content_block": { "type": "tool_use", "id": "toolu_9", "name": "Read", "input": {} } } },
+            { "event": "content_block_delta", "data": { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": "{\"path\":\"x\"}" } } },
+            { "event": "content_block_stop", "data": { "type": "content_block_stop", "index": 0 } },
+            { "event": "message_delta", "data": { "type": "message_delta", "delta": { "stop_reason": "tool_use" }, "usage": { "output_tokens": 3 } } },
+            { "event": "message_stop", "data": { "type": "message_stop" } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "request-thinking-budget",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test", "temperature": 0.7, "thinkingEnabled": true, "thinkingBudgetTokens": 2048 },
+      "responses": [ { "status": 200, "sse": "minimal" } ]
+    },
+    {
+      "name": "request-adaptive-effort",
+      "model": "opus",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test", "thinkingEnabled": true, "effort": "xhigh", "thinkingDisplay": "omitted" },
+      "responses": [ { "status": 200, "sse": "minimal" } ]
+    },
+    {
+      "name": "request-thinking-disabled",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test", "thinkingEnabled": false },
+      "responses": [ { "status": 200, "sse": "minimal" } ]
+    },
+    {
+      "name": "request-fireworks-compat",
+      "model": "fireworks",
+      "context": {
+        "systemPrompt": "Sys.",
+        "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ],
+        "tools": [
+          { "name": "read", "description": "Read a file", "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] } }
+        ]
+      },
+      "options": { "apiKey": "fw-key", "sessionId": "sess-9", "cacheRetention": "long", "headers": { "x-model-header": "from-options" } },
+      "responses": [ { "status": 200, "sse": "minimal" } ]
+    },
+    {
+      "name": "request-cache-retention-none",
+      "model": "sonnet",
+      "context": { "systemPrompt": "Sys.", "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test", "sessionId": "sess-2", "cacheRetention": "none" },
+      "responses": [ { "status": 200, "sse": "minimal" } ]
+    },
+    {
+      "name": "request-interleaved-off",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test", "interleavedThinking": false },
+      "responses": [ { "status": 200, "sse": "minimal" } ]
+    },
+    {
+      "name": "simple-plain",
+      "model": "sonnet",
+      "simple": true,
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test" },
+      "responses": [ { "status": 200, "sse": "minimal" } ]
+    },
+    {
+      "name": "simple-budget-high",
+      "model": "sonnet",
+      "simple": true,
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test", "reasoning": "high" },
+      "responses": [ { "status": 200, "sse": "minimal" } ]
+    },
+    {
+      "name": "simple-adaptive-xhigh",
+      "model": "opus",
+      "simple": true,
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test", "reasoning": "xhigh" },
+      "responses": [ { "status": 200, "sse": "minimal" } ]
+    },
+    {
+      "name": "stream-rich",
+      "model": "opus",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test" },
+      "responses": [
+        {
+          "status": 200,
+          "events": [
+            { "event": "message_start", "data": { "type": "message_start", "message": { "id": "msg_01ABC", "type": "message", "role": "assistant", "model": "claude-opus-4-7", "content": [], "stop_reason": null, "stop_sequence": null, "usage": { "input_tokens": 1200, "cache_creation_input_tokens": 256, "cache_read_input_tokens": 512, "output_tokens": 3 } } } },
+            { "event": "ping", "data": { "type": "ping" } },
+            { "event": "content_block_start", "data": { "type": "content_block_start", "index": 0, "content_block": { "type": "thinking", "thinking": "" } } },
+            { "event": "content_block_delta", "data": { "type": "content_block_delta", "index": 0, "delta": { "type": "thinking_delta", "thinking": "Let me look at the file." } } },
+            { "event": "content_block_delta", "data": { "type": "content_block_delta", "index": 0, "delta": { "type": "signature_delta", "signature": "EqQBsig" } } },
+            { "event": "content_block_stop", "data": { "type": "content_block_stop", "index": 0 } },
+            { "event": "content_block_start", "data": { "type": "content_block_start", "index": 1, "content_block": { "type": "redacted_thinking", "data": "opaque-redacted" } } },
+            { "event": "content_block_stop", "data": { "type": "content_block_stop", "index": 1 } },
+            { "event": "content_block_start", "data": { "type": "content_block_start", "index": 2, "content_block": { "type": "text", "text": "" } } },
+            { "event": "content_block_delta", "data": { "type": "content_block_delta", "index": 2, "delta": { "type": "text_delta", "text": "I'll read the file" } } },
+            { "event": "content_block_delta", "data": { "type": "content_block_delta", "index": 2, "delta": { "type": "text_delta", "text": " now." } } },
+            { "event": "content_block_stop", "data": { "type": "content_block_stop", "index": 2 } },
+            { "event": "content_block_start", "data": { "type": "content_block_start", "index": 3, "content_block": { "type": "tool_use", "id": "toolu_01XYZ", "name": "read", "input": {} } } },
+            { "event": "content_block_delta", "data": { "type": "content_block_delta", "index": 3, "delta": { "type": "input_json_delta", "partial_json": "{\"path\": \"src/m" } } },
+            { "event": "content_block_delta", "data": { "type": "content_block_delta", "index": 3, "delta": { "type": "input_json_delta", "partial_json": "ain.rs\"}" } } },
+            { "event": "content_block_stop", "data": { "type": "content_block_stop", "index": 3 } },
+            { "event": "message_delta", "data": { "type": "message_delta", "delta": { "stop_reason": "tool_use", "stop_sequence": null }, "usage": { "output_tokens": 58 } } },
+            { "event": "message_stop", "data": { "type": "message_stop" } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "stop-max-tokens",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test" },
+      "responses": [
+        {
+          "status": 200,
+          "events": [
+            { "event": "message_start", "data": { "type": "message_start", "message": { "id": "msg_1", "usage": { "input_tokens": 10, "output_tokens": 1 } } } },
+            { "event": "content_block_start", "data": { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } } },
+            { "event": "content_block_delta", "data": { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "ok" } } },
+            { "event": "content_block_stop", "data": { "type": "content_block_stop", "index": 0 } },
+            { "event": "message_delta", "data": { "type": "message_delta", "delta": { "stop_reason": "max_tokens" }, "usage": { "output_tokens": 2 } } },
+            { "event": "message_stop", "data": { "type": "message_stop" } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "stop-pause-turn",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test" },
+      "responses": [
+        {
+          "status": 200,
+          "events": [
+            { "event": "message_start", "data": { "type": "message_start", "message": { "id": "msg_1", "usage": { "input_tokens": 10, "output_tokens": 1 } } } },
+            { "event": "content_block_start", "data": { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } } },
+            { "event": "content_block_delta", "data": { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "ok" } } },
+            { "event": "content_block_stop", "data": { "type": "content_block_stop", "index": 0 } },
+            { "event": "message_delta", "data": { "type": "message_delta", "delta": { "stop_reason": "pause_turn" }, "usage": { "output_tokens": 2 } } },
+            { "event": "message_stop", "data": { "type": "message_stop" } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "stop-refusal",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test" },
+      "responses": [
+        {
+          "status": 200,
+          "events": [
+            { "event": "message_start", "data": { "type": "message_start", "message": { "id": "msg_1", "usage": { "input_tokens": 10, "output_tokens": 1 } } } },
+            { "event": "message_delta", "data": { "type": "message_delta", "delta": { "stop_reason": "refusal" }, "usage": { "output_tokens": 2 } } },
+            { "event": "message_stop", "data": { "type": "message_stop" } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "stop-unknown",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test" },
+      "responses": [
+        {
+          "status": 200,
+          "events": [
+            { "event": "message_start", "data": { "type": "message_start", "message": { "id": "msg_1", "usage": { "input_tokens": 10, "output_tokens": 1 } } } },
+            { "event": "message_delta", "data": { "type": "message_delta", "delta": { "stop_reason": "banana" }, "usage": { "output_tokens": 2 } } },
+            { "event": "message_stop", "data": { "type": "message_stop" } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "stream-error-event",
+      "model": "opus",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test" },
+      "responses": [
+        {
+          "status": 200,
+          "events": [
+            { "event": "error", "data": { "type": "error", "error": { "type": "overloaded_error", "message": "Overloaded" } } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "stream-truncated",
+      "model": "opus",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test" },
+      "responses": [
+        {
+          "status": 200,
+          "events": [
+            { "event": "message_start", "data": { "type": "message_start", "message": { "id": "msg_3", "usage": { "input_tokens": 5, "output_tokens": 1 } } } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "http-400-json",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test" },
+      "responses": [
+        { "status": 400, "json": { "type": "error", "error": { "type": "invalid_request_error", "message": "max_tokens is too large" } } }
+      ]
+    },
+    {
+      "name": "http-529-text",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test" },
+      "responses": [ { "status": 529, "text": "Overloaded!" } ]
+    },
+    {
+      "name": "http-empty-body",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test" },
+      "responses": [ { "status": 500, "text": "" } ]
+    },
+    {
+      "name": "retry-500-then-success",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test", "maxRetries": 1 },
+      "responses": [
+        { "status": 500, "json": { "type": "error", "error": { "type": "api_error", "message": "boom" } }, "headers": { "retry-after-ms": "5" } },
+        { "status": 200, "sse": "minimal" }
+      ]
+    },
+    {
+      "name": "retry-409-then-success",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test", "maxRetries": 1 },
+      "responses": [
+        { "status": 409, "json": { "type": "error", "error": { "type": "conflict", "message": "locked" } }, "headers": { "retry-after-ms": "5" } },
+        { "status": 200, "sse": "minimal" }
+      ]
+    },
+    {
+      "name": "retry-should-retry-false",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test", "maxRetries": 1 },
+      "responses": [
+        { "status": 500, "json": { "type": "error", "error": { "type": "api_error", "message": "hard stop" } }, "headers": { "x-should-retry": "false" } }
+      ]
+    },
+    {
+      "name": "retry-should-retry-true-400",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test", "maxRetries": 1 },
+      "responses": [
+        { "status": 400, "json": { "type": "error", "error": { "type": "invalid_request_error", "message": "transient" } }, "headers": { "x-should-retry": "true", "retry-after-ms": "5" } },
+        { "status": 200, "sse": "minimal" }
+      ]
+    },
+    {
+      "name": "retry-exhausted",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test", "maxRetries": 1 },
+      "responses": [
+        { "status": 500, "json": { "type": "error", "error": { "type": "api_error", "message": "first" } }, "headers": { "retry-after-ms": "5" } },
+        { "status": 500, "json": { "type": "error", "error": { "type": "api_error", "message": "second" } } }
+      ]
+    },
+    {
+      "name": "abort-mid-stream",
+      "model": "opus",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": { "apiKey": "sk-test" },
+      "abortAfterEvents": 3,
+      "responses": [
+        {
+          "status": 200,
+          "hang": true,
+          "events": [
+            { "event": "message_start", "data": { "type": "message_start", "message": { "id": "msg_4", "usage": { "input_tokens": 40, "output_tokens": 2 } } } },
+            { "event": "content_block_start", "data": { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } } },
+            { "event": "content_block_delta", "data": { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "partial answ" } } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no-api-key",
+      "model": "sonnet",
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": {},
+      "responses": []
+    },
+    {
+      "name": "simple-no-api-key",
+      "model": "sonnet",
+      "simple": true,
+      "context": { "messages": [ { "role": "user", "content": "hi", "timestamp": 1 } ] },
+      "options": {},
+      "responses": []
+    }
+  ]
+}

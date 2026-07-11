@@ -1,0 +1,55 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+base64 = "0.22"
+crossterm = "0.29"
+bytes = "1"
+fancy-regex = "0.16"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+getrandom = "0.3"
+httpdate = "1"
+indexmap = "2"
+libc = "0.2"
+mlua = { version = "0.11", features = ["lua54", "vendored", "async"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "http2"] }
+serde = { version = "1.0", features = ["derive"] }
+# preserve_order: Pi's JS runtime keeps wire key order everywhere
+# (JSON.parse/stringify); sorted maps were a Rust-ism (PLAN 2b.5).
+serde_json = { version = "1.0", features = ["preserve_order", "float_roundtrip"] }
+vt100 = "0.16.2"
+signal-hook = "0.3"
+sha2 = "0.10"
+thiserror = "2.0"
+tokio = { version = "1.45", features = ["rt", "sync", "time", "macros", "process", "fs", "io-util", "net"] }
+url = "2"
+unicode-normalization = "0.1"
+
+pi-rs-ai = { path = "crates/pi-rs-ai" }
+pi-rs-ai-auth = { path = "crates/pi-rs-ai-auth" }
+pi-rs-ai-types = { path = "crates/pi-rs-ai-types" }
+pi-rs-agent = { path = "crates/pi-rs-agent" }
+pi-rs-host = { path = "crates/pi-rs-host" }
+pi-rs-session = { path = "crates/pi-rs-session" }
+pi-rs-tui = { path = "crates/pi-rs-tui" }
+
+# Code standard (DESIGN.md, locked): no unwrap/expect/panic in library
+# crates. Tests opt out per-file with #![allow(...)].
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[profile.dev]
+debug = 0
+incremental = true
+
+[profile.test]
+debug = 0
+incremental = true

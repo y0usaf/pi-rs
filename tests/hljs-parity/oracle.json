@@ -1,0 +1,373 @@
+[
+	{
+		"name": "typescript-basics",
+		"value": "<span class=\"hljs-keyword\">const</span> value: <span class=\"hljs-built_in\">number</span> = <span class=\"hljs-number\">42</span>;\n<span class=\"hljs-keyword\">let</span> name = <span class=\"hljs-string\">&quot;pi-rs&quot;</span>;\n<span class=\"hljs-comment\">// comment</span>\n<span class=\"hljs-keyword\">export</span> <span class=\"hljs-function\"><span class=\"hljs-keyword\">function</span> <span class=\"hljs-title\">add</span>(<span class=\"hljs-params\">a: <span class=\"hljs-built_in\">number</span>, b: <span class=\"hljs-built_in\">number</span></span>): <span class=\"hljs-title\">number</span> </span>{\n  <span class=\"hljs-keyword\">return</span> a + b;\n}\n",
+		"relevance": 11,
+		"illegal": false,
+		"detectedLanguage": "typescript"
+	},
+	{
+		"name": "typescript-class-decorators",
+		"value": "<span class=\"hljs-meta\">@Component</span>({ <span class=\"hljs-attr\">selector</span>: <span class=\"hljs-string\">&quot;app&quot;</span> })\n<span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">Foo</span>&lt;<span class=\"hljs-title\">T</span> <span class=\"hljs-keyword\">extends</span> <span class=\"hljs-title\">object</span>&gt; <span class=\"hljs-title\">implements</span> <span class=\"hljs-title\">Bar</span> </span>{\n  <span class=\"hljs-keyword\">private</span> <span class=\"hljs-keyword\">readonly</span> items: <span class=\"hljs-built_in\">Array</span>&lt;<span class=\"hljs-built_in\">Array</span>&lt;<span class=\"hljs-built_in\">number</span>&gt;&gt; = [];\n  <span class=\"hljs-function\"><span class=\"hljs-title\">constructor</span>(<span class=\"hljs-params\"><span class=\"hljs-keyword\">public</span> x: T</span>)</span> {}\n}\n",
+		"relevance": 12,
+		"illegal": false,
+		"detectedLanguage": "typescript"
+	},
+	{
+		"name": "typescript-jsx",
+		"value": "<span class=\"hljs-keyword\">const</span> el = <span class=\"xml\"><span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">div</span> <span class=\"hljs-attr\">className</span>=<span class=\"hljs-string\">&quot;x&quot;</span>&gt;</span>{items.map((i) =&gt; <span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">span</span> <span class=\"hljs-attr\">key</span>=<span class=\"hljs-string\">{i}</span>&gt;</span>{i}<span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">span</span>&gt;</span>)}<span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">div</span>&gt;</span></span>;\n",
+		"relevance": 7,
+		"illegal": false,
+		"detectedLanguage": "typescript"
+	},
+	{
+		"name": "typescript-template-regex",
+		"value": "<span class=\"hljs-keyword\">const</span> re = <span class=\"hljs-regexp\">/foo+/gi</span>;\n<span class=\"hljs-keyword\">const</span> s = <span class=\"hljs-string\">`count: <span class=\"hljs-subst\">${items.length + <span class=\"hljs-number\">1</span>}</span>`</span>;\n",
+		"relevance": 6,
+		"illegal": false,
+		"detectedLanguage": "typescript"
+	},
+	{
+		"name": "javascript-basics",
+		"value": "<span class=\"hljs-function\"><span class=\"hljs-keyword\">function</span> <span class=\"hljs-title\">greet</span>(<span class=\"hljs-params\">name</span>) </span>{\n  <span class=\"hljs-keyword\">return</span> <span class=\"hljs-string\">`hello <span class=\"hljs-subst\">${name}</span>`</span>;\n}\n<span class=\"hljs-keyword\">const</span> re = <span class=\"hljs-regexp\">/\\d+/g</span>;\n<span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">Point</span> </span>{}\n<span class=\"hljs-keyword\">new</span> Point();\n",
+		"relevance": 10,
+		"illegal": false,
+		"detectedLanguage": "javascript"
+	},
+	{
+		"name": "javascript-shebang",
+		"value": "<span class=\"hljs-meta\">#!/usr/bin/env node</span>\n<span class=\"hljs-built_in\">console</span>.log(<span class=\"hljs-string\">&quot;hi&quot;</span>);\n",
+		"relevance": 7,
+		"illegal": false,
+		"detectedLanguage": "javascript"
+	},
+	{
+		"name": "javascript-css-template",
+		"value": "<span class=\"hljs-keyword\">const</span> style = css`<span class=\"css\">\n  <span class=\"hljs-selector-class\">.a</span> { <span class=\"hljs-attribute\">color</span>: red; }\n`</span>;\n<span class=\"hljs-keyword\">const</span> page = html`<span class=\"xml\"><span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">div</span> <span class=\"hljs-attr\">id</span>=<span class=\"hljs-string\">&quot;x&quot;</span>&gt;</span><span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">div</span>&gt;</span>`</span>;\n",
+		"relevance": 9,
+		"illegal": false,
+		"detectedLanguage": "javascript"
+	},
+	{
+		"name": "python-basics",
+		"value": "<span class=\"hljs-keyword\">import</span> os\n\n<span class=\"hljs-meta\">@decorator</span>\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">def</span> <span class=\"hljs-title\">main</span>(<span class=\"hljs-params\">argv=<span class=\"hljs-literal\">None</span></span>):</span>\n    <span class=\"hljs-string\">&quot;&quot;&quot;docstring&quot;&quot;&quot;</span>\n    x = <span class=\"hljs-number\">0x1F</span>\n    <span class=\"hljs-built_in\">print</span>(<span class=\"hljs-string\">f&quot;value <span class=\"hljs-subst\">{x!r}</span>&quot;</span>)\n    <span class=\"hljs-keyword\">return</span> [i <span class=\"hljs-keyword\">for</span> i <span class=\"hljs-keyword\">in</span> <span class=\"hljs-built_in\">range</span>(<span class=\"hljs-number\">10</span>) <span class=\"hljs-keyword\">if</span> i % <span class=\"hljs-number\">2</span> == <span class=\"hljs-number\">0</span>]\n",
+		"relevance": 20,
+		"illegal": false,
+		"detectedLanguage": "python"
+	},
+	{
+		"name": "python-class",
+		"value": "<span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">Foo</span>(<span class=\"hljs-params\">Bar</span>):</span>\n    <span class=\"hljs-function\"><span class=\"hljs-keyword\">def</span> <span class=\"hljs-title\">__init__</span>(<span class=\"hljs-params\">self</span>):</span>\n        <span class=\"hljs-built_in\">super</span>().__init__()\n        self.name = <span class=\"hljs-string\">&#x27;foo&#x27;</span>\n",
+		"relevance": 7,
+		"illegal": false,
+		"detectedLanguage": "python"
+	},
+	{
+		"name": "rust-basics",
+		"value": "<span class=\"hljs-keyword\">use</span> std::collections::HashMap;\n\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">fn</span> <span class=\"hljs-title\">main</span></span>() -&gt; <span class=\"hljs-built_in\">Result</span>&lt;(), <span class=\"hljs-built_in\">Box</span>&lt;<span class=\"hljs-keyword\">dyn</span> Error&gt;&gt; {\n    <span class=\"hljs-keyword\">let</span> <span class=\"hljs-keyword\">mut</span> map: HashMap&lt;&amp;<span class=\"hljs-built_in\">str</span>, <span class=\"hljs-built_in\">i64</span>&gt; = HashMap::new();\n    map.insert(<span class=\"hljs-string\">&quot;a&quot;</span>, <span class=\"hljs-number\">1</span>);\n    <span class=\"hljs-built_in\">println!</span>(<span class=\"hljs-string\">&quot;{:?}&quot;</span>, map);\n    <span class=\"hljs-literal\">Ok</span>(())\n}\n",
+		"relevance": 17,
+		"illegal": false,
+		"detectedLanguage": "rust"
+	},
+	{
+		"name": "rust-lifetimes-macros",
+		"value": "<span class=\"hljs-meta\">#[derive(Debug)]</span>\n<span class=\"hljs-keyword\">pub</span> <span class=\"hljs-class\"><span class=\"hljs-keyword\">struct</span> <span class=\"hljs-title\">Foo</span></span>&lt;<span class=\"hljs-symbol\">&#x27;a</span>&gt; {\n    name: &amp;<span class=\"hljs-symbol\">&#x27;a</span> <span class=\"hljs-built_in\">str</span>,\n}\n<span class=\"hljs-keyword\">impl</span>&lt;<span class=\"hljs-symbol\">&#x27;a</span>&gt; Foo&lt;<span class=\"hljs-symbol\">&#x27;a</span>&gt; {\n    <span class=\"hljs-function\"><span class=\"hljs-keyword\">fn</span> <span class=\"hljs-title\">get</span></span>(&amp;<span class=\"hljs-keyword\">self</span>) -&gt; &amp;<span class=\"hljs-symbol\">&#x27;a</span> <span class=\"hljs-built_in\">str</span> { <span class=\"hljs-keyword\">self</span>.name }\n}\n",
+		"relevance": 15,
+		"illegal": false,
+		"detectedLanguage": "rust"
+	},
+	{
+		"name": "bash-basics",
+		"value": "<span class=\"hljs-meta\">#!/bin/bash</span>\n<span class=\"hljs-built_in\">set</span> -euo pipefail\n<span class=\"hljs-keyword\">for</span> f <span class=\"hljs-keyword\">in</span> *.txt; <span class=\"hljs-keyword\">do</span>\n  <span class=\"hljs-built_in\">echo</span> <span class=\"hljs-string\">&quot;file: <span class=\"hljs-variable\">$f</span>&quot;</span> &gt;&gt; <span class=\"hljs-string\">&quot;<span class=\"hljs-variable\">$OUT</span>&quot;</span>\n<span class=\"hljs-keyword\">done</span>\n<span class=\"hljs-keyword\">if</span> [[ -n <span class=\"hljs-string\">&quot;<span class=\"hljs-variable\">${VAR:-}</span>&quot;</span> ]]; <span class=\"hljs-keyword\">then</span>\n  <span class=\"hljs-built_in\">printf</span> <span class=\"hljs-string\">&#x27;%s\\n&#x27;</span> <span class=\"hljs-string\">&quot;<span class=\"hljs-variable\">$VAR</span>&quot;</span>\n<span class=\"hljs-keyword\">fi</span>\n",
+		"relevance": 26,
+		"illegal": false,
+		"detectedLanguage": "bash"
+	},
+	{
+		"name": "bash-heredoc",
+		"value": "cat &lt;&lt;<span class=\"hljs-string\">EOF\nhello $USER\nEOF</span>\ncat &lt;&lt;<span class=\"hljs-string\">&#x27;RAW&#x27;</span>\nliteral <span class=\"hljs-variable\">$text</span>\nRAW\n",
+		"relevance": 5,
+		"illegal": false,
+		"detectedLanguage": "bash"
+	},
+	{
+		"name": "json-object",
+		"value": "{\n  <span class=\"hljs-attr\">&quot;name&quot;</span>: <span class=\"hljs-string\">&quot;pi-rs&quot;</span>,\n  <span class=\"hljs-attr\">&quot;version&quot;</span>: <span class=\"hljs-number\">1</span>,\n  <span class=\"hljs-attr\">&quot;flags&quot;</span>: [<span class=\"hljs-literal\">true</span>, <span class=\"hljs-literal\">false</span>, <span class=\"hljs-literal\">null</span>],\n  <span class=\"hljs-attr\">&quot;nested&quot;</span>: { <span class=\"hljs-attr\">&quot;a&quot;</span>: <span class=\"hljs-number\">1.5e3</span> }\n}\n",
+		"relevance": 20,
+		"illegal": false,
+		"detectedLanguage": "json"
+	},
+	{
+		"name": "lua-basics",
+		"value": "<span class=\"hljs-comment\">-- comment</span>\n<span class=\"hljs-keyword\">local</span> <span class=\"hljs-function\"><span class=\"hljs-keyword\">function</span> <span class=\"hljs-title\">greet</span><span class=\"hljs-params\">(name)</span></span>\n  <span class=\"hljs-keyword\">return</span> (<span class=\"hljs-string\">&quot;hello %s&quot;</span>):<span class=\"hljs-built_in\">format</span>(name)\n<span class=\"hljs-keyword\">end</span>\n<span class=\"hljs-keyword\">local</span> t = { a = <span class=\"hljs-number\">1</span>, [<span class=\"hljs-number\">2</span>] = <span class=\"hljs-string\">&quot;two&quot;</span> }\n<span class=\"hljs-keyword\">for</span> k, v <span class=\"hljs-keyword\">in</span> <span class=\"hljs-built_in\">pairs</span>(t) <span class=\"hljs-keyword\">do</span> <span class=\"hljs-built_in\">print</span>(k, v) <span class=\"hljs-keyword\">end</span>\n",
+		"relevance": 14,
+		"illegal": false,
+		"detectedLanguage": "lua"
+	},
+	{
+		"name": "xml-html",
+		"value": "<span class=\"hljs-meta\">&lt;!DOCTYPE <span class=\"hljs-meta-keyword\">html</span>&gt;</span>\n<span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">html</span> <span class=\"hljs-attr\">lang</span>=<span class=\"hljs-string\">&quot;en&quot;</span>&gt;</span>\n  <span class=\"hljs-comment\">&lt;!-- comment --&gt;</span>\n  <span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">body</span> <span class=\"hljs-attr\">class</span>=<span class=\"hljs-string\">&quot;main&quot;</span>&gt;</span>\n    <span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">p</span>&gt;</span>text <span class=\"hljs-symbol\">&amp;amp;</span> entity<span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">p</span>&gt;</span>\n  <span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">body</span>&gt;</span>\n<span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">html</span>&gt;</span>\n",
+		"relevance": 31,
+		"illegal": false,
+		"detectedLanguage": "xml"
+	},
+	{
+		"name": "xml-style-script",
+		"value": "<span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">style</span>&gt;</span><span class=\"css\">\n<span class=\"hljs-selector-class\">.a</span> { <span class=\"hljs-attribute\">color</span>: red; }\n</span><span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">style</span>&gt;</span>\n<span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">script</span> <span class=\"hljs-attr\">type</span>=<span class=\"hljs-string\">&quot;text/javascript&quot;</span>&gt;</span><span class=\"javascript\">\n<span class=\"hljs-keyword\">var</span> x = <span class=\"hljs-number\">1</span>;\n</span><span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">script</span>&gt;</span>\n",
+		"relevance": 10,
+		"illegal": false,
+		"detectedLanguage": "xml"
+	},
+	{
+		"name": "css-basics",
+		"value": "<span class=\"hljs-selector-class\">.selector</span> &gt; <span class=\"hljs-selector-class\">.child</span>, <span class=\"hljs-selector-id\">#id</span><span class=\"hljs-selector-pseudo\">::after</span> {\n  <span class=\"hljs-attribute\">color</span>: <span class=\"hljs-number\">#ff0000</span>;\n  <span class=\"hljs-attribute\">margin</span>: <span class=\"hljs-number\">0</span> auto <span class=\"hljs-number\">2px</span>;\n}\n<span class=\"hljs-keyword\">@media</span> (<span class=\"hljs-attribute\">max-width</span>: <span class=\"hljs-number\">600px</span>) {\n  <span class=\"hljs-selector-tag\">body</span> { <span class=\"hljs-attribute\">font-size</span>: <span class=\"hljs-number\">14px</span> <span class=\"hljs-meta\">!important</span>; }\n}\n",
+		"relevance": 12,
+		"illegal": false,
+		"detectedLanguage": "css"
+	},
+	{
+		"name": "markdown-basics",
+		"value": "<span class=\"hljs-section\"># Heading</span>\n\nSome <span class=\"hljs-emphasis\">*italic*</span> and <span class=\"hljs-strong\">**bold**</span> with <span class=\"hljs-code\">`code`</span>.\n\n<span class=\"hljs-bullet\">-</span> item one\n<span class=\"hljs-bullet\">-</span> item two\n\n[<span class=\"hljs-string\">link</span>](<span class=\"hljs-link\">https://example.com</span>)\n\n<span class=\"hljs-code\">```\nplain code\n```</span>\n",
+		"relevance": 9,
+		"illegal": false,
+		"detectedLanguage": "markdown"
+	},
+	{
+		"name": "diff-patch",
+		"value": "<span class=\"hljs-comment\">--- a/file.txt</span>\n<span class=\"hljs-comment\">+++ b/file.txt</span>\n<span class=\"hljs-meta\">@@ -1,3 +1,3 @@</span>\n context\n<span class=\"hljs-deletion\">-old line</span>\n<span class=\"hljs-addition\">+new line</span>\n",
+		"relevance": 14,
+		"illegal": false,
+		"detectedLanguage": "diff"
+	},
+	{
+		"name": "yaml-basics",
+		"value": "<span class=\"hljs-attr\">server:</span>\n  <span class=\"hljs-attr\">host:</span> <span class=\"hljs-string\">localhost</span>\n  <span class=\"hljs-attr\">port:</span> <span class=\"hljs-number\">8080</span>\n  <span class=\"hljs-attr\">tags:</span>\n    <span class=\"hljs-bullet\">-</span> <span class=\"hljs-string\">a</span>\n    <span class=\"hljs-bullet\">-</span> <span class=\"hljs-string\">b</span>\n<span class=\"hljs-attr\">enabled:</span> <span class=\"hljs-literal\">true</span>\n<span class=\"hljs-comment\"># comment</span>\n",
+		"relevance": 8,
+		"illegal": false,
+		"detectedLanguage": "yaml"
+	},
+	{
+		"name": "sql-basics",
+		"value": "<span class=\"hljs-keyword\">SELECT</span> id, name <span class=\"hljs-keyword\">FROM</span> users <span class=\"hljs-keyword\">WHERE</span> age <span class=\"hljs-operator\">&gt;=</span> <span class=\"hljs-number\">21</span> <span class=\"hljs-keyword\">AND</span> name <span class=\"hljs-keyword\">LIKE</span> <span class=\"hljs-string\">&#x27;A%&#x27;</span> <span class=\"hljs-keyword\">ORDER</span> <span class=\"hljs-keyword\">BY</span> name <span class=\"hljs-keyword\">DESC</span> LIMIT <span class=\"hljs-number\">10</span>;\n<span class=\"hljs-comment\">-- comment</span>\n<span class=\"hljs-keyword\">INSERT</span> <span class=\"hljs-keyword\">INTO</span> logs (msg) <span class=\"hljs-keyword\">VALUES</span> (<span class=\"hljs-string\">&#x27;hi&#x27;</span>);\n",
+		"relevance": 13,
+		"illegal": false,
+		"detectedLanguage": "sql"
+	},
+	{
+		"name": "c-basics",
+		"value": "<span class=\"hljs-meta\">#<span class=\"hljs-meta-keyword\">include</span> <span class=\"hljs-meta-string\">&lt;stdio.h&gt;</span></span>\n\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">int</span> <span class=\"hljs-title\">main</span><span class=\"hljs-params\">(<span class=\"hljs-keyword\">void</span>)</span> </span>{\n    <span class=\"hljs-comment\">/* block comment */</span>\n    <span class=\"hljs-keyword\">const</span> <span class=\"hljs-keyword\">char</span> *msg = <span class=\"hljs-string\">&quot;hi&quot;</span>;\n    <span class=\"hljs-built_in\">printf</span>(<span class=\"hljs-string\">&quot;%s\\n&quot;</span>, msg);\n    <span class=\"hljs-keyword\">return</span> <span class=\"hljs-number\">0</span>;\n}\n",
+		"relevance": 13,
+		"illegal": false,
+		"detectedLanguage": "c"
+	},
+	{
+		"name": "cpp-basics",
+		"value": "<span class=\"hljs-meta\">#<span class=\"hljs-meta-keyword\">include</span> <span class=\"hljs-meta-string\">&lt;vector&gt;</span></span>\n\n<span class=\"hljs-keyword\">template</span> &lt;<span class=\"hljs-keyword\">typename</span> T&gt;\n<span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">Stack</span> {</span>\n<span class=\"hljs-keyword\">public</span>:\n    <span class=\"hljs-function\"><span class=\"hljs-keyword\">void</span> <span class=\"hljs-title\">push</span><span class=\"hljs-params\">(T&amp;&amp; value)</span> </span>{ data_.<span class=\"hljs-built_in\">push_back</span>(std::<span class=\"hljs-built_in\">move</span>(value)); }\n<span class=\"hljs-keyword\">private</span>:\n    std::vector&lt;T&gt; data_;\n};\n",
+		"relevance": 15,
+		"illegal": false,
+		"detectedLanguage": "cpp"
+	},
+	{
+		"name": "go-basics",
+		"value": "<span class=\"hljs-keyword\">package</span> main\n\n<span class=\"hljs-keyword\">import</span> <span class=\"hljs-string\">&quot;fmt&quot;</span>\n\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">func</span> <span class=\"hljs-title\">main</span><span class=\"hljs-params\">()</span></span> {\n\tch := <span class=\"hljs-built_in\">make</span>(<span class=\"hljs-keyword\">chan</span> <span class=\"hljs-keyword\">int</span>, <span class=\"hljs-number\">3</span>)\n\t<span class=\"hljs-keyword\">go</span> <span class=\"hljs-function\"><span class=\"hljs-keyword\">func</span><span class=\"hljs-params\">()</span></span> { ch &lt;- <span class=\"hljs-number\">42</span> }()\n\tfmt.Println(&lt;-ch)\n}\n",
+		"relevance": 12,
+		"illegal": false,
+		"detectedLanguage": "go"
+	},
+	{
+		"name": "java-basics",
+		"value": "<span class=\"hljs-keyword\">public</span> <span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">Main</span> </span>{\n    <span class=\"hljs-meta\">@Override</span>\n    <span class=\"hljs-function\"><span class=\"hljs-keyword\">public</span> String <span class=\"hljs-title\">toString</span><span class=\"hljs-params\">()</span> </span>{\n        <span class=\"hljs-keyword\">return</span> <span class=\"hljs-string\">&quot;x=&quot;</span> + <span class=\"hljs-keyword\">this</span>.x;\n    }\n    <span class=\"hljs-keyword\">private</span> <span class=\"hljs-keyword\">static</span> <span class=\"hljs-keyword\">final</span> <span class=\"hljs-keyword\">int</span> MAX = <span class=\"hljs-number\">100</span>;\n}\n",
+		"relevance": 13,
+		"illegal": false,
+		"detectedLanguage": "java"
+	},
+	{
+		"name": "ruby-basics",
+		"value": "<span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">Greeter</span></span>\n  <span class=\"hljs-function\"><span class=\"hljs-keyword\">def</span> <span class=\"hljs-title\">initialize</span><span class=\"hljs-params\">(name)</span></span>\n    <span class=\"hljs-variable\">@name</span> = name\n  <span class=\"hljs-keyword\">end</span>\n\n  <span class=\"hljs-function\"><span class=\"hljs-keyword\">def</span> <span class=\"hljs-title\">greet</span></span>\n    puts <span class=\"hljs-string\">&quot;hello <span class=\"hljs-subst\">#{<span class=\"hljs-variable\">@name</span>}</span>&quot;</span>\n  <span class=\"hljs-keyword\">end</span>\n<span class=\"hljs-keyword\">end</span>\n",
+		"relevance": 11,
+		"illegal": false,
+		"detectedLanguage": "ruby"
+	},
+	{
+		"name": "php-basics",
+		"value": "<span class=\"hljs-meta\">&lt;?php</span>\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">function</span> <span class=\"hljs-title\">greet</span>(<span class=\"hljs-params\"><span class=\"hljs-keyword\">string</span> <span class=\"hljs-variable\">$name</span></span>): <span class=\"hljs-title\">string</span> </span>{\n    <span class=\"hljs-keyword\">return</span> <span class=\"hljs-string\">&quot;hello &quot;</span> . <span class=\"hljs-variable\">$name</span>;\n}\n<span class=\"hljs-keyword\">echo</span> greet(<span class=\"hljs-variable\">$_GET</span>[<span class=\"hljs-string\">&quot;name&quot;</span>] ?? <span class=\"hljs-string\">&quot;world&quot;</span>);\n",
+		"relevance": 21,
+		"illegal": false,
+		"detectedLanguage": "php"
+	},
+	{
+		"name": "perl-basics",
+		"value": "<span class=\"hljs-keyword\">use</span> strict;\n<span class=\"hljs-keyword\">my</span> %h = (<span class=\"hljs-string\">a =&gt;</span> <span class=\"hljs-number\">1</span>);\n<span class=\"hljs-keyword\">foreach</span> <span class=\"hljs-keyword\">my</span> $k (<span class=\"hljs-keyword\">keys</span> %h) {\n    <span class=\"hljs-keyword\">print</span> <span class=\"hljs-string\">&quot;$k =&gt; $h{$k}\\n&quot;</span>;\n}\n",
+		"relevance": 13,
+		"illegal": false,
+		"detectedLanguage": "perl"
+	},
+	{
+		"name": "ini-toml",
+		"value": "<span class=\"hljs-section\">[server]</span>\n<span class=\"hljs-attr\">host</span> = <span class=\"hljs-string\">&quot;localhost&quot;</span>\n<span class=\"hljs-attr\">port</span> = <span class=\"hljs-number\">8080</span>\n<span class=\"hljs-attr\">enabled</span> = <span class=\"hljs-literal\">true</span>\n<span class=\"hljs-comment\">; comment</span>\n",
+		"relevance": 10,
+		"illegal": false,
+		"detectedLanguage": "ini"
+	},
+	{
+		"name": "dockerfile-basics",
+		"value": "<span class=\"hljs-keyword\">FROM</span> alpine:<span class=\"hljs-number\">3.20</span>\n<span class=\"hljs-keyword\">RUN</span><span class=\"bash\"> apk add --no-cache curl</span>\n<span class=\"hljs-keyword\">ENV</span> APP_HOME=/srv\n<span class=\"hljs-keyword\">COPY</span><span class=\"bash\"> . <span class=\"hljs-variable\">$APP_HOME</span></span>\n<span class=\"hljs-keyword\">CMD</span><span class=\"bash\"> [<span class=\"hljs-string\">&quot;/srv/run.sh&quot;</span>]</span>\n",
+		"relevance": 7,
+		"illegal": false,
+		"detectedLanguage": "dockerfile"
+	},
+	{
+		"name": "makefile-basics",
+		"value": "CC := gcc\n<span class=\"hljs-section\">all: build</span>\n\n<span class=\"hljs-section\">build: main.o</span>\n\t<span class=\"hljs-variable\">$(CC)</span> -o app main.o\n\n<span class=\"hljs-meta\"><span class=\"hljs-meta-keyword\">.PHONY</span>: all build</span>\n",
+		"relevance": 6,
+		"illegal": false,
+		"detectedLanguage": "makefile"
+	},
+	{
+		"name": "kotlin-basics",
+		"value": "<span class=\"hljs-keyword\">data</span> <span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">User</span></span>(<span class=\"hljs-keyword\">val</span> name: String, <span class=\"hljs-keyword\">val</span> age: <span class=\"hljs-built_in\">Int</span> = <span class=\"hljs-number\">0</span>)\n\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">fun</span> <span class=\"hljs-title\">main</span><span class=\"hljs-params\">()</span></span> {\n    <span class=\"hljs-keyword\">val</span> users = listOf(User(<span class=\"hljs-string\">&quot;a&quot;</span>), User(<span class=\"hljs-string\">&quot;b&quot;</span>, <span class=\"hljs-number\">2</span>))\n    users.filter { it.age &gt; <span class=\"hljs-number\">1</span> }.forEach(::println)\n}\n",
+		"relevance": 14,
+		"illegal": false,
+		"detectedLanguage": "kotlin"
+	},
+	{
+		"name": "swift-basics",
+		"value": "<span class=\"hljs-class\"><span class=\"hljs-keyword\">struct</span> <span class=\"hljs-title\">Point</span>: <span class=\"hljs-title\">Codable</span> </span>{\n    <span class=\"hljs-keyword\">let</span> x: <span class=\"hljs-type\">Double</span>\n    <span class=\"hljs-keyword\">let</span> y: <span class=\"hljs-type\">Double</span>\n}\n\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">func</span> <span class=\"hljs-title\">dist</span>(<span class=\"hljs-keyword\">_</span> <span class=\"hljs-params\">p</span>: <span class=\"hljs-type\">Point</span>)</span> -&gt; <span class=\"hljs-type\">Double</span> {\n    <span class=\"hljs-keyword\">return</span> (p.x <span class=\"hljs-operator\">*</span> p.x <span class=\"hljs-operator\">+</span> p.y <span class=\"hljs-operator\">*</span> p.y).squareRoot()\n}\n",
+		"relevance": 9,
+		"illegal": false,
+		"detectedLanguage": "swift"
+	},
+	{
+		"name": "scala-basics",
+		"value": "<span class=\"hljs-keyword\">case</span> <span class=\"hljs-class\"><span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">User</span>(<span class=\"hljs-params\">name: <span class=\"hljs-type\">String</span>, age: <span class=\"hljs-type\">Int</span></span>)</span>\n\n<span class=\"hljs-class\"><span class=\"hljs-keyword\">object</span> <span class=\"hljs-title\">Main</span> <span class=\"hljs-keyword\">extends</span> <span class=\"hljs-title\">App</span> </span>{\n  <span class=\"hljs-keyword\">val</span> users = <span class=\"hljs-type\">List</span>(<span class=\"hljs-type\">User</span>(<span class=\"hljs-string\">&quot;a&quot;</span>, <span class=\"hljs-number\">1</span>))\n  users.filter(_.age &gt; <span class=\"hljs-number\">0</span>).foreach(println)\n}\n",
+		"relevance": 16,
+		"illegal": false,
+		"detectedLanguage": "scala"
+	},
+	{
+		"name": "clojure-basics",
+		"value": "(<span class=\"hljs-keyword\">defn</span> <span class=\"hljs-title\">greet</span> [name]\n  <span class=\"hljs-comment\">;; comment</span>\n  (<span class=\"hljs-name\"><span class=\"hljs-builtin-name\">str</span></span> <span class=\"hljs-string\">&quot;hello &quot;</span> name))\n(<span class=\"hljs-name\">println</span> (<span class=\"hljs-name\"><span class=\"hljs-builtin-name\">map</span></span> inc [<span class=\"hljs-number\">1</span> <span class=\"hljs-number\">2</span> <span class=\"hljs-number\">3</span>]))\n",
+		"relevance": 10,
+		"illegal": false,
+		"detectedLanguage": "clojure"
+	},
+	{
+		"name": "elixir-basics",
+		"value": "<span class=\"hljs-class\"><span class=\"hljs-keyword\">defmodule</span> <span class=\"hljs-title\">Greeter</span></span> <span class=\"hljs-keyword\">do</span>\n  <span class=\"hljs-function\"><span class=\"hljs-keyword\">def</span> <span class=\"hljs-title\">greet</span></span>(name) <span class=\"hljs-keyword\">do</span>\n    <span class=\"hljs-string\">&quot;hello <span class=\"hljs-subst\">#{name}</span>&quot;</span>\n  <span class=\"hljs-keyword\">end</span>\n<span class=\"hljs-keyword\">end</span>\nIO.puts(Greeter.greet(<span class=\"hljs-string\">&quot;pi-rs&quot;</span>))\n",
+		"relevance": 9,
+		"illegal": false,
+		"detectedLanguage": "elixir"
+	},
+	{
+		"name": "erlang-basics",
+		"value": "<span class=\"hljs-keyword\">-module</span><span class=\"hljs-params\">(hello)</span>.\n<span class=\"hljs-keyword\">-export</span><span class=\"hljs-params\">([greet/<span class=\"hljs-number\">1</span>])</span>.\n\n<span class=\"hljs-function\"><span class=\"hljs-title\">greet</span><span class=\"hljs-params\">(Name)</span> -&gt;</span>\n    io:format(<span class=\"hljs-string\">&quot;hello ~s~n&quot;</span>, [Name]).\n",
+		"relevance": 9,
+		"illegal": false,
+		"detectedLanguage": "erlang"
+	},
+	{
+		"name": "haskell-basics",
+		"value": "<span class=\"hljs-keyword\">module</span> Main <span class=\"hljs-keyword\">where</span>\n\n<span class=\"hljs-title\">main</span> :: <span class=\"hljs-type\">IO</span> ()\n<span class=\"hljs-title\">main</span> = <span class=\"hljs-keyword\">do</span>\n  <span class=\"hljs-keyword\">let</span> xs = [x * <span class=\"hljs-number\">2</span> | x &lt;- [<span class=\"hljs-number\">1</span> .. <span class=\"hljs-number\">10</span>], even x]\n  print xs\n",
+		"relevance": 5,
+		"illegal": false,
+		"detectedLanguage": "haskell"
+	},
+	{
+		"name": "ocaml-basics",
+		"value": "<span class=\"hljs-keyword\">let</span> <span class=\"hljs-keyword\">rec</span> fact n =\n  <span class=\"hljs-keyword\">if</span> n &lt;= <span class=\"hljs-number\">1</span> <span class=\"hljs-keyword\">then</span> <span class=\"hljs-number\">1</span> <span class=\"hljs-keyword\">else</span> n * fact (n - <span class=\"hljs-number\">1</span>)\n\n<span class=\"hljs-keyword\">let</span> <span class=\"hljs-literal\">()</span> = <span class=\"hljs-type\">Printf</span>.printf <span class=\"hljs-string\">&quot;%d\\n&quot;</span> (fact <span class=\"hljs-number\">5</span>)\n",
+		"relevance": 5,
+		"illegal": false,
+		"detectedLanguage": "ocaml"
+	},
+	{
+		"name": "vim-basics",
+		"value": "<span class=\"hljs-keyword\">set</span> nocompatible\n<span class=\"hljs-comment\">&quot; comment</span>\n<span class=\"hljs-function\"><span class=\"hljs-keyword\">function</span>! <span class=\"hljs-title\">Greet</span><span class=\"hljs-params\">(name)</span></span>\n  <span class=\"hljs-keyword\">echo</span> <span class=\"hljs-string\">&quot;hello &quot;</span> . <span class=\"hljs-variable\">a:name</span>\n<span class=\"hljs-keyword\">endfunction</span>\n",
+		"relevance": 8,
+		"illegal": false,
+		"detectedLanguage": "vim"
+	},
+	{
+		"name": "r-basics",
+		"value": "greet &lt;- <span class=\"hljs-keyword\">function</span>(name) {\n  <span class=\"hljs-comment\"># comment</span>\n  paste(<span class=\"hljs-string\">&quot;hello&quot;</span>, name)\n}\nx &lt;- <span class=\"hljs-built_in\">c</span>(<span class=\"hljs-number\">1</span>, <span class=\"hljs-number\">2</span>, <span class=\"hljs-literal\">NA</span>)\nmean(x, na.rm = <span class=\"hljs-literal\">TRUE</span>)\n",
+		"relevance": 7,
+		"illegal": false,
+		"detectedLanguage": "r"
+	},
+	{
+		"name": "protobuf-basics",
+		"value": "syntax = <span class=\"hljs-string\">&quot;proto3&quot;</span>;\n\n<span class=\"hljs-class\"><span class=\"hljs-keyword\">message</span> <span class=\"hljs-title\">User</span> </span>{\n  <span class=\"hljs-built_in\">string</span> name = <span class=\"hljs-number\">1</span>;\n  <span class=\"hljs-keyword\">repeated</span> <span class=\"hljs-built_in\">int32</span> scores = <span class=\"hljs-number\">2</span>;\n}\n",
+		"relevance": 6,
+		"illegal": false,
+		"detectedLanguage": "protobuf"
+	},
+	{
+		"name": "powershell-basics",
+		"value": "<span class=\"hljs-variable\">$items</span> = <span class=\"hljs-built_in\">Get-ChildItem</span> <span class=\"hljs-literal\">-Path</span> . <span class=\"hljs-literal\">-Filter</span> *.txt\n<span class=\"hljs-keyword\">foreach</span> (<span class=\"hljs-variable\">$item</span> <span class=\"hljs-keyword\">in</span> <span class=\"hljs-variable\">$items</span>) {\n    <span class=\"hljs-built_in\">Write-Output</span> <span class=\"hljs-string\">&quot;file: <span class=\"hljs-variable\">$</span>(<span class=\"hljs-variable\">$item</span>.Name)&quot;</span>\n}\n",
+		"relevance": 9,
+		"illegal": false,
+		"detectedLanguage": "powershell"
+	},
+	{
+		"name": "csharp-basics",
+		"value": "<span class=\"hljs-keyword\">public</span> <span class=\"hljs-keyword\">class</span> <span class=\"hljs-title\">Program</span>\n{\n    <span class=\"hljs-function\"><span class=\"hljs-keyword\">public</span> <span class=\"hljs-keyword\">static</span> <span class=\"hljs-keyword\">async</span> Task <span class=\"hljs-title\">Main</span>(<span class=\"hljs-params\"><span class=\"hljs-built_in\">string</span>[] args</span>)</span>\n    {\n        <span class=\"hljs-keyword\">var</span> items = <span class=\"hljs-keyword\">new</span> List&lt;<span class=\"hljs-built_in\">int</span>&gt; { <span class=\"hljs-number\">1</span>, <span class=\"hljs-number\">2</span>, <span class=\"hljs-number\">3</span> };\n        Console.WriteLine(<span class=\"hljs-string\">$&quot;count: <span class=\"hljs-subst\">{items.Count}</span>&quot;</span>);\n    }\n}\n",
+		"relevance": 12,
+		"illegal": false,
+		"detectedLanguage": "csharp"
+	},
+	{
+		"name": "scss-basics",
+		"value": "<span class=\"hljs-variable\">$primary</span>: <span class=\"hljs-number\">#333</span>;\n<span class=\"hljs-selector-class\">.card</span> {\n  <span class=\"hljs-attribute\">color</span>: <span class=\"hljs-variable\">$primary</span>;\n  &amp;<span class=\"hljs-selector-pseudo\">:hover</span> { <span class=\"hljs-attribute\">color</span>: lighten(<span class=\"hljs-variable\">$primary</span>, <span class=\"hljs-number\">20%</span>); }\n}\n",
+		"relevance": 10,
+		"illegal": false,
+		"detectedLanguage": "scss"
+	},
+	{
+		"name": "less-basics",
+		"value": "<span class=\"hljs-variable\">@primary:</span> <span class=\"hljs-number\">#333</span>;\n<span class=\"hljs-selector-class\">.card</span> {\n  <span class=\"hljs-attribute\">color</span>: <span class=\"hljs-variable\">@primary</span>;\n  <span class=\"hljs-selector-class\">.inner</span> { <span class=\"hljs-attribute\">border</span>: <span class=\"hljs-number\">1px</span> solid darken(<span class=\"hljs-variable\">@primary</span>, <span class=\"hljs-number\">10%</span>); }\n}\n",
+		"relevance": 39,
+		"illegal": false,
+		"detectedLanguage": "less"
+	},
+	{
+		"name": "cmake-basics",
+		"value": "<span class=\"hljs-keyword\">cmake_minimum_required</span>(VERSION <span class=\"hljs-number\">3.20</span>)\n<span class=\"hljs-keyword\">project</span>(pi-rs LANGUAGES CXX)\n<span class=\"hljs-keyword\">add_executable</span>(app main.cpp)\n<span class=\"hljs-keyword\">target_link_libraries</span>(app PRIVATE fmt::fmt)\n",
+		"relevance": 4,
+		"illegal": false,
+		"detectedLanguage": "cmake"
+	},
+	{
+		"name": "markdown-fenced-sublanguage",
+		"value": "<span class=\"hljs-section\"># Title</span>\n\n<span class=\"hljs-code\">```xml\n&lt;a href=&quot;x&quot;&gt;link&lt;/a&gt;\n```</span>\n\ndone\n",
+		"relevance": 2,
+		"illegal": false,
+		"detectedLanguage": "markdown"
+	},
+	{
+		"name": "empty-string",
+		"value": "",
+		"relevance": 0,
+		"illegal": false,
+		"detectedLanguage": "json"
+	},
+	{
+		"name": "plain-prose",
+		"value": "This is just a sentence of ordinary prose, nothing else.\n",
+		"relevance": 0,
+		"illegal": false,
+		"detectedLanguage": "markdown"
+	},
+	{
+		"name": "auto-json",
+		"value": "{<span class=\"hljs-attr\">&quot;a&quot;</span>: [<span class=\"hljs-number\">1</span>, <span class=\"hljs-number\">2</span>, <span class=\"hljs-number\">3</span>], <span class=\"hljs-attr\">&quot;b&quot;</span>: {<span class=\"hljs-attr\">&quot;c&quot;</span>: <span class=\"hljs-literal\">true</span>}}\n",
+		"relevance": 13,
+		"illegal": false,
+		"detectedLanguage": "json"
+	},
+	{
+		"name": "auto-xml",
+		"value": "<span class=\"hljs-meta\">&lt;?xml version=&quot;1.0&quot;?&gt;</span>\n<span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">root</span> <span class=\"hljs-attr\">attr</span>=<span class=\"hljs-string\">&quot;1&quot;</span>&gt;</span><span class=\"hljs-tag\">&lt;<span class=\"hljs-name\">child</span>/&gt;</span><span class=\"hljs-tag\">&lt;/<span class=\"hljs-name\">root</span>&gt;</span>\n",
+		"relevance": 14,
+		"illegal": false,
+		"detectedLanguage": "xml"
+	}
+]

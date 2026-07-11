@@ -1,0 +1,2700 @@
+{
+	"cases": [
+		{
+			"name": "request-api-key-full",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test",
+						"x-extra": "1"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": "Hello"
+							},
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "image",
+										"source": {
+											"type": "base64",
+											"media_type": "image/png",
+											"data": "aGVsbG8="
+										}
+									}
+								]
+							},
+							{
+								"role": "assistant",
+								"content": [
+									{
+										"type": "thinking",
+										"thinking": "Consider the file.",
+										"signature": "sig1"
+									},
+									{
+										"type": "text",
+										"text": "Unsigned draft."
+									},
+									{
+										"type": "redacted_thinking",
+										"data": "opaque-blob"
+									},
+									{
+										"type": "text",
+										"text": "Reading."
+									},
+									{
+										"type": "tool_use",
+										"id": "toolu_1",
+										"name": "read",
+										"input": {
+											"path": "a.txt"
+										}
+									},
+									{
+										"type": "tool_use",
+										"id": "toolu_2!!",
+										"name": "bash",
+										"input": {
+											"command": "ls"
+										}
+									}
+								]
+							},
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "tool_result",
+										"tool_use_id": "toolu_1",
+										"content": "file contents",
+										"is_error": false
+									},
+									{
+										"type": "tool_result",
+										"tool_use_id": "toolu_2!!",
+										"content": [
+											{
+												"type": "text",
+												"text": "a.txt"
+											},
+											{
+												"type": "image",
+												"source": {
+													"type": "base64",
+													"media_type": "image/jpeg",
+													"data": "aGVsbG8="
+												}
+											}
+										],
+										"is_error": false
+									}
+								]
+							},
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "Continue",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 4000,
+						"stream": true,
+						"system": [
+							{
+								"type": "text",
+								"text": "You are helpful.",
+								"cache_control": {
+									"type": "ephemeral"
+								}
+							}
+						],
+						"temperature": 0.5,
+						"tools": [
+							{
+								"name": "read",
+								"description": "Read a file",
+								"eager_input_streaming": true,
+								"input_schema": {
+									"type": "object",
+									"properties": {
+										"path": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"path"
+									]
+								}
+							},
+							{
+								"name": "bash",
+								"description": "Run a command",
+								"eager_input_streaming": true,
+								"input_schema": {
+									"type": "object",
+									"properties": {
+										"command": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"command"
+									]
+								},
+								"cache_control": {
+									"type": "ephemeral"
+								}
+							}
+						],
+						"metadata": {
+							"user_id": "abc"
+						},
+						"tool_choice": {
+							"type": "tool",
+							"name": "read"
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00003,
+						"output": 0.00003,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00006
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "request-oauth",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"authorization": "Bearer sk-ant-oat01-xyz",
+						"content-type": "application/json",
+						"user-agent": "claude-cli/2.1.75",
+						"x-app": "cli"
+					},
+					"body": {
+						"model": "claude-opus-4-7",
+						"messages": [
+							{
+								"role": "assistant",
+								"content": [
+									{
+										"type": "tool_use",
+										"id": "toolu_0",
+										"name": "TodoWrite",
+										"input": {}
+									}
+								]
+							},
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "tool_result",
+										"tool_use_id": "toolu_0",
+										"content": "noted",
+										"is_error": false
+									}
+								]
+							},
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "read x",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 128000,
+						"stream": true,
+						"system": [
+							{
+								"type": "text",
+								"text": "You are Claude Code, Anthropic's official CLI for Claude.",
+								"cache_control": {
+									"type": "ephemeral"
+								}
+							},
+							{
+								"type": "text",
+								"text": "Be brief.",
+								"cache_control": {
+									"type": "ephemeral"
+								}
+							}
+						],
+						"tools": [
+							{
+								"name": "Read",
+								"description": "Read a file",
+								"eager_input_streaming": true,
+								"input_schema": {
+									"type": "object",
+									"properties": {
+										"path": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"path"
+									]
+								}
+							},
+							{
+								"name": "TodoWrite",
+								"description": "Track todos",
+								"eager_input_streaming": true,
+								"input_schema": {
+									"type": "object",
+									"properties": {},
+									"required": []
+								},
+								"cache_control": {
+									"type": "ephemeral"
+								}
+							}
+						]
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "toolcall_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "toolcall_delta",
+					"contentIndex": 0,
+					"delta": "{\"path\":\"x\"}"
+				},
+				{
+					"type": "toolcall_end",
+					"contentIndex": 0,
+					"toolCall": {
+						"type": "toolCall",
+						"id": "toolu_9",
+						"name": "read",
+						"arguments": {
+							"path": "x"
+						}
+					}
+				},
+				{
+					"type": "done",
+					"reason": "toolUse"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "toolCall",
+						"id": "toolu_9",
+						"name": "read",
+						"arguments": {
+							"path": "x"
+						}
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-opus-4-7",
+				"usage": {
+					"input": 5,
+					"output": 3,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 8,
+					"cost": {
+						"input": 0.000025,
+						"output": 0.00007500000000000001,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.0001
+					}
+				},
+				"stopReason": "toolUse",
+				"timestamp": 0,
+				"responseId": "msg_2"
+			}
+		},
+		{
+			"name": "request-thinking-budget",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true,
+						"thinking": {
+							"type": "enabled",
+							"budget_tokens": 2048,
+							"display": "summarized"
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00003,
+						"output": 0.00003,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00006
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "request-adaptive-effort",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-opus-4-7",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 128000,
+						"stream": true,
+						"thinking": {
+							"type": "adaptive",
+							"display": "omitted"
+						},
+						"output_config": {
+							"effort": "xhigh"
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-opus-4-7",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00005,
+						"output": 0.00005,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.0001
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "request-thinking-disabled",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true,
+						"thinking": {
+							"type": "disabled"
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00003,
+						"output": 0.00003,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00006
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "request-fireworks-compat",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "fw-key",
+						"x-model-header": "from-options",
+						"x-session-affinity": "sess-9"
+					},
+					"body": {
+						"model": "accounts/fireworks/models/kimi-k2",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 16384,
+						"stream": true,
+						"system": [
+							{
+								"type": "text",
+								"text": "Sys.",
+								"cache_control": {
+									"type": "ephemeral"
+								}
+							}
+						],
+						"tools": [
+							{
+								"name": "read",
+								"description": "Read a file",
+								"input_schema": {
+									"type": "object",
+									"properties": {
+										"path": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"path"
+									]
+								}
+							}
+						]
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "fireworks",
+				"model": "accounts/fireworks/models/kimi-k2",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.000009999999999999999,
+						"output": 0.000006,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.000016
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "request-cache-retention-none",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": "hi"
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true,
+						"system": [
+							{
+								"type": "text",
+								"text": "Sys."
+							}
+						]
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00003,
+						"output": 0.00003,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00006
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "request-interleaved-off",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00003,
+						"output": 0.00003,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00006
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "simple-plain",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true,
+						"thinking": {
+							"type": "disabled"
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00003,
+						"output": 0.00003,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00006
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "simple-budget-high",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true,
+						"thinking": {
+							"type": "enabled",
+							"budget_tokens": 16384,
+							"display": "summarized"
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00003,
+						"output": 0.00003,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00006
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "simple-adaptive-xhigh",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-opus-4-7",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 128000,
+						"stream": true,
+						"thinking": {
+							"type": "adaptive",
+							"display": "summarized"
+						},
+						"output_config": {
+							"effort": "xhigh"
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-opus-4-7",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00005,
+						"output": 0.00005,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.0001
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "stream-rich",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-opus-4-7",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 128000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "thinking_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "thinking_delta",
+					"contentIndex": 0,
+					"delta": "Let me look at the file."
+				},
+				{
+					"type": "thinking_end",
+					"contentIndex": 0,
+					"content": "Let me look at the file."
+				},
+				{
+					"type": "thinking_start",
+					"contentIndex": 1
+				},
+				{
+					"type": "thinking_end",
+					"contentIndex": 1,
+					"content": "[Reasoning redacted]"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 2
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 2,
+					"delta": "I'll read the file"
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 2,
+					"delta": " now."
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 2,
+					"content": "I'll read the file now."
+				},
+				{
+					"type": "toolcall_start",
+					"contentIndex": 3
+				},
+				{
+					"type": "toolcall_delta",
+					"contentIndex": 3,
+					"delta": "{\"path\": \"src/m"
+				},
+				{
+					"type": "toolcall_delta",
+					"contentIndex": 3,
+					"delta": "ain.rs\"}"
+				},
+				{
+					"type": "toolcall_end",
+					"contentIndex": 3,
+					"toolCall": {
+						"type": "toolCall",
+						"id": "toolu_01XYZ",
+						"name": "read",
+						"arguments": {
+							"path": "src/main.rs"
+						}
+					}
+				},
+				{
+					"type": "done",
+					"reason": "toolUse"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "thinking",
+						"thinking": "Let me look at the file.",
+						"thinkingSignature": "EqQBsig"
+					},
+					{
+						"type": "thinking",
+						"thinking": "[Reasoning redacted]",
+						"thinkingSignature": "opaque-redacted",
+						"redacted": true
+					},
+					{
+						"type": "text",
+						"text": "I'll read the file now."
+					},
+					{
+						"type": "toolCall",
+						"id": "toolu_01XYZ",
+						"name": "read",
+						"arguments": {
+							"path": "src/main.rs"
+						}
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-opus-4-7",
+				"usage": {
+					"input": 1200,
+					"output": 58,
+					"cacheRead": 512,
+					"cacheWrite": 256,
+					"totalTokens": 2026,
+					"cost": {
+						"input": 0.006,
+						"output": 0.0014500000000000001,
+						"cacheRead": 0.000256,
+						"cacheWrite": 0.0016,
+						"total": 0.009306
+					}
+				},
+				"stopReason": "toolUse",
+				"timestamp": 0,
+				"responseId": "msg_01ABC"
+			}
+		},
+		{
+			"name": "stop-max-tokens",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "length"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00003,
+						"output": 0.00003,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00006
+					}
+				},
+				"stopReason": "length",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "stop-pause-turn",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00003,
+						"output": 0.00003,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00006
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "stop-refusal",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00003,
+						"output": 0.00003,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00006
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"responseId": "msg_1",
+				"errorMessage": "An unknown error occurred"
+			}
+		},
+		{
+			"name": "stop-unknown",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 10,
+					"output": 1,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 11,
+					"cost": {
+						"input": 0.00003,
+						"output": 0.000015,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.000045
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"responseId": "msg_1",
+				"errorMessage": "Unhandled stop reason: banana"
+			}
+		},
+		{
+			"name": "stream-error-event",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-opus-4-7",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 128000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-opus-4-7",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"
+			}
+		},
+		{
+			"name": "stream-truncated",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-opus-4-7",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 128000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-opus-4-7",
+				"usage": {
+					"input": 5,
+					"output": 1,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 6,
+					"cost": {
+						"input": 0.000025,
+						"output": 0.000025,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00005
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"responseId": "msg_3",
+				"errorMessage": "Anthropic stream ended before message_stop"
+			}
+		},
+		{
+			"name": "http-400-json",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"max_tokens is too large\"}}"
+			}
+		},
+		{
+			"name": "http-529-text",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "529 Overloaded!"
+			}
+		},
+		{
+			"name": "http-empty-body",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "500 status code (no body)"
+			}
+		},
+		{
+			"name": "retry-500-then-success",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				},
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00003,
+						"output": 0.00003,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00006
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "retry-409-then-success",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				},
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00003,
+						"output": 0.00003,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00006
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "retry-should-retry-false",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"hard stop\"}}"
+			}
+		},
+		{
+			"name": "retry-should-retry-true-400",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				},
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.00003,
+						"output": 0.00003,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00006
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "msg_1"
+			}
+		},
+		{
+			"name": "retry-exhausted",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				},
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-beta": "interleaved-thinking-2025-05-14",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-sonnet-4-5",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 64000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"second\"}}"
+			}
+		},
+		{
+			"name": "abort-mid-stream",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/messages",
+					"headers": {
+						"accept": "application/json",
+						"anthropic-dangerous-direct-browser-access": "true",
+						"anthropic-version": "2023-06-01",
+						"content-type": "application/json",
+						"x-api-key": "sk-test"
+					},
+					"body": {
+						"model": "claude-opus-4-7",
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"max_tokens": 128000,
+						"stream": true
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "partial answ"
+				},
+				{
+					"type": "error",
+					"reason": "aborted"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "partial answ"
+					}
+				],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-opus-4-7",
+				"usage": {
+					"input": 40,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 42,
+					"cost": {
+						"input": 0.0002,
+						"output": 0.00005,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.00025
+					}
+				},
+				"stopReason": "aborted",
+				"timestamp": 0,
+				"responseId": "msg_4",
+				"errorMessage": "This operation was aborted"
+			}
+		},
+		{
+			"name": "no-api-key",
+			"requests": [],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "anthropic-messages",
+				"provider": "anthropic",
+				"model": "claude-sonnet-4-5",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "No API key for provider: anthropic"
+			}
+		},
+		{
+			"name": "simple-no-api-key",
+			"requests": [],
+			"syncError": "No API key for provider: anthropic"
+		}
+	]
+}

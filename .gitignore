@@ -1,0 +1,20 @@
+/target
+/result*
+/.direnv
+/ref
+__pycache__/
+/bench/results/
+
+# AI coding assistants
+/.pi/
+/.claude/
+/.cursor/
+/.continue/
+/.windsurf/
+/.opencode/
+/.aider*
+/CLAUDE.md
+/AGENTS.md
+/GEMINI.md
+/.cursorrules
+/.github/copilot-instructions.md
