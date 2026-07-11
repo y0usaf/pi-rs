@@ -112,11 +112,14 @@
             version=$(pi --version)
             test -n "$version"
 
-            # --help prints usage.
-            pi --help | grep -q -- '--list-models'
+            # --help prints usage. Capture before grep: Rust's stdout panics
+            # when a successful `grep -q` closes a pipe early.
+            pi --help > help.txt
+            grep -q -- '--list-models' help.txt
 
             # No credentials: --list-models reports guidance, exit 0.
-            pi --list-models | grep -q 'No models available.'
+            pi --list-models > no-models.txt
+            grep -q 'No models available.' no-models.txt
 
             # No credentials: a prompt fails with the guidance, exit 1.
             if pi "hi" 2>err.txt; then
