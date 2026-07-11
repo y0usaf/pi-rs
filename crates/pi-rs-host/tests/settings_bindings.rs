@@ -22,6 +22,12 @@ pi.register_command("settings-write", {
     return { blocked = pi.settings.block_images() }
   end,
 })
+pi.register_command("settings-reload", {
+  handler = function()
+    pi.settings.reload()
+    return { blocked = pi.settings.block_images() }
+  end,
+})
 "#;
 
 #[test]
@@ -54,6 +60,18 @@ fn block_images_reads_merged_settings_and_persists_globally() {
     )
     .unwrap();
     assert_eq!(global["images"]["blockImages"], true);
+
+    // External edits remain invisible until reload, then replace the cached
+    // merged settings exactly like SettingsManager.reload().
+    std::fs::write(
+        agent_dir.path().join("settings.json"),
+        r#"{"images":{"blockImages":false}}"#,
+    )
+    .unwrap();
+    let got = host.call_command("settings-read", "").unwrap().unwrap();
+    assert_eq!(got["blocked"], true);
+    let got = host.call_command("settings-reload", "").unwrap().unwrap();
+    assert_eq!(got["blocked"], false);
 
     // Project settings merge over global (spec: one-level deep merge).
     std::fs::create_dir_all(project.path().join(".pi")).unwrap();

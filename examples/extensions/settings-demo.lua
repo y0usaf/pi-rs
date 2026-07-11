@@ -51,6 +51,8 @@ pi.register_command("settings-demo", {
     -- Startup changelog policy records the version it has consumed.
     local changelog_initial = pi.settings.last_changelog_version()
     pi.settings.set_last_changelog_version("0.79.0")
+    -- `/reload` rereads externally changed settings through the same store.
+    pi.settings.reload()
 
     return {
       initial = initial, blocked = blocked, unblocked = unblocked,

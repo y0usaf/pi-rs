@@ -296,20 +296,23 @@ fn submit_router_matches_pi_command_interception() {
 #[test]
 fn submit_router_intercepts_info_commands_before_prompting() {
     let request = serde_json::json!({
-        "texts": ["/changelog", "/hotkeys", "/debug"]
+        "texts": ["/changelog", "/hotkeys", "/reload", "/debug"]
     });
     let result = host()
         .call_command("interactive-submit-route", &request.to_string())
         .unwrap()
         .unwrap();
     let trace = result["trace"].as_array().unwrap();
-    assert_eq!(trace.len(), 6);
+    assert_eq!(trace.len(), 8);
     assert_eq!(trace[0]["action"], "changelog_command");
     assert_eq!(trace[1]["action"], "set_text");
     assert_eq!(trace[2]["action"], "hotkeys_command");
     assert_eq!(trace[3]["action"], "set_text");
-    assert_eq!(trace[4]["action"], "debug_command");
-    assert_eq!(trace[5]["action"], "set_text");
+    // Pi clears before awaiting handleReloadCommand.
+    assert_eq!(trace[4]["action"], "set_text");
+    assert_eq!(trace[5]["action"], "reload_command");
+    assert_eq!(trace[6]["action"], "debug_command");
+    assert_eq!(trace[7]["action"], "set_text");
 }
 
 #[test]
