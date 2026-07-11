@@ -84,9 +84,13 @@
           inherit (c) src cargoArtifacts;
           pname = "pi-rs";
           version = "0.1.0";
-          nativeBuildInputs = c.commonEnv.nativeBuildInputs ++ [ c.pkgs.ripgrep c.pkgs.fd ];
+          nativeBuildInputs = c.commonEnv.nativeBuildInputs ++ [
+            c.pkgs.ripgrep
+            c.pkgs.fd
+          ];
           cargoExtraArgs = "-p pi-rs-app";
           doCheck = false;
+          meta.mainProgram = "pi";
         };
 
       # Doctrine 06 — bare core boots: the substrate with zero packs,
@@ -151,7 +155,10 @@
           inherit (c) src cargoArtifacts;
           pname = "pi-rs-test";
           version = "0.1.0";
-          nativeBuildInputs = c.commonEnv.nativeBuildInputs ++ [ c.pkgs.ripgrep c.pkgs.fd ];
+          nativeBuildInputs = c.commonEnv.nativeBuildInputs ++ [
+            c.pkgs.ripgrep
+            c.pkgs.fd
+          ];
           cargoExtraArgs = "--workspace";
         };
 
