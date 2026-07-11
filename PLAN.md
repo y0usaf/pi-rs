@@ -1399,6 +1399,25 @@ surface; external editor + suspend. Split into rungs:
       `/debug`, `/reload`, the easter eggs (armin/daxnuts/earendil),
       and the version-update notification.
 
+      **Landed slice (2026-07-11):** `/changelog`, `/hotkeys`, and `/debug`
+      now route through the embedded Lua frontend. The pinned package changelog is
+      embedded as product data; Lua owns Pi's version-section parser, repository-link
+      normalization, bordered Markdown presentation, keybinding-derived shortcut tables,
+      and debug-log snapshot/status policy over existing public filesystem/TUI mechanisms.
+      The `/hotkeys` differential exposed a marked edge the earlier markdown fixture missed:
+      a GFM table immediately following paragraph text must interrupt that paragraph without
+      a blank line. The shared Rust markdown mechanism now does so, pinned by
+      `table_interrupts_paragraph_without_blank_line`. Session-turn matches Pi at 42
+      checkpoints (was 39), adding changelog, hotkeys, and debug-log status frames; the
+      command-router test pins interception/order. No new extension hook landed.
+      `cargo fmt --check`, `cargo test --workspace`, `scripts/ui-diff` (all 21 suites),
+      and `nix build .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
+
+      **Remaining before closure:** port startup unseen-changelog policy/persistence +
+      telemetry, the async version-update notification, `/reload` (including its bordered
+      loader and resource/session refresh semantics), and the armin/daxnuts/earendil easter
+      eggs with deterministic Pi-derived animation/final-frame evidence. Keep 7.9 open.
+
 - [ ] **7.10 Provider-retry surface.** _isRetryableError/_prepareRetry,
       retry loader + countdown-timer, retryEscapeHandler — closes the
       4/5/6.5 retry deferrals.

@@ -34,7 +34,9 @@ import { BorderedLoader } from "../../ref/pi/packages/coding-agent/src/modes/int
 import { CustomEditor } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/custom-editor.ts";
 import { ExtensionSelectorComponent } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/extension-selector.ts";
 import { FooterComponent } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/footer.ts";
+import { DynamicBorder } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/dynamic-border.ts";
 import {
+  keyDisplayText,
   keyHint,
   keyText,
   rawKeyHint,
@@ -42,14 +44,22 @@ import {
 import { SessionSelectorComponent } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/session-selector.ts";
 import { ToolExecutionComponent } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/tool-execution.ts";
 import { UserMessageComponent } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/user-message.ts";
-import { getEditorTheme, initTheme, theme } from "../../ref/pi/packages/coding-agent/src/modes/interactive/theme/theme.ts";
+import {
+  getEditorTheme,
+  getMarkdownTheme,
+  initTheme,
+  theme,
+} from "../../ref/pi/packages/coding-agent/src/modes/interactive/theme/theme.ts";
+import { normalizeChangelogLinks, parseChangelog } from "../../ref/pi/packages/coding-agent/src/utils/changelog.ts";
 import type { Component } from "../../ref/pi/packages/tui/src/tui.ts";
+import { Markdown } from "../../ref/pi/packages/tui/src/components/markdown.ts";
 import { Spacer } from "../../ref/pi/packages/tui/src/components/spacer.ts";
 import { Text } from "../../ref/pi/packages/tui/src/components/text.ts";
 import { setKeybindings } from "../../ref/pi/packages/tui/src/keybindings.ts";
 import { setCapabilities } from "../../ref/pi/packages/tui/src/terminal-image.ts";
 import { Container, TUI } from "../../ref/pi/packages/tui/src/tui.ts";
 import type { Terminal } from "../../ref/pi/packages/tui/src/terminal.ts";
+import { visibleWidth } from "../../ref/pi/packages/tui/src/utils.ts";
 
 type Step = { name: string; input?: string[]; resize?: { columns: number; rows: number }; sleepMs?: number };
 type Scenario = {
@@ -67,6 +77,7 @@ type Scenario = {
   executables?: string[];
   env?: Record<string, string>;
   model: Model<"anthropic-messages">;
+  changelogText?: string;
   steps: Step[];
 };
 
@@ -742,6 +753,97 @@ function handleCopyCommand(): void {
   showStatus("Copied last agent message to clipboard");
 }
 
+function handleChangelogCommand(): void {
+  const changelogPath = join(root, "changelog.md");
+  writeFileSync(changelogPath, scenario.changelogText ?? "");
+  const allEntries = parseChangelog(changelogPath);
+  const changelogMarkdown = allEntries.length > 0
+    ? allEntries.reverse().map((entry) => normalizeChangelogLinks(entry.content, entry)).join("\n\n")
+    : "No changelog entries found.";
+  chatContainer.addChild(new Spacer(1));
+  chatContainer.addChild(new DynamicBorder());
+  chatContainer.addChild(new Text(theme.bold(theme.fg("accent", "What's New")), 1, 0));
+  chatContainer.addChild(new Spacer(1));
+  chatContainer.addChild(new Markdown(changelogMarkdown, 1, 1, getMarkdownTheme()));
+  chatContainer.addChild(new DynamicBorder());
+}
+
+function handleHotkeysCommand(): void {
+  const key = keyDisplayText;
+  let hotkeys = `
+**Navigation**
+| Key | Action |
+|-----|--------|
+| \`${key("tui.editor.cursorUp")}\` / \`${key("tui.editor.cursorDown")}\` / \`${key("tui.editor.cursorLeft")}\` / \`${key("tui.editor.cursorRight")}\` | Move cursor / browse history |
+| \`${key("tui.editor.cursorWordLeft")}\` / \`${key("tui.editor.cursorWordRight")}\` | Move by word |
+| \`${key("tui.editor.cursorLineStart")}\` | Start of line |
+| \`${key("tui.editor.cursorLineEnd")}\` | End of line |
+| \`${key("tui.editor.jumpForward")}\` | Jump forward to character |
+| \`${key("tui.editor.jumpBackward")}\` | Jump backward to character |
+| \`${key("tui.editor.pageUp")}\` / \`${key("tui.editor.pageDown")}\` | Scroll by page |
+
+**Editing**
+| Key | Action |
+|-----|--------|
+| \`${key("tui.input.submit")}\` | Send message |
+| \`${key("tui.input.newLine")}\` | New line |
+| \`${key("tui.editor.deleteWordBackward")}\` | Delete word backwards |
+| \`${key("tui.editor.deleteWordForward")}\` | Delete word forwards |
+| \`${key("tui.editor.deleteToLineStart")}\` | Delete to start of line |
+| \`${key("tui.editor.deleteToLineEnd")}\` | Delete to end of line |
+| \`${key("tui.editor.yank")}\` | Paste the most-recently-deleted text |
+| \`${key("tui.editor.yankPop")}\` | Cycle through the deleted text after pasting |
+| \`${key("tui.editor.undo")}\` | Undo |
+
+**Other**
+| Key | Action |
+|-----|--------|
+| \`${key("tui.input.tab")}\` | Path completion / accept autocomplete |
+| \`${key("app.interrupt")}\` | Cancel autocomplete / abort streaming |
+| \`${key("app.clear")}\` | Clear editor (first) / exit (second) |
+| \`${key("app.exit")}\` | Exit (when editor is empty) |
+| \`${key("app.suspend")}\` | Suspend to background |
+| \`${key("app.thinking.cycle")}\` | Cycle thinking level |
+| \`${key("app.model.cycleForward")}\` / \`${key("app.model.cycleBackward")}\` | Cycle models |
+| \`${key("app.model.select")}\` | Open model selector |
+| \`${key("app.tools.expand")}\` | Toggle tool output expansion |
+| \`${key("app.thinking.toggle")}\` | Toggle thinking block visibility |
+| \`${key("app.editor.external")}\` | Edit message in external editor |
+| \`${key("app.message.followUp")}\` | Queue follow-up message |
+| \`${key("app.message.dequeue")}\` | Restore queued messages |
+| \`${key("app.clipboard.pasteImage")}\` | Paste image from clipboard |
+| \`/\` | Slash commands |
+| \`!\` | Run bash command |
+| \`!!\` | Run bash command (excluded from context) |
+`;
+  chatContainer.addChild(new Spacer(1));
+  chatContainer.addChild(new DynamicBorder());
+  chatContainer.addChild(new Text(theme.bold(theme.fg("accent", "Keyboard Shortcuts")), 1, 0));
+  chatContainer.addChild(new Spacer(1));
+  chatContainer.addChild(new Markdown(hotkeys.trim(), 1, 1, getMarkdownTheme()));
+  chatContainer.addChild(new DynamicBorder());
+}
+
+function handleDebugCommand(): void {
+  const width = terminal.columns, height = terminal.rows;
+  const allLines = ui.render(width);
+  const debugLogPath = join(process.env.PI_CODING_AGENT_DIR!, `${scenario.appName}-debug.log`);
+  const debugData = [
+    `Debug output at ${new Date().toISOString()}`,
+    `Terminal: ${width}x${height}`,
+    `Total lines: ${allLines.length}`, "",
+    "=== All rendered lines with visible widths ===",
+    ...allLines.map((line, index) => `[${index}] (w=${visibleWidth(line)}) ${JSON.stringify(line)}`),
+    "", "=== Agent messages (JSONL) ===",
+    ...agentState.messages.map((message) => JSON.stringify(message)), "",
+  ].join("\n");
+  mkdirSync(dirname(debugLogPath), { recursive: true });
+  writeFileSync(debugLogPath, debugData);
+  chatContainer.addChild(new Spacer(1));
+  chatContainer.addChild(new Text(`${theme.fg("accent", "✓ Debug log written")}\n${theme.fg("muted", debugLogPath)}`, 1, 1));
+}
+
+
 // interactive-mode.ts setupEditorSubmitHandler (the routed slice).
 editor.onSubmit = async (text: string) => {
   text = text.trim();
@@ -768,6 +870,9 @@ editor.onSubmit = async (text: string) => {
     return;
   }
 
+  if (text === "/changelog") { handleChangelogCommand(); editor.setText(""); return; }
+  if (text === "/hotkeys") { handleHotkeysCommand(); editor.setText(""); return; }
+  if (text === "/debug") { handleDebugCommand(); editor.setText(""); return; }
   if (text === "/name" || text.startsWith("/name ")) {
     handleNameCommand(text);
     editor.setText("");

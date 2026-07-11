@@ -363,6 +363,14 @@ fn split_table_row(line: &str) -> Vec<String> {
     cells
 }
 
+fn is_table_start(lines: &[&str], index: usize) -> bool {
+    lines.get(index).is_some_and(|line| line.contains('|'))
+        && lines
+            .get(index + 1)
+            .and_then(|line| table_delimiter_cells(line))
+            .is_some()
+}
+
 fn is_html_block_start(line: &str) -> bool {
     let indent = indent_width(line);
     if indent > 3 {
@@ -503,6 +511,11 @@ fn lex_blocks(src: &str) -> Vec<Block> {
                     tokens: lex_inline(paragraph.join("\n").trim()),
                 });
                 paragraph.clear();
+                break;
+            }
+            // Marked's table block interrupts a paragraph even without a
+            // blank line (`**Navigation**\n| Key |...` in /hotkeys).
+            if is_table_start(&lines, i) {
                 break;
             }
             if interrupts_paragraph(lines[i]) {
@@ -1727,6 +1740,19 @@ mod tests {
         assert_eq!(lines[2].trim_end(), "├───┼───┤");
         assert_eq!(lines[3].trim_end(), "│ 1 │ 2 │");
         assert_eq!(lines[4].trim_end(), "└───┴───┘");
+    }
+
+    #[test]
+    fn table_interrupts_paragraph_without_blank_line() {
+        let lines = render_markdown(
+            "**Navigation**\n| Key | Action |\n| --- | --- |\n| Up | Move |",
+            30,
+            0,
+            0,
+        );
+        assert_eq!(lines[0].trim_end(), "Navigation");
+        assert_eq!(lines[2].trim_end(), "┌─────┬────────┐");
+        assert_eq!(lines[3].trim_end(), "│ Key │ Action │");
     }
 
     #[test]
