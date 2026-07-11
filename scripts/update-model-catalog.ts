@@ -43,8 +43,10 @@ const MODEL_KEYS = new Set([
 	"headers",
 	"compat",
 ]);
-const COST_KEYS = new Set(["input", "output", "cacheRead", "cacheWrite"]);
-const THINKING_KEYS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
+const COST_RATE_KEYS = new Set(["input", "output", "cacheRead", "cacheWrite"]);
+const COST_KEYS = new Set([...COST_RATE_KEYS, "tiers"]);
+const COST_TIER_KEYS = new Set([...COST_RATE_KEYS, "inputTokensAbove"]);
+const THINKING_KEYS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 type JsonObject = Record<string, unknown>;
 type CatalogEntry = { provider: string; models: JsonObject[] };
@@ -158,7 +160,20 @@ function validateModel(modelValue: unknown, providerKey: string, modelKey: strin
 	}
 	const cost = object(model.cost, `${where}.cost`);
 	rejectUnknownKeys(cost, COST_KEYS, `${where}.cost`);
-	for (const key of COST_KEYS) finiteNumber(cost[key], `${where}.cost.${key}`);
+	for (const key of COST_RATE_KEYS) finiteNumber(cost[key], `${where}.cost.${key}`);
+	if (cost.tiers !== undefined) {
+		if (!Array.isArray(cost.tiers)) fail(`${where}.cost.tiers must be an array`);
+		for (const [index, rawTier] of cost.tiers.entries()) {
+			const tierWhere = `${where}.cost.tiers[${index}]`;
+			const tier = object(rawTier, tierWhere);
+			rejectUnknownKeys(tier, COST_TIER_KEYS, tierWhere);
+			for (const key of COST_RATE_KEYS) finiteNumber(tier[key], `${tierWhere}.${key}`);
+			const threshold = finiteNumber(tier.inputTokensAbove, `${tierWhere}.inputTokensAbove`);
+			if (!Number.isSafeInteger(threshold) || threshold < 0) {
+				fail(`${tierWhere}.inputTokensAbove must be a non-negative safe integer`);
+			}
+		}
+	}
 	for (const key of ["contextWindow", "maxTokens"] as const) {
 		const value = finiteNumber(model[key], `${where}.${key}`);
 		if (!Number.isSafeInteger(value) || value <= 0) fail(`${where}.${key} must be a positive safe integer`);

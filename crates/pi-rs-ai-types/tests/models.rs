@@ -4,9 +4,9 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use ModelThinkingLevel::{High, Low, Medium, Minimal, Off, XHigh};
+use ModelThinkingLevel::{High, Low, Max, Medium, Minimal, Off, XHigh};
 use pi_rs_ai_types::{
-    Model, ModelThinkingLevel, Usage, calculate_cost, clamp_thinking_level,
+    Model, ModelCostTier, ModelThinkingLevel, Usage, calculate_cost, clamp_thinking_level,
     get_supported_thinking_levels, models_are_equal,
 };
 
@@ -38,6 +38,28 @@ fn calculate_cost_matches_spec_math() {
 }
 
 #[test]
+fn calculate_cost_selects_highest_matching_request_tier() {
+    let mut opus = model("model_anthropic_opus47.json");
+    opus.cost.tiers = vec![
+        ModelCostTier {
+            input_tokens_above: 100,
+            input: 10.0,
+            ..ModelCostTier::default()
+        },
+        ModelCostTier {
+            input_tokens_above: 200,
+            input: 20.0,
+            ..ModelCostTier::default()
+        },
+    ];
+    let mut usage = Usage {
+        input: 201,
+        ..Usage::default()
+    };
+    assert_eq!(calculate_cost(&opus, &mut usage).input, 0.00402);
+}
+
+#[test]
 fn supported_levels_non_reasoning_is_off_only() {
     let mut nova = model("model_bedrock_nova2lite.json");
     nova.reasoning = false;
@@ -45,9 +67,9 @@ fn supported_levels_non_reasoning_is_off_only() {
 }
 
 #[test]
-fn supported_levels_defaults_exclude_unmapped_xhigh() {
-    // Reasoning model without a thinkingLevelMap: every level except xhigh,
-    // which requires an explicit mapping (spec: `mapped !== undefined`).
+fn supported_levels_defaults_exclude_unmapped_extended_levels() {
+    // A reasoning model without a thinkingLevelMap supports defaults through
+    // high; xhigh and max require explicit mappings.
     let copilot = model("model_copilot_haiku45.json");
     assert_eq!(
         get_supported_thinking_levels(&copilot),
@@ -61,11 +83,11 @@ fn supported_levels_explicit_nulls_are_unsupported() {
     let ring = model("model_antling_ring.json");
     assert_eq!(get_supported_thinking_levels(&ring), vec![High, XHigh]);
 
-    // Opus 4.7: only xhigh mapped, everything else defaults on.
+    // Opus 4.7 explicitly maps both extended levels.
     let opus = model("model_anthropic_opus47.json");
     assert_eq!(
         get_supported_thinking_levels(&opus),
-        vec![Off, Minimal, Low, Medium, High, XHigh]
+        vec![Off, Minimal, Low, Medium, High, XHigh, Max]
     );
 }
 
@@ -78,9 +100,10 @@ fn clamp_searches_up_then_down() {
     assert_eq!(clamp_thinking_level(&ring, High), High);
     assert_eq!(clamp_thinking_level(&ring, XHigh), XHigh);
 
-    // Copilot haiku: xhigh unsupported → falls back downward to high.
+    // Copilot haiku: extended levels are unsupported → fall back to high.
     let copilot = model("model_copilot_haiku45.json");
     assert_eq!(clamp_thinking_level(&copilot, XHigh), High);
+    assert_eq!(clamp_thinking_level(&copilot, Max), High);
     assert_eq!(clamp_thinking_level(&copilot, Medium), Medium);
 }
 

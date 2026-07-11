@@ -26,7 +26,7 @@ pub use types::{
     AssistantMessageEvent, AssistantRole, CacheControlFormat, CacheRetention, Context,
     DataCollection, ImageContent, ImageType, ImagesApi, ImagesContext, ImagesModel, ImagesProvider,
     ImagesStopReason, KNOWN_APIS, KNOWN_IMAGES_APIS, KNOWN_IMAGES_PROVIDERS, KNOWN_PROVIDERS,
-    MaxTokensField, Message, Modality, Model, ModelCost, ModelThinkingLevel,
+    MaxTokensField, Message, Modality, Model, ModelCost, ModelCostTier, ModelThinkingLevel,
     OpenAICompletionsCompat, OpenAIResponsesCompat, OpenRouterRouting, Provider, ProviderResponse,
     StopReason, TextContent, TextOrImageContent, TextSignaturePhase, TextSignatureV1, TextType,
     ThinkingBudgets, ThinkingContent, ThinkingFormat, ThinkingLevel, ThinkingLevelMap,

@@ -95,7 +95,7 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Args {
                     None => result.diagnostics.push(Diagnostic {
                         is_error: false,
                         message: format!(
-                            "Invalid thinking level \"{level}\". Valid values: off, minimal, low, medium, high, xhigh"
+                            "Invalid thinking level \"{level}\". Valid values: off, minimal, low, medium, high, xhigh, max"
                         ),
                     }),
                 }
@@ -148,7 +148,7 @@ Options:
   --provider <name>              Provider name
   --model <pattern>              Model pattern or ID (supports \"provider/id\" and optional \":<thinking>\")
   --api-key <key>                API key (defaults to env vars)
-  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh
+  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max
   --list-models [search]         List available models (with optional fuzzy search)
   --login [provider]             Log into a provider via OAuth (default: anthropic)
   --continue, -c                 Continue previous session

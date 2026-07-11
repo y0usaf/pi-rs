@@ -34,9 +34,9 @@ pub fn build_base_options(
     }
 }
 
-/// Spec: `clampReasoning` — `xhigh` clamps to `high`.
+/// Spec: `clampReasoning` — `xhigh` and `max` clamp to `high`.
 pub fn clamp_reasoning(effort: ThinkingLevel) -> ThinkingLevel {
-    if effort == ThinkingLevel::XHigh {
+    if matches!(effort, ThinkingLevel::XHigh | ThinkingLevel::Max) {
         ThinkingLevel::High
     } else {
         effort
@@ -73,7 +73,9 @@ pub fn adjust_max_tokens_for_thinking(
         ThinkingLevel::Minimal => pick(defaults.minimal, custom.minimal),
         ThinkingLevel::Low => pick(defaults.low, custom.low),
         ThinkingLevel::Medium => pick(defaults.medium, custom.medium),
-        ThinkingLevel::High | ThinkingLevel::XHigh => pick(defaults.high, custom.high),
+        ThinkingLevel::High | ThinkingLevel::XHigh | ThinkingLevel::Max => {
+            pick(defaults.high, custom.high)
+        }
     };
     let max_tokens = match base_max_tokens {
         None => model_max_tokens,

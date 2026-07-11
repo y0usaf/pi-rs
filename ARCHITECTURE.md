@@ -201,6 +201,7 @@ crate pi_rs_ai_types
     ├── enum Modality: pub
     ├── struct Model: pub
     ├── struct ModelCost: pub
+    ├── struct ModelCostTier: pub
     ├── enum ModelThinkingLevel: pub
     ├── struct OpenAICompletionsCompat: pub
     ├── struct OpenAIResponsesCompat: pub

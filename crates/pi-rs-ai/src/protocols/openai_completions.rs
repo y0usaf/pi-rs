@@ -815,6 +815,7 @@ fn level_str(level: ThinkingLevel) -> &'static str {
         ThinkingLevel::Medium => "medium",
         ThinkingLevel::High => "high",
         ThinkingLevel::XHigh => "xhigh",
+        ThinkingLevel::Max => "max",
     }
 }
 
@@ -1671,6 +1672,7 @@ pub fn stream_simple_openai_completions(
                 ModelThinkingLevel::Medium => Some(ThinkingLevel::Medium),
                 ModelThinkingLevel::High => Some(ThinkingLevel::High),
                 ModelThinkingLevel::XHigh => Some(ThinkingLevel::XHigh),
+                ModelThinkingLevel::Max => Some(ThinkingLevel::Max),
             },
         );
 
