@@ -296,14 +296,21 @@ fn submit_router_matches_pi_command_interception() {
 #[test]
 fn submit_router_intercepts_info_commands_before_prompting() {
     let request = serde_json::json!({
-        "texts": ["/changelog", "/hotkeys", "/reload", "/debug"]
+        "texts": [
+            "/changelog",
+            "/hotkeys",
+            "/reload",
+            "/debug",
+            "/arminsayshi",
+            "/dementedelves"
+        ]
     });
     let result = host()
         .call_command("interactive-submit-route", &request.to_string())
         .unwrap()
         .unwrap();
     let trace = result["trace"].as_array().unwrap();
-    assert_eq!(trace.len(), 8);
+    assert_eq!(trace.len(), 12);
     assert_eq!(trace[0]["action"], "changelog_command");
     assert_eq!(trace[1]["action"], "set_text");
     assert_eq!(trace[2]["action"], "hotkeys_command");
@@ -313,6 +320,10 @@ fn submit_router_intercepts_info_commands_before_prompting() {
     assert_eq!(trace[5]["action"], "reload_command");
     assert_eq!(trace[6]["action"], "debug_command");
     assert_eq!(trace[7]["action"], "set_text");
+    assert_eq!(trace[8]["action"], "armin_command");
+    assert_eq!(trace[9]["action"], "set_text");
+    assert_eq!(trace[10]["action"], "earendil_command");
+    assert_eq!(trace[11]["action"], "set_text");
 }
 
 #[test]

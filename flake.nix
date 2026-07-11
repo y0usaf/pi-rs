@@ -48,6 +48,8 @@
               || (lib.hasSuffix ".css" path)
               || (lib.hasSuffix ".js" path)
               || (lib.hasSuffix ".md" path)
+              || (lib.hasSuffix ".base64" path)
+              || (lib.hasSuffix ".hex" path)
               || (lib.hasSuffix ".sse" path);
           };
 
