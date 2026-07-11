@@ -1193,7 +1193,7 @@ surface; external editor + suspend. Split into rungs:
       public store seam. `cargo test --workspace`: 561 passed; `cargo fmt
       --check` green.
 
-- [ ] **7.5 Automated model catalog freshness.** Replace the one-off Bun
+- [x] **7.5 Automated model catalog freshness.** Replace the one-off Bun
       converter with a Nix-exposed update task that can ingest the current
       upstream model catalog, normalize it into `crates/pi-rs-ai/data/models.json`,
       and preserve pi-rs's catalog-as-data boundary. During parity, upstream Pi's
@@ -1214,8 +1214,10 @@ surface; external editor + suspend. Split into rungs:
       **Accept:** `nix run .#update-model-catalog` is idempotent for a fixed input
       and regenerates the embedded snapshot; a fixture-backed/offline test pins
       normalization; scheduled CI produces no diff when current and a generated
-      PR with provenance + inventory summary when stale; `nix flake check` proves
-      the resulting catalog only advertises models pi-rs can dispatch.
+      PR with provenance + inventory summary when stale; merge checks prove the
+      result conforms to the reviewed `Model` schema and protocol vocabulary.
+      End-to-end dispatch coverage for every advertised API remains item 8's
+      protocol-replay acceptance gate.
 
       **Landed slice (2026-07-11):** `nix run .#update-model-catalog` now owns
       source acquisition (latest ref, exact revision, or local checkout), strict
@@ -1230,15 +1232,15 @@ surface; external editor + suspend. Split into rungs:
       generated branch/PR only for a valid diff. Manual and protocol-promotion
       paths are documented in README.
 
-      **Remaining before checking this rung:** the dispatch acceptance depends on
-      item 8: the pinned catalog has nine API families, while runtime dispatch
-      has only `anthropic-messages` and `openai-completions` (see
-      `registry/stream.rs`). Do not claim the dispatch gate until those protocols
-      land, or explicitly reorder/narrow the acceptance criterion. Current
-      upstream `main` at `8479bd84` also adds thinking level `max`; the updater
-      correctly rejects it as unknown schema rather than silently widening the
-      v0.79.0 model contract. Adopting it requires a deliberate spec/schema
-      promotion, not a metadata override.
+      **Closure (2026-07-11):** the original dispatch wording was assigned to
+      the wrong rung. Catalog update tooling can validate a reviewed API
+      vocabulary but cannot prove each transport implementation; that requires
+      item 8's deterministic protocol replays. Keeping 7.5 blocked on item 8
+      would violate the ladder's ordering without adding freshness coverage, so
+      the dispatch requirement now lives solely in item 8. During parity the
+      checked-in snapshot remains pinned to Pi v0.79.0; adopting later catalog
+      schema or behavior is a deliberate spec promotion, not an automated
+      metadata refresh.
 
       **Evidence:** updater fixture green; pinned remote revision regenerates
       `models.json` byte-identically; focused registry test 11/11; `cargo fmt
