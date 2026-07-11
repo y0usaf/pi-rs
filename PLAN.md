@@ -1322,7 +1322,7 @@ surface; external editor + suspend. Split into rungs:
       `cargo test --workspace` and `nix build
       .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
-- [ ] **7.8 Session transfer commands.** `/export` (HTML/JSONL),
+- [x] **7.8 Session transfer commands.** `/export` (HTML/JSONL),
       `/import`, `/share`, `/copy`.
 
       **Landed slice (2026-07-11):** JSONL export, import, and copy are wired
@@ -1373,12 +1373,27 @@ surface; external editor + suspend. Split into rungs:
       --check`, `cargo test --workspace`, and `nix build
       .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
-      **Remaining before closure:** add a Pi-vs-pi-rs HTML payload differential that
-      normalizes only intentional runtime state and preserves JSON `null`/property order
-      (the current Lua JSON boundary drops object-valued null keys such as root
-      `parentId`; browser behavior is equivalent but byte parity is not yet proved), and
-      add Pi-derived `/share` loader/success/cancel/error frames. Keep the checkbox open
-      until those two differential gates pass; the command surface itself is fully routed.
+      **Closure (2026-07-11):** `tests/export-html-parity/` now drives Pi's real
+      `exportSessionToHtml` over a controlled session/AgentState and compares the
+      exact embedded JSON text plus the SHA-256 of the complete HTML document
+      through pi-rs's shipped Lua exporter. No runtime fields are normalized:
+      explicit object `null`s and JavaScript property order are byte-significant.
+      The gate exposed and fixed both remaining divergences: the JSON→Lua→JSON
+      boundary now retains explicit null-key positions in table metadata, and the
+      exporter seeds outer/tool objects in spec order and reproduces JavaScript
+      `String.replace` replacement-string semantics (`$&`, `$$`, `$``/`$'`) when
+      embedding the vendored assets. `scripts/export-html-oracle` regenerates the
+      checked oracle from the pinned Pi snapshot.
+
+      Session-turn now scripts executable `gh` behavior on both harness sides and
+      matches Pi at 39 checkpoints (was 33): bordered gist loader, Escape cancel +
+      editor restore, a second loader followed by preview/gist success, and a third
+      loader followed by stderr failure, in addition to the existing export/import/
+      copy states. The complete transfer surface is closed. No new extension hook
+      landed; `export-html-parity` is an internal differential driver, so no example
+      was added. `cargo fmt --check`, focused JSON/export/session tests, `cargo test
+      --workspace`, `scripts/ui-diff` (all 21 suites), and `nix build
+      .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
 - [ ] **7.9 Info commands and chrome.** `/changelog`, `/hotkeys`,
       `/debug`, `/reload`, the easter eggs (armin/daxnuts/earendil),

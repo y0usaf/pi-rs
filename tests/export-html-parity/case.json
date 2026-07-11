@@ -1,0 +1,30 @@
+{
+  "session": "{\"type\":\"session\",\"version\":3,\"id\":\"0198a5c0-0000-7000-8000-000000000099\",\"timestamp\":\"2026-07-11T12:34:56.789Z\",\"cwd\":\"/tmp/pi-rs-export-html-parity\",\"parentSession\":\"/tmp/parent.jsonl\"}\n{\"type\":\"model_change\",\"id\":\"e1\",\"parentId\":null,\"timestamp\":\"2026-07-11T12:34:56.790Z\",\"provider\":\"anthropic\",\"modelId\":\"claude-parity-1\"}\n{\"type\":\"message\",\"id\":\"e2\",\"parentId\":\"e1\",\"timestamp\":\"2026-07-11T12:34:57.000Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"show <payload> & order\"}],\"timestamp\":1783773297000}}\n{\"type\":\"message\",\"id\":\"e3\",\"parentId\":\"e2\",\"timestamp\":\"2026-07-11T12:34:58.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"done\"}],\"api\":\"anthropic-messages\",\"provider\":\"anthropic\",\"model\":\"claude-parity-1\",\"usage\":{\"input\":3,\"output\":1,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":4,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"stopReason\":\"stop\",\"errorMessage\":null,\"timestamp\":1783773298000}}\n",
+  "systemPrompt": "You are the controlled export parity agent.\nKeep property order exact.",
+  "tools": [
+    {
+      "name": "read",
+      "description": "Read a file",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "offset": { "type": "number" }
+        },
+        "required": ["path"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "bash",
+      "description": "Execute a command",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": { "type": "string" }
+        },
+        "required": ["command"]
+      }
+    }
+  ]
+}

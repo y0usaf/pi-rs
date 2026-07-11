@@ -9105,6 +9105,26 @@ pi.register_command("interactive-tree-parity-sequence", {
   end,
 })
 
+-- Differential seam for core/export-html/index.ts. It drives the shipped Lua
+-- exporter with controlled AgentState metadata while the session itself still
+-- crosses the public pi.session boundary.
+pi.register_command("export-html-parity", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local data = request.theme == "light" and light_json or dark_json
+    local manager = pi.session.open({ path = request.sessionFile })
+    local agent_state = { systemPrompt = request.systemPrompt, tools = request.tools or {} }
+    local state = {
+      session_manager = manager,
+      agent = { get_state = function() return agent_state end },
+      theme = create_theme(data, request.colorMode or "truecolor"),
+      theme_data = data, cwd = manager:get_cwd(), app_name = request.appName or "pi",
+    }
+    return { outputPath = export_html_lib.generate(state, request.outputPath) }
+  end,
+})
+
+
 pi.register_command("interactive-session-parity-sequence", {
   handler = function(args)
     local request = pi.json.decode(args)

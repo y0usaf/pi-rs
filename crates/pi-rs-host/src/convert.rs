@@ -21,6 +21,12 @@ pub(crate) const JSON_KEY_ORDER: &str = "__pi_rs_json_key_order";
 /// (e.g. the compaction details file lists, PLAN 6.5).
 const JSON_ARRAY: &str = "__pi_rs_json_array";
 
+/// Metatable list of object keys whose decoded value was JSON null. Lua has
+/// no native null value, so the table slot is necessarily absent; retaining
+/// the keys beside the wire-order list lets an untouched object round-trip
+/// through `JSON.parse`/`JSON.stringify` without dropping explicit nulls.
+const JSON_NULL_KEYS: &str = "__pi_rs_json_null_keys";
+
 /// JS canonical array index: the canonical string form of an integer
 /// 0 ≤ n < 2^32-1. [[OwnPropertyKeys]] lists these numerically ascending
 /// ahead of every string key.
@@ -56,8 +62,13 @@ pub(crate) fn json_to_lua(lua: &mlua::Lua, val: &serde_json::Value) -> mlua::Res
     match val {
         serde_json::Value::Object(map) => {
             let table = lua.create_table()?;
+            let null_keys = lua.create_table()?;
             for (k, v) in map {
-                table.set(k.as_str(), json_to_lua(lua, v)?)?;
+                if v.is_null() {
+                    null_keys.push(k.as_str())?;
+                } else {
+                    table.set(k.as_str(), json_to_lua(lua, v)?)?;
+                }
             }
             let order = lua.create_table()?;
             for key in js_key_order(map) {
@@ -65,6 +76,7 @@ pub(crate) fn json_to_lua(lua: &mlua::Lua, val: &serde_json::Value) -> mlua::Res
             }
             let meta = lua.create_table()?;
             meta.raw_set(JSON_KEY_ORDER, order)?;
+            meta.raw_set(JSON_NULL_KEYS, null_keys)?;
             table.set_metatable(Some(meta))?;
             Ok(mlua::Value::Table(table))
         }
@@ -158,18 +170,26 @@ pub(crate) fn lua_to_json(val: mlua::Value) -> mlua::Result<serde_json::Value> {
             // Keys are emitted in the recorded boundary order when present
             // (Pi's JSON.stringify order), then any Lua-added remainder
             // sorted — the deterministic order all tables produced before
-            // order preservation landed.
+            // order preservation landed. Explicit decoded null slots are
+            // absent from the Lua table but retained in metatable metadata.
             entries.sort_by(|a, b| a.0.cmp(&b.0));
             let mut map = serde_json::Map::new();
-            if let Some(order) = t
-                .metatable()
-                .and_then(|meta| meta.raw_get::<mlua::Table>(JSON_KEY_ORDER).ok())
-            {
-                for key in order.sequence_values::<String>() {
-                    let key = key?;
-                    if let Some(pos) = entries.iter().position(|(k, _)| *k == key) {
-                        let (key, value) = entries.remove(pos);
-                        map.insert(key, lua_to_json(value)?);
+            if let Some(meta) = t.metatable() {
+                let null_keys: Vec<String> = meta
+                    .raw_get::<mlua::Table>(JSON_NULL_KEYS)
+                    .ok()
+                    .map(|keys| keys.sequence_values::<String>().collect())
+                    .transpose()?
+                    .unwrap_or_default();
+                if let Ok(order) = meta.raw_get::<mlua::Table>(JSON_KEY_ORDER) {
+                    for key in order.sequence_values::<String>() {
+                        let key = key?;
+                        if let Some(pos) = entries.iter().position(|(k, _)| *k == key) {
+                            let (key, value) = entries.remove(pos);
+                            map.insert(key, lua_to_json(value)?);
+                        } else if null_keys.contains(&key) {
+                            map.insert(key, serde_json::Value::Null);
+                        }
                     }
                 }
             }

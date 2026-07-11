@@ -72,6 +72,22 @@ fn decode_encode_matches_json_stringify() {
 }
 
 #[test]
+fn decoded_object_nulls_keep_wire_position() {
+    let host = Host::new(HostConfig::default()).expect("host");
+    host.load("json-test", RUNNER).expect("runner loads");
+
+    let compact = run(
+        &host,
+        "roundtrip-compact",
+        r#"{"type":"entry","parentId":null,"details":{"before":null,"after":2},"tail":null}"#,
+    );
+    assert_eq!(
+        compact,
+        r#"{"type":"entry","parentId":null,"details":{"before":null,"after":2},"tail":null}"#
+    );
+}
+
+#[test]
 fn lua_added_keys_follow_recorded_order() {
     let host = Host::new(HostConfig::default()).expect("host");
     host.load("json-test", RUNNER).expect("runner loads");
