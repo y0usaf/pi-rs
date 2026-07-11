@@ -1544,14 +1544,31 @@ surface; external editor + suspend. Split into rungs:
       fmt --check`, `cargo test --workspace`, and `scripts/ui-diff` (all 25 suites)
       are green.
 
-      **Remaining before closure:** port main-editor and ExtensionEditor Ctrl+G
-      handoff (VISUAL→EDITOR selection, temp-file lifecycle, inherited terminal,
-      success-only text replacement, forced repaint, and missing-editor warning),
-      plus Ctrl+Z process-group suspend/resume with terminal teardown/restoration,
-      SIGINT handling, Windows status behavior, and live PTY/process evidence.
-      Both require a process-session action/result mechanism so Lua retains command,
-      file, and presentation policy; do not block inside the VM or place product
-      policy in Rust.
+      **Second landed slice (2026-07-11):** main-editor and
+      ExtensionEditor `app.editor.external` now use a public process-session
+      action/result seam. Lua retains all product policy: VISUAL→EDITOR selection,
+      the two exact temp-file names, JS-space argument splitting, launch text,
+      success-only read/one-newline strip, cleanup, warning, and editor replacement.
+      Rust's `pi.tui.process_session` only stops/restores the TUI + raw terminal,
+      runs the requested inherited-stdio child, reacquires the terminal, forces a
+      redraw, and delivers `{id,status}`. The public seam is exercised by
+      `examples/extensions/tui-live-process-demo.lua`.
+
+      **Evidence for the second slice:** `shell-turn` now matches Pi at 16
+      checkpoints (was 15), adding the no-editor warning;
+      `external_editor_policy_matches_pi_success_and_failure_settlement` pins
+      VISUAL command splitting, initial temp contents, launch text, successful
+      replacement/newline stripping, nonzero preservation, and cleanup for both
+      temp-file forms. A live util-linux `script` PTY run launched a rewriting
+      inherited child, displayed `edited from inherited child` after reacquisition,
+      exited 0, and left no `pi-editor-*.pi.md`. `cargo fmt --check`, `cargo test
+      --workspace`, `scripts/ui-diff` (all 25 suites), and `nix build
+      .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
+
+      **Remaining before closure:** port Ctrl+Z process-group suspend/resume with
+      terminal teardown/restoration, SIGINT handling, Windows status behavior, and
+      live PTY/process evidence. Reuse/extend the process-session action/result
+      mechanism; Lua must retain presentation and command policy.
 
       **Accept (whole item):** every reachable interactive component has
       a parity fixture and no placeholder component or pi-rs-only chrome
