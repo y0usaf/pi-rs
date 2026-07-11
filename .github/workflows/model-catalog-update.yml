@@ -1,0 +1,53 @@
+name: Model catalog freshness
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: model-catalog-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: cachix/install-nix-action@v31
+      - name: Regenerate from upstream
+        env:
+          SUMMARY_PATH: ${{ runner.temp }}/model-catalog-summary.md
+        run: nix run .#update-model-catalog -- --summary-output "$SUMMARY_PATH"
+      - name: Verify generated catalog
+        run: nix flake check --print-build-logs
+      - name: Open or refresh generated PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUMMARY_PATH: ${{ runner.temp }}/model-catalog-summary.md
+        run: |
+          if git diff --quiet -- crates/pi-rs-ai/data/models.json crates/pi-rs-ai/data/models.provenance.json; then
+            echo "Catalog is current."
+            exit 0
+          fi
+
+          branch=automation/model-catalog-update
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git checkout -B "$branch"
+          git add crates/pi-rs-ai/data/models.json crates/pi-rs-ai/data/models.provenance.json
+          git commit -m "ai: refresh generated model catalog"
+          git push --force-with-lease origin "HEAD:$branch"
+
+          existing=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --title "ai: refresh generated model catalog" --body-file "$SUMMARY_PATH"
+          else
+            gh pr create --head "$branch" --title "ai: refresh generated model catalog" --body-file "$SUMMARY_PATH"
+          fi

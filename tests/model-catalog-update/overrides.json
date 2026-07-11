@@ -1,0 +1,14 @@
+{
+	"schemaVersion": 1,
+	"overrides": [
+		{
+			"provider": "a-provider",
+			"model": "a-model",
+			"reason": "Fixture: prove reviewed source-metadata corrections are deterministic.",
+			"set": {
+				"name": "Corrected Name"
+			},
+			"remove": ["compat"]
+		}
+	]
+}

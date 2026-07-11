@@ -1217,6 +1217,36 @@ surface; external editor + suspend. Split into rungs:
       PR with provenance + inventory summary when stale; `nix flake check` proves
       the resulting catalog only advertises models pi-rs can dispatch.
 
+      **Landed slice (2026-07-11):** `nix run .#update-model-catalog` now owns
+      source acquisition (latest ref, exact revision, or local checkout), strict
+      normalization, reviewed `model-catalog-overrides.json`, deterministic
+      provenance/output hashes + inventory/PR summary, and the checked-in
+      snapshot; the one-off `gen-models-json.ts` is gone. The offline
+      `tests/model-catalog-update/` exerciser proves fixed-input idempotency,
+      order/override behavior, and fail-closed unknown-field/protocol handling;
+      `registry.rs` pins provenance inventory, the reviewed API vocabulary, and
+      every-row `Model` round-trip. `.github/workflows/model-catalog-update.yml`
+      runs generation + `nix flake check` weekly and creates/refreshes the
+      generated branch/PR only for a valid diff. Manual and protocol-promotion
+      paths are documented in README.
+
+      **Remaining before checking this rung:** run the scheduled workflow live
+      to prove its no-diff and generated-PR branches. More importantly, the
+      acceptance sentence currently depends on item 8: the pinned catalog has
+      nine API families, while runtime dispatch has only `anthropic-messages`
+      and `openai-completions` (see `registry/stream.rs`). Do not claim the
+      dispatch gate until those protocols land, or explicitly reorder/narrow
+      the acceptance criterion. Current upstream `main` at `8479bd84` also
+      adds thinking level `max`; the updater correctly rejects it as unknown
+      schema rather than silently widening the v0.79.0 model contract. Adopting
+      it requires a deliberate spec/schema promotion, not a metadata override.
+      **Evidence:** updater fixture green; pinned remote revision regenerates
+      `models.json` byte-identically; focused registry test 11/11; `cargo fmt
+      --check` + `nix fmt -- --check flake.nix` green;
+      `nix build .#checks.x86_64-linux.model-catalog-update` green; `nix build
+      .#checks.x86_64-linux.workspace-test --print-build-logs` green (562
+      passed). Live scheduled-workflow branches remain unverified as above.
+
 - [ ] **7.6 `/trust`.** trust-selector.ts + the project-trust plumbing
       and startup warning.
 
