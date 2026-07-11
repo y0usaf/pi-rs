@@ -96,6 +96,7 @@ fn ws1_acceptance_run() {
     let host = Host::new(HostConfig {
         dispatch_timeout_ms: 200,
         cwd: Some(s(&proj)),
+        project_trusted,
     })
     .expect("host starts");
     let embedded = host.load_embedded(&[EmbeddedPack {

@@ -1,0 +1,18 @@
+{
+  "command": "interactive-trust-parity-sequence",
+  "columns": 72,
+  "rows": 30,
+  "cwd": "/tmp/pi-rs-trust-fixture/project",
+  "steps": [
+    { "name": "startup" },
+    { "name": "open", "show": true },
+    { "name": "parent-selected", "input": ["\u001b[B"] },
+    { "name": "parent-saved", "input": ["\r"] },
+    { "name": "reopen-inherited", "show": true },
+    { "name": "untrusted-selected", "input": ["\u001b[B"] },
+    { "name": "untrusted-saved", "input": ["\r"] },
+    { "name": "reopen-untrusted", "show": true },
+    { "name": "cancel-restore", "input": ["\u001b", "h", "i"] },
+    { "name": "resize", "resize": { "columns": 48, "rows": 24 } }
+  ]
+}

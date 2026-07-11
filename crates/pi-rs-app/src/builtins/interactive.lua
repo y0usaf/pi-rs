@@ -877,6 +877,8 @@ local function transcript_lines(state, width)
       -- showWarning: Spacer(1) + Text(warning "Warning: ...", 1, 0)
       lines[#lines + 1] = ""
       append(lines, pi.tui.text_render(state.theme:fg("warning", item.text), width, 1, 0))
+    elseif item.kind == "warning_raw" then
+      append(lines, pi.tui.text_render(state.theme:fg("warning", item.text), width, 1, 0))
     end
   end
   if state.streaming_message then
@@ -3261,6 +3263,89 @@ end
   return { show = show_settings_selector }
 end)()
 
+DEFAULT_KEYS.__trust_policy = (function()
+-- components/trust-selector.ts + interactive-mode.ts showTrustSelector.
+-- Persistence/discovery is the public pi.trust mechanism; this component and
+-- all command/status behavior remain replaceable Lua policy.
+local function trust_selector(options)
+  local self = { focused = false, selected = 1 }
+  local trust_options = pi.trust.options(options.cwd, false)
+  local saved = options.saved_decision
+  local function is_saved(option)
+    return option.savedPath ~= nil and saved ~= nil
+      and saved.decision == option.trusted and saved.path == option.savedPath
+  end
+  for index, option in ipairs(trust_options) do
+    if is_saved(option) then self.selected = index; break end
+  end
+  function self:set_focused(focused) self.focused = focused end
+  function self:handle_input(data)
+    if binding_matches(data, SELECT_KEYS.up) or data == "k" then
+      self.selected = math.max(1, self.selected - 1)
+    elseif binding_matches(data, SELECT_KEYS.down) or data == "j" then
+      self.selected = math.min(#trust_options, self.selected + 1)
+    elseif binding_matches(data, SELECT_KEYS.confirm) or data == "\n" then
+      local selected = trust_options[self.selected]
+      if selected then options.on_select({ trusted = selected.trusted, updates = selected.updates }) end
+    elseif binding_matches(data, SELECT_KEYS.cancel) then options.on_cancel() end
+  end
+  function self:render(width)
+    local theme = options.theme
+    local lines = { dynamic_border_line(theme, width), "" }
+    append(lines, pi.tui.text_render(theme:fg("accent", theme:bold("Project trust")), width, 1, 0))
+    append(lines, pi.tui.text_render(theme:fg("muted", options.cwd), width, 1, 0))
+    lines[#lines + 1] = ""
+    local saved_text = "none"
+    if saved then
+      saved_text = saved.decision and "trusted" or "untrusted"
+      if saved.path ~= pi.trust.path(options.cwd) then
+        saved_text = saved_text .. " (inherited from " .. saved.path .. ")"
+      else saved_text = saved_text .. " (" .. saved.path .. ")" end
+    end
+    append(lines, pi.tui.text_render(theme:fg("muted", "Saved decision: " .. saved_text), width, 1, 0))
+    append(lines, pi.tui.text_render(theme:fg("muted", "Current session: "
+      .. (options.project_trusted and "trusted" or "untrusted")), width, 1, 0))
+    lines[#lines + 1] = ""
+    for index, option in ipairs(trust_options) do
+      local selected = index == self.selected
+      local prefix = selected and theme:fg("accent", "→ ") or "  "
+      local label = theme:fg(selected and "accent" or "text", option.label)
+      local check = is_saved(option) and theme:fg("success", " ✓") or ""
+      append(lines, pi.tui.text_render(prefix .. label .. check, width, 1, 0))
+    end
+    lines[#lines + 1] = ""
+    local hints = raw_key_hint(theme, "↑↓", "navigate") .. "  "
+      .. select_key_hint(theme, "confirm", "save") .. "  "
+      .. select_key_hint(theme, "cancel", "cancel")
+    append(lines, pi.tui.text_render(hints, width, 1, 0))
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = dynamic_border_line(theme, width)
+    return lines
+  end
+  return self
+end
+
+local function show_trust_selector(state)
+  local cwd = state.session_manager and state.session_manager:get_cwd() or state.cwd
+  local saved = pi.trust.get_entry(cwd)
+  show_selector(state, function(done)
+    local selector = trust_selector({ theme = state.theme, cwd = cwd,
+      saved_decision = saved, project_trusted = state.project_trusted,
+      on_select = function(selection)
+        pi.trust.set_many(selection.updates)
+        done()
+        show_status(state, "Saved trust decision: "
+          .. (selection.trusted and "trusted" or "untrusted")
+          .. ". Restart pi for this to take effect.")
+      end,
+      on_cancel = function() done() end,
+    })
+    return selector, selector
+  end)
+end
+  return { show = show_trust_selector, selector = trust_selector }
+end)()
+
 -- interactive-mode.ts setupEditorSubmitHandler — the "/" command routing
 -- skeleton. Builtin commands are routed here only once their dialogs land
 -- (item 7 the rest); pi has no pre-dialog behavior for them, so until
@@ -3337,6 +3422,11 @@ local function handle_submit(text, actions)
     actions.set_text("")
     return
   end
+  if text == "/trust" then
+    actions.trust_command()
+    actions.set_text("")
+    return
+  end
   if text == "/quit" then
     actions.set_text("")
     actions.quit()
@@ -3392,6 +3482,7 @@ pi.register_command("interactive-submit-route", {
         fork_command = function() trace[#trace + 1] = { action = "fork_command" } end,
         clone_command = function() trace[#trace + 1] = { action = "clone_command" } end,
         tree_command = function() trace[#trace + 1] = { action = "tree_command" } end,
+        trust_command = function() trace[#trace + 1] = { action = "trust_command" } end,
       })
     end
     return { trace = trace }
@@ -3887,6 +3978,7 @@ local function shell_submit_actions(state)
     fork_command = function() show_user_message_selector(state) end,
     clone_command = function() handle_clone_command(state) end,
     tree_command = function() show_tree_selector(state) end,
+    trust_command = function() DEFAULT_KEYS.__trust_policy.show(state) end,
     is_bash_running = function()
       return state.session.is_bash_running ~= nil and state.session.is_bash_running() or false
     end,
@@ -4219,8 +4311,8 @@ function render_session_context(state, options)
   for id, row in pairs(rendered_pending) do state.pending_tools[id] = row end
 end
 
--- interactive-mode.ts renderInitialMessages (the project-trust warning
--- joins the trust surface, item 9).
+-- interactive-mode.ts renderInitialMessages, including the warning shown when
+-- startup trust resolution leaves this project untrusted.
 local function render_initial_messages(state)
   render_session_context(state, { populate_history = true })
   local compactions = 0
@@ -4230,6 +4322,11 @@ local function render_initial_messages(state)
   if compactions > 0 then
     local times = compactions == 1 and "1 time" or (compactions .. " times")
     show_status(state, "Session compacted " .. times)
+  end
+  if state.project_trusted == false then
+    if #state.transcript > 0 then state.transcript[#state.transcript + 1] = { kind = "spacer" } end
+    state.transcript[#state.transcript + 1] = { kind = "warning_raw",
+      text = "This project is not trusted. Project .pi resources and packages are ignored. Use /trust to save a trust decision, then restart pi." }
   end
 end
 
@@ -7145,6 +7242,7 @@ local function create_interactive_state(request)
     registry = default_registry_seam(),
     scoped_models = {},
     hide_thinking_block = pi.settings.hide_thinking_block(),
+    project_trusted = request.projectTrusted ~= false,
   }
   -- Spec: main.ts mirrors --api-key into the auth storage as a runtime
   -- override before the session starts; per-request resolution then
@@ -7866,6 +7964,71 @@ pi.register_command("interactive-scoped-models-parity-sequence", {
     end
     return { frames = frames, scopedModels = scoped_ids, savedModels = pi.settings.enabled_models(),
       currentModel = state.model and (state.model.provider .. "/" .. state.model.id) or nil }
+  end,
+})
+
+
+-- /trust editor-slot differential driver. Uses the shipped selector, command
+-- route, and public trust store; unrelated transcript/footer rows are omitted.
+pi.register_command("interactive-trust-parity-sequence", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local theme = create_theme(dark_json, request.colorMode or "truecolor")
+    local columns, rows = request.columns, request.rows
+    pi.trust.set(request.cwd, nil)
+    local options = pi.trust.options(request.cwd, false)
+    if options[2] and options[2].savedPath then pi.trust.set(options[2].savedPath, nil) end
+    local state = {
+      theme = theme, md_theme = get_markdown_theme(theme), transcript = {
+        { kind = "warning_raw", text = "This project is not trusted. Project .pi resources and packages are ignored. Use /trust to save a trust decision, then restart pi." },
+      },
+      model = nil, thinking_level = "off", tools_expanded = false, header_expanded = false,
+      steering_texts = {}, follow_up_texts = {}, double_escape_action = "none",
+      cwd = request.cwd, project_trusted = false, now_ms = function() return 0 end,
+      usage = {}, exit = false, scoped_models = {},
+      registry = { has_configured_auth = function() return true end, get_available = function() return {} end },
+      session = { is_streaming = function() return false end, clear_queues = function() end,
+        steer = function() end, follow_up = function() end, abort = function() end,
+        prompt = function() end },
+    }
+    state.set_editor_focus = function(focused)
+      if state.editor then state.editor.editor:set_focused(focused) end
+    end
+    setup_shell_editor(state)
+    state.editor.editor:set_terminal_rows(rows)
+    local actions = shell_submit_actions(state)
+    state.submit = function(text) handle_submit(text, actions) end
+    local terminal = pi.tui.session(columns, rows, true)
+    local frames = {}
+    local function lines()
+      local result = transcript_lines(state, columns)
+      if state.selector then append(result, state.selector:render(columns))
+      else sync_editor_border(state); append(result, state.editor.editor:render(columns)) end
+      return result
+    end
+    local function capture(name, force)
+      terminal:request_render(force or false)
+      terminal:render(lines())
+      frames[#frames + 1] = { name = name, columns = columns, rows = rows, ansi = terminal:output() }
+    end
+    terminal:start()
+    for _, step in ipairs(request.steps or {}) do
+      if step.show then DEFAULT_KEYS.__trust_policy.show(state) end
+      if step.resize then
+        columns, rows = step.resize.columns, step.resize.rows
+        state.editor.editor:set_terminal_rows(rows)
+        terminal:resize(columns, rows)
+      end
+      for _, input in ipairs(step.input or {}) do
+        if state.selector then state.selector:handle_input(input)
+        else
+          local effect = state.editor:handle_input(input)
+          if effect.kind == "submit" then state.submit(effect.text or effect.value or "") end
+        end
+      end
+      capture(step.name, step.name == "startup" or step.resize ~= nil)
+    end
+    return { frames = frames, saved = pi.trust.get_entry(request.cwd) }
   end,
 })
 
