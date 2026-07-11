@@ -35,6 +35,7 @@ type Scenario = {
   providerCount: number;
   doubleEscapeAction: "fork" | "tree" | "none";
   clipboardImagePath?: string;
+  thinkingText?: string;
   shortcut?: { key: string; status: string };
   usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
   contextUsage: { percent: number | null; contextWindow: number };
@@ -134,6 +135,24 @@ headerContainer.addChild(new Spacer(1));
 headerContainer.addChild(builtInHeader);
 headerContainer.addChild(new Spacer(1));
 const chatContainer = new Container();
+let hideThinkingBlock = false;
+const thinkingMessage = scenario.thinkingText
+  ? ({
+      role: "assistant",
+      content: [{ type: "thinking", thinking: scenario.thinkingText }],
+      api: "faux",
+      provider: "faux",
+      model: "faux-1",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "stop",
+      timestamp: 0,
+    } as never)
+  : undefined;
+function rebuildThinkingMessage(): void {
+  chatContainer.clear();
+  if (thinkingMessage) chatContainer.addChild(new AssistantMessageComponent(thinkingMessage, hideThinkingBlock));
+}
+rebuildThinkingMessage();
 const pendingMessagesContainer = new Container();
 const statusContainer = new Container();
 const widgetContainerAbove = new Container();
@@ -331,6 +350,14 @@ function setToolsExpanded(expanded: boolean): void {
   ui.requestRender();
 }
 
+// interactive-mode.ts toggleThinkingBlockVisibility. The production path also
+// persists hideThinkingBlock; this differential driver pins its visible policy.
+function toggleThinkingBlockVisibility(): void {
+  hideThinkingBlock = !hideThinkingBlock;
+  rebuildThinkingMessage();
+  showStatus(`Thinking blocks: ${hideThinkingBlock ? "hidden" : "visible"}`);
+}
+
 // interactive-mode.ts handleDequeue.
 function handleDequeue(): void {
   const restored = restoreQueuedMessagesToEditor();
@@ -379,6 +406,7 @@ editor.onCtrlD = () => {
   exited = true;
 };
 editor.onAction("app.tools.expand", () => setToolsExpanded(!toolOutputExpanded));
+editor.onAction("app.thinking.toggle", () => toggleThinkingBlockVisibility());
 editor.onAction("app.message.followUp", () => handleFollowUp());
 editor.onAction("app.message.dequeue", () => handleDequeue());
 
@@ -417,6 +445,7 @@ editor.onSubmit = (text: string) => {
     return;
   }
   editor.addToHistory?.(text);
+  if (chatContainer.children.length > 0) chatContainer.addChild(new Spacer(1));
   chatContainer.addChild(new UserMessageComponent(text));
   isStreaming = true;
   startWorkingLoader();
