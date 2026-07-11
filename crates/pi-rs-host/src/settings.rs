@@ -97,6 +97,8 @@ pub(crate) fn install(lua: &Lua, pi: &Table, cwd: &str, project_trusted: bool) -
     bool_setter!("set_hide_thinking_block", set_hide_thinking_block);
     getter!("collapse_changelog", get_collapse_changelog);
     bool_setter!("set_collapse_changelog", set_collapse_changelog);
+    getter!("last_changelog_version", get_last_changelog_version);
+    string_setter!("set_last_changelog_version", set_last_changelog_version);
     getter!("enable_install_telemetry", get_enable_install_telemetry);
     bool_setter!("set_enable_install_telemetry", set_enable_install_telemetry);
     getter!("quiet_startup", get_quiet_startup);

@@ -866,6 +866,21 @@ local function transcript_lines(state, width)
       lines[#lines + 1] = ""
       append(lines, pi.tui.markdown_render(item.markdown, width, 1, 1, { theme = state.md_theme }))
       lines[#lines + 1] = state.theme:fg("border", string.rep("─", math.max(1, width)))
+    elseif item.kind == "startup_changelog" then
+      -- showStartupNoticesIfNeeded: DynamicBorder + condensed Text or the
+      -- What's New title/Spacer/Markdown/Spacer + DynamicBorder.
+      lines[#lines + 1] = state.theme:fg("border", string.rep("─", math.max(1, width)))
+      if item.collapsed then
+        append(lines, pi.tui.text_render("Updated to v" .. item.latest_version .. ". Use "
+          .. state.theme:bold("/changelog") .. " to view full changelog.", width, 1, 0))
+      else
+        append(lines, pi.tui.text_render(
+          state.theme:bold(state.theme:fg("accent", "What's New")), width, 1, 0))
+        lines[#lines + 1] = ""
+        append(lines, pi.tui.markdown_render(item.markdown, width, 1, 0, { theme = state.md_theme }))
+        lines[#lines + 1] = ""
+      end
+      lines[#lines + 1] = state.theme:fg("border", string.rep("─", math.max(1, width)))
     elseif item.kind == "text" then
       -- Pre-styled chat rows (interactive-mode.ts chatContainer.addChild
       -- of Spacer(1) + Text(content, 1, paddingY)): /name, /session, and
@@ -5923,6 +5938,51 @@ function normalize_changelog_links(markdown, entry)
     function(prefix, link, suffix) return prefix .. target(link) .. suffix end))
 end
 
+function changelog_entry_newer_than(entry, version)
+  local parts = {}
+  for value in tostring(version or ""):gmatch("[^%.]+") do
+    parts[#parts + 1] = tonumber(value) or 0
+  end
+  local major, minor, patch = parts[1] or 0, parts[2] or 0, parts[3] or 0
+  if entry.major ~= major then return entry.major > major end
+  if entry.minor ~= minor then return entry.minor > minor end
+  return entry.patch > patch
+end
+
+-- interactive-mode.ts getChangelogForDisplay + showStartupNoticesIfNeeded.
+-- The network telemetry launched after recording a fresh/new version remains
+-- deliberately separate: this function owns only startup UI + persistence.
+function mount_startup_changelog(state, options)
+  options = options or {}
+  if #(options.messages or {}) > 0 then return nil end
+  local last_version = options.last_version
+  if options.fresh then last_version = nil
+  elseif last_version == nil then last_version = pi.settings.last_changelog_version() end
+  local version = options.version or state.version
+  if version == nil then return { displayed = false } end
+  if last_version == nil then
+    if not options.no_persist then pi.settings.set_last_changelog_version(version) end
+    return { displayed = false, recorded = version, telemetry_due = true }
+  end
+  local chunks, latest = {}, nil
+  for _, entry in ipairs(parse_changelog(options.markdown or CHANGELOG_MD)) do
+    if changelog_entry_newer_than(entry, last_version) then
+      chunks[#chunks + 1] = normalize_changelog_links(entry.content, entry)
+      if latest == nil then latest = entry end
+    end
+  end
+  if #chunks == 0 then return { displayed = false } end
+  if not options.no_persist then pi.settings.set_last_changelog_version(version) end
+  local latest_version = latest.major .. "." .. latest.minor .. "." .. latest.patch
+  local collapsed = options.collapsed
+  if collapsed == nil then collapsed = pi.settings.collapse_changelog() end
+  state.transcript[#state.transcript + 1] = {
+    kind = "startup_changelog", markdown = table.concat(chunks, "\n\n"),
+    collapsed = collapsed, latest_version = latest_version,
+  }
+  return { displayed = true, recorded = version, telemetry_due = true, latest_version = latest_version }
+end
+
 function handle_changelog_command(state)
   local all = parse_changelog(state.request.changelogText or CHANGELOG_MD)
   local chunks = {}
@@ -7746,8 +7806,14 @@ local function create_interactive_state(request)
   state.editor:on_action("app.model.cycleForward", function() cycle_model(state, "forward") end)
   state.editor:on_action("app.model.cycleBackward", function() cycle_model(state, "backward") end)
 
-  -- interactive-mode.ts init(): render restored entries (populating the
-  -- editor history), then start()'s modelFallbackMessage warning.
+  -- interactive-mode.ts rebindCurrentSession mounts startup notices before
+  -- renderInitialMessages. Resumed sessions are suppressed by their rebuilt
+  -- agent message context.
+  mount_startup_changelog(state, {
+    messages = state.agent:get_state().messages or {},
+    markdown = request.changelogText or CHANGELOG_MD,
+    version = state.version,
+  })
   render_initial_messages(state)
   if startup.fallback_message then show_warning(state, startup.fallback_message) end
 
@@ -9437,5 +9503,39 @@ pi.register_command("interactive-session-parity-sequence", {
       cwd = state.cwd,
       copiedText = state.copied_text,
     }
+  end,
+})
+
+-- Startup changelog differential driver. Product policy is
+-- mount_startup_changelog; this command only scripts its stable frames.
+pi.register_command("interactive-startup-changelog-parity-sequence", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local data = request.theme == "light" and light_json or dark_json
+    local theme = create_theme(data, request.colorMode or "truecolor")
+    local columns, rows = request.columns, request.rows
+    local terminal = pi.tui.session(columns, rows, true)
+    local frames = {}
+    terminal:start()
+    for _, step in ipairs(request.steps or {}) do
+      local state = {
+        theme = theme, md_theme = get_markdown_theme(theme), transcript = {},
+        version = request.version, request = request,
+      }
+      local messages = {}
+      if step.resumed then messages[1] = { role = "user", content = "existing" } end
+      local result = mount_startup_changelog(state, {
+        messages = messages, last_version = step.lastVersion, fresh = step.fresh,
+        markdown = request.changelogText, version = request.version,
+        collapsed = step.collapsed, no_persist = true,
+      })
+      terminal:request_render(step.force or false)
+      terminal:render(transcript_lines(state, columns))
+      frames[#frames + 1] = {
+        name = step.name, columns = columns, rows = rows, ansi = terminal:output(),
+        result = result,
+      }
+    end
+    return { frames = frames }
   end,
 })

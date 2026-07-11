@@ -122,6 +122,8 @@ fn settings_demo_example_exercises_the_public_surface() {
         result["enabledModels"],
         serde_json::json!(["anthropic/claude-opus-4-6", "openai/gpt-5.4"])
     );
+    assert_eq!(result["lastChangelogVersionUnset"], true);
+    assert_eq!(result["lastChangelogVersion"], "0.79.0");
 
     let persisted: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(agent_dir.path().join("settings.json")).unwrap(),
@@ -135,4 +137,5 @@ fn settings_demo_example_exercises_the_public_surface() {
         persisted["enabledModels"],
         serde_json::json!(["anthropic/claude-opus-4-6", "openai/gpt-5.4"])
     );
+    assert_eq!(persisted["lastChangelogVersion"], "0.79.0");
 }
