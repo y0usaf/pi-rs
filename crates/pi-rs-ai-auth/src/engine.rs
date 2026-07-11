@@ -2,13 +2,14 @@
 //!
 //! Spec: `utils/oauth/anthropic.ts` login/refresh mechanics, with the
 //! provider-specific constants lifted into [`PkceFlow`] per the locked
-//! `pi-rs-ai` row (one PKCE engine + flows-as-data; irreducibly weird
-//! flows — codex, copilot — arrive in WS5 as code sharing this
-//! machinery). Error-message strings match the spec verbatim.
+//! `pi-rs-ai` row (one PKCE engine + flows-as-data). Codex uses the same PKCE
+//! primitive but retains its distinct form exchange, random state, and login
+//! method selector. Error-message strings match the spec verbatim.
 //!
 //! Recorded divergences:
-//! - the spec's `state` is always the PKCE verifier (anthropic's
-//!   choice); a flow needing a random state parameterizes this in WS5;
+//! - this generic engine's `state` is always the PKCE verifier (Anthropic's
+//!   choice); Codex's random-state flow is implemented over the shared PKCE
+//!   primitive in its provider module;
 //! - the token response is decoded with required fields — the spec's
 //!   `JSON.parse` cast would silently produce corrupt credentials on a
 //!   missing field, which we refuse (missing fields report as the

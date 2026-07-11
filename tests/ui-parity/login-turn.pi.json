@@ -89040,7 +89040,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89052,7 +89052,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89064,7 +89064,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89076,10 +89076,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "G",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89088,10 +89088,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "i",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89100,10 +89100,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "t",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89112,10 +89112,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "H",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89124,10 +89124,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "u",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89136,10 +89136,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "b",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89148,10 +89148,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89160,10 +89160,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "C",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89172,10 +89172,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "o",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89184,10 +89184,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "p",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89196,10 +89196,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "i",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89208,10 +89208,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "l",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89220,10 +89220,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "o",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89232,10 +89232,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "t",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89244,10 +89244,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89256,10 +89256,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "•",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89268,10 +89268,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89280,10 +89280,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "u",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89292,10 +89292,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "n",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89304,10 +89304,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "c",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89316,10 +89316,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "o",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89328,10 +89328,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "n",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89340,10 +89340,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "f",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89352,10 +89352,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "i",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89364,10 +89364,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "g",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89376,10 +89376,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "u",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89388,10 +89388,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "r",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89400,10 +89400,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "e",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89412,10 +89412,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "d",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89424,7 +89424,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89436,7 +89436,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89448,7 +89448,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89460,7 +89460,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89472,7 +89472,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89484,7 +89484,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89496,7 +89496,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89508,7 +89508,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89520,7 +89520,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89532,7 +89532,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89544,7 +89544,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89556,7 +89556,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89568,7 +89568,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89580,7 +89580,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89592,7 +89592,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89604,7 +89604,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89616,7 +89616,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89628,7 +89628,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89640,7 +89640,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89652,7 +89652,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89664,7 +89664,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89676,7 +89676,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89688,7 +89688,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89700,7 +89700,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89712,7 +89712,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89724,7 +89724,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89736,7 +89736,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89748,7 +89748,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89760,7 +89760,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89772,7 +89772,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89784,7 +89784,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89796,7 +89796,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89808,7 +89808,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89820,7 +89820,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89832,7 +89832,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89844,7 +89844,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89856,7 +89856,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89868,7 +89868,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89880,7 +89880,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89892,7 +89892,7 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
         "foreground": "default",
@@ -89904,10 +89904,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89916,10 +89916,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89928,10 +89928,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89940,10 +89940,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "C",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89952,10 +89952,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "h",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89964,10 +89964,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "a",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89976,10 +89976,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "t",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -89988,10 +89988,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "G",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90000,10 +90000,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "P",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90012,10 +90012,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "T",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90024,10 +90024,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90036,10 +90036,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "P",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90048,10 +90048,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "l",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90060,10 +90060,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "u",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90072,10 +90072,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "s",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90084,10 +90084,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "/",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90096,10 +90096,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "P",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90108,10 +90108,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "r",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90120,10 +90120,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "o",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90132,10 +90132,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90144,10 +90144,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "(",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90156,10 +90156,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "C",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90168,10 +90168,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "o",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90180,10 +90180,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "d",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90192,10 +90192,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "e",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90204,10 +90204,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "x",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90216,10 +90216,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90228,10 +90228,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "S",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90240,10 +90240,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "u",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90252,10 +90252,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "b",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90264,10 +90264,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "s",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90276,10 +90276,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "c",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90288,10 +90288,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "r",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90300,10 +90300,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "i",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90312,10 +90312,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "p",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90324,10 +90324,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "t",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90336,10 +90336,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "i",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90348,10 +90348,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "o",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90360,10 +90360,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "n",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90372,10 +90372,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": ")",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:d4d4d4",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90384,10 +90384,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90396,10 +90396,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "•",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90408,10 +90408,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90420,10 +90420,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "u",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90432,10 +90432,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "n",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90444,10 +90444,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "c",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90456,10 +90456,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "o",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90468,10 +90468,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "n",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90480,10 +90480,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "f",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90492,10 +90492,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "i",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90504,10 +90504,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "g",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90516,10 +90516,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "u",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90528,10 +90528,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "r",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90540,10 +90540,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "e",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90552,10 +90552,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": "d",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "rgb:808080",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90564,10 +90564,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90576,10 +90576,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90588,10 +90588,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90600,10 +90600,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90612,10 +90612,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90624,10 +90624,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90636,10 +90636,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90648,10 +90648,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90660,10 +90660,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90672,10 +90672,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90684,10 +90684,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90696,10 +90696,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90708,10 +90708,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90720,10 +90720,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90732,10 +90732,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90744,10 +90744,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -90756,10 +90756,10 @@
         "inverse": false
       },
       {
-        "text": "─",
+        "text": " ",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "rgb:5f87ff",
+        "foreground": "default",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91632,10 +91632,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91644,10 +91644,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91656,10 +91656,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91668,10 +91668,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91680,10 +91680,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91692,10 +91692,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91704,10 +91704,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91716,10 +91716,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91728,10 +91728,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91740,10 +91740,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91752,10 +91752,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91764,10 +91764,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91776,10 +91776,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91788,10 +91788,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91800,10 +91800,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91812,10 +91812,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91824,10 +91824,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91836,10 +91836,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91848,10 +91848,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91860,10 +91860,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91872,10 +91872,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91884,10 +91884,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91896,10 +91896,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91908,10 +91908,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91920,10 +91920,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91932,10 +91932,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91944,10 +91944,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91956,10 +91956,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91968,10 +91968,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91980,10 +91980,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -91992,10 +91992,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92004,10 +92004,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92016,10 +92016,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92028,10 +92028,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92040,10 +92040,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92052,10 +92052,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92064,10 +92064,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92076,10 +92076,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92088,10 +92088,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92100,10 +92100,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92112,10 +92112,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92124,10 +92124,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92136,10 +92136,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92148,10 +92148,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92160,10 +92160,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92172,10 +92172,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92184,10 +92184,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92196,10 +92196,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92208,10 +92208,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92220,10 +92220,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92232,10 +92232,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92244,10 +92244,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92256,10 +92256,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92268,10 +92268,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92280,10 +92280,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92292,10 +92292,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92304,10 +92304,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92316,10 +92316,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92328,10 +92328,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92340,10 +92340,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92352,10 +92352,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92364,10 +92364,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92376,10 +92376,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92388,10 +92388,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92400,10 +92400,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92412,10 +92412,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92424,10 +92424,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92436,10 +92436,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92448,10 +92448,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92460,10 +92460,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92472,10 +92472,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,
@@ -92484,10 +92484,10 @@
         "inverse": false
       },
       {
-        "text": "",
+        "text": "─",
         "wide": false,
         "wide_continuation": false,
-        "foreground": "default",
+        "foreground": "rgb:5f87ff",
         "background": "default",
         "bold": false,
         "dim": false,

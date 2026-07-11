@@ -3,10 +3,10 @@
 //!
 //! The spec's registry is a module-level `Map`; `Map.set` semantics are
 //! preserved (re-registration replaces in place, keeping insertion
-//! order; registering after deletion appends). Built-ins for the WS2
-//! vertical slice: anthropic only — copilot and codex arrive with WS5
-//! breadth. The deprecated surface (`refreshOAuthToken`,
-//! `getOAuthProviderInfoList`) has no spec consumer and is not ported.
+//! order; registering after deletion appends). All three built-in subscription
+//! providers are registered in spec order. The deprecated surface
+//! (`refreshOAuthToken`, `getOAuthProviderInfoList`) has no spec consumer and
+//! is not ported.
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
@@ -14,11 +14,17 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 use crate::anthropic::anthropic_flow;
 use crate::engine::now_ms;
 use crate::error::AuthError;
+use crate::github_copilot::github_copilot_flow;
+use crate::openai_codex::openai_codex_flow;
 use crate::types::{OAuthCredentials, OAuthProviderInterface};
 
 /// Spec: `BUILT_IN_OAUTH_PROVIDERS`.
 fn built_in_oauth_providers() -> Vec<Arc<dyn OAuthProviderInterface>> {
-    vec![Arc::new(anthropic_flow())]
+    vec![
+        Arc::new(anthropic_flow()),
+        Arc::new(github_copilot_flow()),
+        Arc::new(openai_codex_flow()),
+    ]
 }
 
 static REGISTRY: LazyLock<Mutex<Vec<Arc<dyn OAuthProviderInterface>>>> =

@@ -66,16 +66,23 @@ fn creds(access: &str, expires: i64) -> OAuthCredentials {
 
 #[tokio::test]
 async fn registry_and_get_oauth_api_key() {
-    // Built-ins: anthropic only until WS5 breadth.
+    // Spec built-ins, in `BUILT_IN_OAUTH_PROVIDERS` order.
     let ids: Vec<String> = get_oauth_providers()
         .iter()
         .map(|p| p.id().to_owned())
         .collect();
-    assert_eq!(ids, ["anthropic"]);
+    assert_eq!(ids, ["anthropic", "github-copilot", "openai-codex"]);
     let anthropic = get_oauth_provider("anthropic").unwrap();
     assert_eq!(anthropic.name(), "Anthropic (Claude Pro/Max)");
     assert!(anthropic.uses_callback_server());
     assert_eq!(anthropic.get_api_key(&creds("tok", 0)), "tok");
+    assert_eq!(
+        get_oauth_provider("github-copilot").unwrap().name(),
+        "GitHub Copilot"
+    );
+    let codex = get_oauth_provider("openai-codex").unwrap();
+    assert_eq!(codex.name(), "ChatGPT Plus/Pro (Codex Subscription)");
+    assert!(codex.uses_callback_server());
 
     // Register a custom provider; appears in insertion order.
     register_oauth_provider(Arc::new(FakeProvider {
@@ -86,7 +93,7 @@ async fn registry_and_get_oauth_api_key() {
         .iter()
         .map(|p| p.id().to_owned())
         .collect();
-    assert_eq!(ids, ["anthropic", "fake"]);
+    assert_eq!(ids, ["anthropic", "github-copilot", "openai-codex", "fake"]);
 
     // Re-registering a built-in id replaces in place (Map.set).
     register_oauth_provider(Arc::new(FakeProvider {
@@ -147,7 +154,7 @@ async fn registry_and_get_oauth_api_key() {
         .iter()
         .map(|p| p.id().to_owned())
         .collect();
-    assert_eq!(ids, ["anthropic"]);
+    assert_eq!(ids, ["anthropic", "github-copilot", "openai-codex"]);
 }
 
 #[test]
