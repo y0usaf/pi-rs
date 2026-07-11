@@ -26,6 +26,7 @@ import {
   formatMissingSessionCwdPrompt,
 } from "../../ref/pi/packages/coding-agent/src/core/session-cwd.ts";
 import { SessionManager } from "../../ref/pi/packages/coding-agent/src/core/session-manager.ts";
+import { exportSessionToHtml } from "../../ref/pi/packages/coding-agent/src/core/export-html/index.ts";
 import { AssistantMessageComponent } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/assistant-message.ts";
 import { CustomEditor } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/custom-editor.ts";
 import { ExtensionSelectorComponent } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/extension-selector.ts";
@@ -639,10 +640,14 @@ function getPathCommandArgument(text: string, command: "/export" | "/import"): s
   return whitespace < 0 ? args : args.slice(0, whitespace);
 }
 
-function handleExportCommand(text: string): void {
+async function handleExportCommand(text: string): Promise<void> {
   const outputPath = getPathCommandArgument(text, "/export");
   try {
-    if (!outputPath?.endsWith(".jsonl")) throw new Error("HTML export is not implemented in this slice");
+    if (!outputPath?.endsWith(".jsonl")) {
+      const filePath = await exportSessionToHtml(sessionManager, agentState as never, outputPath);
+      showStatus(`Session exported to: ${filePath}`);
+      return;
+    }
     const filePath = resolve(outputPath);
     mkdirSync(dirname(filePath), { recursive: true });
     const header = { type: "session", version: 3, id: sessionManager.getSessionId(), timestamp: new Date().toISOString(), cwd: sessionManager.getCwd() };
@@ -688,10 +693,11 @@ editor.onSubmit = async (text: string) => {
   text = text.trim();
   if (!text) return;
   if (text === "/export" || text.startsWith("/export ")) {
-    handleExportCommand(text);
+    await handleExportCommand(text);
     editor.setText("");
     return;
   }
+
   if (text === "/import" || text.startsWith("/import ")) {
     await handleImportCommand(text);
     editor.setText("");

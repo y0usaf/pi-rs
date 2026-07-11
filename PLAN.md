@@ -1351,11 +1351,34 @@ surface; external editor + suspend. Split into rungs:
       `scripts/ui-diff` (all 21 suites), and `nix build
       .#checks.x86_64-linux.workspace-test --print-build-logs` green.
 
-      **Remaining:** port export-html generation/assets/theme/custom-tool rendering
-      through Lua policy + mechanism bindings, route default/`.html` export, then
-      port `/share`'s `gh` auth check, cancellable gist loader/process, cleanup, and
-      preview URL. Add HTML byte/content evidence, share process/cancellation
-      evidence, and close the checkbox only after the full transfer surface matches.
+      **Second landed slice (2026-07-11):** HTML export and `/share` are now
+      functionally complete through Lua policy. `utils/export-html.lua` ports theme
+      variable resolution/derived export colors, session-data base64 embedding, ANSI→HTML,
+      and custom-tool collapsed/expanded pre-rendering; Pi's template/CSS/client and
+      vendored marked/highlight assets are embedded byte-for-byte. Default and explicit
+      `.html` `/export` forms route alongside JSONL. `/share` performs the `gh auth
+      status` gate, exports `/tmp/session.html`, mounts a cancellable bordered gist loader,
+      aborts the process through the public signal/`pi.exec` seam, always cleans up, and
+      reports the `PI_SHARE_VIEWER_URL`/`https://pi.dev/session/` preview + gist URLs.
+      The flake source filter now carries every embedded HTML/CSS/JS asset type.
+
+      **Evidence for the second slice:** session-turn's real Pi
+      `exportSessionToHtml` path and pi-rs now match at 33 checkpoints (new explicit HTML
+      export status, all 21 UI suites green).
+      `html_jsonl_import_and_copy_run_through_product_commands` decodes the generated
+      HTML payload and pins header/entries/leaf/system prompt/tool definitions plus the
+      byte-identical client/theme assets;
+      `share_mounts_a_cancellable_gist_loader_and_cleans_up` scripts `gh` and pins auth →
+      running process → Escape kill/cleanup and successful preview/gist URLs. `cargo fmt
+      --check`, `cargo test --workspace`, and `nix build
+      .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
+
+      **Remaining before closure:** add a Pi-vs-pi-rs HTML payload differential that
+      normalizes only intentional runtime state and preserves JSON `null`/property order
+      (the current Lua JSON boundary drops object-valued null keys such as root
+      `parentId`; browser behavior is equivalent but byte parity is not yet proved), and
+      add Pi-derived `/share` loader/success/cancel/error frames. Keep the checkbox open
+      until those two differential gates pass; the command surface itself is fully routed.
 
 - [ ] **7.9 Info commands and chrome.** `/changelog`, `/hotkeys`,
       `/debug`, `/reload`, the easter eggs (armin/daxnuts/earendil),

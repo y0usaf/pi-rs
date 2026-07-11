@@ -3171,6 +3171,7 @@ local function apply_theme(state, name)
   for key in pairs(state.theme) do state.theme[key] = nil end
   for key, value in pairs(replacement) do state.theme[key] = value end
   state.md_theme = get_markdown_theme(state.theme)
+  state.theme_data = data
   if state.editor then
     state.editor.theme = state.theme
     state.editor.editor:set_select_list_theme(get_select_list_theme(state.theme))
@@ -3371,13 +3372,19 @@ local function handle_submit(text, actions)
     actions.model_command(search_term)
     return
   end
-  if text:match("^/export%s+.*%.jsonl[\"']?$") then
+  if text == "/export" or text:sub(1, 8) == "/export " then
     actions.export_command(text)
     actions.set_text("")
     return
   end
   if text == "/import" or text:sub(1, 8) == "/import " then
     actions.import_command(text)
+    actions.set_text("")
+    return
+  end
+
+  if text == "/share" then
+    actions.share_command()
     actions.set_text("")
     return
   end
@@ -3493,6 +3500,7 @@ pi.register_command("interactive-submit-route", {
           trace[#trace + 1] = { action = "import_command", value = value }
         end,
 
+        share_command = function() trace[#trace + 1] = { action = "share_command" } end,
         copy_command = function() trace[#trace + 1] = { action = "copy_command" } end,
         is_bash_running = function() return request.bashRunning or false end,
         show_warning = function(message)
@@ -3998,6 +4006,7 @@ local function shell_submit_actions(state)
     export_command = function(text) handle_export_command(state, text) end,
     import_command = function(text) handle_import_command(state, text) end,
 
+    share_command = function() handle_share_command(state) end,
     copy_command = function() handle_copy_command(state) end,
     name_command = function(text) handle_name_command(state, text) end,
     session_command = function() handle_session_command(state) end,
@@ -5659,11 +5668,11 @@ end
 function handle_export_command(state, text)
   local output_path = path_command_argument(text, "/export")
   local ok, result = pcall(function()
-    if not output_path or output_path:sub(-6) ~= ".jsonl" then
-      error("HTML export is not implemented yet", 0)
+    if output_path and output_path:sub(-6) == ".jsonl" then
+      local resolved = pi.path.resolve(output_path)
+      return state.session_manager:export_branch_jsonl(resolved, iso_from_epoch_ms(state.wall_now_ms()))
     end
-    local resolved = pi.path.resolve(output_path)
-    return state.session_manager:export_branch_jsonl(resolved, iso_from_epoch_ms(state.wall_now_ms()))
+    return export_html_lib.generate(state, output_path)
   end)
   if ok then show_status(state, "Session exported to: " .. result)
   else show_error(state, "Failed to export session: " .. tostring(result)) end
@@ -5711,6 +5720,79 @@ function handle_import_command(state, text)
   end)
 end
 
+
+
+function handle_share_command(state)
+  local auth_ok, auth = pcall(pi.exec, "gh", { "auth", "status" })
+  if not auth_ok then
+    show_error(state, "GitHub CLI (gh) is not installed. Install it from https://cli.github.com/")
+    return
+  end
+  if auth.code ~= 0 then
+    show_error(state, "GitHub CLI is not logged in. Run 'gh auth login' first.")
+    return
+  end
+
+  local tmp_file = pi.path.join(pi.fs.tmpdir(), "session.html")
+  local exported, export_error = pcall(export_html_lib.generate, state, tmp_file)
+  if not exported then
+    show_error(state, "Failed to export session: " .. tostring(export_error))
+    return
+  end
+
+  local signal, loader = pi.abort_signal(), pi.tui.cancellable_loader("Creating gist...")
+  local component = { focused = false, last_ms = state.wall_now_ms(), disposed = false }
+  function component:set_focused(focused) self.focused = focused end
+  function component:render(width)
+    local border = dynamic_border_line(state.theme, width)
+    return { border, state.theme:fg("accent", loader:frame()) .. " " .. state.theme:fg("muted", "Creating gist..."),
+      "", " " .. select_key_hint(state.theme, "cancel", "cancel"), "", border }
+  end
+  local function restore()
+    if component.disposed then return end
+    component.disposed = true
+    loader:dispose()
+    restore_editor(state)
+    pcall(pi.fs.remove_file, tmp_file)
+  end
+  function component:handle_input(data)
+    loader:input(data)
+    if loader:aborted() then
+      signal:abort()
+      restore()
+      show_status(state, "Share cancelled")
+    end
+  end
+  function component:needs_render(now_ms)
+    local elapsed = math.max(0, now_ms - self.last_ms)
+    self.last_ms = now_ms
+    return loader:advance(elapsed)
+  end
+  mount_in_editor_slot(state, component)
+
+  pi.spawn(function()
+    local ok, result = pcall(pi.exec, "gh", { "gist", "create", "--public=false", tmp_file }, { signal = signal })
+    if signal:is_aborted() then return end
+    restore()
+    if not ok then
+      show_error(state, "Failed to create gist: " .. tostring(result))
+      return
+    end
+    if result.code ~= 0 then
+      local message = trim(result.stderr or "")
+      show_error(state, "Failed to create gist: " .. (message ~= "" and message or "Unknown error"))
+      return
+    end
+    local gist_url = trim(result.stdout or "")
+    local gist_id = gist_url:match("([^/]+)$")
+    if not gist_id or gist_id == "" then
+      show_error(state, "Failed to parse gist ID from gh output")
+      return
+    end
+    local base = os.getenv("PI_SHARE_VIEWER_URL") or "https://pi.dev/session/"
+    show_status(state, "Share URL: " .. base .. "#" .. gist_id .. "\nGist: " .. gist_url)
+  end)
+end
 
 
 function handle_copy_command(state)
@@ -7353,7 +7435,7 @@ local function create_interactive_state(request)
   local data = request.theme == "light" and light_json or dark_json
   local theme = create_theme(data, request.colorMode or "truecolor")
   local state = {
-    theme = theme, md_theme = nil, model = request.model, cwd = request.cwd or pi.cwd(),
+    theme = theme, theme_data = data, md_theme = nil, model = request.model, cwd = request.cwd or pi.cwd(),
     home = request.home, branch = request.branch,
     app_name = request.appName or "pi", version = request.version,
     thinking_level = request.thinkingLevel or "off",
@@ -9069,6 +9151,7 @@ pi.register_command("interactive-session-parity-sequence", {
           end
         end
       end
+      if step.sleepMs then pi.sleep(step.sleepMs) end
       -- Settle any background turn (prompts run as spawned coroutines).
       if state.turn then state.turn:join(); state.turn = nil end
       if step.name then capture(step.name, step.resize ~= nil) end

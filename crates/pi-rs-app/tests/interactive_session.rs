@@ -168,6 +168,36 @@ fn user_texts(request: &serde_json::Value) -> Vec<String> {
         .collect()
 }
 
+fn decode_base64(input: &str) -> Vec<u8> {
+    let mut output = Vec::new();
+    let mut chunk = [0u8; 4];
+    let mut count = 0;
+    for byte in input.bytes().filter(|byte| *byte != b'=') {
+        chunk[count] = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => continue,
+        };
+        count += 1;
+        if count == 4 {
+            output.push(chunk[0] << 2 | chunk[1] >> 4);
+            output.push(chunk[1] << 4 | chunk[2] >> 2);
+            output.push(chunk[2] << 6 | chunk[3]);
+            count = 0;
+        }
+    }
+    if count >= 2 {
+        output.push(chunk[0] << 2 | chunk[1] >> 4);
+    }
+    if count >= 3 {
+        output.push(chunk[1] << 4 | chunk[2] >> 2);
+    }
+    output
+}
+
 #[test]
 fn resume_switches_the_live_runtime_and_new_starts_fresh() {
     let _env = ENV_LOCK.lock().unwrap();
@@ -254,7 +284,7 @@ fn resume_switches_the_live_runtime_and_new_starts_fresh() {
 }
 
 #[test]
-fn jsonl_export_import_and_copy_run_through_product_commands() {
+fn html_jsonl_import_and_copy_run_through_product_commands() {
     let _env = ENV_LOCK.lock().unwrap();
     let temp = tempfile::tempdir().unwrap();
     let agent_dir = temp.path().join("agent");
@@ -281,6 +311,7 @@ fn jsonl_export_import_and_copy_run_through_product_commands() {
         "second reply",
     );
     let output = temp.path().join("exports/branch.jsonl");
+    let html_output = temp.path().join("session.html");
 
     let result = host(&cwd)
         .call_command(
@@ -293,6 +324,7 @@ fn jsonl_export_import_and_copy_run_through_product_commands() {
                 "readmePath": "/pi-rs-pkg/README.md", "docsPath": "/pi-rs-pkg/docs",
                 "examplesPath": "/pi-rs-pkg/examples",
                 "steps": [
+                    { "name": "export-html", "input": [paste(&format!("/export \"{}\"", html_output.display())), "\r"] },
                     { "name": "export", "input": [paste(&format!("/export \"{}\"", output.display())), "\r"] },
                     { "name": "import", "input": [paste(&format!("/import \"{s2}\"")), "\r"] },
                     { "name": "confirm", "input": ["\r"] },
@@ -316,5 +348,147 @@ fn jsonl_export_import_and_copy_run_through_product_commands() {
     assert_eq!(rows[1]["parentId"], serde_json::Value::Null);
     for pair in rows[1..].windows(2) {
         assert_eq!(pair[1]["parentId"], pair[0]["id"]);
+    }
+
+    let html =
+        std::fs::read_to_string(html_output).unwrap_or_else(|error| panic!("{error}: {result:#}"));
+    assert!(html.starts_with("<!DOCTYPE html>\n<html lang=\"en\">"));
+    assert!(html.contains("--exportPageBg: #18181e;"));
+    assert!(html.contains("function renderToolCall(call)"));
+    assert!(!html.contains("{{SESSION_DATA}}"));
+    let encoded = html
+        .split("<script id=\"session-data\" type=\"application/json\">")
+        .nth(1)
+        .and_then(|tail| tail.split("</script>").next())
+        .unwrap();
+    let data: serde_json::Value = serde_json::from_slice(&decode_base64(encoded)).unwrap();
+    assert_eq!(data["header"]["id"], "0198a5c0-0000-7000-8000-000000000011");
+    assert_eq!(data["entries"].as_array().unwrap().len(), 4);
+    assert_eq!(data["entries"][2]["message"]["content"][0]["text"], "one");
+    assert_eq!(data["leafId"], "e4");
+    assert!(
+        data["systemPrompt"]
+            .as_str()
+            .unwrap()
+            .contains("expert coding assistant")
+    );
+    assert_eq!(data["tools"].as_array().unwrap().len(), 4);
+}
+
+#[test]
+fn share_mounts_a_cancellable_gist_loader_and_cleans_up() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let _env = ENV_LOCK.lock().unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let agent_dir = temp.path().join("agent");
+    let bin_dir = temp.path().join("bin");
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    std::fs::create_dir_all(&bin_dir).unwrap();
+    let gh = bin_dir.join("gh");
+    std::fs::write(
+        &gh,
+        "#!/bin/sh\nif [ \"$1\" = auth ]; then exit 0; fi\nprintf started > \"$GH_MARKER\"\nsleep 10\nprintf 'https://gist.github.com/test/deadbeef\\n'\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let old_path = std::env::var_os("PATH");
+    let old_tmpdir = std::env::var_os("TMPDIR");
+    let marker = temp.path().join("gist-started");
+    let test_path = format!(
+        "{}:{}",
+        bin_dir.display(),
+        old_path.as_deref().unwrap_or_default().to_string_lossy()
+    );
+    unsafe {
+        std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir);
+        std::env::set_var("PATH", test_path);
+        std::env::set_var("TMPDIR", temp.path());
+        std::env::set_var("GH_MARKER", &marker);
+    }
+    let cwd = temp.path().to_string_lossy().into_owned();
+    let sessions = temp.path().join("sessions");
+    let session = write_session_fixture(
+        &sessions,
+        "share.jsonl",
+        "21",
+        &cwd,
+        1_751_360_000_000,
+        "share this",
+        "shareable reply",
+    );
+
+    let result = host(&cwd)
+        .call_command(
+            "interactive-session-parity-sequence",
+            &serde_json::json!({
+                "columns": 80, "rows": 30, "model": stub_model("http://127.0.0.1:1"),
+                "cwd": cwd, "agentDir": agent_dir.to_string_lossy(),
+                "sessionFile": session, "sessionDir": sessions.to_string_lossy(),
+                "modelFromCli": true, "nowMs": 1_752_237_296_789i64,
+                "readmePath": "/pi-rs-pkg/README.md", "docsPath": "/pi-rs-pkg/docs",
+                "examplesPath": "/pi-rs-pkg/examples",
+                "steps": [
+                    { "name": "share-loader", "input": [paste("/share"), "\r"], "sleepMs": 100 },
+                    { "name": "share-cancel", "input": ["\u{1b}"] },
+                ],
+            })
+            .to_string(),
+        )
+        .expect("command")
+        .expect("result");
+
+    let loader = result["frames"][1]["ansi"].as_str().unwrap();
+    let cancelled = result["frames"][2]["ansi"].as_str().unwrap();
+    assert!(loader.contains("Creating gist..."), "{loader}");
+    assert!(cancelled.contains("Share cancelled"), "{cancelled}");
+    assert!(marker.exists());
+    assert!(!temp.path().join("session.html").exists());
+
+    std::fs::write(
+        &gh,
+        "#!/bin/sh\nif [ \"$1\" = auth ]; then exit 0; fi\nprintf 'https://gist.github.com/test/deadbeef\\n'\n",
+    )
+    .unwrap();
+    let success = host(&cwd)
+        .call_command(
+            "interactive-session-parity-sequence",
+            &serde_json::json!({
+                "columns": 80, "rows": 30, "model": stub_model("http://127.0.0.1:1"),
+                "cwd": cwd, "agentDir": agent_dir.to_string_lossy(),
+                "sessionFile": session, "sessionDir": sessions.to_string_lossy(),
+                "modelFromCli": true, "nowMs": 1_752_237_296_789i64,
+                "readmePath": "/pi-rs-pkg/README.md", "docsPath": "/pi-rs-pkg/docs",
+                "examplesPath": "/pi-rs-pkg/examples",
+                "steps": [{ "name": "share-done", "input": [paste("/share"), "\r"], "sleepMs": 50 }],
+            })
+            .to_string(),
+        )
+        .expect("command")
+        .expect("result");
+    let done = success["frames"][1]["ansi"].as_str().unwrap();
+    assert!(
+        done.contains("Share URL: https://pi.dev/session/#deadbeef"),
+        "{done}"
+    );
+    assert!(
+        done.contains("Gist: https://gist.github.com/test/deadbeef"),
+        "{done}"
+    );
+    assert!(!temp.path().join("session.html").exists());
+
+    unsafe {
+        if let Some(value) = old_path {
+            std::env::set_var("PATH", value)
+        } else {
+            std::env::remove_var("PATH")
+        }
+        if let Some(value) = old_tmpdir {
+            std::env::set_var("TMPDIR", value)
+        } else {
+            std::env::remove_var("TMPDIR")
+        }
+        std::env::remove_var("GH_MARKER");
     }
 }
