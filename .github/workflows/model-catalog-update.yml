@@ -2,6 +2,11 @@ name: Model catalog freshness
 
 on:
   workflow_dispatch:
+    inputs:
+      revision:
+        description: "Exact upstream revision (blank = latest main)"
+        required: false
+        type: string
   schedule:
     - cron: "17 6 * * 1"
 
@@ -23,10 +28,14 @@ jobs:
       - uses: cachix/install-nix-action@v31
       - name: Regenerate from upstream
         env:
+          MODEL_CATALOG_REVISION: ${{ inputs.revision }}
           SUMMARY_PATH: ${{ runner.temp }}/model-catalog-summary.md
-        run: nix run .#update-model-catalog -- --summary-output "$SUMMARY_PATH"
-      - name: Verify generated catalog
-        run: nix flake check --print-build-logs
+        run: |
+          args=()
+          if [[ -n "$MODEL_CATALOG_REVISION" ]]; then
+            args+=(--revision "$MODEL_CATALOG_REVISION")
+          fi
+          nix run .#update-model-catalog -- "${args[@]}" --summary-output "$SUMMARY_PATH"
       - name: Open or refresh generated PR
         env:
           GH_TOKEN: ${{ github.token }}
@@ -43,7 +52,13 @@ jobs:
           git checkout -B "$branch"
           git add crates/pi-rs-ai/data/models.json crates/pi-rs-ai/data/models.provenance.json
           git commit -m "ai: refresh generated model catalog"
-          git push --force-with-lease origin "HEAD:$branch"
+
+          remote=$(git ls-remote --heads origin "$branch" | awk '{print $1}')
+          if [[ -n "$remote" ]]; then
+            git push --force-with-lease="refs/heads/$branch:$remote" origin "HEAD:$branch"
+          else
+            git push origin "HEAD:$branch"
+          fi
 
           existing=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')
           if [ -n "$existing" ]; then
@@ -51,3 +66,5 @@ jobs:
           else
             gh pr create --head "$branch" --title "ai: refresh generated model catalog" --body-file "$SUMMARY_PATH"
           fi
+      - name: Verify generated catalog
+        run: nix flake check --print-build-logs
