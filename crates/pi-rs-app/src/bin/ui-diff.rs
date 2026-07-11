@@ -361,6 +361,17 @@ fn run() -> Result<ExitCode, HarnessError> {
         path: scenario_path.clone(),
         source,
     })?;
+    if let Some(retry) = scenario.get("retry") {
+        let settings_path = agent_dir.path().join("settings.json");
+        let settings = serde_json::json!({
+            "lastChangelogVersion": scenario.get("version"),
+            "retry": retry,
+        });
+        fs::write(&settings_path, settings.to_string()).map_err(|source| HarnessError::Io {
+            path: settings_path,
+            source,
+        })?;
+    }
     // SAFETY: single-threaded at this point; the Lua host starts below.
     unsafe { std::env::set_var("PI_CODING_AGENT_DIR", agent_dir.path()) };
     let command = scenario

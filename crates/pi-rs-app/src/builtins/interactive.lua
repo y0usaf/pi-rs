@@ -5545,6 +5545,23 @@ local function get_latest_compaction_entry(entries)
   return nil
 end
 
+-- agent-session.ts provider-retry classification. Kept outside the runtime
+-- slice so the Pi-derived retry oracle can exercise the shipped policy without
+-- duplicating its regular expressions.
+RETRY_POLICY_PATTERNS = {
+  non_retryable = "GoUsageLimitError|FreeUsageLimitError|Monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing",
+  retryable = "overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|stream ended before message_stop|http2 request did not get a response|timed? out|timeout|terminated|retry delay",
+}
+function retry_policy_is_retryable(model, message)
+  if not message or message.stopReason ~= "error"
+     or not message.errorMessage or message.errorMessage == "" then return false end
+  local context_window = model and model.contextWindow or 0
+  if compaction_lib.is_context_overflow(message, context_window) then return false end
+  if pi.tui.js_regex_search(RETRY_POLICY_PATTERNS.non_retryable, message.errorMessage) ~= nil then
+    return false
+  end
+  return pi.tui.js_regex_search(RETRY_POLICY_PATTERNS.retryable, message.errorMessage) ~= nil
+end
 -- The compaction/retry slice bound to one runtime (recreated on every
 -- bind_session_runtime, like the AgentSession fields it ports).
 local function create_compaction_slice(state, agent, session_manager)
@@ -5563,20 +5580,8 @@ local function create_compaction_slice(state, agent, session_manager)
     if state.event_hook then state.event_hook(event) end
   end
 
-  local non_retryable_limit_pattern =
-    "GoUsageLimitError|FreeUsageLimitError|Monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing"
-  local retryable_pattern =
-    "overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|stream ended before message_stop|http2 request did not get a response|timed? out|timeout|terminated|retry delay"
-
   function slice.is_retryable_error(message)
-    if not message or message.stopReason ~= "error"
-       or not message.errorMessage or message.errorMessage == "" then return false end
-    local context_window = state.model and state.model.contextWindow or 0
-    if compaction_lib.is_context_overflow(message, context_window) then return false end
-    if pi.tui.js_regex_search(non_retryable_limit_pattern, message.errorMessage) ~= nil then
-      return false
-    end
-    return pi.tui.js_regex_search(retryable_pattern, message.errorMessage) ~= nil
+    return retry_policy_is_retryable(state.model, message)
   end
 
   function slice.will_retry_after_agent_end(event)
@@ -5893,6 +5898,44 @@ local function create_compaction_slice(state, agent, session_manager)
   return slice
 end
 
+-- Scripted stream used only by the retry differential command below. It still
+-- enters through pi.agent.new's public streamFn seam and therefore exercises
+-- the shipped AgentSession retry loop rather than a test-only reimplementation.
+function retry_parity_stream(request)
+  local turns = request.retryParityTurns
+  if not turns then return nil end
+  local recorder = { requests = {} }
+  request.__retry_recorder = recorder
+  local index = 0
+  local function copy(value) return pi.json.decode(pi.json.encode(value)) end
+  local function message(model, turn)
+    local failed = turn.stopReason == "error"
+    return {
+      role = "assistant",
+      content = failed and {} or { { type = "text", text = turn.text or "ok" } },
+      api = model.api, provider = model.provider, model = model.id,
+      usage = { input = 0, output = 0, cacheRead = 0, cacheWrite = 0,
+        totalTokens = 0, cost = { input = 0, output = 0, cacheRead = 0,
+          cacheWrite = 0, total = 0 } },
+      stopReason = turn.stopReason or "stop", errorMessage = turn.errorMessage,
+      timestamp = 0,
+    }
+  end
+  return function(model, context, _options, push)
+    index = index + 1
+    local turn = turns[math.min(index, #turns)]
+    recorder.requests[#recorder.requests + 1] = copy(context.messages or {})
+    local final = message(model, turn)
+    push({ type = "start", partial = message(model, { stopReason = "stop", text = "" }) })
+    if final.stopReason == "error" then
+      push({ type = "error", reason = "error", error = final })
+    else
+      push({ type = "done", reason = final.stopReason, message = final })
+    end
+    return final
+  end
+end
+
 function bind_session_runtime(state, session_manager)
   local request = state.request
   state.session_manager = session_manager
@@ -5914,6 +5957,7 @@ function bind_session_runtime(state, session_manager)
   for _, name in ipairs(active_tool_names) do
     if registered_tools[name] then active_tools[#active_tools + 1] = registered_tools[name] end
   end
+  local stream_fn = retry_parity_stream(request)
   local agent = pi.agent.new({
     initialState = {
       model = state.model, tools = active_tools,
@@ -5932,6 +5976,7 @@ function bind_session_runtime(state, session_manager)
     transport = pi.settings.transport(),
     -- sdk.ts convertToLlmWithBlockImages over messages.ts convertToLlm.
     convertToLlm = convert_to_llm_with_block_images,
+    streamFn = stream_fn,
     -- sdk.ts also passes settings thinkingBudgets / maxRetryDelayMs;
     -- those settings join the extension/configuration surface (item 9).
     -- configuration surface (item 9).
@@ -10059,21 +10104,35 @@ pi.register_command("interactive-tree-parity-sequence", {
     local triggers = {}
     state.event_hook = function(event)
       for _, trigger in ipairs(triggers) do
-        if not trigger.fired and event.type == trigger.event then
+        if not trigger.fired and event.type == trigger.event
+           and (trigger.role == nil or (event.message and event.message.role == trigger.role)) then
           trigger.seen = (trigger.seen or 0) + 1
           if trigger.seen >= (trigger.count or 1) then
             trigger.fired = true
-            -- Same convention as the pi driver: "submit" acts before its
-            -- capture (the queued rows are the frame), everything else
-            -- captures first and then acts (escape aborts after the
-            -- loader frame landed).
+            -- Submit acts before capture; Escape/countdown capture first.
             if trigger.action == "submit" then
               feed("\27[200~" .. (trigger.text or "") .. "\27[201~")
               feed("\r")
               if trigger.name then capture(trigger.name) end
+
             else
               if trigger.name then capture(trigger.name) end
               if trigger.action == "escape" then handle_escape(state) end
+              if trigger.action == "countdown" then
+                pi.sleep(trigger.afterMs or 1100)
+                local countdown, now = state.retry_countdown, pi.monotonic_ms()
+                if countdown then
+                  while now >= countdown.next_ms and countdown.remaining > 0 do
+                    countdown.remaining = countdown.remaining - 1
+                    countdown.next_ms = countdown.next_ms + 1000
+                  end
+                  if state.loader and state.loader.kind == "retry" then
+                    state.loader.message = countdown.message(countdown.remaining)
+                  end
+                  if countdown.remaining <= 0 then state.retry_countdown = nil end
+                end
+                if trigger.afterName then capture(trigger.afterName) end
+              end
             end
           end
         end
@@ -10340,6 +10399,78 @@ pi.register_command("interactive-reload-behavior", {
   end,
 })
 
+
+-- PLAN 7.10 differential driver. Classification calls the exact policy helper;
+-- run cases enter through the real interactive AgentSession runtime with a
+-- scripted public streamFn and retain only stable retry/event/context fields.
+pi.register_command("retry-policy-parity", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local case = request.case
+    if case.mode == "classify" then
+      return { retryable = retry_policy_is_retryable(request.model, case.message) }
+    end
+
+    request.retryParityTurns = case.turns
+    request.cwd = request.cwd or pi.cwd()
+    request.version = request.version or "0.79.0"
+    request.thinkingLevel = "off"
+    request.modelFromCli = true
+    request.thinkingFromCli = true
+    request.runtimeApiKey = "retry-oracle-key"
+    request.apiKey = "retry-oracle-key"
+    local state = create_interactive_state(request)
+    local events = {}
+    local cancelled, queued_on_retry = false, false
+    local function stable_message(message)
+      if not message then return nil end
+      local text = ""
+      for _, block in ipairs(message.content or {}) do
+        if block.type == "text" then text = text .. (block.text or "") end
+      end
+      return { role = message.role, text = text, stopReason = message.stopReason,
+        errorMessage = message.errorMessage }
+    end
+    state.event_hook = function(event)
+      if event.type == "agent_end" then
+        events[#events + 1] = { type = event.type, willRetry = event.willRetry or false }
+        if case.queueOnRetry and event.willRetry and not queued_on_retry then
+          queued_on_retry = true
+          state.session.follow_up(case.queueOnRetry)
+        end
+      elseif event.type == "auto_retry_start" then
+        events[#events + 1] = { type = event.type, attempt = event.attempt,
+          maxAttempts = event.maxAttempts, delayMs = event.delayMs,
+          errorMessage = event.errorMessage }
+        if case.cancelAttempt == event.attempt and not cancelled then
+          cancelled = true
+          state.session.abort_retry()
+        end
+      elseif event.type == "auto_retry_end" then
+        events[#events + 1] = { type = event.type, success = event.success,
+          attempt = event.attempt, finalError = event.finalError }
+      elseif event.type == "message_end" and event.message
+          and event.message.role == "assistant" then
+        local stable = stable_message(event.message)
+        stable.type = event.type
+        events[#events + 1] = stable
+      end
+    end
+    state.session.prompt(case.prompt or "test")
+    if state.turn then state.turn:join() end
+    local final = {}
+    for _, message in ipairs(state.agent:get_state().messages or {}) do
+      final[#final + 1] = stable_message(message)
+    end
+    local contexts = {}
+    for _, context in ipairs((request.__retry_recorder or {}).requests or {}) do
+      local stable = {}
+      for _, message in ipairs(context) do stable[#stable + 1] = stable_message(message) end
+      contexts[#contexts + 1] = stable
+    end
+    return { events = events, callCount = #contexts, contexts = contexts, messages = final }
+  end,
+})
 
 -- Deterministic hidden-easter-egg UI driver. It advances the shipped component
 -- state directly, replacing only wall-clock timers and Armin's random choice.

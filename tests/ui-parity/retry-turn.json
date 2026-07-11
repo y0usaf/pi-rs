@@ -1,0 +1,77 @@
+{
+  "command": "interactive-tree-parity-sequence",
+  "columns": 72,
+  "rows": 24,
+  "theme": "dark",
+  "colorMode": "truecolor",
+  "appName": "pi",
+  "version": "0.79.0",
+  "branch": "main",
+  "homeFromCwd": true,
+  "providerCount": 1,
+  "apiKey": "sk-retry-parity",
+  "files": {},
+  "retry": { "enabled": true, "maxRetries": 2, "baseDelayMs": 1100 },
+  "modelFromCli": true,
+  "runtimeApiKey": "sk-retry-parity",
+  "thinkingFromCli": true,
+  "thinkingLevel": "off",
+  "model": {
+    "id": "claude-retry-parity", "name": "Claude Retry Parity",
+    "provider": "anthropic", "api": "anthropic-messages", "reasoning": false,
+    "contextWindow": 200000, "maxTokens": 8192, "input": ["text"],
+    "cost": { "input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75 },
+    "baseUrl": ""
+  },
+  "stub": {
+    "sse": {
+      "recovered": [
+        { "event": "message_start", "data": { "type": "message_start", "message": { "id": "msg_recovered", "type": "message", "role": "assistant", "content": [], "stop_reason": null, "usage": { "input_tokens": 12, "output_tokens": 1 } } } },
+        { "event": "content_block_start", "data": { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } } },
+        { "event": "content_block_delta", "data": { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "Recovered after retry." } } },
+        { "event": "content_block_stop", "data": { "type": "content_block_stop", "index": 0 } },
+        { "event": "message_delta", "data": { "type": "message_delta", "delta": { "stop_reason": "end_turn", "stop_sequence": null }, "usage": { "output_tokens": 5 } } },
+        { "event": "message_stop", "data": { "type": "message_stop" } }
+      ]
+    },
+    "responses": [
+      { "status": 400, "json": { "type": "error", "error": { "type": "invalid_request_error", "message": "network error" } } },
+      { "status": 200, "sse": "recovered" },
+      { "status": 400, "json": { "type": "error", "error": { "type": "invalid_request_error", "message": "429 overloaded one" } } },
+      { "status": 400, "json": { "type": "error", "error": { "type": "invalid_request_error", "message": "503 server error two" } } },
+      { "status": 400, "json": { "type": "error", "error": { "type": "invalid_request_error", "message": "connection lost final" } } },
+      { "status": 400, "json": { "type": "error", "error": { "type": "invalid_request_error", "message": "rate limit cancel" } } }
+    ]
+  },
+  "steps": [
+    {
+      "input": ["retry", " ", "please", "\r"],
+      "captures": [
+
+        { "name": "retry-will-retry", "event": "agent_end" },
+        { "name": "retry-countdown-2", "event": "auto_retry_start", "action": "countdown", "afterMs": 1050, "afterName": "retry-countdown-1" },
+
+        { "name": "retry-working", "event": "agent_start", "count": 2 },
+        { "name": "retry-success", "event": "auto_retry_end" }
+      ],
+      "name": "recovered"
+    },
+    {
+      "input": ["fail", " ", "fully", "\r"],
+      "captures": [
+        { "name": "second-retry", "event": "auto_retry_start", "count": 2 },
+        { "name": "final-failure", "event": "auto_retry_end" }
+      ],
+      "name": "failed-settled"
+    },
+    {
+      "input": ["cancel", " ", "retry", "\r"],
+      "captures": [
+        { "name": "cancel-loader", "event": "auto_retry_start", "action": "escape" },
+        { "name": "cancelled-row", "event": "auto_retry_end" }
+      ],
+      "name": "cancelled-settled"
+    },
+    { "name": "resize-wide", "resize": { "columns": 100, "rows": 24 } }
+  ]
+}

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Regenerate retry policy/event oracle from Pi v0.79.0's real AgentSession.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+cases=tests/retry-parity/cases.json
+oracle=tests/retry-parity/oracle.json
+if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
+  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
+fi
+nix shell nixpkgs#nodejs_22 --command \
+  ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json \
+  tests/retry-parity/gen-oracle.ts "$cases" > "$oracle"
+echo "wrote $oracle"
