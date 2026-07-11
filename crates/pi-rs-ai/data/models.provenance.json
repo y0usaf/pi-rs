@@ -2,26 +2,26 @@
 	"schemaVersion": 1,
 	"source": {
 		"repository": "https://github.com/earendil-works/pi.git",
-		"revision": "c5582102f51b143fadc05180e0f8aed050e923b3",
+		"revision": "66f432cae4c2800436dc34256bd2092edb1dca7b",
 		"path": "packages/ai/src/models.generated.ts",
-		"catalogSha256": "f8406ef8c30b97dac0524a69884baa90e5f340287f55ab0b8ba9d9aac651a2c9"
+		"catalogSha256": "989574c698fb0b7fb65416e1329c94a12a00cf5f1a2b10358534b90cb8f42d2a"
 	},
 	"overrides": {
 		"path": "scripts/model-catalog-overrides.json",
 		"sha256": "5fd2f8d99edfe1e37a0a6004d1c709bb2f5b94cef8a6e53aa9c0119f8145debb",
 		"count": 0
 	},
-	"outputSha256": "f4b80d8e3440e145d9cb44151d47afcfca346d98c05fcb3fd95452c49b21b558",
+	"outputSha256": "8b47a463af5b7ad145da3da35c93e9bff102b3fab1646c6501cbd9ff298d061b",
 	"inventory": {
 		"providers": 35,
-		"models": 969,
+		"models": 979,
 		"byProvider": {
-			"amazon-bedrock": 94,
+			"amazon-bedrock": 97,
 			"ant-ling": 3,
-			"anthropic": 24,
+			"anthropic": 25,
 			"azure-openai-responses": 42,
 			"cerebras": 3,
-			"cloudflare-ai-gateway": 36,
+			"cloudflare-ai-gateway": 37,
 			"cloudflare-workers-ai": 11,
 			"deepseek": 2,
 			"fireworks": 13,
@@ -39,11 +39,11 @@
 			"nvidia": 21,
 			"openai": 42,
 			"openai-codex": 4,
-			"opencode": 42,
+			"opencode": 44,
 			"opencode-go": 14,
-			"openrouter": 255,
+			"openrouter": 257,
 			"together": 19,
-			"vercel-ai-gateway": 167,
+			"vercel-ai-gateway": 168,
 			"xai": 7,
 			"xiaomi": 5,
 			"xiaomi-token-plan-ams": 4,
@@ -53,9 +53,9 @@
 			"zai-coding-cn": 5
 		},
 		"apis": {
-			"bedrock-converse-stream": 94,
-			"openai-completions": 434,
-			"anthropic-messages": 251,
+			"bedrock-converse-stream": 97,
+			"openai-completions": 437,
+			"anthropic-messages": 255,
 			"azure-openai-responses": 42,
 			"openai-responses": 82,
 			"google-generative-ai": 19,
