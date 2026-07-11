@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+run_fixture() {
+  bun "$root/scripts/update-model-catalog.ts" \
+    --source "$root/tests/model-catalog-update/models.generated.ts" \
+    --revision fixture-revision \
+    --source-path tests/model-catalog-update/models.generated.ts \
+    --overrides "$root/tests/model-catalog-update/overrides.json" \
+    --output "$tmp/models.json" \
+    --provenance "$tmp/provenance.json" \
+    --summary-output "$tmp/summary.md" >/dev/null
+}
+
+run_fixture
+cp "$tmp/models.json" "$tmp/models.first.json"
+cp "$tmp/provenance.json" "$tmp/provenance.first.json"
+run_fixture
+cmp "$tmp/models.first.json" "$tmp/models.json"
+cmp "$tmp/provenance.first.json" "$tmp/provenance.json"
+
+jq -e '
+  length == 2 and
+  .[0].provider == "z-provider" and
+  .[1].provider == "a-provider" and
+  .[1].models[0].name == "Corrected Name" and
+  (.[1].models[0] | has("compat") | not)
+' "$tmp/models.json" >/dev/null
+jq -e '
+  .schemaVersion == 1 and
+  .source.revision == "fixture-revision" and
+  .overrides.count == 1 and
+  .inventory.providers == 2 and
+  .inventory.models == 2
+' "$tmp/provenance.json" >/dev/null
+grep -q 'providers: 2' "$tmp/summary.md"
+grep -q 'models: 2' "$tmp/summary.md"
+
+expect_rejection() {
+  local fixture=$1
+  local message=$2
+  if bun "$root/scripts/update-model-catalog.ts" \
+      --source "$root/tests/model-catalog-update/$fixture" \
+      --overrides "$root/scripts/model-catalog-overrides.json" \
+      --output "$tmp/rejected.json" \
+      --provenance "$tmp/rejected-provenance.json" >"$tmp/rejected.out" 2>"$tmp/rejected.err"; then
+    echo "expected $fixture to be rejected" >&2
+    exit 1
+  fi
+  grep -q "$message" "$tmp/rejected.err"
+}
+
+expect_rejection unknown-field.generated.ts 'unknown field(s): newUpstreamField'
+expect_rejection unsupported-api.generated.ts 'unsupported wire protocol'
+
+echo 'model catalog updater fixture passed'

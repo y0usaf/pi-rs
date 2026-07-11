@@ -198,6 +198,42 @@
           '';
           dontInstall = true;
         };
+
+      # Offline, fixture-backed normalization and rejection tests for the
+      # reviewed model-catalog update path.
+      mkModelCatalogUpdateTest =
+        system:
+        let
+          pkgs = mkPkgs system;
+        in
+        pkgs.runCommand "model-catalog-update-test"
+          {
+            nativeBuildInputs = [
+              pkgs.bash
+              pkgs.bun
+              pkgs.jq
+            ];
+          }
+          ''
+            bash ${self}/scripts/test-model-catalog-update
+            touch $out
+          '';
+
+      mkModelCatalogUpdater =
+        system:
+        let
+          pkgs = mkPkgs system;
+        in
+        pkgs.writeShellApplication {
+          name = "update-model-catalog";
+          runtimeInputs = [
+            pkgs.bun
+            pkgs.git
+          ];
+          text = ''
+            exec bun ${self}/scripts/update-model-catalog.ts "$@"
+          '';
+        };
     in
     {
       checks = forAllSystems (system: {
@@ -205,11 +241,20 @@
         workspace-clippy = mkClippy system;
         arch-fresh = mkArchFresh system;
         bare-boot = mkBareBoot system;
+        model-catalog-update = mkModelCatalogUpdateTest system;
       });
 
       packages = forAllSystems (system: rec {
         pi-rs = mkPiRs system;
+        update-model-catalog = mkModelCatalogUpdater system;
         default = pi-rs;
+      });
+
+      apps = forAllSystems (system: {
+        update-model-catalog = {
+          type = "app";
+          program = "${mkModelCatalogUpdater system}/bin/update-model-catalog";
+        };
       });
 
       devShells = forAllSystems (

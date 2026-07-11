@@ -1,10 +1,10 @@
 //! Built-in model catalog — the registry half of the spec's `models.ts`.
 //!
 //! The catalog itself is generated data, never hand code (locked
-//! `pi-rs-ai` row): `data/models.json` is produced from the spec's
-//! `models.generated.ts` (17.5k lines of rows) by
-//! `scripts/gen-models-json.ts` and embedded via `include_str!`. The
-//! shape is an ordered array of `{ provider, models }` — the spec's
+//! `pi-rs-ai` row): `data/models.json` is normalized from upstream Pi's
+//! generated catalog by `nix run .#update-model-catalog`, with deterministic
+//! provenance in `data/models.provenance.json`, and embedded via `include_str!`.
+//! The shape is an ordered array of `{ provider, models }` — the spec's
 //! `Record` insertion order made explicit.
 //!
 //! A parse failure of the embedded data yields an empty catalog rather

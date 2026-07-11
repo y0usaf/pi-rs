@@ -17,7 +17,7 @@ use pi_rs_ai::registry::{
     unregister_api_providers,
 };
 use pi_rs_ai::transport::event_stream::create_assistant_message_event_stream;
-use pi_rs_ai_types::{Context, Model};
+use pi_rs_ai_types::{Context, KNOWN_APIS, Model};
 use serde_json::Value;
 
 /// Serializes every test that mutates the process-global API-provider
@@ -46,6 +46,31 @@ fn catalog_counts_and_order_pin_the_generation() {
 
     let total: usize = providers.iter().map(|p| get_models(p).len()).sum();
     assert_eq!(total, 969, "model count");
+}
+
+#[test]
+fn catalog_provenance_matches_inventory_and_protocol_vocabulary() {
+    let provenance: Value =
+        serde_json::from_str(include_str!("../data/models.provenance.json")).unwrap();
+    let providers = get_providers();
+    let total: usize = providers
+        .iter()
+        .map(|provider| get_models(provider).len())
+        .sum();
+    assert_eq!(provenance["schemaVersion"], 1);
+    assert_eq!(provenance["inventory"]["providers"], providers.len());
+    assert_eq!(provenance["inventory"]["models"], total);
+
+    for provider in providers {
+        for model in get_models(provider) {
+            assert!(
+                KNOWN_APIS.contains(&model.api.as_str()),
+                "{provider}/{} uses unreviewed API {}",
+                model.id,
+                model.api
+            );
+        }
+    }
 }
 
 #[test]

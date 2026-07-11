@@ -20,3 +20,33 @@ Build and test:
 cargo test --workspace
 nix flake check
 ```
+
+## Updating the built-in model catalog
+
+The runtime reads only the reviewed snapshot in
+`crates/pi-rs-ai/data/models.json`; it never fetches model metadata. Refresh it
+from upstream with:
+
+```sh
+nix run .#update-model-catalog
+```
+
+For reproducible review or offline regeneration, pin an upstream revision or
+use a local checkout:
+
+```sh
+nix run .#update-model-catalog -- --revision <git-revision>
+nix run .#update-model-catalog -- --source ref/pi --revision c5582102f51b143fadc05180e0f8aed050e923b3
+```
+
+The command also updates `models.provenance.json` with the exact revision,
+catalog/output hashes, API inventory, and provider/model counts. Reviewed
+upstream metadata corrections belong in `scripts/model-catalog-overrides.json`
+and require a reason; runtime code must not special-case catalog rows.
+
+Generation rejects unknown model fields, duplicate IDs, and API protocols
+outside the reviewed vocabulary. A new protocol is promoted deliberately:
+implement and replay-test its transport first, add it to the updater's accepted
+API set, then regenerate and pass `nix flake check`. The scheduled
+`model-catalog-update.yml` workflow follows the same path and opens a generated
+PR only when the reviewed snapshot changes.
