@@ -38,4 +38,5 @@ fn public_spawn_example_runs_work_in_the_background() {
     assert_eq!(value["value"], "background-done");
     assert_eq!(value["done"], true);
     assert!(value["ticks"].as_u64().expect("ticks") >= 1);
+    assert_eq!(value["abortableSleepCompleted"], false);
 }

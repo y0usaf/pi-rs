@@ -17,6 +17,11 @@ pi.register_command("spawn-demo", {
 			ticks = ticks + 1
 			pi.sleep(2)
 		end
-		return { value = task:join(), ticks = ticks, done = task:done() }
+		-- Retry backoff uses the same optional AbortSignal seam.
+		local signal = pi.abort_signal()
+		pi.spawn(function() pi.sleep(2); signal:abort() end)
+		local sleep_completed = pcall(pi.sleep, 100, signal)
+		return { value = task:join(), ticks = ticks, done = task:done(),
+			abortableSleepCompleted = sleep_completed }
 	end,
 })

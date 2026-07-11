@@ -123,6 +123,10 @@ fn settings_demo_example_exercises_the_public_surface() {
     assert_eq!(result["compactionEnabled"], true);
     assert_eq!(result["compactionReserveTokens"], 16384);
     assert_eq!(result["compactionKeepRecentTokens"], 20000);
+    // Provider retry defaults (PLAN 7.10).
+    assert_eq!(result["retryEnabled"], true);
+    assert_eq!(result["retryMaxRetries"], 3);
+    assert_eq!(result["retryBaseDelayMs"], 2000);
     // Bash-mode reads (PLAN 7.1): unset by default.
     assert_eq!(result["shellCommandPrefixUnset"], true);
     assert_eq!(result["shellPathUnset"], true);

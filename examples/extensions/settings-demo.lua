@@ -23,6 +23,10 @@ pi.register_command("settings-demo", {
     -- reserveTokens 16384, keepRecentTokens 20000 by default.
     local compaction = pi.settings.compaction_settings()
 
+    -- Provider retry policy (PLAN 7.10): enabled, three attempts, and a
+    -- two-second exponential-backoff base by default.
+    local retry = pi.settings.retry_settings()
+
     -- Bash-mode reads (PLAN 7.1): getShellCommandPrefix / getShellPath —
     -- both unset by default; AgentSession.executeBash consumes them.
     local shell_prefix = pi.settings.shell_command_prefix()
@@ -65,6 +69,9 @@ pi.register_command("settings-demo", {
       compactionEnabled = compaction.enabled,
       compactionReserveTokens = compaction.reserveTokens,
       compactionKeepRecentTokens = compaction.keepRecentTokens,
+      retryEnabled = retry.enabled,
+      retryMaxRetries = retry.maxRetries,
+      retryBaseDelayMs = retry.baseDelayMs,
       defaultThinkingLevelUnset = thinking_initial == nil,
       defaultThinkingLevelSet = thinking_set,
       theme = pi.settings.theme(), steeringMode = pi.settings.steering_mode(),

@@ -188,6 +188,19 @@ pub(crate) fn install(lua: &Lua, pi: &Table, cwd: &str, project_trusted: bool) -
         })?,
     )?;
 
+    let store = Arc::clone(&settings);
+    table.set(
+        "retry_settings",
+        lua.create_function(move |lua, ()| {
+            let retry = lock(&store)?.get_retry_settings();
+            let result = lua.create_table()?;
+            result.set("enabled", retry.enabled)?;
+            result.set("maxRetries", retry.max_retries)?;
+            result.set("baseDelayMs", retry.base_delay_ms)?;
+            Ok(result)
+        })?,
+    )?;
+
     getter!("shell_command_prefix", get_shell_command_prefix);
     getter!("shell_path", get_shell_path);
 

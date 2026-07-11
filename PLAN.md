@@ -1491,6 +1491,30 @@ surface; external editor + suspend. Split into rungs:
       retry loader + countdown-timer, retryEscapeHandler — closes the
       4/5/6.5 retry deferrals.
 
+      **Landed slice (2026-07-11):** the AgentSession retry mechanism and
+      interactive policy now run end-to-end in embedded Lua: Pi's retryable and
+      provider-limit predicates (context overflow excluded), attempt accounting,
+      error-message removal from live context, exponential backoff, success/final-
+      failure events, `agent_end.willRetry`, retry-aware abort text, warning loader,
+      countdown, and temporary Escape cancellation/restore. Rust adds only
+      `pi.settings.retry_settings()` and optional AbortSignal cancellation to the
+      existing `pi.sleep` mechanism; both are exercised through `settings-demo.lua`
+      and `spawn-demo.lua`.
+
+      **Slice evidence:** `interactive_retry.rs` drives the real Anthropic/product
+      path through retry→success and Escape-cancel, pins request count and removal
+      of the failed assistant message from retry context; compaction regression
+      tests remain green; `scripts/ui-diff` still matches all 24 existing suites;
+      host settings/spawn tests, `cargo fmt --check`, and `cargo test --workspace`
+      are green.
+
+      **Remaining before closure:** add a Pi-derived differential retry oracle for
+      the full error-classification/attempt/event-order matrix, and a retry UI
+      scenario pinning loader countdown, retry start→working transition, Escape
+      cancellation, final failure, and queued-message `willRetry` behavior cell-for-
+      cell. Then run `cargo test --workspace` + the workspace Nix check and close
+      the checkbox.
+
 - [ ] **7.11 Remaining shell actions.** openExternalEditor
       (app.editor.external), ctrl+z suspend, thinking-block visibility
       toggle (app.thinking.toggle + hideThinkingBlock).

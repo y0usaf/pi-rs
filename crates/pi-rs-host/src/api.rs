@@ -9,9 +9,9 @@
 //!
 //! Surface at WS1.3 (grown only alongside an exercising example):
 //! - `pi.on(event, fn)` — open string vocabulary, no closed enum.
-//! - `pi.sleep(ms)` — first awaitable host future: suspends the handler
-//!   coroutine without burning watchdog budget (superset of pi's
-//!   `await new Promise(setTimeout)`; divergence 3).
+//! - `pi.sleep(ms, signal?)` — awaitable host timer, optionally abortable;
+//!   suspends the handler coroutine without burning watchdog budget and ports
+//!   Pi's `sleep(ms, signal)` cancellation seam.
 //! - `pi.parallel(tasks)` — structured concurrency for awaitable Lua callbacks;
 //!   completion-order outcomes let Lua policy reproduce Promise semantics.
 //! - `pi.register_tool(def)` — spec `registerTool` (`loader.ts`):
@@ -1443,12 +1443,29 @@ pub(crate) fn build(
     pi.set("on", on)?;
 
     // Awaitable host future: the calling coroutine suspends; the VM thread
-    // stays free to run the timer. Await time is excluded from the
-    // watchdog budget (see vm.rs).
-    let sleep = lua.create_async_function(|_lua, ms: u64| async move {
-        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-        Ok(())
-    })?;
+    // stays free to run the timer. Await time is excluded from the watchdog
+    // budget (see vm.rs). The optional signal ports Pi's sleep(ms, signal)
+    // cancellation seam used by AgentSession retry backoff.
+    let sleep = lua.create_async_function(
+        |_lua, (ms, signal): (u64, Option<AnyUserData>)| async move {
+            let signal = signal
+                .map(|signal| {
+                    signal
+                        .borrow::<crate::ai::LuaAbortSignal>()
+                        .map(|signal| signal.0.clone())
+                })
+                .transpose()?;
+            if let Some(signal) = signal {
+                tokio::select! {
+                    () = tokio::time::sleep(std::time::Duration::from_millis(ms)) => Ok(()),
+                    () = signal.aborted() => Err(mlua::Error::runtime("sleep aborted")),
+                }
+            } else {
+                tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+                Ok(())
+            }
+        },
+    )?;
     pi.set("sleep", sleep)?;
     // Generic structured concurrency mechanism. Policy (which tasks to group,
     // and how to order their results) remains in Lua. Results are reported in
