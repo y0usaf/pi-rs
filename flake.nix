@@ -35,10 +35,8 @@
           craneLib = crane.mkLib pkgs;
 
           # crane's default filter strips non-Rust files; the flake must
-          # see .lua (embedded packs / example extensions exercised by
-          # tests), .json (include_str! fixtures) and .sse (recorded SSE
-          # transcripts replayed by protocol tests) — locked decision:
-          # every embedded file type is in the source filter.
+          # see embedded packs/assets and recorded protocol fixtures — locked
+          # decision: every embedded file type is in the source filter.
           src = pkgs.lib.cleanSourceWith {
             src = ./.;
             filter =
@@ -46,6 +44,9 @@
               (craneLib.filterCargoSources path type)
               || (lib.hasSuffix ".json" path)
               || (lib.hasSuffix ".lua" path)
+              || (lib.hasSuffix ".html" path)
+              || (lib.hasSuffix ".css" path)
+              || (lib.hasSuffix ".js" path)
               || (lib.hasSuffix ".sse" path);
           };
 
