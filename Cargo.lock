@@ -1042,6 +1042,7 @@ dependencies = [
  "pi-rs-ai-types",
  "pi-rs-session",
  "pi-rs-tui",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",

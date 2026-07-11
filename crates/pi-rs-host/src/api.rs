@@ -28,6 +28,8 @@
 //!   (`exec.rs` ← `core/exec.ts`).
 //! - `pi.fs` / `pi.path` / `pi.env` / `pi.cwd()` — OS bindings (`os.rs`;
 //!   ambient Node in the spec, explicit bindings under divergence 1).
+//! - `pi.http.get(url, options?)` — awaitable HTTP GET mechanism for Lua policy;
+//!   endpoint choice and response interpretation remain in extensions.
 
 use mlua::{AnyUserData, UserData, UserDataMethods};
 use std::{
@@ -2363,6 +2365,7 @@ pub(crate) fn build(
     crate::ai::install(lua, &pi, std::sync::Arc::clone(&storage))?;
     crate::auth::install(lua, &pi, storage)?;
     crate::exec::install(lua, &pi, cwd)?;
+    crate::http::install(lua, &pi)?;
     crate::os::install(lua, &pi, cwd)?;
     crate::settings::install(lua, &pi, cwd, project_trusted)?;
     crate::session::install(lua, &pi, cwd)?;
