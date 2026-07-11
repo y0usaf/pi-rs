@@ -20,6 +20,7 @@ import {
 import type { AgentSession } from "../../ref/pi/packages/coding-agent/src/core/agent-session.ts";
 import type { ReadonlyFooterDataProvider } from "../../ref/pi/packages/coding-agent/src/core/footer-data-provider.ts";
 import { AssistantMessageComponent } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/assistant-message.ts";
+import { CountdownTimer } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/countdown-timer.ts";
 import { CustomEditor } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/custom-editor.ts";
 import { FooterComponent } from "../../ref/pi/packages/coding-agent/src/modes/interactive/components/footer.ts";
 import {
@@ -33,6 +34,7 @@ import { getEditorTheme, initTheme, theme } from "../../ref/pi/packages/coding-a
 import { Loader } from "../../ref/pi/packages/tui/src/components/loader.ts";
 import { Spacer } from "../../ref/pi/packages/tui/src/components/spacer.ts";
 import { Text } from "../../ref/pi/packages/tui/src/components/text.ts";
+
 import { setKeybindings } from "../../ref/pi/packages/tui/src/keybindings.ts";
 import { setCapabilities } from "../../ref/pi/packages/tui/src/terminal-image.ts";
 import { Container, TUI } from "../../ref/pi/packages/tui/src/tui.ts";
@@ -53,7 +55,7 @@ type ScriptedResponse = {
   // real streaming pace. pi-rs snapshots per event and needs no pacing.
   pauseAfter?: Array<{ afterEvent: number; untilCapture: string }>;
 };
-type Capture = { name: string; event: string; role?: string; count?: number; action?: string };
+type Capture = { name?: string; event: string; role?: string; count?: number; action?: string; afterMs?: number; afterName?: string };
 type Step = {
   name?: string;
   input?: string[];
@@ -72,6 +74,7 @@ type Scenario = {
   files?: Record<string, string>;
   model: Model<"anthropic-messages">;
   stub: { sse?: Record<string, SseEvent[]>; responses: ScriptedResponse[] };
+  retry?: { enabled?: boolean; maxRetries?: number; baseDelayMs?: number };
   steps: Step[];
 };
 
@@ -300,9 +303,45 @@ let streamingComponent: AssistantMessageComponent | undefined;
 let streamingMessage: import("../../ref/pi/packages/agent/src/types.ts").AgentMessage | undefined;
 const pendingTools = new Map<string, ToolExecutionComponent>();
 let loadingAnimation: Loader | undefined;
+let retryLoader: Loader | undefined;
+let retryCountdown: CountdownTimer | undefined;
+let retryEscapeHandler: (() => void) | undefined;
+let retryAbortController: AbortController | undefined;
+let retryAttempt = 0;
+let lastAssistantMessage: { stopReason?: string; errorMessage?: string } | undefined;
+let pendingPrompt: Promise<void> | undefined;
 let toolOutputExpanded = false;
+const retrySettings = {
+  enabled: scenario.retry?.enabled ?? true,
+  maxRetries: scenario.retry?.maxRetries ?? 3,
+  baseDelayMs: scenario.retry?.baseDelayMs ?? 2000,
+};
+
+function clearRetryUi(): void {
+  if (retryEscapeHandler) {
+    editor.onEscape = retryEscapeHandler;
+    retryEscapeHandler = undefined;
+  }
+  retryCountdown?.dispose();
+  retryCountdown = undefined;
+  if (retryLoader) {
+    retryLoader.stop();
+    retryLoader = undefined;
+    statusContainer.clear();
+  }
+}
+
+
+function showError(message: string): void {
+  chatContainer.addChild(new Spacer(1));
+  chatContainer.addChild(new Text(theme.fg("error", `Error: ${message}`), 1, 0));
+  chatContainer.addChild(new Spacer(1));
+}
+
+
 
 function startWorkingLoader(): void {
+  clearRetryUi();
   statusContainer.clear();
   loadingAnimation = new Loader(
     ui,
@@ -333,6 +372,13 @@ function handleEvent(event: never): void {
     partialResult?: { content: unknown; details?: unknown };
     result?: { content: unknown; details?: unknown };
     isError?: boolean;
+    attempt?: number;
+    maxAttempts?: number;
+    delayMs?: number;
+    errorMessage?: string;
+    success?: boolean;
+    finalError?: string;
+    willRetry?: boolean;
   };
   footer.invalidate();
   switch (e.type) {
@@ -353,6 +399,7 @@ function handleEvent(event: never): void {
           .map((block) => block.text ?? "")
           .join("\n");
         addUserMessageToChat(text);
+
         ui.requestRender();
       } else if (e.message?.role === "assistant") {
         streamingComponent = new AssistantMessageComponent(undefined, false);
@@ -395,7 +442,9 @@ function handleEvent(event: never): void {
         streamingMessage = e.message as never;
         let errorMessage: string | undefined;
         if (e.message.stopReason === "aborted") {
-          errorMessage = "Operation aborted";
+          errorMessage = retryAttempt > 0
+            ? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
+            : "Operation aborted";
           e.message.errorMessage = errorMessage;
         }
         streamingComponent.updateContent(streamingMessage as never);
@@ -471,6 +520,36 @@ function handleEvent(event: never): void {
         streamingMessage = undefined;
       }
       pendingTools.clear();
+
+      ui.requestRender();
+      break;
+    case "auto_retry_start": {
+      retryEscapeHandler = editor.onEscape;
+      editor.onEscape = () => retryAbortController?.abort();
+      statusContainer.clear();
+      retryCountdown?.dispose();
+      const retryMessage = (seconds: number) =>
+        `Retrying (${e.attempt}/${e.maxAttempts}) in ${seconds}s... (${keyText("app.interrupt")} to cancel)`;
+      retryLoader = new Loader(
+        ui,
+        (spinner) => theme.fg("warning", spinner),
+        (text) => theme.fg("muted", text),
+        retryMessage(Math.ceil((e.delayMs ?? 0) / 1000)),
+      );
+      retryLoader.stop();
+      retryCountdown = new CountdownTimer(
+        e.delayMs ?? 0,
+        ui,
+        (seconds) => retryLoader?.setMessage(retryMessage(seconds)),
+        () => { retryCountdown = undefined; },
+      );
+      statusContainer.addChild(retryLoader);
+      ui.requestRender();
+      break;
+    }
+    case "auto_retry_end":
+      clearRetryUi();
+      if (!e.success) showError(`Retry failed after ${e.attempt} attempts: ${e.finalError || "Unknown error"}`);
       ui.requestRender();
       break;
   }
@@ -498,6 +577,70 @@ function handleEscape(): void {
 editor.onEscape = handleEscape;
 editor.onAction("app.tools.expand", () => setToolsExpanded(!toolOutputExpanded));
 
+function isRetryableError(message: { stopReason?: string; errorMessage?: string } | undefined): boolean {
+  if (!message || message.stopReason !== "error" || !message.errorMessage) return false;
+  const error = message.errorMessage;
+  if (/prompt is too long|request_too_large|maximum context length/i.test(error)) return false;
+  if (/GoUsageLimitError|FreeUsageLimitError|Monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing/i.test(error)) return false;
+  return /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|stream ended before message_stop|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i.test(error);
+}
+
+async function emitRetryEvent(event: Record<string, unknown>): Promise<void> {
+  handleEvent(event as never);
+  await runTriggers(event);
+}
+
+async function prepareRetry(message: { errorMessage?: string }): Promise<boolean> {
+  if (!retrySettings.enabled) return false;
+  retryAttempt++;
+  if (retryAttempt > retrySettings.maxRetries) {
+    retryAttempt--;
+    return false;
+  }
+  const delayMs = retrySettings.baseDelayMs * 2 ** (retryAttempt - 1);
+  retryAbortController = new AbortController();
+  await emitRetryEvent({ type: "auto_retry_start", attempt: retryAttempt,
+    maxAttempts: retrySettings.maxRetries, delayMs,
+    errorMessage: message.errorMessage || "Unknown error" });
+  if (agent.state.messages.at(-1)?.role === "assistant") agent.state.messages = agent.state.messages.slice(0, -1);
+  try {
+    if (retryAbortController.signal.aborted) throw new Error("aborted");
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, delayMs);
+      retryAbortController?.signal.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(new Error("aborted"));
+      }, { once: true });
+    });
+  } catch {
+    const attempt = retryAttempt;
+    retryAttempt = 0;
+    await emitRetryEvent({ type: "auto_retry_end", success: false, attempt, finalError: "Retry cancelled" });
+    return false;
+  } finally {
+    retryAbortController = undefined;
+  }
+  return true;
+}
+
+async function handlePostAgentRun(): Promise<boolean> {
+  const message = lastAssistantMessage;
+  lastAssistantMessage = undefined;
+  if (!message) return false;
+  if (isRetryableError(message) && (await prepareRetry(message))) return true;
+  if (message.stopReason === "error" && retryAttempt > 0) {
+    await emitRetryEvent({ type: "auto_retry_end", success: false, attempt: retryAttempt,
+      finalError: message.errorMessage });
+    retryAttempt = 0;
+  }
+  return agent.hasQueuedMessages();
+}
+
+async function runAgentPrompt(text: string): Promise<void> {
+  await agent.prompt(text);
+  while (await handlePostAgentRun()) await agent.continue();
+}
+
 // setupEditorSubmitHandler: the reachable slice (plain prompts only).
 editor.onSubmit = (text: string) => {
   text = text.trim();
@@ -507,7 +650,7 @@ editor.onSubmit = (text: string) => {
     void agent.steer({ role: "user", content: [{ type: "text", text }], timestamp: Date.now() } as never);
     return;
   }
-  void agent.prompt(text);
+  pendingPrompt = runAgentPrompt(text);
 };
 
 const frames: Array<{ name: string; columns: number; rows: number; ansi: string }> = [];
@@ -523,21 +666,40 @@ async function capture(name: string, force = false) {
 // same property).
 type ArmedCapture = Capture & { seen?: number; fired?: boolean };
 let triggers: ArmedCapture[] = [];
-agent.subscribe(async (event) => {
-  handleEvent(event as never);
+async function runTriggers(event: Record<string, unknown>): Promise<void> {
   for (const trigger of triggers) {
     if (
-      !trigger.fired &&
-      (event as { type: string }).type === trigger.event &&
-      (trigger.role === undefined ||
-        (event as { message?: { role?: string } }).message?.role === trigger.role)
+      !trigger.fired && event.type === trigger.event &&
+      (trigger.role === undefined || (event.message as { role?: string } | undefined)?.role === trigger.role)
     ) {
       trigger.seen = (trigger.seen ?? 0) + 1;
       if (trigger.seen >= (trigger.count ?? 1)) {
         trigger.fired = true;
-        await capture(trigger.name);
-        if (trigger.action === "escape") handleEscape();
+
+        if (trigger.name) await capture(trigger.name);
+        if (trigger.action === "escape") editor.onEscape?.();
+        if (trigger.action === "countdown") {
+          await new Promise<void>((resolve) => setTimeout(resolve, trigger.afterMs ?? 1100));
+          if (trigger.afterName) await capture(trigger.afterName);
+        }
       }
+    }
+  }
+}
+
+agent.subscribe(async (event) => {
+  const e = event as unknown as Record<string, unknown> & { type: string; message?: { role?: string; stopReason?: string; errorMessage?: string }; messages?: Array<{ role?: string; stopReason?: string; errorMessage?: string }> };
+  if (e.type === "agent_end") {
+    const latest = [...(e.messages ?? [])].reverse().find((message) => message.role === "assistant");
+    e.willRetry = retrySettings.enabled && retryAttempt < retrySettings.maxRetries && isRetryableError(latest);
+  }
+  handleEvent(e as never);
+  await runTriggers(e);
+  if (e.type === "message_end" && e.message?.role === "assistant") {
+    lastAssistantMessage = e.message;
+    if (e.message.stopReason !== "error" && retryAttempt > 0) {
+      await emitRetryEvent({ type: "auto_retry_end", success: true, attempt: retryAttempt });
+      retryAttempt = 0;
     }
   }
 });
@@ -554,8 +716,8 @@ async function main() {
     if (step.resize) terminal.resize(step.resize.columns, step.resize.rows);
     triggers = (step.captures ?? []) as ArmedCapture[];
     for (const data of step.input ?? []) terminal.send(data);
-    // Settle the background turn; captures fire from the listener. The
-    // editor submit handler kicked the prompt off without awaiting it.
+    // Settle the AgentSession wrapper, including retry continuations.
+    await pendingPrompt;
     await agent.waitForIdle();
     if (step.name) await capture(step.name, Boolean(step.resize));
   }
