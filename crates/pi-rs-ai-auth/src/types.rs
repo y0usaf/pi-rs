@@ -4,8 +4,9 @@
 //! Divergences from the spec file (recorded):
 //! - the deprecated aliases (`OAuthProvider`, `OAuthProviderInfo`) are
 //!   not ported — no spec consumer uses them;
-//! - `OAuthLoginCallbacks.signal` is deferred to WS5 with the
-//!   device-code engine — the anthropic flow never reads it.
+//! - cancellation and provider model IDs are represented as callback methods
+//!   rather than JavaScript's `AbortSignal` and `getModels()` import. This keeps
+//!   auth below the catalog crate while preserving observable flow behavior.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -49,13 +50,13 @@ pub struct OAuthAuthInfo {
     pub instructions: Option<String>,
 }
 
-/// Spec: `OAuthDeviceCodeInfo` (consumed by the WS5 device-code engine).
+/// Spec: `OAuthDeviceCodeInfo`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct OAuthDeviceCodeInfo {
     pub user_code: String,
     pub verification_uri: String,
-    pub interval_seconds: Option<u64>,
-    pub expires_in_seconds: Option<u64>,
+    pub interval_seconds: Option<f64>,
+    pub expires_in_seconds: Option<f64>,
 }
 
 /// Spec: `OAuthSelectOption`.
@@ -90,6 +91,23 @@ pub trait OAuthLoginCallbacks: Send + Sync {
 
     /// Spec: `onProgress?`.
     fn on_progress(&self, _message: &str) {}
+
+    /// Whether the spec's shared `AbortSignal` has fired.
+    fn is_cancelled(&self) -> bool {
+        false
+    }
+
+    /// Await cancellation. The default signal never fires.
+    fn on_cancelled(&self) -> AuthFuture<'_, ()> {
+        Box::pin(std::future::pending())
+    }
+
+    /// Catalog IDs used by Copilot's post-login policy-enablement calls.
+    /// Supplied by the host to avoid a dependency from auth back to the
+    /// transport/catalog crate.
+    fn provider_model_ids(&self, _provider: &str) -> Vec<String> {
+        Vec::new()
+    }
 
     /// Spec: `onManualCodeInput?` — `None` means the callback is absent
     /// (the flow then relies on the callback server alone).

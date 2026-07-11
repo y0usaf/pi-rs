@@ -47,11 +47,11 @@ pub(crate) type SharedStorage = Arc<tokio::sync::Mutex<AuthStorage>>;
 // Login channel bridge
 // ---------------------------------------------------------------------------
 
-/// Cancellation for a pending prompt: `cancel()` only rejects an input
-/// await that is currently pending (the spec rejects `inputRejecter`
-/// only when set).
+/// Shared login cancellation. Pi's dialog rejects a pending input and aborts
+/// the flow's signal; the notify wakes device-code sleeps and HTTP waits.
 struct CancelState {
     waiting: AtomicBool,
+    cancelled: AtomicBool,
     notify: tokio::sync::Notify,
 }
 
@@ -59,14 +59,14 @@ impl CancelState {
     fn new() -> Self {
         Self {
             waiting: AtomicBool::new(false),
+            cancelled: AtomicBool::new(false),
             notify: tokio::sync::Notify::new(),
         }
     }
 
     fn cancel(&self) {
-        if self.waiting.load(Ordering::SeqCst) {
-            self.notify.notify_one();
-        }
+        self.cancelled.store(true, Ordering::SeqCst);
+        self.notify.notify_one();
     }
 }
 
@@ -84,6 +84,9 @@ impl ChannelCallbacks {
     /// Await one `respond(...)` from Lua; `cancel()` while pending
     /// resolves `None` (the caller maps it per callback semantics).
     async fn await_input(&self) -> Option<Option<String>> {
+        if self.cancel.cancelled.load(Ordering::SeqCst) {
+            return None;
+        }
         let mut rx = self.input.lock().await;
         self.cancel.waiting.store(true, Ordering::SeqCst);
         let received = tokio::select! {
@@ -145,6 +148,26 @@ impl OAuthLoginCallbacks for ChannelCallbacks {
 
     fn on_progress(&self, message: &str) {
         self.send(serde_json::json!({ "type": "progress", "message": message }));
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancel.cancelled.load(Ordering::SeqCst)
+    }
+
+    fn on_cancelled(&self) -> AuthFuture<'_, ()> {
+        Box::pin(async move {
+            if !self.is_cancelled() {
+                self.cancel.notify.notified().await;
+            }
+            Ok(())
+        })
+    }
+
+    fn provider_model_ids(&self, provider: &str) -> Vec<String> {
+        pi_rs_ai::registry::get_models(provider)
+            .iter()
+            .map(|model| model.id.clone())
+            .collect()
     }
 
     fn on_manual_code_input(&self) -> Option<AuthFuture<'_, String>> {

@@ -108,9 +108,20 @@ fn auth_bindings_round_trip_through_the_public_surface() {
     let disk: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&auth_path).unwrap()).unwrap();
     assert_eq!(disk, serde_json::json!({}));
-    // The registry mirror includes the scripted provider.
+    // The registry mirror includes all pinned subscription providers plus the
+    // scripted extension provider, in registration order.
     let oauth = result["oauth"].as_array().unwrap();
-    assert!(oauth.iter().any(|id| id == "scripted-oauth"), "{result:?}");
+    assert_eq!(
+        oauth,
+        serde_json::json!([
+            "anthropic",
+            "github-copilot",
+            "openai-codex",
+            "scripted-oauth"
+        ])
+        .as_array()
+        .unwrap()
+    );
 
     // Login bridge: auth event -> prompt -> respond -> progress -> done,
     // persisting the credential (spec authStorage.login).

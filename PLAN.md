@@ -1289,18 +1289,49 @@ surface; external editor + suspend. Split into rungs:
       green; `nix build .#checks.x86_64-linux.workspace-test
       --print-build-logs`: green.
 
-- [ ] **7.7 Session transfer commands.** `/export` (HTML/JSONL),
+- [x] **7.7 `/login` provider breadth (pulled forward from item 8).** The OAuth
+      registry now matches the pinned coding agent's three subscription providers:
+      Anthropic, GitHub Copilot, and OpenAI Codex. Shared mechanism:
+      `device_code.rs` ports RFC 8628 polling (immediate poll, default/minimum
+      interval, permanent `slow_down` increments, timeout diagnostics, cancellation),
+      and the host bridges the login dialog's cancellation signal + catalog model
+      IDs without introducing an auth→catalog dependency. Codex ports browser PKCE
+      and headless device-code selection, callback bind fallback, form exchanges,
+      refresh, JWT `accountId`, and exact credential shape. Copilot ports enterprise
+      domain normalization, device flow, short-lived token refresh, post-login model
+      policy enables, dynamic API base URL from `proxy-ep`, and `enterpriseUrl`
+      persistence. `/login`, `/logout`, `--login`, auth refresh, model-registry
+      modification, and the existing Lua dialogs consume the providers through the
+      same public registry/handle seams as Anthropic.
+
+      **Boundary:** this closes built-in subscription authentication, not item 8's
+      remaining transport breadth. Codex models still require the
+      `openai-codex-responses` protocol, and Copilot's `openai-responses` rows require
+      that protocol; those protocol replays remain item 8.
+
+      **Evidence:** `subscription_providers.rs` replays Codex browser PKCE/manual
+      exchange + device select/poll/exchange/JWT extraction and Copilot prompt →
+      device poll → token refresh against captured loopback HTTP requests; registry
+      tests pin exact built-in IDs/order, names, callback-server flags, refresh, and
+      reset behavior. `auth_bindings.rs`
+      pins all three through `pi.auth.oauth_providers`; `login-turn` now renders the
+      three Pi-derived provider rows and matches at 24 checkpoints. Focused auth,
+      host, and interactive-login tests + `cargo fmt --check` are green;
+      `cargo test --workspace` and `nix build
+      .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
+
+- [ ] **7.8 Session transfer commands.** `/export` (HTML/JSONL),
       `/import`, `/share`, `/copy`.
 
-- [ ] **7.8 Info commands and chrome.** `/changelog`, `/hotkeys`,
+- [ ] **7.9 Info commands and chrome.** `/changelog`, `/hotkeys`,
       `/debug`, `/reload`, the easter eggs (armin/daxnuts/earendil),
       and the version-update notification.
 
-- [ ] **7.9 Provider-retry surface.** _isRetryableError/_prepareRetry,
+- [ ] **7.10 Provider-retry surface.** _isRetryableError/_prepareRetry,
       retry loader + countdown-timer, retryEscapeHandler — closes the
       4/5/6.5 retry deferrals.
 
-- [ ] **7.10 Remaining shell actions.** openExternalEditor
+- [ ] **7.11 Remaining shell actions.** openExternalEditor
       (app.editor.external), ctrl+z suspend, thinking-block visibility
       toggle (app.thinking.toggle + hideThinkingBlock).
 
@@ -1311,12 +1342,12 @@ surface; external editor + suspend. Split into rungs:
 - [ ] **8. Complete coding-agent AI/auth compatibility.** Port the providers
       and model catalog behavior the pinned coding agent exposes, sharing
       transport/auth machinery rather than cloning provider implementations.
-      OAuth beyond Claude Code: Codex now; remaining flows as catalog/engine
-      data unless irreducibly weird.
+      Built-in `/login` breadth is complete via 7.7; this rung now concentrates on
+      the remaining protocol families and provider-specific request behavior.
 
-      **Accept:** the supported model inventory matches Pi's coding agent, with
-      protocol replays and deterministic auth-state tests; `/login` completes
-      the Claude Code and Codex flows.
+      **Accept:** the supported model inventory matches Pi's coding agent, every
+      advertised API has deterministic protocol replays, and the three subscription
+      providers' auth-state/request tests remain green.
 
 - [ ] **9. Match coding-agent configuration and extensions.** Support the
       relevant Pi settings, themes, prompts, skills, packages, and extension

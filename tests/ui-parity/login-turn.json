@@ -6,11 +6,15 @@
   "docsPath": "/opt/pi-rs/docs",
   "model": { "id": "claude-opus-4-8", "provider": "anthropic", "api": "anthropic-messages" },
   "oauthProviders": [
-    { "id": "anthropic", "name": "Anthropic (Claude Pro/Max)", "usesCallbackServer": true }
+    { "id": "anthropic", "name": "Anthropic (Claude Pro/Max)", "usesCallbackServer": true },
+    { "id": "github-copilot", "name": "GitHub Copilot" },
+    { "id": "openai-codex", "name": "ChatGPT Plus/Pro (Codex Subscription)", "usesCallbackServer": true }
   ],
   "loginProviders": {
     "oauth": [
-      { "id": "anthropic", "name": "Anthropic (Claude Pro/Max)", "authType": "oauth" }
+      { "id": "anthropic", "name": "Anthropic (Claude Pro/Max)", "authType": "oauth" },
+      { "id": "github-copilot", "name": "GitHub Copilot", "authType": "oauth" },
+      { "id": "openai-codex", "name": "ChatGPT Plus/Pro (Codex Subscription)", "authType": "oauth" }
     ],
     "api_key": [
       { "id": "amazon-bedrock", "name": "Amazon Bedrock", "authType": "api_key" },

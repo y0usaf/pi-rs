@@ -135,13 +135,21 @@ crate pi_rs_ai_auth
 │   ├── struct CallbackCode: pub
 │   ├── struct CallbackPages: pub
 │   └── struct CallbackServer: pub
+├── mod device_code: pub(crate)
+│   └── enum DeviceCodePoll: pub
 ├── mod engine: pub(crate)
 │   ├── struct PkceFlow: pub
 │   └── struct TokenResponse: pub(self)
 ├── mod error: pub(crate)
 │   └── enum AuthError: pub
+├── mod github_copilot: pub(crate)
+│   ├── struct GitHubCopilotEndpoints: pub
+│   └── struct GitHubCopilotFlow: pub
 ├── mod oauth_page: pub(crate)
 │   └── struct PageOptions: pub(self)
+├── mod openai_codex: pub(crate)
+│   ├── struct OpenAiCodexEndpoints: pub
+│   └── struct OpenAiCodexFlow: pub
 ├── mod pkce: pub(crate)
 │   └── struct Pkce: pub
 ├── mod registry: pub(crate)
