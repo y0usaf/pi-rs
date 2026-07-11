@@ -13,6 +13,7 @@
   "doubleEscapeAction": "none",
   "clipboardImagePath": "/tmp/pi-clipboard-4f9d.png",
   "thinkingText": "Inspect the hidden implementation detail before answering.",
+  "externalEditorCommand": false,
   "shortcut": { "key": "ctrl+x", "status": "Extension shortcut fired" },
   "usage": { "input": 100, "output": 10, "cacheRead": 0, "cacheWrite": 0, "cost": 0 },
   "contextUsage": { "percent": null, "contextWindow": 200000 },
@@ -42,6 +43,7 @@
     { "name": "paste-image", "input": ["\u0016"] },
     { "name": "shortcut-status", "input": ["\u0018"] },
     { "name": "dequeue-empty", "input": ["\u001b[1;3A"] },
+    { "name": "external-editor-missing", "input": ["\u0007"] },
     { "name": "resize-wide", "resize": { "columns": 100, "rows": 24 } }
   ]
 }

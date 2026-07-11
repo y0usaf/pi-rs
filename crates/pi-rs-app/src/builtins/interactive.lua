@@ -4384,6 +4384,9 @@ local function setup_shell_editor(state)
     set_tools_expanded(state, not state.tools_expanded)
   end)
   state.editor:on_action("app.thinking.toggle", function() toggle_thinking_block_visibility(state) end)
+  state.editor:on_action("app.editor.external", function()
+    open_external_editor(state, state.editor.editor, "pi-editor-", ".pi.md", true, true)
+  end)
   state.editor:on_action("app.message.followUp", function() handle_follow_up(state) end)
   state.editor:on_action("app.message.dequeue", function() handle_dequeue(state) end)
 end
@@ -7046,9 +7049,87 @@ end
 -- session_tree / session_before_fork extension events join item 9.
 -- ===========================================================================
 
+-- Split exactly like JS String.split(" "): editor arguments are deliberately
+-- simple, and repeated/trailing spaces remain empty arguments.
+function split_editor_command(command)
+  local parts, start = {}, 1
+  while true do
+    local at = command:find(" ", start, true)
+    if not at then parts[#parts + 1] = command:sub(start); break end
+    parts[#parts + 1] = command:sub(start, at - 1)
+    start = at + 1
+  end
+  return parts
+end
+
+function open_external_editor(state, editor, prefix, suffix, warn_when_missing, expanded_text)
+  local editor_command = state.external_editor_command
+  if editor_command == nil then editor_command = pi.env.VISUAL or pi.env.EDITOR end
+  if not editor_command or editor_command == "" then
+    if warn_when_missing then
+      show_warning(state, "No editor configured. Set $VISUAL or $EDITOR environment variable.")
+    end
+    return
+  end
+
+  local temp_file = pi.path.join(pi.fs.tmpdir(), prefix .. tostring(pi.now_ms()) .. suffix)
+  local write_ok, write_error = pcall(pi.fs.write_file, temp_file,
+    expanded_text and editor:get_expanded_text() or editor:get_text())
+  if not write_ok then
+    pcall(pi.fs.remove_file, temp_file)
+    error(write_error)
+  end
+  local command = split_editor_command(editor_command)
+  local program = table.remove(command, 1)
+  command[#command + 1] = temp_file
+  state.next_inherited_process_id = (state.next_inherited_process_id or 0) + 1
+  local id = "external-editor-" .. tostring(state.next_inherited_process_id)
+  state.inherited_process_callbacks[id] = function(status)
+    local read_ok, content = true, nil
+    if status == 0 then read_ok, content = pcall(pi.fs.read_file, temp_file) end
+    pcall(pi.fs.remove_file, temp_file)
+    if not read_ok then error(content) end
+    if status == 0 then editor:set_text((content:gsub("\n$", ""))) end
+  end
+  state.pending_inherited_process = {
+    id = id, program = program, args = command, shell = pi.platform() == "win32",
+    message = "Launching external editor: " .. editor_command
+      .. "\nPi will resume when the editor exits.\n",
+  }
+end
+
+function take_inherited_process(state)
+  local action = state.pending_inherited_process
+  state.pending_inherited_process = nil
+  return action
+end
+
+-- Deterministic driver for interactive-mode.ts/openExternalEditor and
+-- ExtensionEditorComponent.openExternalEditor. Process ownership itself is
+-- exercised by the public live-process example and PTY evidence.
+pi.register_command("interactive-external-editor-policy", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local editor = pi.tui.editor(request.text or "")
+    local state = { external_editor_command = request.editorCommand,
+      inherited_process_callbacks = {}, next_inherited_process_id = 0 }
+    open_external_editor(state, editor, request.prefix or "pi-editor-",
+      request.suffix or ".pi.md", false, request.expanded == true)
+    local action = take_inherited_process(state)
+    if not action then return { text = editor:get_text() } end
+    local temp_file = action.args[#action.args]
+    local initial = pi.fs.read_file(temp_file)
+    if request.replacement ~= nil then pi.fs.write_file(temp_file, request.replacement) end
+    state.inherited_process_callbacks[action.id](request.status)
+    return {
+      text = editor:get_text(), initial = initial, tempExists = pi.fs.exists(temp_file),
+      program = action.program, args = action.args, message = action.message,
+    }
+  end,
+})
+
 -- components/extension-editor.ts — the multi-line editor mounted in the
--- editor slot (the summarize-branch custom-prompt flow). The external-
--- editor path (ctrl+g) joins item 7 with app keybinding config.
+-- editor slot (the summarize-branch custom-prompt flow).
 function extension_editor(opts)
   local theme = opts.theme
   local self = { editor = pi.tui.editor(opts.prefill or ""), focused = false }
@@ -7060,6 +7141,10 @@ function extension_editor(opts)
   function self:handle_input(data)
     if binding_matches(data, SELECT_KEYS.cancel) then
       opts.on_cancel()
+      return
+    end
+    if binding_matches(data, DEFAULT_KEYS["app.editor.external"]) then
+      if opts.open_external_editor then opts.open_external_editor(self.editor) end
       return
     end
     local effect = self.editor:input_effect(data)
@@ -7110,6 +7195,9 @@ function show_extension_editor(state, title, prefill, on_done)
       prefill = prefill,
       on_submit = function(value) done(); on_done(value) end,
       on_cancel = function() done(); on_done(nil) end,
+      open_external_editor = function(editor)
+        open_external_editor(state, editor, "pi-extension-editor-", ".md", false, false)
+      end,
     })
   end)
 end
@@ -8491,6 +8579,7 @@ local function create_interactive_state(request)
     scoped_models = {},
     hide_thinking_block = pi.settings.hide_thinking_block(),
     project_trusted = request.projectTrusted ~= false,
+    inherited_process_callbacks = {}, pending_inherited_process = nil,
   }
   -- Spec: main.ts mirrors --api-key into the auth storage as a runtime
   -- override before the session starts; per-request resolution then
@@ -8575,7 +8664,8 @@ local function run_interactive_state(state)
         return { lines = frontend_frame(state, state.columns or 80), exit = state.exit,
           progress = pi.settings.show_terminal_progress() and state.session.is_streaming(),
           showHardwareCursor = pi.settings.show_hardware_cursor(),
-          clearOnShrink = pi.settings.clear_on_shrink() }
+          clearOnShrink = pi.settings.clear_on_shrink(),
+          inheritedProcess = take_inherited_process(state) }
       end
       local effect = state.editor:handle_input(event.data)
       if effect.kind == "submit" then
@@ -8584,6 +8674,16 @@ local function run_interactive_state(state)
       pump_login(state, 0)
       pump_editor_autocomplete(state, pi.monotonic_ms())
       return { lines = frontend_frame(state, state.columns or 80), exit = state.exit,
+        progress = pi.settings.show_terminal_progress() and state.session.is_streaming(),
+        showHardwareCursor = pi.settings.show_hardware_cursor(),
+        clearOnShrink = pi.settings.clear_on_shrink(),
+        inheritedProcess = take_inherited_process(state) }
+    end
+    if event.type == "inherited_process_result" then
+      local callback = state.inherited_process_callbacks[event.id]
+      state.inherited_process_callbacks[event.id] = nil
+      if callback then callback(event.status) end
+      return { lines = frontend_frame(state, state.columns or 80), force = true,
         progress = pi.settings.show_terminal_progress() and state.session.is_streaming(),
         showHardwareCursor = pi.settings.show_hardware_cursor(),
         clearOnShrink = pi.settings.clear_on_shrink() }
@@ -8971,6 +9071,7 @@ pi.register_command("interactive-shell-parity-sequence", {
       provider_count = request.providerCount or 1,
       scoped_models = {},
     }
+    state.external_editor_command = request.externalEditorCommand
     local events = {}
     local streaming = false
     state.session = {

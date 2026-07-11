@@ -489,3 +489,56 @@ fn selector_overlay_confirms_and_cancels_through_show_selector() {
     let last = frames.last().unwrap()["ansi"].as_str().unwrap();
     assert!(!last.contains("Select provider"), "{last:?}");
 }
+
+#[test]
+fn external_editor_policy_matches_pi_success_and_failure_settlement() {
+    let host = host();
+    let success = host
+        .call_command(
+            "interactive-external-editor-policy",
+            &serde_json::json!({
+                "editorCommand": "code  --wait",
+                "text": "original",
+                "replacement": "changed\n",
+                "status": 0
+            })
+            .to_string(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(success["program"], "code");
+    assert_eq!(success["initial"], "original");
+    assert_eq!(success["text"], "changed");
+    assert_eq!(success["tempExists"], false);
+    assert_eq!(success["args"][0], "");
+    assert_eq!(success["args"][1], "--wait");
+    assert!(success["args"][2].as_str().unwrap().ends_with(".pi.md"));
+    assert_eq!(
+        success["message"],
+        "Launching external editor: code  --wait\nPi will resume when the editor exits.\n"
+    );
+
+    let failure = host
+        .call_command(
+            "interactive-external-editor-policy",
+            &serde_json::json!({
+                "editorCommand": "vim",
+                "text": "keep me",
+                "replacement": "discard me\n",
+                "status": 1,
+                "prefix": "pi-extension-editor-",
+                "suffix": ".md"
+            })
+            .to_string(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(failure["text"], "keep me");
+    assert_eq!(failure["tempExists"], false);
+    assert!(
+        failure["args"][0]
+            .as_str()
+            .unwrap()
+            .contains("pi-extension-editor-")
+    );
+}

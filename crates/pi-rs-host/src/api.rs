@@ -274,6 +274,13 @@ impl UserData for LuaProcessTui {
                                         value.set("type", "signal")?;
                                         value.set("signal", signal)?;
                                     }
+                                    pi_rs_tui::process::ProcessEvent::InheritedProcessResult(
+                                        result,
+                                    ) => {
+                                        value.set("type", "inherited_process_result")?;
+                                        value.set("id", result.id)?;
+                                        value.set("status", result.status)?;
+                                    }
                                 }
                                 let control: Option<mlua::Table> =
                                     callback.call_async(value).await?;
@@ -284,6 +291,27 @@ impl UserData for LuaProcessTui {
                                     .get::<Option<mlua::Table>>("lines")?
                                     .map(|lines| lines.sequence_values().collect())
                                     .transpose()?;
+                                let inherited_process = control
+                                    .get::<Option<mlua::Table>>("inheritedProcess")?
+                                    .map(|action| {
+                                        let args = action
+                                            .get::<Option<mlua::Table>>("args")?
+                                            .map(|args| args.sequence_values().collect())
+                                            .transpose()?
+                                            .unwrap_or_default();
+                                        Ok::<_, mlua::Error>(
+                                            pi_rs_tui::process::InheritedProcessAction {
+                                                id: action.get("id")?,
+                                                program: action.get("program")?,
+                                                args,
+                                                shell: action
+                                                    .get::<Option<bool>>("shell")?
+                                                    .unwrap_or(false),
+                                                message: action.get("message")?,
+                                            },
+                                        )
+                                    })
+                                    .transpose()?;
                                 Ok(pi_rs_tui::process::ProcessControl {
                                     lines,
                                     force: control.get::<Option<bool>>("force")?.unwrap_or(false),
@@ -292,6 +320,7 @@ impl UserData for LuaProcessTui {
                                     progress: control.get("progress")?,
                                     show_hardware_cursor: control.get("showHardwareCursor")?,
                                     clear_on_shrink: control.get("clearOnShrink")?,
+                                    inherited_process,
                                 })
                             }
                             .await;

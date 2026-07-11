@@ -36,6 +36,7 @@ type Scenario = {
   doubleEscapeAction: "fork" | "tree" | "none";
   clipboardImagePath?: string;
   thinkingText?: string;
+  externalEditorCommand?: string | false;
   shortcut?: { key: string; status: string };
   usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
   contextUsage: { percent: number | null; contextWindow: number };
@@ -61,6 +62,10 @@ class CaptureTerminal implements Terminal {
 
 const scenario = JSON.parse(readFileSync(process.argv[2]!, "utf8")) as Scenario;
 process.env.HOME = scenario.home;
+if (scenario.externalEditorCommand === false) {
+  delete process.env.VISUAL;
+  delete process.env.EDITOR;
+}
 const keybindings = new KeybindingsManager();
 setKeybindings(keybindings);
 initTheme("dark", false);
@@ -240,6 +245,11 @@ function showStatus(message: string): void {
   lastStatusText = text;
   ui.requestRender();
 }
+function showWarning(message: string): void {
+  chatContainer.addChild(new Spacer(1));
+  chatContainer.addChild(new Text(theme.fg("warning", `Warning: ${message}`), 1, 0));
+  ui.requestRender();
+}
 
 // interactive-mode.ts createWorkingLoader / agent_start body. The loader is
 // stopped immediately so its interval cannot advance the spinner between
@@ -407,6 +417,10 @@ editor.onCtrlD = () => {
 };
 editor.onAction("app.tools.expand", () => setToolsExpanded(!toolOutputExpanded));
 editor.onAction("app.thinking.toggle", () => toggleThinkingBlockVisibility());
+editor.onAction("app.editor.external", () => {
+  const editorCmd = process.env.VISUAL || process.env.EDITOR;
+  if (!editorCmd) showWarning("No editor configured. Set $VISUAL or $EDITOR environment variable.");
+});
 editor.onAction("app.message.followUp", () => handleFollowUp());
 editor.onAction("app.message.dequeue", () => handleDequeue());
 

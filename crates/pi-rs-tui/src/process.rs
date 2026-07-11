@@ -16,12 +16,28 @@ pub const INPUT_DRAIN_MAX: Duration = Duration::from_millis(1000);
 pub const INPUT_DRAIN_IDLE: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InheritedProcessAction {
+    pub id: String,
+    pub program: String,
+    pub args: Vec<String>,
+    pub shell: bool,
+    pub message: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InheritedProcessResult {
+    pub id: String,
+    pub status: Option<i32>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProcessEvent {
     Start { columns: u16, rows: u16 },
     Input(String),
     Resize { columns: u16, rows: u16 },
     Tick,
     Signal(i32),
+    InheritedProcessResult(InheritedProcessResult),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -33,6 +49,7 @@ pub struct ProcessControl {
     pub progress: Option<bool>,
     pub show_hardware_cursor: Option<bool>,
     pub clear_on_shrink: Option<bool>,
+    pub inherited_process: Option<InheritedProcessAction>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -126,6 +143,56 @@ impl ProcessTui {
         stdout.write_all(&bytes).map_err(TerminalError::from)?;
         stdout.flush().map_err(TerminalError::from)?;
         Ok(())
+    }
+
+    #[cfg(unix)]
+    async fn run_inherited_process(
+        &mut self,
+        raw: &mut ProcessRawModeGuard,
+        action: InheritedProcessAction,
+    ) -> Result<InheritedProcessResult, ProcessError> {
+        self.tui.stop();
+        self.flush_output()?;
+        raw.restore()?;
+
+        if let Some(message) = action.message.as_deref() {
+            let mut stdout = io::stdout().lock();
+            stdout
+                .write_all(message.as_bytes())
+                .map_err(TerminalError::from)?;
+            stdout.flush().map_err(TerminalError::from)?;
+        }
+
+        let status = if action.shell {
+            tokio::process::Command::new("sh")
+                .arg("-c")
+                .arg(
+                    std::iter::once(action.program.as_str())
+                        .chain(action.args.iter().map(String::as_str))
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                )
+                .status()
+                .await
+                .ok()
+                .and_then(|status| status.code())
+        } else {
+            tokio::process::Command::new(&action.program)
+                .args(&action.args)
+                .status()
+                .await
+                .ok()
+                .and_then(|status| status.code())
+        };
+
+        *raw = ProcessRawModeGuard::start_raw_only()?;
+        self.tui.start();
+        self.tui.request_render(true);
+        self.flush_output()?;
+        Ok(InheritedProcessResult {
+            id: action.id,
+            status,
+        })
     }
 
     fn take_ready<Fut>(
@@ -252,9 +319,14 @@ impl ProcessTui {
                 // handlers. A prompt and later Escape/tick handlers therefore
                 // make progress as independent Lua coroutines.
                 for control in Self::take_ready(&mut pending) {
-                    let control = control?;
+                    let mut control = control?;
+                    let action = control.inherited_process.take();
                     exit_requested |= control.exit;
                     self.apply_control(control);
+                    if let Some(action) = action {
+                        let result = self.run_inherited_process(&mut raw, action).await?;
+                        pending.push(callback(ProcessEvent::InheritedProcessResult(result)));
+                    }
                 }
                 self.render_due(now, false)?;
                 if !exit_requested {
@@ -333,6 +405,7 @@ mod tests {
                 progress: None,
                 show_hardware_cursor: None,
                 clear_on_shrink: None,
+                inherited_process: None,
             }
         );
         assert_eq!(MIN_RENDER_INTERVAL, Duration::from_millis(16));
