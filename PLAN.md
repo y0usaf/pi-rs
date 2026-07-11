@@ -1426,11 +1426,29 @@ surface; external editor + suspend. Split into rungs:
       --check`, focused settings/startup tests, `cargo test --workspace`, and `nix build
       .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
-      **Remaining before closure:** port the fire-and-forget install telemetry that follows
-      fresh/update version recording, the async version-update notification, `/reload`
-      (including its bordered loader and resource/session refresh semantics), and the
-      armin/daxnuts/earendil easter eggs with deterministic Pi-derived animation/final-frame
-      evidence. Keep 7.9 open.
+      **Third landed slice (2026-07-11):** install telemetry and the async
+      version-update notification now run through Lua policy. Fresh/update
+      changelog recording launches Pi's best-effort 5s `report-install` GET,
+      honoring `PI_OFFLINE`, `PI_TELEMETRY`, and the existing setting; interactive
+      startup concurrently checks `latest-version` with the skip/offline gates,
+      response validation, package-version comparison, 10s timeout, and silent
+      failure behavior, then requests a render of Pi's warning-bordered update
+      block (optional muted Markdown note + capability-sensitive changelog link).
+      Rust adds only the awaitable `pi.http.get` mechanism; endpoint/timing/
+      interpretation/presentation remain embedded Lua. The hook is exercised by
+      `examples/extensions/http-demo.lua` + `http_bindings.rs`.
+
+      **Evidence:** `startup_network.rs` drives both requests against a loopback
+      server and pins Pi's paths, headers, response trimming, semver outcomes,
+      and mounted release row through the product policy. `startup-changelog-turn`
+      now drives Pi's real update component composition and matches at 7
+      checkpoints (plain + Markdown-note notifications added; all 22 UI suites
+      match). `cargo fmt --check` and `cargo test --workspace` are green.
+
+      **Remaining before closure:** port `/reload` (including its bordered loader
+      and resource/session refresh semantics) and the armin/daxnuts/earendil
+      easter eggs with deterministic Pi-derived animation/final-frame evidence.
+      Keep 7.9 open.
 
 - [ ] **7.10 Provider-retry surface.** _isRetryableError/_prepareRetry,
       retry loader + countdown-timer, retryEscapeHandler — closes the

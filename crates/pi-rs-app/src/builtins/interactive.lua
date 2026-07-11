@@ -881,6 +881,32 @@ local function transcript_lines(state, width)
         lines[#lines + 1] = ""
       end
       lines[#lines + 1] = state.theme:fg("border", string.rep("─", math.max(1, width)))
+    elseif item.kind == "update_available" then
+      -- showNewVersionNotification: Spacer + warning border/title/action,
+      -- optional muted Markdown note, changelog line, warning border.
+      lines[#lines + 1] = ""
+      lines[#lines + 1] = state.theme:fg("warning", string.rep("─", math.max(1, width)))
+      local action = state.theme:fg("accent", state.app_name .. " update")
+      local heading = state.theme:bold(state.theme:fg("warning", "Update Available"))
+      local instruction = state.theme:fg("muted", "New version " .. item.version
+        .. " is available. Run ") .. action
+      append(lines, pi.tui.text_render(heading .. "\n" .. instruction, width, 1, 0))
+      if item.note and trim(item.note) ~= "" then
+        lines[#lines + 1] = ""
+        append(lines, pi.tui.markdown_render(trim(item.note), width, 1, 0, {
+          theme = state.md_theme,
+          color = function(text) return state.theme:fg("muted", text) end,
+        }))
+        lines[#lines + 1] = ""
+      end
+      local changelog_url = "https://pi.dev/changelog"
+      local changelog_link = state.theme:fg("accent", changelog_url)
+      if pi.tui.terminal_capabilities().hyperlinks then
+        changelog_link = pi.tui.hyperlink(state.theme:fg("accent", "open changelog"), changelog_url)
+      end
+      append(lines, pi.tui.text_render(
+        state.theme:fg("muted", "Changelog: ") .. changelog_link, width, 1, 0))
+      lines[#lines + 1] = state.theme:fg("warning", string.rep("─", math.max(1, width)))
     elseif item.kind == "text" then
       -- Pre-styled chat rows (interactive-mode.ts chatContainer.addChild
       -- of Spacer(1) + Text(content, 1, paddingY)): /name, /session, and
@@ -5949,9 +5975,103 @@ function changelog_entry_newer_than(entry, version)
   return entry.patch > patch
 end
 
+function truthy_env_flag(value)
+  if value == nil or value == "" then return false end
+  value = tostring(value):lower()
+  return value == "1" or value == "true" or value == "yes"
+end
+
+function pi_user_agent(state, version)
+  if state.request.userAgent then return state.request.userAgent end
+  -- Runtime identity is implementation-specific; retain Pi's stable product
+  -- prefix and platform shape for startup endpoints.
+  return "pi/" .. version .. " (" .. pi.platform() .. "; rust; unknown)"
+end
+
+function report_install_telemetry(state, version)
+  if pi.env.PI_OFFLINE ~= nil and pi.env.PI_OFFLINE ~= ""
+     and not state.request.forceStartupNetwork then return false end
+  local enabled
+  if state.request.telemetryEnabled ~= nil then enabled = state.request.telemetryEnabled
+  elseif pi.env.PI_TELEMETRY ~= nil then enabled = truthy_env_flag(pi.env.PI_TELEMETRY)
+  else enabled = pi.settings.enable_install_telemetry() end
+  if not enabled then return false end
+  local url = state.request.telemetryUrl
+    or ("https://pi.dev/api/report-install?version=" .. version)
+  return pi.spawn(function()
+    pcall(pi.http.get, url, {
+      headers = { ["User-Agent"] = pi_user_agent(state, version) },
+      timeout_ms = 5000,
+    })
+  end)
+end
+
+function parse_package_version(value)
+  local cleaned = trim(tostring(value or "")):gsub("%+.*$", "")
+  local major, minor, patch, prerelease = cleaned
+    :match("^v?(%d+)%.(%d+)%.(%d+)%-([0-9A-Za-z%.%-]+)$")
+  if not major then major, minor, patch = cleaned:match("^v?(%d+)%.(%d+)%.(%d+)$") end
+  if not major then return nil end
+  return { tonumber(major), tonumber(minor), tonumber(patch), prerelease }
+end
+
+function is_newer_package_version(candidate, current)
+  local left, right = parse_package_version(candidate), parse_package_version(current)
+  if not left or not right then return trim(candidate) ~= trim(current) end
+  for index = 1, 3 do
+    if left[index] ~= right[index] then return left[index] > right[index] end
+  end
+  if left[4] == right[4] then return false end
+  if left[4] == nil then return true end
+  if right[4] == nil then return false end
+  return left[4] > right[4]
+end
+
+function mount_update_notification(state, release)
+  state.transcript[#state.transcript + 1] = {
+    kind = "update_available", version = trim(release.version),
+    package_name = release.packageName, note = release.note and trim(release.note) or nil,
+  }
+end
+
+function start_version_check(state)
+  local skip = (pi.env.PI_SKIP_VERSION_CHECK ~= nil and pi.env.PI_SKIP_VERSION_CHECK ~= "")
+    or (pi.env.PI_OFFLINE ~= nil and pi.env.PI_OFFLINE ~= "")
+  if skip and not state.request.forceStartupNetwork then return nil end
+  local task = pi.spawn(function()
+    local ok, response = pcall(pi.http.get,
+      state.request.versionCheckUrl or "https://pi.dev/api/latest-version", {
+        headers = {
+          ["User-Agent"] = pi_user_agent(state, state.version),
+          accept = "application/json",
+        },
+        timeout_ms = state.request.versionCheckTimeoutMs or 10000,
+      })
+    if not ok or not response.ok then return nil end
+    local decoded, release = pcall(pi.json.decode, response.body)
+    if not decoded or type(release) ~= "table" or type(release.version) ~= "string"
+       or trim(release.version) == "" then return nil end
+    release.version = trim(release.version)
+    if type(release.packageName) ~= "string" or trim(release.packageName) == "" then
+      release.packageName = nil
+    else release.packageName = trim(release.packageName) end
+    if type(release.note) ~= "string" or trim(release.note) == "" then
+      release.note = nil
+    else release.note = trim(release.note) end
+    if is_newer_package_version(release.version, state.version) then
+      mount_update_notification(state, release)
+      state.async_render = true
+      return release
+    end
+    return nil
+  end)
+  state.version_check_task = task
+  return task
+end
+
 -- interactive-mode.ts getChangelogForDisplay + showStartupNoticesIfNeeded.
--- The network telemetry launched after recording a fresh/new version remains
--- deliberately separate: this function owns only startup UI + persistence.
+-- Telemetry is launched by create_interactive_state after this policy reports
+-- that it recorded a fresh/new version.
 function mount_startup_changelog(state, options)
   options = options or {}
   if #(options.messages or {}) > 0 then return nil end
@@ -7809,13 +7929,19 @@ local function create_interactive_state(request)
   -- interactive-mode.ts rebindCurrentSession mounts startup notices before
   -- renderInitialMessages. Resumed sessions are suppressed by their rebuilt
   -- agent message context.
-  mount_startup_changelog(state, {
+  local startup_notice = mount_startup_changelog(state, {
     messages = state.agent:get_state().messages or {},
     markdown = request.changelogText or CHANGELOG_MD,
     version = state.version,
   })
+  if startup_notice and startup_notice.telemetry_due then
+    report_install_telemetry(state, state.version)
+  end
   render_initial_messages(state)
   if startup.fallback_message then show_warning(state, startup.fallback_message) end
+  -- interactive-mode.ts run(): the request is fire-and-forget while the
+  -- process-session loop continues handling input and render ticks.
+  start_version_check(state)
 
   local submit_actions = shell_submit_actions(state)
   state.submit = function(text) handle_submit(text, submit_actions) end
@@ -7859,6 +7985,10 @@ local function run_interactive_state(state)
       if state.exit then return { exit = true } end
       local now = pi.monotonic_ms()
       local render = false
+      if state.async_render then
+        state.async_render = false
+        render = true
+      end
       if state.loader then
         local elapsed = now - (state.loader.last_ms or now)
         state.loader.last_ms = now
@@ -9520,15 +9650,21 @@ pi.register_command("interactive-startup-changelog-parity-sequence", {
     for _, step in ipairs(request.steps or {}) do
       local state = {
         theme = theme, md_theme = get_markdown_theme(theme), transcript = {},
-        version = request.version, request = request,
+        version = request.version, request = request, app_name = request.appName or "pi",
       }
-      local messages = {}
-      if step.resumed then messages[1] = { role = "user", content = "existing" } end
-      local result = mount_startup_changelog(state, {
-        messages = messages, last_version = step.lastVersion, fresh = step.fresh,
-        markdown = request.changelogText, version = request.version,
-        collapsed = step.collapsed, no_persist = true,
-      })
+      local result
+      if step.release then
+        mount_update_notification(state, step.release)
+        result = { displayed = true, release = step.release.version }
+      else
+        local messages = {}
+        if step.resumed then messages[1] = { role = "user", content = "existing" } end
+        result = mount_startup_changelog(state, {
+          messages = messages, last_version = step.lastVersion, fresh = step.fresh,
+          markdown = request.changelogText, version = request.version,
+          collapsed = step.collapsed, no_persist = true,
+        })
+      end
       terminal:request_render(step.force or false)
       terminal:render(transcript_lines(state, columns))
       frames[#frames + 1] = {
@@ -9537,5 +9673,32 @@ pi.register_command("interactive-startup-changelog-parity-sequence", {
       }
     end
     return { frames = frames }
+  end,
+})
+
+-- Deterministic network-policy exerciser: drives the same telemetry/version
+-- functions as create_interactive_state against caller-supplied loopback URLs.
+pi.register_command("startup-network-parity", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local state = {
+      request = request, version = request.version, app_name = request.appName or "pi",
+      transcript = {},
+    }
+
+    local telemetry = report_install_telemetry(state, state.version)
+    local version_check = start_version_check(state)
+    if telemetry and telemetry ~= false then telemetry:join() end
+    local release = version_check and version_check:join() or nil
+    return {
+      release = release,
+      transcript = state.transcript,
+      comparisons = {
+        newer = is_newer_package_version("1.2.4", "1.2.3"),
+        equal = is_newer_package_version("1.2.3", "1.2.3"),
+        prerelease = is_newer_package_version("1.2.3", "1.2.3-beta.1"),
+        fallback = is_newer_package_version("next", "current"),
+      },
+    }
   end,
 })

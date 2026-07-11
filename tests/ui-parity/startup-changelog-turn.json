@@ -11,6 +11,8 @@
     { "name": "already-seen", "lastVersion": "0.79.0" },
     { "name": "resumed", "lastVersion": "0.78.0", "resumed": true },
     { "name": "expanded", "lastVersion": "0.78.0", "collapsed": false },
-    { "name": "collapsed", "lastVersion": "0.78.0", "collapsed": true }
+    { "name": "collapsed", "lastVersion": "0.78.0", "collapsed": true },
+    { "name": "update-plain", "force": true, "release": { "version": "0.80.0" } },
+    { "name": "update-note", "force": true, "release": { "version": "0.80.0", "note": "Important **migration** note.\n\n- Read the docs" } }
   ]
 }

@@ -26,6 +26,7 @@ pub mod discover;
 mod error;
 mod exec;
 pub mod hljs;
+mod http;
 pub mod image;
 mod jsdiff;
 pub mod model_registry;

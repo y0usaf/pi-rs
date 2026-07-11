@@ -29,7 +29,7 @@ class CaptureTerminal implements Terminal {
   take(): string { const result = this.chunks.join(""); this.chunks = []; return result; }
 }
 
-type Step = { name: string; fresh?: boolean; lastVersion?: string; collapsed?: boolean; resumed?: boolean; force?: boolean };
+type Step = { name: string; fresh?: boolean; lastVersion?: string; collapsed?: boolean; resumed?: boolean; force?: boolean; release?: { version: string; note?: string } };
 type Scenario = { columns: number; rows: number; version: string; changelogText: string; steps: Step[] };
 const scenario = JSON.parse(readFileSync(process.argv[2]!, "utf8")) as Scenario;
 setCapabilities({ images: null, trueColor: true, hyperlinks: false });
@@ -47,24 +47,41 @@ const frames: Array<{ name: string; columns: number; rows: number; ansi: string 
 async function main() {
   for (const step of scenario.steps) {
     root.clear();
-    const resumed = step.resumed ?? false;
-    const lastVersion = step.fresh ? undefined : step.lastVersion;
-    if (!resumed && lastVersion !== undefined) {
-      const newer = getNewEntries(entries, lastVersion);
-      if (newer.length > 0) {
-        const markdown = newer.map((entry) => normalizeChangelogLinks(entry.content, entry)).join("\n\n");
-        root.addChild(new DynamicBorder());
-        if (step.collapsed) {
-          const match = markdown.match(/##\s+\[?(\d+\.\d+\.\d+)\]?/);
-          const latest = match ? match[1] : scenario.version;
-          root.addChild(new Text(`Updated to v${latest}. Use ${theme.bold("/changelog")} to view full changelog.`, 1, 0));
-        } else {
-          root.addChild(new Text(theme.bold(theme.fg("accent", "What's New")), 1, 0));
-          root.addChild(new Spacer(1));
-          root.addChild(new Markdown(markdown.trim(), 1, 0, getMarkdownTheme()));
-          root.addChild(new Spacer(1));
+    if (step.release) {
+      const action = theme.fg("accent", "pi update");
+      const instruction = theme.fg("muted", `New version ${step.release.version} is available. Run `) + action;
+      root.addChild(new Spacer(1));
+      root.addChild(new DynamicBorder((text) => theme.fg("warning", text)));
+      root.addChild(new Text(`${theme.bold(theme.fg("warning", "Update Available"))}\n${instruction}`, 1, 0));
+      if (step.release.note?.trim()) {
+        root.addChild(new Spacer(1));
+        root.addChild(new Markdown(step.release.note.trim(), 1, 0, getMarkdownTheme(), {
+          color: (text) => theme.fg("muted", text),
+        }));
+        root.addChild(new Spacer(1));
+      }
+      root.addChild(new Text(theme.fg("muted", "Changelog: ") + theme.fg("accent", "https://pi.dev/changelog"), 1, 0));
+      root.addChild(new DynamicBorder((text) => theme.fg("warning", text)));
+    } else {
+      const resumed = step.resumed ?? false;
+      const lastVersion = step.fresh ? undefined : step.lastVersion;
+      if (!resumed && lastVersion !== undefined) {
+        const newer = getNewEntries(entries, lastVersion);
+        if (newer.length > 0) {
+          const markdown = newer.map((entry) => normalizeChangelogLinks(entry.content, entry)).join("\n\n");
+          root.addChild(new DynamicBorder());
+          if (step.collapsed) {
+            const match = markdown.match(/##\s+\[?(\d+\.\d+\.\d+)\]?/);
+            const latest = match ? match[1] : scenario.version;
+            root.addChild(new Text(`Updated to v${latest}. Use ${theme.bold("/changelog")} to view full changelog.`, 1, 0));
+          } else {
+            root.addChild(new Text(theme.bold(theme.fg("accent", "What's New")), 1, 0));
+            root.addChild(new Spacer(1));
+            root.addChild(new Markdown(markdown.trim(), 1, 0, getMarkdownTheme()));
+            root.addChild(new Spacer(1));
+          }
+          root.addChild(new DynamicBorder());
         }
-        root.addChild(new DynamicBorder());
       }
     }
     ui.requestRender(step.force ?? false);
