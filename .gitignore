@@ -7,7 +7,10 @@ __pycache__/
 
 # AI coding assistants
 /.pi/
-/.claude/
+/.claude/*
+!/.claude/skills/
+/.claude/skills/*
+!/.claude/skills/next/
 /.cursor/
 /.continue/
 /.windsurf/
