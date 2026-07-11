@@ -1230,22 +1230,30 @@ surface; external editor + suspend. Split into rungs:
       generated branch/PR only for a valid diff. Manual and protocol-promotion
       paths are documented in README.
 
-      **Remaining before checking this rung:** run the scheduled workflow live
-      to prove its no-diff and generated-PR branches. More importantly, the
-      acceptance sentence currently depends on item 8: the pinned catalog has
-      nine API families, while runtime dispatch has only `anthropic-messages`
-      and `openai-completions` (see `registry/stream.rs`). Do not claim the
-      dispatch gate until those protocols land, or explicitly reorder/narrow
-      the acceptance criterion. Current upstream `main` at `8479bd84` also
-      adds thinking level `max`; the updater correctly rejects it as unknown
-      schema rather than silently widening the v0.79.0 model contract. Adopting
-      it requires a deliberate spec/schema promotion, not a metadata override.
+      **Remaining before checking this rung:** the dispatch acceptance depends on
+      item 8: the pinned catalog has nine API families, while runtime dispatch
+      has only `anthropic-messages` and `openai-completions` (see
+      `registry/stream.rs`). Do not claim the dispatch gate until those protocols
+      land, or explicitly reorder/narrow the acceptance criterion. Current
+      upstream `main` at `8479bd84` also adds thinking level `max`; the updater
+      correctly rejects it as unknown schema rather than silently widening the
+      v0.79.0 model contract. Adopting it requires a deliberate spec/schema
+      promotion, not a metadata override.
+
       **Evidence:** updater fixture green; pinned remote revision regenerates
       `models.json` byte-identically; focused registry test 11/11; `cargo fmt
       --check` + `nix fmt -- --check flake.nix` green;
       `nix build .#checks.x86_64-linux.model-catalog-update` green; `nix build
       .#checks.x86_64-linux.workspace-test --print-build-logs` green (562
-      passed). Live scheduled-workflow branches remain unverified as above.
+      passed). Live automation is now pinned too: workflow run
+      [29159252628](https://github.com/y0usaf/pi-rs/actions/runs/29159252628)
+      proved the fixed-revision no-diff branch and full `nix flake check`; a
+      schema-compatible stale revision created/refreshed the provenance-rich
+      generated [PR #1](https://github.com/y0usaf/pi-rs/pull/1) (+10 models),
+      then the flake merge gate rejected its deliberately stale 969-model count
+      pin. The first stale run exposed `grep -q` closing the bare-boot CLI's
+      stdout; `cbc65ea` made those checks pipe-safe before the successful branch
+      refresh. Repository Actions permission was enabled for generated PRs.
 
 - [ ] **7.6 `/trust`.** trust-selector.ts + the project-trust plumbing
       and startup warning.
