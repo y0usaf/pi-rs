@@ -1413,10 +1413,24 @@ surface; external editor + suspend. Split into rungs:
       `cargo fmt --check`, `cargo test --workspace`, `scripts/ui-diff` (all 21 suites),
       and `nix build .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
-      **Remaining before closure:** port startup unseen-changelog policy/persistence +
-      telemetry, the async version-update notification, `/reload` (including its bordered
-      loader and resource/session refresh semantics), and the armin/daxnuts/earendil easter
-      eggs with deterministic Pi-derived animation/final-frame evidence. Keep 7.9 open.
+      **Second landed slice (2026-07-11):** startup unseen-changelog behavior now
+      runs through the product path before restored transcript rendering: resumed sessions
+      suppress it, fresh installs record the current version without chrome, upgrades persist
+      the version and mount Pi's expanded or collapseChangelog condensed bordered notice,
+      and already-seen versions stay silent. `pi.settings.last_changelog_version` /
+      `set_last_changelog_version` expose the existing settings-store mechanism and extend
+      `settings-demo.lua` rather than adding a privileged persistence path.
+      `startup-changelog-turn` drives Pi's real changelog utilities/components against the
+      Lua policy and matches at 5 checkpoints (fresh/already-seen/resumed suppression +
+      expanded/condensed upgrade), bringing `scripts/ui-diff` to 22 suites. `cargo fmt
+      --check`, focused settings/startup tests, `cargo test --workspace`, and `nix build
+      .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
+
+      **Remaining before closure:** port the fire-and-forget install telemetry that follows
+      fresh/update version recording, the async version-update notification, `/reload`
+      (including its bordered loader and resource/session refresh semantics), and the
+      armin/daxnuts/earendil easter eggs with deterministic Pi-derived animation/final-frame
+      evidence. Keep 7.9 open.
 
 - [ ] **7.10 Provider-retry surface.** _isRetryableError/_prepareRetry,
       retry loader + countdown-timer, retryEscapeHandler — closes the

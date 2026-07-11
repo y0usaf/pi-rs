@@ -48,6 +48,9 @@ pi.register_command("settings-demo", {
     -- `/scoped-models` stores its ordered session cycling set globally.
     pi.settings.set_enabled_models({ "anthropic/claude-opus-4-6", "openai/gpt-5.4" })
     local enabled_models = pi.settings.enabled_models()
+    -- Startup changelog policy records the version it has consumed.
+    local changelog_initial = pi.settings.last_changelog_version()
+    pi.settings.set_last_changelog_version("0.79.0")
 
     return {
       initial = initial, blocked = blocked, unblocked = unblocked,
@@ -68,6 +71,8 @@ pi.register_command("settings-demo", {
       autocompleteMaxVisible = pi.settings.autocomplete_max_visible(),
       anthropicWarning = pi.settings.warnings().anthropicExtraUsage,
       enabledModels = enabled_models,
+      lastChangelogVersionUnset = changelog_initial == nil,
+      lastChangelogVersion = pi.settings.last_changelog_version(),
     }
   end,
 })
