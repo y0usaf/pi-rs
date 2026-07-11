@@ -4355,10 +4355,16 @@ local function start_working_loader(state)
 end
 
 -- interactive-mode.ts constructor + setupKeyHandlers: the CustomEditor with
--- the app-level handler wiring. app.suspend, app.thinking.toggle,
--- app.editor.external, and the app.session.* actions join their milestones
--- (items 6/7). setupExtensionShortcuts wires only when extensions
--- registered any.
+-- the app-level handler wiring. setupExtensionShortcuts wires only when
+-- extensions registered any.
+function toggle_thinking_block_visibility(state)
+  state.hide_thinking_block = not state.hide_thinking_block
+  pi.settings.set_hide_thinking_block(state.hide_thinking_block)
+  -- transcript_lines reads the setting for restored and streaming assistant
+  -- rows, equivalent to rebuildChatFromMessages + streamingComponent refresh.
+  show_status(state, "Thinking blocks: " .. (state.hide_thinking_block and "hidden" or "visible"))
+end
+
 local function setup_shell_editor(state)
   local shortcuts = pi.registered_shortcuts()
   state.editor = custom_editor({
@@ -4377,6 +4383,7 @@ local function setup_shell_editor(state)
   state.editor:on_action("app.tools.expand", function()
     set_tools_expanded(state, not state.tools_expanded)
   end)
+  state.editor:on_action("app.thinking.toggle", function() toggle_thinking_block_visibility(state) end)
   state.editor:on_action("app.message.followUp", function() handle_follow_up(state) end)
   state.editor:on_action("app.message.dequeue", function() handle_dequeue(state) end)
 end
@@ -8936,12 +8943,18 @@ pi.register_command("interactive-shell-parity-sequence", {
     local data = request.theme == "light" and light_json or dark_json
     local theme = create_theme(data, request.colorMode or "truecolor")
     local columns, rows = request.columns, request.rows
+    local initial_thinking_message = request.thinkingText and {
+      role = "assistant", content = { { type = "thinking", thinking = request.thinkingText } },
+      stopReason = "stop",
+    } or nil
     local state = {
       theme = theme, md_theme = get_markdown_theme(theme),
       app_name = request.appName or "pi", version = request.version,
       model = request.model, cwd = request.cwd, home = request.home,
       branch = request.branch, thinking_level = "off",
-      transcript = {}, streaming_message = nil,
+      transcript = initial_thinking_message
+        and { { kind = "assistant", message = initial_thinking_message } } or {},
+      streaming_message = nil, hide_thinking_block = false,
       tools_expanded = false, header_expanded = false,
       steering_texts = {}, follow_up_texts = {},
       double_escape_action = request.doubleEscapeAction or "tree",

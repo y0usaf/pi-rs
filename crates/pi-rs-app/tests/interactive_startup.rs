@@ -414,6 +414,34 @@ fn shell_sequence_pins_queue_restore_abort_and_press_again_exit() {
 }
 
 #[test]
+fn shell_sequence_toggles_thinking_blocks_and_reports_visibility() {
+    let mut scenario: serde_json::Value =
+        serde_json::from_str(include_str!("../../../tests/ui-parity/shell-turn.json")).unwrap();
+    scenario["steps"] = serde_json::json!([
+        { "name": "hidden", "input": ["\u{0014}"] },
+        { "name": "visible", "input": ["\u{0014}"] }
+    ]);
+    let result = host()
+        .call_command("interactive-shell-parity-sequence", &scenario.to_string())
+        .unwrap()
+        .unwrap();
+    let frames = result["frames"].as_array().unwrap();
+    let hidden = frames[1]["ansi"].as_str().unwrap();
+    let visible = frames[2]["ansi"].as_str().unwrap();
+    assert!(hidden.contains("Thinking..."), "{hidden:?}");
+    assert!(hidden.contains("Thinking blocks: hidden"), "{hidden:?}");
+    assert!(
+        !hidden.contains("hidden implementation detail"),
+        "{hidden:?}"
+    );
+    assert!(
+        visible.contains("hidden implementation detail"),
+        "{visible:?}"
+    );
+    assert!(visible.contains("Thinking blocks: visible"), "{visible:?}");
+}
+
+#[test]
 fn shortcut_example_fires_through_registered_shortcuts() {
     let host = host();
     host.load_file(concat!(

@@ -12,6 +12,7 @@
   "providerCount": 1,
   "doubleEscapeAction": "none",
   "clipboardImagePath": "/tmp/pi-clipboard-4f9d.png",
+  "thinkingText": "Inspect the hidden implementation detail before answering.",
   "shortcut": { "key": "ctrl+x", "status": "Extension shortcut fired" },
   "usage": { "input": 100, "output": 10, "cacheRead": 0, "cacheWrite": 0, "cost": 0 },
   "contextUsage": { "percent": null, "contextWindow": 200000 },
@@ -28,6 +29,8 @@
     "baseUrl": ""
   },
   "steps": [
+    { "name": "thinking-hidden", "input": ["\u0014"] },
+    { "name": "thinking-visible", "input": ["\u0014"] },
     { "name": "header-expanded", "input": ["\u000f"] },
     { "name": "header-collapsed", "input": ["\u000f"] },
     { "name": "typed", "input": ["fix", " ", "the", " ", "bug"] },

@@ -1533,6 +1533,26 @@ surface; external editor + suspend. Split into rungs:
       (app.editor.external), ctrl+z suspend, thinking-block visibility
       toggle (app.thinking.toggle + hideThinkingBlock).
 
+      **Landed slice (2026-07-11):** `app.thinking.toggle` now runs through the
+      embedded Lua shell policy: it flips and persists `hideThinkingBlock`,
+      immediately rerenders restored and streaming assistant thinking, and mounts
+      Pi's exact `Thinking blocks: hidden/visible` status. `shell-turn` now starts
+      with a real thinking block and matches Pi at 15 checkpoints (was 13), adding
+      hide + re-expand states; a focused product-policy test pins the hidden label,
+      content suppression/restoration, and statuses. No new public hook landed —
+      the existing `pi.settings` seam is reused, so no example was needed. `cargo
+      fmt --check`, `cargo test --workspace`, and `scripts/ui-diff` (all 25 suites)
+      are green.
+
+      **Remaining before closure:** port main-editor and ExtensionEditor Ctrl+G
+      handoff (VISUAL→EDITOR selection, temp-file lifecycle, inherited terminal,
+      success-only text replacement, forced repaint, and missing-editor warning),
+      plus Ctrl+Z process-group suspend/resume with terminal teardown/restoration,
+      SIGINT handling, Windows status behavior, and live PTY/process evidence.
+      Both require a process-session action/result mechanism so Lua retains command,
+      file, and presentation policy; do not block inside the VM or place product
+      policy in Rust.
+
       **Accept (whole item):** every reachable interactive component has
       a parity fixture and no placeholder component or pi-rs-only chrome
       remains.
