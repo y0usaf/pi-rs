@@ -1445,10 +1445,30 @@ surface; external editor + suspend. Split into rungs:
       checkpoints (plain + Markdown-note notifications added; all 22 UI suites
       match). `cargo fmt --check` and `cargo test --workspace` are green.
 
-      **Remaining before closure:** port `/reload` (including its bordered loader
-      and resource/session refresh semantics) and the armin/daxnuts/earendil
-      easter eggs with deterministic Pi-derived animation/final-frame evidence.
-      Keep 7.9 open.
+      **Fourth landed slice (2026-07-11):** `/reload` now routes through the
+      embedded Lua frontend with Pi's streaming/compaction guards, static bordered
+      reload box, editor focus swap, success/error rows, and asynchronous render
+      opportunity. The public `pi.settings.reload` mechanism rereads the current
+      store; Lua reapplies built-in theme/editor/session settings, rebuilds the
+      agent over the existing session, rereads project context into the system
+      prompt, restores the transcript/history, and refreshes autocomplete. The
+      command's future extension/skill/prompt/custom-theme registry refresh plugs
+      into this same path when those Lua-only declarations land in item 9; it is
+      not a second privileged reload mechanism.
+
+      **Evidence for the fourth slice:** `reload-turn` drives Pi's real component
+      composition and copied handler branches against the shipped policy and
+      matches at 5 checkpoints (streaming/compaction guards, loading box, success,
+      failure), bringing `scripts/ui-diff` to 23 suites. `interactive_reload.rs`
+      changes `AGENTS.md` and settings after runtime creation, then proves `/reload`
+      replaces the system prompt, theme, and thinking visibility without changing
+      sessions. `settings-demo.lua` + `settings_bindings.rs` exercise the new store
+      hook. `cargo fmt --check`, focused reload/settings/router tests, `cargo test
+      --workspace`, and `nix build .#checks.x86_64-linux.workspace-test
+      --print-build-logs` are green.
+
+      **Remaining before closure:** port the armin/daxnuts/earendil easter eggs
+      with deterministic Pi-derived animation/final-frame evidence. Keep 7.9 open.
 
 - [ ] **7.10 Provider-retry surface.** _isRetryableError/_prepareRetry,
       retry loader + countdown-timer, retryEscapeHandler — closes the

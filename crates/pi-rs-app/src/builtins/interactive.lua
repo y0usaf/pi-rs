@@ -3476,6 +3476,11 @@ local function handle_submit(text, actions)
     actions.set_text("")
     return
   end
+  if text == "/reload" then
+    actions.set_text("")
+    actions.reload_command()
+    return
+  end
   if text == "/debug" then
     actions.debug_command()
     actions.set_text("")
@@ -3570,6 +3575,7 @@ pi.register_command("interactive-submit-route", {
         changelog_command = function() trace[#trace + 1] = { action = "changelog_command" } end,
         hotkeys_command = function() trace[#trace + 1] = { action = "hotkeys_command" } end,
         debug_command = function() trace[#trace + 1] = { action = "debug_command" } end,
+        reload_command = function() trace[#trace + 1] = { action = "reload_command" } end,
         share_command = function() trace[#trace + 1] = { action = "share_command" } end,
         copy_command = function() trace[#trace + 1] = { action = "copy_command" } end,
         is_bash_running = function() return request.bashRunning or false end,
@@ -4075,6 +4081,7 @@ local function shell_submit_actions(state)
     changelog_command = function() handle_changelog_command(state) end,
     hotkeys_command = function() handle_hotkeys_command(state) end,
     debug_command = function() handle_debug_command(state) end,
+    reload_command = function() handle_reload_command(state) end,
 
     model_command = function(search) handle_model_command(state, search) end,
     export_command = function(text) handle_export_command(state, text) end,
@@ -4138,8 +4145,10 @@ local function frontend_frame(state, width)
   append(lines, status_container_lines(state, width))
   -- widgetContainerAbove: renderWidgets' spacer-when-empty default.
   lines[#lines + 1] = ""
-  -- editorContainer: the editor, or the selector/dialog swapped into it.
-  if state.selector then
+  -- editorContainer: the editor, or the selector/dialog/reload box swapped into it.
+  if state.reload_box then
+    append(lines, state.reload_box:render(width))
+  elseif state.selector then
     append(lines, state.selector:render(width))
   else
     -- updateEditorBorderColor (bash mode / thinking level), observable
@@ -6247,6 +6256,80 @@ function handle_debug_command(state)
     text = state.theme:fg("accent", "✓ Debug log written") .. "\n"
       .. state.theme:fg("muted", debug_path),
   }
+end
+
+-- interactive-mode.ts handleReloadCommand. The static bordered box is mounted
+-- before the asynchronous reload, then the current session runtime is rebuilt
+-- over freshly loaded settings/context files and the transcript is re-rendered.
+function reload_box_component(theme)
+  local box = {}
+  function box:handle_input(_) end
+  function box:render(width)
+    local lines = { dynamic_border_line(theme, width), "" }
+    append(lines, pi.tui.text_render(theme:fg("muted",
+      "Reloading keybindings, extensions, skills, prompts, themes..."), width, 1, 0))
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = dynamic_border_line(theme, width)
+    return lines
+  end
+  return box
+end
+
+function handle_reload_command(state)
+  if state.session.is_streaming() then
+    show_warning(state, "Wait for the current response to finish before reloading.")
+    return nil
+  end
+  if state.session.is_compacting and state.session.is_compacting() then
+    show_warning(state, "Wait for compaction to finish before reloading.")
+    return nil
+  end
+
+  state.reload_box = reload_box_component(state.theme)
+  state.set_editor_focus(false)
+  state.async_render = true
+  local previous_editor = state.editor
+  local task = pi.spawn(function()
+    -- process.nextTick: guarantee the static box gets a render opportunity.
+    pi.sleep(state.request.reloadYieldMs or 1)
+    local ok, err = pcall(function()
+      if state.reload_impl then return state.reload_impl(state) end
+      pi.settings.reload()
+
+      local theme_name = pi.settings.theme()
+      local data = theme_name == "light" and light_json or dark_json
+      state.theme_data = data
+      state.theme = create_theme(data, state.request.colorMode or "truecolor")
+      state.md_theme = get_markdown_theme(state.theme)
+      state.hide_thinking_block = pi.settings.hide_thinking_block()
+      state.double_escape_action = pi.settings.double_escape_action()
+
+      -- AgentSession.reload rebuilds the runtime over the existing manager;
+      -- build_session_system_prompt rereads AGENTS.md/context files here.
+      bind_session_runtime(state, state.session_manager)
+      setup_shell_editor(state)
+      state.fd_path = state.request.fdPath or resolve_fd_path()
+      state.autocomplete_provider = create_base_autocomplete_provider(state)
+      state.editor.editor:set_autocomplete_triggers({})
+      state.editor:on_action("app.model.select", function() show_model_selector(state) end)
+      state.editor:on_action("app.model.cycleForward", function() cycle_model(state, "forward") end)
+      state.editor:on_action("app.model.cycleBackward", function() cycle_model(state, "backward") end)
+      render_current_session_state(state)
+    end)
+
+    state.reload_box = nil
+    state.set_editor_focus(true)
+    if ok then
+      show_status(state, "Reloaded keybindings, extensions, skills, prompts, themes")
+    else
+      state.editor = previous_editor
+      state.set_editor_focus(true)
+      show_error(state, "Reload failed: " .. tostring(err))
+    end
+    state.async_render = true
+  end)
+  state.reload_task = task
+  return task
 end
 
 
@@ -9699,6 +9782,76 @@ pi.register_command("startup-network-parity", {
         prerelease = is_newer_package_version("1.2.3", "1.2.3-beta.1"),
         fallback = is_newer_package_version("next", "current"),
       },
+    }
+  end,
+})
+
+
+-- Deterministic /reload UI driver. It invokes the product handler with only
+-- the runtime reload operation injected; guards, box mounting, settlement,
+-- and status/error presentation are the shipped policy.
+pi.register_command("interactive-reload-parity-sequence", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local data = request.theme == "light" and light_json or dark_json
+    local theme = create_theme(data, request.colorMode or "truecolor")
+    local columns, rows = request.columns, request.rows
+    local terminal = pi.tui.session(columns, rows, true)
+    local frames = {}
+    terminal:start()
+
+    for _, step in ipairs(request.steps or {}) do
+      local state = {
+        theme = theme, md_theme = get_markdown_theme(theme), transcript = {},
+        request = { reloadYieldMs = step.delayMs or 1 }, editor = {},
+        set_editor_focus = function(_) end,
+        session = {
+          is_streaming = function() return step.streaming or false end,
+          is_compacting = function() return step.compacting or false end,
+        },
+        reload_impl = function()
+          if step.fail then error("scripted reload failure", 0) end
+        end,
+      }
+      local task = handle_reload_command(state)
+      if step.phase ~= "loading" and task then task:join() end
+      local lines = transcript_lines(state, columns)
+      if state.reload_box then append(lines, state.reload_box:render(columns)) end
+      terminal:request_render(step.force or false)
+      terminal:render(lines)
+      frames[#frames + 1] = {
+        name = step.name, columns = columns, rows = rows, ansi = terminal:output(),
+      }
+      if step.phase == "loading" and task then task:join() end
+    end
+    return { frames = frames }
+  end,
+})
+
+
+-- Headless reload behavior exerciser: create the real interactive runtime,
+-- mutate fixture files as an external editor would, then route `/reload`.
+pi.register_command("interactive-reload-behavior", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local state = create_interactive_state(request)
+    local before = state.agent:get_state().systemPrompt
+    if request.contextPath and request.contextAfter then
+      pi.fs.write_file(request.contextPath, request.contextAfter)
+    end
+    if request.settingsPath and request.settingsAfter then
+      pi.fs.write_file(request.settingsPath, request.settingsAfter)
+    end
+    local task = handle_reload_command(state)
+    if task then task:join() end
+    return {
+      before = before,
+      after = state.agent:get_state().systemPrompt,
+      theme = state.theme.name,
+      hideThinking = state.hide_thinking_block,
+      status = state.last_status and state.last_status.text or nil,
+      failed = state.transcript[#state.transcript]
+        and state.transcript[#state.transcript].kind == "error" or false,
     }
   end,
 })

@@ -224,6 +224,15 @@ pub(crate) fn install(lua: &Lua, pi: &Table, cwd: &str, project_trusted: bool) -
         })?,
     )?;
 
+    let store = Arc::clone(&settings);
+    table.set(
+        "reload",
+        lua.create_function(move |_, ()| {
+            lock(&store)?.reload();
+            Ok(())
+        })?,
+    )?;
+
     pi.set("settings", table)?;
     Ok(())
 }
