@@ -1395,7 +1395,7 @@ surface; external editor + suspend. Split into rungs:
       --workspace`, `scripts/ui-diff` (all 21 suites), and `nix build
       .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
-- [ ] **7.9 Info commands and chrome.** `/changelog`, `/hotkeys`,
+- [x] **7.9 Info commands and chrome.** `/changelog`, `/hotkeys`,
       `/debug`, `/reload`, the easter eggs (armin/daxnuts/earendil),
       and the version-update notification.
 
@@ -1467,8 +1467,25 @@ surface; external editor + suspend. Split into rungs:
       --workspace`, and `nix build .#checks.x86_64-linux.workspace-test
       --print-build-logs` are green.
 
-      **Remaining before closure:** port the armin/daxnuts/earendil easter eggs
-      with deterministic Pi-derived animation/final-frame evidence. Keep 7.9 open.
+      **Closure (2026-07-11):** the hidden `/arminsayshi` and
+      `/dementedelves` routes and the OpenCode `kimi-k2.5` model-selection
+      trigger now mount Pi's three easter eggs through Lua transcript policy.
+      Armin includes the exact XBM and all seven timer-driven reveal effects;
+      daxnuts includes the exact RGB half-block portrait, scanline/text phases,
+      and 80ms timer; Earendil includes the exact bordered announcement and
+      bundled `clankolas.png` bytes, rendered through the existing public image
+      mechanism with Pi's capability fallback. Rust only embeds reviewed data;
+      no new extension hook or mechanism landed, so no example was needed.
+
+      `easter-eggs-turn` drives Pi's real Armin/Daxnuts/Earendil components with
+      timers/randomness made deterministic and matches the shipped Lua policy at
+      7 checkpoints: Armin initial/progress/final, daxnuts scanline/text/final,
+      and Earendil's no-image fallback. The command-router test pins both hidden
+      routes; explicit `/model` and selector success paths carry Pi's daxnuts
+      predicate. `scripts/ui-diff` now matches all 24 suites. `cargo fmt --check`,
+      `nix fmt -- --check flake.nix`, focused router/UI tests, `cargo test
+      --workspace`, and `nix build .#checks.x86_64-linux.workspace-test
+      --print-build-logs` are green.
 
 - [ ] **7.10 Provider-retry surface.** _isRetryableError/_prepareRetry,
       retry loader + countdown-timer, retryEscapeHandler — closes the

@@ -815,15 +815,305 @@ local function tool_execution_lines(tool, width, theme, opts)
   return lines
 end
 
+-- Easter-egg components: armin.ts, daxnuts.ts, and
+-- earendil-announcement.ts. Animation state stays in transcript rows so the
+-- regular frontend render path and timer pump use the same Lua policy.
+ARMIN_WIDTH, ARMIN_HEIGHT = 31, 36
+ARMIN_BITS = {
+  0xff, 0xff, 0xff, 0x7f, 0xff, 0xf0, 0xff, 0x7f, 0xff, 0xed, 0xff, 0x7f, 0xff, 0xdb, 0xff, 0x7f,
+  0xff, 0xb7, 0xff, 0x7f, 0xff, 0x77, 0xfe, 0x7f, 0x3f, 0xf8, 0xfe, 0x7f, 0xdf, 0xff, 0xfe, 0x7f,
+  0xdf, 0x3f, 0xfc, 0x7f, 0x9f, 0xc3, 0xfb, 0x7f, 0x6f, 0xfc, 0xf4, 0x7f, 0xf7, 0x0f, 0xf7, 0x7f,
+  0xf7, 0xff, 0xf7, 0x7f, 0xf7, 0xff, 0xe3, 0x7f, 0xf7, 0x07, 0xe8, 0x7f, 0xef, 0xf8, 0x67, 0x70,
+  0x0f, 0xff, 0xbb, 0x6f, 0xf1, 0x00, 0xd0, 0x5b, 0xfd, 0x3f, 0xec, 0x53, 0xc1, 0xff, 0xef, 0x57,
+  0x9f, 0xfd, 0xee, 0x5f, 0x9f, 0xfc, 0xae, 0x5f, 0x1f, 0x78, 0xac, 0x5f, 0x3f, 0x00, 0x50, 0x6c,
+  0x7f, 0x00, 0xdc, 0x77, 0xff, 0xc0, 0x3f, 0x78, 0xff, 0x01, 0xf8, 0x7f, 0xff, 0x03, 0x9c, 0x78,
+  0xff, 0x07, 0x8c, 0x7c, 0xff, 0x0f, 0xce, 0x78, 0xff, 0xff, 0xcf, 0x7f, 0xff, 0xff, 0xcf, 0x78,
+  0xff, 0xff, 0xdf, 0x78, 0xff, 0xff, 0xdf, 0x7d, 0xff, 0xff, 0x3f, 0x7e, 0xff, 0xff, 0xff, 0x7f,
+}
+ARMIN_DISPLAY_HEIGHT = math.ceil(ARMIN_HEIGHT / 2)
+ARMIN_EFFECTS = { "typewriter", "scanline", "rain", "fade", "crt", "glitch", "dissolve" }
+
+function armin_empty_grid()
+  local grid = {}
+  for row = 1, ARMIN_DISPLAY_HEIGHT do
+    grid[row] = {}
+    for x = 1, ARMIN_WIDTH do grid[row][x] = " " end
+  end
+  return grid
+end
+
+function armin_final_grid()
+  local grid = armin_empty_grid()
+  local bytes_per_row = math.ceil(ARMIN_WIDTH / 8)
+  local function pixel(x, y)
+    if y >= ARMIN_HEIGHT then return false end
+    local byte = ARMIN_BITS[y * bytes_per_row + math.floor(x / 8) + 1]
+    return ((byte >> (x % 8)) & 1) == 0
+  end
+  for row = 0, ARMIN_DISPLAY_HEIGHT - 1 do
+    for x = 0, ARMIN_WIDTH - 1 do
+      local upper, lower = pixel(x, row * 2), pixel(x, row * 2 + 1)
+      grid[row + 1][x + 1] = upper and (lower and "█" or "▀") or (lower and "▄" or " ")
+    end
+  end
+  return grid
+end
+
+function armin_shuffle(positions, random)
+  for i = #positions, 2, -1 do
+    local j = math.floor(random() * i) + 1
+    positions[i], positions[j] = positions[j], positions[i]
+  end
+end
+
+function new_armin_row(effect, random)
+  random = random or math.random
+  effect = effect or ARMIN_EFFECTS[math.floor(random() * #ARMIN_EFFECTS) + 1]
+  local row = { kind = "armin", effect = effect, final = armin_final_grid(),
+    current = armin_empty_grid(), effect_state = {}, version = 0, random = random }
+  if effect == "typewriter" then row.effect_state.pos = 0
+  elseif effect == "scanline" then row.effect_state.row = 0
+  elseif effect == "rain" then
+    row.effect_state.drops = {}
+    for x = 1, ARMIN_WIDTH do
+      row.effect_state.drops[x] = {
+        y = -math.floor(random() * ARMIN_DISPLAY_HEIGHT * 2), settled = 0 }
+    end
+  elseif effect == "fade" or effect == "dissolve" then
+    local positions = {}
+    for y = 1, ARMIN_DISPLAY_HEIGHT do
+      for x = 1, ARMIN_WIDTH do positions[#positions + 1] = { y, x } end
+    end
+    armin_shuffle(positions, random)
+    row.effect_state = { positions = positions, idx = 1 }
+    if effect == "dissolve" then
+      local chars = { " ", "░", "▒", "▓", "█", "▀", "▄" }
+      for y = 1, ARMIN_DISPLAY_HEIGHT do
+        for x = 1, ARMIN_WIDTH do
+          row.current[y][x] = chars[math.floor(random() * #chars) + 1]
+        end
+      end
+    end
+  elseif effect == "crt" then row.effect_state.expansion = 0
+  elseif effect == "glitch" then row.effect_state = { phase = 0, glitchFrames = 8 } end
+  return row
+end
+
+function tick_armin(row)
+  local state, done = row.effect_state, false
+  if row.effect == "typewriter" then
+    for _ = 1, 3 do
+      local y, x = math.floor(state.pos / ARMIN_WIDTH), state.pos % ARMIN_WIDTH
+      if y >= ARMIN_DISPLAY_HEIGHT then done = true break end
+      row.current[y + 1][x + 1] = row.final[y + 1][x + 1]
+      state.pos = state.pos + 1
+    end
+  elseif row.effect == "scanline" then
+    if state.row >= ARMIN_DISPLAY_HEIGHT then done = true
+    else
+      for x = 1, ARMIN_WIDTH do row.current[state.row + 1][x] = row.final[state.row + 1][x] end
+      state.row = state.row + 1
+    end
+  elseif row.effect == "rain" then
+    done, row.current = true, armin_empty_grid()
+    for x = 1, ARMIN_WIDTH do
+      local drop = state.drops[x]
+      for y = ARMIN_DISPLAY_HEIGHT, ARMIN_DISPLAY_HEIGHT - drop.settled + 1, -1 do
+        if y >= 1 then row.current[y][x] = row.final[y][x] end
+      end
+      if drop.settled < ARMIN_DISPLAY_HEIGHT then
+        done = false
+        local target = -1
+        for y = ARMIN_DISPLAY_HEIGHT - drop.settled, 1, -1 do
+          if row.final[y][x] ~= " " then target = y - 1 break end
+        end
+        drop.y = drop.y + 1
+        if drop.y >= 0 and drop.y < ARMIN_DISPLAY_HEIGHT then
+          if target >= 0 and drop.y >= target then
+            drop.settled = ARMIN_DISPLAY_HEIGHT - target
+            drop.y = -math.floor(row.random() * 5) - 1
+          else row.current[drop.y + 1][x] = "▓" end
+        end
+      end
+    end
+  elseif row.effect == "fade" or row.effect == "dissolve" then
+    local count = row.effect == "fade" and 15 or 20
+    for _ = 1, count do
+      if state.idx > #state.positions then done = true break end
+      local position = state.positions[state.idx]
+      row.current[position[1]][position[2]] = row.final[position[1]][position[2]]
+      state.idx = state.idx + 1
+    end
+  elseif row.effect == "crt" then
+    row.current = armin_empty_grid()
+    local middle = math.floor(ARMIN_DISPLAY_HEIGHT / 2)
+    local top, bottom = middle - state.expansion, middle + state.expansion
+    for y = math.max(0, top), math.min(ARMIN_DISPLAY_HEIGHT - 1, bottom) do
+      for x = 1, ARMIN_WIDTH do row.current[y + 1][x] = row.final[y + 1][x] end
+    end
+    state.expansion = state.expansion + 1
+    done = state.expansion > ARMIN_DISPLAY_HEIGHT
+  elseif row.effect == "glitch" then
+    if state.phase < state.glitchFrames then
+      row.current = {}
+      for y = 1, ARMIN_DISPLAY_HEIGHT do
+        local source = row.final[y]
+        local copy, offset = {}, math.floor(row.random() * 7) - 3
+        for x = 1, ARMIN_WIDTH do copy[x] = source[x] end
+        if row.random() < 0.3 then
+          local shifted = {}
+          -- JS slice(offset).concat(slice(0, offset)), including negative offsets.
+          local split = offset >= 0 and (offset + 1) or (ARMIN_WIDTH + offset + 1)
+          for x = split, ARMIN_WIDTH do shifted[#shifted + 1] = copy[x] end
+          local finish = offset >= 0 and offset or (ARMIN_WIDTH + offset)
+          for x = 1, finish do shifted[#shifted + 1] = copy[x] end
+          copy = shifted
+        end
+        if row.random() < 0.2 then
+          local swap = math.floor(row.random() * ARMIN_DISPLAY_HEIGHT) + 1
+          copy = {}
+          for x = 1, ARMIN_WIDTH do copy[x] = row.final[swap][x] end
+        end
+        row.current[y] = copy
+      end
+      state.phase = state.phase + 1
+    else
+      row.current = {}
+      for y = 1, ARMIN_DISPLAY_HEIGHT do
+        row.current[y] = {}
+        for x = 1, ARMIN_WIDTH do row.current[y][x] = row.final[y][x] end
+      end
+      done = true
+    end
+  else done = true end
+  row.version = row.version + 1
+  return done
+end
+
+function armin_lines(row, width, theme)
+  local lines, available = {}, width - 1
+  for y = 1, ARMIN_DISPLAY_HEIGHT do
+    local count = math.max(0, math.min(ARMIN_WIDTH, available))
+    local clipped = table.concat(row.current[y], "", 1, count)
+    lines[#lines + 1] = " " .. theme:fg("accent", clipped)
+      .. string.rep(" ", math.max(0, width - 1 - count))
+  end
+  local message = "ARMIN SAYS HI"
+  lines[#lines + 1] = " " .. theme:fg("accent", message)
+    .. string.rep(" ", math.max(0, width - 1 - #message))
+  return lines
+end
+
+function dax_rgb(r, g, b, background)
+  return "\27[" .. (background and "48" or "38") .. ";2;" .. r .. ";" .. g .. ";" .. b .. "m"
+end
+
+function dax_image_lines()
+  local lines = {}
+  for y = 0, 30, 2 do
+    local line = ""
+    for x = 0, 31 do
+      local top = (y * 32 + x) * 6 + 1
+      local bottom = ((y + 1) * 32 + x) * 6 + 1
+      local tr = tonumber(DAX_HEX:sub(top, top + 1), 16)
+      local tg = tonumber(DAX_HEX:sub(top + 2, top + 3), 16)
+      local tb = tonumber(DAX_HEX:sub(top + 4, top + 5), 16)
+      local br = tonumber(DAX_HEX:sub(bottom, bottom + 1), 16)
+      local bg = tonumber(DAX_HEX:sub(bottom + 2, bottom + 3), 16)
+      local bb = tonumber(DAX_HEX:sub(bottom + 4, bottom + 5), 16)
+      line = line .. dax_rgb(br, bg, bb, false) .. dax_rgb(tr, tg, tb, true) .. "▄"
+    end
+    lines[#lines + 1] = line .. "\27[0m"
+  end
+  return lines
+end
+DAX_IMAGE_LINES = dax_image_lines()
+
+function center_ansi(text, width)
+  return string.rep(" ", math.max(0, math.floor((width - pi.tui.visible_width(text)) / 2))) .. text
+end
+
+function daxnuts_lines(row, width, theme)
+  local lines = { "" }
+  local max_ticks = 25
+  local revealed = math.min(#DAX_IMAGE_LINES, math.floor((row.tick / max_ticks) * (#DAX_IMAGE_LINES + 3)))
+  for index, image_line in ipairs(DAX_IMAGE_LINES) do
+    if index <= revealed then lines[#lines + 1] = center_ansi(image_line, width)
+    elseif index == revealed + 1 then
+      lines[#lines + 1] = center_ansi(dax_rgb(100, 200, 255, false)
+        .. string.rep("▓", 32) .. "\27[0m", width)
+    else lines[#lines + 1] = center_ansi(string.rep(" ", 32), width) end
+  end
+  lines[#lines + 1] = ""
+  local text_phase = math.max(0, row.tick - max_ticks * 0.6)
+  if text_phase > 0 or row.tick >= max_ticks then
+    lines[#lines + 1] = center_ansi(theme:fg("accent", "Free Kimi K2.5 via OpenCode Zen"), width)
+    lines[#lines + 1] = center_ansi(theme:fg("success", '"Powered by daxnuts"'), width)
+    lines[#lines + 1] = center_ansi(theme:fg("muted", "— @thdxr"), width)
+  else for _ = 1, 3 do lines[#lines + 1] = "" end end
+  lines[#lines + 1] = ""
+  if text_phase > 2 or row.tick >= max_ticks then
+    lines[#lines + 1] = center_ansi(theme:fg("dim", "Try OpenCode"), width)
+    lines[#lines + 1] = center_ansi(theme:fg("mdLink", "https://mistral.ai/news/mistral-vibe-2-0"), width)
+  else
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = ""
+  end
+  lines[#lines + 1] = ""
+  return lines
+end
+
+function earendil_image_lines(width, theme)
+  local caps = pi.tui.terminal_capabilities()
+  if not caps.images then
+    return { theme:fg("muted", pi.tui.image_fallback("image/png", 640, 537, "clankolas.png")) }
+  end
+  local result = pi.tui.image_render(caps.images, CLANKOLAS_BASE64,
+    { width_px = 640, height_px = 537 },
+    { max_width_cells = math.max(1, math.min(width - 2, 56)), move_cursor = false })
+  local lines = {}
+  if caps.images == "kitty" then
+    lines[1] = result.sequence
+    for _ = 2, result.rows do lines[#lines + 1] = "" end
+  else
+    for _ = 1, result.rows - 1 do lines[#lines + 1] = "" end
+    local offset = result.rows - 1
+    lines[#lines + 1] = (offset > 0 and ("\27[" .. offset .. "A") or "") .. result.sequence
+  end
+  return lines
+end
+
+function earendil_lines(width, theme)
+  local border = theme:fg("accent", string.rep("─", math.max(1, width)))
+  local lines = { border }
+  append(lines, pi.tui.text_render(theme:bold(theme:fg("accent", "pi has joined Earendil")), width, 1, 0))
+  lines[#lines + 1] = ""
+  append(lines, pi.tui.text_render(theme:fg("muted", "Read the blog post:"), width, 1, 0))
+  append(lines, pi.tui.text_render(theme:fg("mdLink",
+    "https://mariozechner.at/posts/2026-04-08-ive-sold-out/"), width, 1, 0))
+  lines[#lines + 1] = ""
+  append(lines, earendil_image_lines(width, theme))
+  lines[#lines + 1] = ""
+  lines[#lines + 1] = border
+  return lines
+end
+
 local function transcript_lines(state, width)
   local lines = {}
+
   local tool_opts = {
     cwd = state.cwd,
     expanded = state.tools_expanded or false,
     now_ms = state.now_ms,
   }
   for _, item in ipairs(state.transcript) do
-    if item.kind == "user" then
+    if item.kind == "armin" then
+      append(lines, armin_lines(item, width, state.theme))
+    elseif item.kind == "daxnuts" then
+      append(lines, daxnuts_lines(item, width, state.theme))
+    elseif item.kind == "earendil" then
+      append(lines, earendil_lines(width, state.theme))
+    elseif item.kind == "user" then
       -- interactive-mode.ts addMessageToChat "user": Spacer(1) before the
       -- message whenever the chat container already has content.
       if #lines > 0 then lines[#lines + 1] = "" end
@@ -2529,9 +2819,8 @@ local function session_set_model(state, model)
   session_set_thinking_level(state, thinking_level)
 end
 
--- interactive-mode.ts showModelSelector. The daxnuts easter egg
--- (checkDaxnutsEasterEgg) lands with the interactive-states inventory
--- (item 7).
+-- interactive-mode.ts showModelSelector; successful explicit selection also
+-- checks the OpenCode/Kimi K2.5 easter-egg predicate.
 local function show_model_selector(state, initial_search)
   show_selector(state, function(done)
     return model_selector({
@@ -2547,6 +2836,7 @@ local function show_model_selector(state, initial_search)
           done()
           show_status(state, "Model: " .. model.id)
           maybe_warn_about_anthropic_subscription_auth(state, model)
+          check_daxnuts_easter_egg(state, model)
         else
           done()
           show_error(state, tostring(err))
@@ -2569,6 +2859,7 @@ local function handle_model_command(state, search_term)
     if ok then
       show_status(state, "Model: " .. model.id)
       maybe_warn_about_anthropic_subscription_auth(state, model)
+      check_daxnuts_easter_egg(state, model)
     else
       show_error(state, tostring(err))
     end
@@ -3486,6 +3777,16 @@ local function handle_submit(text, actions)
     actions.set_text("")
     return
   end
+  if text == "/arminsayshi" then
+    actions.armin_command()
+    actions.set_text("")
+    return
+  end
+  if text == "/dementedelves" then
+    actions.earendil_command()
+    actions.set_text("")
+    return
+  end
   if text == "/new" then
     actions.set_text("")
     actions.clear_command()
@@ -3576,6 +3877,8 @@ pi.register_command("interactive-submit-route", {
         hotkeys_command = function() trace[#trace + 1] = { action = "hotkeys_command" } end,
         debug_command = function() trace[#trace + 1] = { action = "debug_command" } end,
         reload_command = function() trace[#trace + 1] = { action = "reload_command" } end,
+        armin_command = function() trace[#trace + 1] = { action = "armin_command" } end,
+        earendil_command = function() trace[#trace + 1] = { action = "earendil_command" } end,
         share_command = function() trace[#trace + 1] = { action = "share_command" } end,
         copy_command = function() trace[#trace + 1] = { action = "copy_command" } end,
         is_bash_running = function() return request.bashRunning or false end,
@@ -4082,6 +4385,8 @@ local function shell_submit_actions(state)
     hotkeys_command = function() handle_hotkeys_command(state) end,
     debug_command = function() handle_debug_command(state) end,
     reload_command = function() handle_reload_command(state) end,
+    armin_command = function() handle_armin_says_hi(state) end,
+    earendil_command = function() handle_demented_delves(state) end,
 
     model_command = function(search) handle_model_command(state, search) end,
     export_command = function(text) handle_export_command(state, text) end,
@@ -6256,6 +6561,55 @@ function handle_debug_command(state)
     text = state.theme:fg("accent", "✓ Debug log written") .. "\n"
       .. state.theme:fg("muted", debug_path),
   }
+end
+
+-- Hidden interactive-mode easter eggs. Components are transcript policy; the
+-- timer coroutines only advance their state and request the next product frame.
+function animate_armin(state, row)
+  return pi.spawn(function()
+    -- Node's setInterval truncates 1000/fps to integer milliseconds.
+    local delay = row.effect == "glitch" and 16 or 33
+    while true do
+      pi.sleep(delay)
+      local done = tick_armin(row)
+      state.async_render = true
+      if done then return end
+    end
+  end)
+end
+
+function handle_armin_says_hi(state)
+  state.transcript[#state.transcript + 1] = { kind = "spacer" }
+  local row = new_armin_row()
+  state.transcript[#state.transcript + 1] = row
+  row.task = animate_armin(state, row)
+  state.async_render = true
+end
+
+function handle_demented_delves(state)
+  state.transcript[#state.transcript + 1] = { kind = "spacer" }
+  state.transcript[#state.transcript + 1] = { kind = "earendil" }
+  state.async_render = true
+end
+
+function handle_daxnuts(state)
+  state.transcript[#state.transcript + 1] = { kind = "spacer" }
+  local row = { kind = "daxnuts", tick = 0 }
+  state.transcript[#state.transcript + 1] = row
+  row.task = pi.spawn(function()
+    while row.tick < 25 do
+      pi.sleep(80)
+      row.tick = row.tick + 1
+      state.async_render = true
+    end
+  end)
+  state.async_render = true
+end
+
+function check_daxnuts_easter_egg(state, model)
+  if model and model.provider == "opencode"
+    and string.find(string.lower(model.id or ""), "kimi%-k2%.5")
+  then handle_daxnuts(state) end
 end
 
 -- interactive-mode.ts handleReloadCommand. The static bordered box is mounted
@@ -9853,5 +10207,43 @@ pi.register_command("interactive-reload-behavior", {
       failed = state.transcript[#state.transcript]
         and state.transcript[#state.transcript].kind == "error" or false,
     }
+  end,
+})
+
+
+-- Deterministic hidden-easter-egg UI driver. It advances the shipped component
+-- state directly, replacing only wall-clock timers and Armin's random choice.
+pi.register_command("interactive-easter-eggs-parity-sequence", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local data = request.theme == "light" and light_json or dark_json
+    local theme = create_theme(data, request.colorMode or "truecolor")
+    local columns, rows = request.columns, request.rows
+    local terminal = pi.tui.session(columns, rows, true)
+    local frames, armin_ticks = {}, 0
+    local armin = new_armin_row("typewriter", function() return 0 end)
+    terminal:start()
+    for _, step in ipairs(request.steps or {}) do
+      local transcript
+      if step.kind == "armin" then
+        if step.final then while not tick_armin(armin) do armin_ticks = armin_ticks + 1 end
+        else
+          while armin_ticks < (step.tick or 0) do
+            tick_armin(armin)
+            armin_ticks = armin_ticks + 1
+          end
+        end
+        transcript = { { kind = "spacer" }, armin }
+      elseif step.kind == "daxnuts" then
+        transcript = { { kind = "spacer" }, { kind = "daxnuts", tick = step.tick or 0 } }
+      else transcript = { { kind = "spacer" }, { kind = "earendil" } } end
+      terminal:request_render(step.force or false)
+      terminal:render(transcript_lines({ transcript = transcript, theme = theme,
+        md_theme = get_markdown_theme(theme) }, columns))
+      frames[#frames + 1] = {
+        name = step.name, columns = columns, rows = rows, ansi = terminal:output(),
+      }
+    end
+    return { frames = frames }
   end,
 })

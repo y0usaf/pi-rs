@@ -1,0 +1,16 @@
+{
+  "command": "interactive-easter-eggs-parity-sequence",
+  "columns": 72,
+  "rows": 30,
+  "theme": "dark",
+  "colorMode": "truecolor",
+  "steps": [
+    { "name": "armin-initial", "kind": "armin", "tick": 0, "force": true },
+    { "name": "armin-progress", "kind": "armin", "tick": 20, "force": true },
+    { "name": "armin-final", "kind": "armin", "final": true, "force": true },
+    { "name": "dax-scanline", "kind": "daxnuts", "tick": 8, "force": true },
+    { "name": "dax-text", "kind": "daxnuts", "tick": 16, "force": true },
+    { "name": "dax-final", "kind": "daxnuts", "tick": 25, "force": true },
+    { "name": "earendil", "kind": "earendil", "force": true }
+  ]
+}
