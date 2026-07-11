@@ -39,6 +39,11 @@ pi.register_command("session-demo", {
     })
     session:append_session_info("demo session")
 
+    -- AgentSession.exportToJsonl's persistence mechanism: current branch
+    -- only, with parent IDs re-chained into one linear sequence.
+    local exported = session:export_branch_jsonl(
+      request.exportPath, "2026-07-11T12:34:56.789Z")
+
     local context = session:build_session_context()
     local reopened = pi.session.open({
       path = session:get_session_file(),
@@ -135,6 +140,7 @@ pi.register_command("session-demo", {
       listedMessageCount = listed[1] and listed[1].messageCount,
       usesDefaultSessionDir = session:uses_default_session_dir(),
       sessionFile = session:get_session_file(),
+      exportedFile = exported,
       deferredUntilAssistant = deferred,
       sessionId = session:get_session_id(),
       leafId = session:get_leaf_id(),

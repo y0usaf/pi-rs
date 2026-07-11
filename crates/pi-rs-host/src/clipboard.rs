@@ -1,24 +1,27 @@
-//! `pi.clipboard` — the OS clipboard-image mechanism (spec:
+//! `pi.clipboard` — OS clipboard mechanisms: text writes (spec:
+//! `utils/clipboard.ts` `copyToClipboard`) and image reads (spec:
 //! `utils/clipboard-image.ts` `readClipboardImage`).
 //!
-//! Mechanism only (DESIGN divergence 2): tool probing (wl-paste, xclip,
-//! the WSL PowerShell fallback), format preference, and PNG conversion
-//! for unsupported formats. What to do with the image — temp-file write,
-//! editor insert — is `interactive.lua` policy
-//! (`handleClipboardImagePaste`).
+//! Mechanism only (DESIGN difference 5): platform-tool probing, bounded
+//! subprocess I/O, OSC 52, image format preference, and PNG conversion.
+//! What to copy/read and how to present the outcome stays in
+//! `interactive.lua` policy.
 //!
 //! Boundary (recorded): the spec's native-addon path
 //! (`@mariozechner/clipboard`, a NAPI wrapper over a vendored
 //! clipboard-rs — macOS/Windows and non-Wayland X11 Linux) is not
-//! ported; pi-rs behaves like a pi install where `loadClipboardNative`
-//! could not resolve the addon (`clipboard = null`), which the spec
-//! degrades through gracefully. Revisit with the item-7/11 surface
-//! audit if a reachable coding-agent flow needs it.
+//! ported; image reads behave like a pi install where
+//! `loadClipboardNative` could not resolve the addon (`clipboard = null`).
+//! Text writes remain complete: Pi deliberately skips that addon on Linux,
+//! while macOS/Windows fall through to the standard pbcopy/clip tools.
 
 use std::collections::HashMap;
+use std::io::Write as _;
 use std::process::Stdio;
 use std::time::Duration;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use mlua::{Lua, Table};
 
 const SUPPORTED_IMAGE_MIME_TYPES: [&str; 4] =
@@ -313,6 +316,80 @@ pub(crate) async fn read_clipboard_image(env: Env, platform: &str) -> Option<Cli
     Some(image)
 }
 
+const MAX_OSC52_ENCODED_LENGTH: usize = 100_000;
+
+async fn write_command(command: &str, args: &[&str], text: &str) -> bool {
+    let Ok(mut child) = tokio::process::Command::new(command)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        use tokio::io::AsyncWriteExt as _;
+        if stdin.write_all(text.as_bytes()).await.is_err() {
+            let _ = child.kill().await;
+            return false;
+        }
+    }
+    match tokio::time::timeout(Duration::from_secs(5), child.wait()).await {
+        Ok(Ok(status)) => status.success(),
+        Ok(Err(_)) => false,
+        Err(_) => {
+            let _ = child.kill().await;
+            false
+        }
+    }
+}
+
+fn emit_osc52(text: &str) -> bool {
+    let encoded = BASE64.encode(text);
+    if encoded.len() > MAX_OSC52_ENCODED_LENGTH {
+        return false;
+    }
+    let mut stdout = std::io::stdout().lock();
+    write!(stdout, "\x1b]52;c;{encoded}\x07")
+        .and_then(|()| stdout.flush())
+        .is_ok()
+}
+
+async fn write_clipboard_text(text: &str, env: &Env, platform: &str) -> mlua::Result<()> {
+    // The optional native addon is deliberately unavailable (module boundary).
+    let remote = env_truthy(env, "SSH_CONNECTION")
+        || env_truthy(env, "SSH_CLIENT")
+        || env_truthy(env, "MOSH_CONNECTION");
+    let mut copied = false;
+
+    if platform == "darwin" {
+        copied = write_command("pbcopy", &[], text).await;
+    } else if platform == "win32" {
+        copied = write_command("clip", &[], text).await;
+    } else {
+        if env_var(env, "TERMUX_VERSION").is_some() {
+            copied = write_command("termux-clipboard-set", &[], text).await;
+        }
+        if !copied && is_wayland_session(env) && env_truthy(env, "WAYLAND_DISPLAY") {
+            copied = write_command("wl-copy", &[], text).await;
+        }
+        if !copied && env_truthy(env, "DISPLAY") {
+            copied = write_command("xclip", &["-selection", "clipboard"], text).await
+                || write_command("xsel", &["--clipboard", "--input"], text).await;
+        }
+    }
+
+    if remote || !copied {
+        copied = emit_osc52(text) || copied;
+    }
+    if copied {
+        Ok(())
+    } else {
+        Err(mlua::Error::runtime("Failed to copy to clipboard"))
+    }
+}
+
 fn node_platform() -> &'static str {
     match std::env::consts::OS {
         "macos" => "darwin",
@@ -367,6 +444,32 @@ pub(crate) fn install(lua: &Lua, pi: &Table) -> mlua::Result<()> {
         "extension_for_mime_type",
         lua.create_function(|_, mime_type: String| {
             Ok(extension_for_image_mime_type(&mime_type).map(str::to_owned))
+        })?,
+    )?;
+    clipboard.set(
+        "write_text",
+        lua.create_async_function(|_, (text, options): (String, Option<Table>)| async move {
+            let (env, platform) = match options {
+                Some(options) => {
+                    let env = match options.get::<Option<Table>>("env")? {
+                        Some(table) => {
+                            let mut env = Env::new();
+                            for pair in table.pairs::<String, String>() {
+                                let (key, value) = pair?;
+                                env.insert(key, value);
+                            }
+                            env
+                        }
+                        None => std::env::vars().collect(),
+                    };
+                    let platform = options
+                        .get::<Option<String>>("platform")?
+                        .unwrap_or_else(|| node_platform().to_owned());
+                    (env, platform)
+                }
+                None => (std::env::vars().collect(), node_platform().to_owned()),
+            };
+            write_clipboard_text(&text, &env, &platform).await
         })?,
     )?;
     pi.set("clipboard", clipboard)?;

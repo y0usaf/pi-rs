@@ -26,6 +26,7 @@ fn session_demo_walks_create_open_and_in_memory_handles() {
         "cwd": cwd.to_string_lossy(),
         "sessionDir": temp.path().join("sessions").to_string_lossy(),
         "agentDir": temp.path().to_string_lossy(),
+        "exportPath": temp.path().join("export/session.jsonl").to_string_lossy(),
     });
     let result = host
         .call_command("session-demo", &request.to_string())
@@ -58,6 +59,15 @@ fn session_demo_walks_create_open_and_in_memory_handles() {
     );
     assert_eq!(entries[0]["id"], result["sessionId"]);
     assert_eq!(entries[0]["cwd"].as_str().unwrap(), cwd.to_string_lossy());
+    let exported_file = result["exportedFile"].as_str().unwrap();
+    let exported: Vec<serde_json::Value> = std::fs::read_to_string(exported_file)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(exported.len(), entries.len());
+    assert_eq!(exported[0]["timestamp"], "2026-07-11T12:34:56.789Z");
+    assert_eq!(exported[1]["parentId"], serde_json::Value::Null);
 
     // Read side: leaf chases the last append; context excludes non-messages.
     assert_eq!(result["leafId"], entries[5]["id"]);

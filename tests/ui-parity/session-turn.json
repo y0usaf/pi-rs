@@ -219,9 +219,50 @@
    ]
   },
   {
+   "name": "copy-success",
+   "input": [
+    "\u001b[200~/copy\u001b[201~",
+    "\r"
+   ]
+  },
+  {
+   "name": "export-jsonl",
+   "input": [
+    "\u001b[200~/export \"/tmp/pi-rs-ui-parity-session/exports/branch.jsonl\"\u001b[201~",
+    "\r"
+   ]
+  },
+  {
+   "name": "import-open",
+   "input": [
+    "\u001b[200~/import \"/tmp/pi-rs-ui-parity-session/sessions/s2.jsonl\"\u001b[201~",
+    "\r"
+   ]
+  },
+  {
+   "name": "import-confirm",
+   "input": [
+    "\r"
+   ]
+  },
+  {
+   "name": "import-usage",
+   "input": [
+    "\u001b[200~/import\u001b[201~",
+    "\r"
+   ]
+  },
+  {
    "name": "new-session",
    "input": [
     "\u001b[200~/new\u001b[201~",
+    "\r"
+   ]
+  },
+  {
+   "name": "copy-empty",
+   "input": [
+    "\u001b[200~/copy\u001b[201~",
     "\r"
    ]
   },

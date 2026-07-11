@@ -8,8 +8,8 @@
 // /session and the missing-cwd prompt surface absolute paths, `nowMs`
 // (a fixed Date) for session ages, and PATH="" so the delete flow's
 // `trash` probe fails deterministically into unlink.
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import type { AgentMessage, AssistantMessage } from "../../ref/pi/packages/agent/src/types.ts";
 import type { Model } from "../../ref/pi/packages/ai/src/models.ts";
 import { KeybindingsManager } from "../../ref/pi/packages/coding-agent/src/core/keybindings.ts";
@@ -341,9 +341,26 @@ function renderSessionContext(options: { updateFooter?: boolean; populateHistory
 }
 
 // interactive-mode.ts showStatus.
+let lastStatusSpacer: Spacer | undefined;
+let lastStatusText: Text | undefined;
 function showStatus(message: string): void {
+  const children = chatContainer.children;
+  const last = children.length > 0 ? children[children.length - 1] : undefined;
+  const secondLast = children.length > 1 ? children[children.length - 2] : undefined;
+  if (last && secondLast && last === lastStatusText && secondLast === lastStatusSpacer) {
+    lastStatusText.setText(theme.fg("dim", message));
+    return;
+  }
+  lastStatusSpacer = new Spacer(1);
+  lastStatusText = new Text(theme.fg("dim", message), 1, 0);
+  chatContainer.addChild(lastStatusSpacer);
+  chatContainer.addChild(lastStatusText);
+}
+
+function showError(message: string): void {
   chatContainer.addChild(new Spacer(1));
-  chatContainer.addChild(new Text(theme.fg("dim", message), 1, 0));
+  chatContainer.addChild(new Text(theme.fg("error", `Error: ${message}`), 1, 0));
+  chatContainer.addChild(new Spacer(1));
 }
 
 function showWarning(message: string): void {
@@ -609,10 +626,82 @@ function handleSessionCommand(): void {
   ui.requestRender();
 }
 
+function getPathCommandArgument(text: string, command: "/export" | "/import"): string | undefined {
+  if (text === command || !text.startsWith(`${command} `)) return undefined;
+  const args = text.slice(command.length + 1).trimStart();
+  if (!args) return undefined;
+  const first = args[0];
+  if (first === '"' || first === "'") {
+    const close = args.indexOf(first, 1);
+    return close < 0 ? undefined : args.slice(1, close);
+  }
+  const whitespace = args.search(/\s/);
+  return whitespace < 0 ? args : args.slice(0, whitespace);
+}
+
+function handleExportCommand(text: string): void {
+  const outputPath = getPathCommandArgument(text, "/export");
+  try {
+    if (!outputPath?.endsWith(".jsonl")) throw new Error("HTML export is not implemented in this slice");
+    const filePath = resolve(outputPath);
+    mkdirSync(dirname(filePath), { recursive: true });
+    const header = { type: "session", version: 3, id: sessionManager.getSessionId(), timestamp: new Date().toISOString(), cwd: sessionManager.getCwd() };
+    const lines = [JSON.stringify(header)];
+    let prevId: string | null = null;
+    for (const entry of sessionManager.getBranch()) {
+      lines.push(JSON.stringify({ ...entry, parentId: prevId }));
+      prevId = entry.id;
+    }
+    writeFileSync(filePath, `${lines.join("\n")}\n`);
+    showStatus(`Session exported to: ${filePath}`);
+  } catch (error) {
+    showError(`Failed to export session: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+}
+
+async function handleImportCommand(text: string): Promise<void> {
+  const inputPath = getPathCommandArgument(text, "/import");
+  if (!inputPath) { showError("Usage: /import <path.jsonl>"); return; }
+  const confirmed = await showExtensionConfirm("Import session", `Replace current session with ${inputPath}?`);
+  if (!confirmed) { showStatus("Import cancelled"); return; }
+  const resolvedPath = resolve(inputPath);
+  if (!existsSync(resolvedPath)) { showError(`Failed to import session: File not found: ${resolvedPath}`); return; }
+  const destination = join(sessionManager.getSessionDir(), basename(resolvedPath));
+  if (resolve(destination) !== resolvedPath) copyFileSync(resolvedPath, destination);
+  try {
+    switchSessionLike(destination);
+    renderCurrentSessionState();
+    showStatus(`Session imported from: ${inputPath}`);
+  } catch (error) { throw error; }
+}
+
+function handleCopyCommand(): void {
+  const message = [...agentState.messages].reverse().find((candidate) => candidate.role === "assistant") as AssistantMessage | undefined;
+  const text = message?.content.filter((part) => part.type === "text").map((part) => part.text).join("").trim();
+  if (!text) { showError("No agent messages to copy yet."); return; }
+  showStatus("Copied last agent message to clipboard");
+}
+
+
 // interactive-mode.ts setupEditorSubmitHandler (the routed slice).
 editor.onSubmit = async (text: string) => {
   text = text.trim();
   if (!text) return;
+  if (text === "/export" || text.startsWith("/export ")) {
+    handleExportCommand(text);
+    editor.setText("");
+    return;
+  }
+  if (text === "/import" || text.startsWith("/import ")) {
+    await handleImportCommand(text);
+    editor.setText("");
+    return;
+  }
+  if (text === "/copy") {
+    handleCopyCommand();
+    editor.setText("");
+    return;
+  }
   if (text === "/name" || text.startsWith("/name ")) {
     handleNameCommand(text);
     editor.setText("");

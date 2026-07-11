@@ -1180,6 +1180,39 @@ impl SessionManager {
         path
     }
 
+    /// Spec: `AgentSession.exportToJsonl` persistence mechanism: write a
+    /// fresh session header followed by the current branch, re-chaining
+    /// parent IDs into a linear sequence.
+    pub fn export_branch_jsonl(&self, output_path: &str, timestamp: &str) -> Result<String> {
+        let resolved = resolve_path(output_path);
+        if let Some(parent) = Path::new(&resolved).parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let mut header = Map::new();
+        header.insert("type".into(), "session".into());
+        header.insert("version".into(), CURRENT_SESSION_VERSION.into());
+        header.insert("id".into(), self.session_id.clone().into());
+        header.insert("timestamp".into(), timestamp.into());
+        header.insert("cwd".into(), self.cwd.clone().into());
+
+        let mut fd = std::fs::File::create(&resolved)?;
+        writeln!(fd, "{}", serde_json::to_string(&Value::Object(header))?)?;
+        let mut previous_id: Option<String> = None;
+        for mut entry in self.get_branch(None) {
+            let entry_id = field(&entry, "id").unwrap_or("").to_owned();
+            if let Some(object) = entry.as_object_mut() {
+                object.insert(
+                    "parentId".into(),
+                    previous_id.clone().map_or(Value::Null, Value::String),
+                );
+            }
+            writeln!(fd, "{}", serde_json::to_string(&entry)?)?;
+            previous_id = Some(entry_id);
+        }
+        Ok(resolved)
+    }
+
     /// Spec: `buildSessionContext` (instance) — tree traversal from the
     /// current leaf.
     pub fn build_session_context(&self) -> SessionContext {

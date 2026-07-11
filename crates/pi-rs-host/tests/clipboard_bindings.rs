@@ -21,6 +21,13 @@ pi.register_command("clip-read", {
     return { mimeType = image.mimeType, size = #image.bytes, head = { image.bytes:byte(1, 8) } }
   end,
 })
+pi.register_command("clip-write", {
+  handler = function(args)
+    local opts = pi.json.decode(args)
+    pi.clipboard.write_text(opts.text, { env = opts.env, platform = opts.platform })
+    return { ok = true }
+  end,
+})
 "#;
 
 fn write_stub(dir: &std::path::Path, name: &str, body: &str) {
@@ -64,6 +71,11 @@ fn read_image_probes_tools_with_pi_policy() {
         &format!(
             "#!/bin/sh\nC=\"{control_path}\"\nmime=\"$4\"\nif [ \"$mime\" = \"TARGETS\" ]; then\n  [ -f \"$C/targets.txt\" ] || exit 1\n  cat \"$C/targets.txt\"\n  exit 0\nfi\nsafe=$(printf %s \"$mime\" | tr '/;' '__')\n[ -f \"$C/x-$safe.bin\" ] || exit 1\ncat \"$C/x-$safe.bin\"\n"
         ),
+    );
+    write_stub(
+        stub_dir.path(),
+        "wl-copy",
+        &format!("#!/bin/sh\ncat > \"{control_path}/written.txt\"\n"),
     );
 
     let old_path = std::env::var("PATH").unwrap_or_default();
@@ -147,6 +159,24 @@ fn read_image_probes_tools_with_pi_policy() {
     let got = call(&host, wayland);
     assert_eq!(got["mimeType"], "image/jpeg", "xclip fallback: {got}");
     assert_eq!(got["size"], 8);
+
+    let written = host
+        .call_command(
+            "clip-write",
+            &serde_json::json!({
+                "text": "copied text",
+                "platform": "linux",
+                "env": { "WAYLAND_DISPLAY": "wayland-1" },
+            })
+            .to_string(),
+        )
+        .expect("write command")
+        .expect("write result");
+    assert_eq!(written["ok"], true);
+    assert_eq!(
+        std::fs::read_to_string(control.path().join("written.txt")).unwrap(),
+        "copied text"
+    );
 }
 
 #[test]
@@ -164,6 +194,7 @@ fn clipboard_demo_example_exercises_the_public_surface() {
     assert_eq!(result["termux_was_nil"], true);
     assert_eq!(result["no_session_was_nil"], true);
     assert_eq!(result["ext"], "jpg");
+    assert_eq!(result["wrote_text"], true);
     assert_eq!(result["unsupported_ext_was_nil"], true);
     let temp_path = result["temp_path"].as_str().unwrap();
     assert!(temp_path.contains("pi-clipboard-"));
