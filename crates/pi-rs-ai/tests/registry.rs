@@ -34,7 +34,7 @@ fn global_lock() -> MutexGuard<'static, ()> {
 // Catalog (models.ts registry half + generated data)
 // ---------------------------------------------------------------------
 
-/// Pin the generation: 35 providers / 969 models, in the spec's
+/// Pin the generation: 35 providers / 1057 models, in the spec's
 /// `MODELS` declaration order (first key: amazon-bedrock).
 #[test]
 fn catalog_counts_and_order_pin_the_generation() {
@@ -45,7 +45,7 @@ fn catalog_counts_and_order_pin_the_generation() {
     assert!(providers.contains(&"openai"));
 
     let total: usize = providers.iter().map(|p| get_models(p).len()).sum();
-    assert_eq!(total, 969, "model count");
+    assert_eq!(total, 1057, "model count");
 }
 
 #[test]
