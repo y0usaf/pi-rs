@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-scenarios=(basic-turn markdown-turn editor-turn autocomplete-turn shell-turn provider-turn bash-turn resume-turn session-turn tree-turn compaction-turn tool-turn highlight-turn highlight-tool-turn selector-turn login-turn model-turn thinking-turn settings-turn scoped-models-turn)
+scenarios=(basic-turn markdown-turn editor-turn autocomplete-turn shell-turn provider-turn bash-turn resume-turn session-turn tree-turn compaction-turn tool-turn highlight-turn highlight-tool-turn selector-turn login-turn model-turn thinking-turn settings-turn scoped-models-turn trust-turn)
 if [[ "${1:-}" == "--update-pi" ]]; then
   if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
     nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'

@@ -468,3 +468,93 @@ pub fn save_trust_option(
     }
     store.set_many(&option.updates)
 }
+
+/// Install the project-trust persistence/discovery mechanism as `pi.trust`.
+/// Selection, prompting, warnings, and command routing remain Lua policy.
+pub(crate) fn install(lua: &mlua::Lua, pi: &mlua::Table) -> mlua::Result<()> {
+    let store = std::sync::Arc::new(ProjectTrustStore::new(&crate::discover::agent_dir()));
+    let table = lua.create_table()?;
+
+    let shared = std::sync::Arc::clone(&store);
+    table.set(
+        "get",
+        lua.create_function(move |_, cwd: String| shared.get(&cwd).map_err(mlua::Error::external))?,
+    )?;
+    let shared = std::sync::Arc::clone(&store);
+    table.set(
+        "get_entry",
+        lua.create_function(move |lua, cwd: String| {
+            let Some(entry) = shared.get_entry(&cwd).map_err(mlua::Error::external)? else {
+                return Ok(None);
+            };
+            let value = lua.create_table()?;
+            value.set("path", entry.path)?;
+            value.set("decision", entry.decision)?;
+            Ok(Some(value))
+        })?,
+    )?;
+    let shared = std::sync::Arc::clone(&store);
+    table.set(
+        "set",
+        lua.create_function(move |_, (cwd, decision): (String, Option<bool>)| {
+            shared.set(&cwd, decision).map_err(mlua::Error::external)
+        })?,
+    )?;
+    let shared = std::sync::Arc::clone(&store);
+    table.set(
+        "set_many",
+        lua.create_function(move |_, updates: Vec<mlua::Table>| {
+            let updates = updates
+                .into_iter()
+                .map(|update| {
+                    Ok(TrustUpdate {
+                        path: update.get("path")?,
+                        decision: update.get("decision")?,
+                    })
+                })
+                .collect::<mlua::Result<Vec<_>>>()?;
+            shared.set_many(&updates).map_err(mlua::Error::external)
+        })?,
+    )?;
+    table.set(
+        "options",
+        lua.create_function(
+            move |lua, (cwd, include_session_only): (String, Option<bool>)| {
+                let result = lua.create_table()?;
+                for option in project_trust_options(&cwd, include_session_only.unwrap_or(false)) {
+                    let value = lua.create_table()?;
+                    value.set("label", option.label)?;
+                    value.set("trusted", option.trusted)?;
+                    value.set("savedPath", option.saved_path)?;
+                    let updates = lua.create_table()?;
+                    for update in option.updates {
+                        let item = lua.create_table()?;
+                        item.set("path", update.path)?;
+                        item.set("decision", update.decision)?;
+                        updates.push(item)?;
+                    }
+                    value.set("updates", updates)?;
+                    result.push(value)?;
+                }
+                Ok(result)
+            },
+        )?,
+    )?;
+    table.set(
+        "has_inputs",
+        lua.create_function(|_, cwd: String| Ok(has_project_trust_inputs(&cwd)))?,
+    )?;
+    table.set(
+        "has_config_dir",
+        lua.create_function(|_, cwd: String| Ok(has_project_config_dir(&cwd)))?,
+    )?;
+    table.set(
+        "path",
+        lua.create_function(|_, cwd: String| Ok(project_trust_path(&cwd)))?,
+    )?;
+    table.set(
+        "prompt",
+        lua.create_function(|_, cwd: String| Ok(format_project_trust_prompt(&cwd)))?,
+    )?;
+    pi.set("trust", table)
+}

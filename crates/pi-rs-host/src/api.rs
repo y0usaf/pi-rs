@@ -1148,7 +1148,11 @@ fn ext_entry(lua: &mlua::Lua, source: &str) -> mlua::Result<mlua::Table> {
 /// is passed to each extension chunk as its single argument; it is *not*
 /// installed as a global. `cwd` is the host working directory (spec: the
 /// loader's injected `cwd`) — the `pi.exec` default and `pi.cwd()`.
-pub(crate) fn build(lua: &mlua::Lua, cwd: &str) -> mlua::Result<mlua::Table> {
+pub(crate) fn build(
+    lua: &mlua::Lua,
+    cwd: &str,
+    project_trusted: bool,
+) -> mlua::Result<mlua::Table> {
     let registry = lua.create_table()?;
     registry.set("events", lua.create_table()?)?;
     registry.set("exts", lua.create_table()?)?;
@@ -2360,8 +2364,9 @@ pub(crate) fn build(lua: &mlua::Lua, cwd: &str) -> mlua::Result<mlua::Table> {
     crate::auth::install(lua, &pi, storage)?;
     crate::exec::install(lua, &pi, cwd)?;
     crate::os::install(lua, &pi, cwd)?;
-    crate::settings::install(lua, &pi, cwd)?;
+    crate::settings::install(lua, &pi, cwd, project_trusted)?;
     crate::session::install(lua, &pi, cwd)?;
+    crate::trust::install(lua, &pi)?;
     crate::clipboard::install(lua, &pi)?;
 
     Ok(pi)

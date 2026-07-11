@@ -43,6 +43,8 @@ pub struct Args {
     pub session: Option<String>,
     /// `--resume` / `-r`: select a session to resume via the selector.
     pub resume: bool,
+    /// `--approve`/`-a` and `--no-approve`/`-na`: explicit project trust.
+    pub project_trust_override: Option<bool>,
     pub messages: Vec<String>,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -67,6 +69,8 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Args {
             "--version" | "-v" => result.version = true,
             "--continue" | "-c" => result.continue_recent = true,
             "--resume" | "-r" => result.resume = true,
+            "--approve" | "-a" => result.project_trust_override = Some(true),
+            "--no-approve" | "-na" => result.project_trust_override = Some(false),
             "--session" if i + 1 < args.len() => {
                 i += 1;
                 result.session = Some(args[i].clone());
@@ -150,6 +154,8 @@ Options:
   --continue, -c                 Continue previous session
   --resume, -r                   Select a session to resume
   --session <path|id>            Use specific session file or partial UUID
+  --approve, -a                    Trust project resources for this session
+  --no-approve, -na                Do not trust project resources for this session
   --help, -h                     Show this help
   --version, -v                  Show version number
 
@@ -216,6 +222,13 @@ mod tests {
         assert!(args.resume);
     }
 
+    #[test]
+    fn project_trust_overrides_parse() {
+        assert_eq!(parse(&["--approve"]).project_trust_override, Some(true));
+        assert_eq!(parse(&["-a"]).project_trust_override, Some(true));
+        assert_eq!(parse(&["--no-approve"]).project_trust_override, Some(false));
+        assert_eq!(parse(&["-na"]).project_trust_override, Some(false));
+    }
     #[test]
     fn unknown_single_dash_flag_is_error() {
         let args = parse(&["-zz"]);

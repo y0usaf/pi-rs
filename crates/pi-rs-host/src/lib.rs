@@ -55,6 +55,8 @@ pub struct HostConfig {
     /// `pi.cwd()`, and the base for `pi.path.resolve`/`relative` (spec:
     /// the loader's injected `cwd`). `None` = process cwd at startup.
     pub cwd: Option<String>,
+    /// Whether project-local settings/resources are trusted for this VM.
+    pub project_trusted: bool,
 }
 
 impl Default for HostConfig {
@@ -62,6 +64,7 @@ impl Default for HostConfig {
         Self {
             dispatch_timeout_ms: DEFAULT_DISPATCH_TIMEOUT_MS,
             cwd: None,
+            project_trusted: true,
         }
     }
 }

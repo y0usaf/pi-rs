@@ -104,7 +104,7 @@ fn vm_main(config: HostConfig, rx: Receiver<Msg>, init_tx: SyncSender<Result<(),
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_else(|_| ".".to_owned())
         });
-        let pi = api::build(&lua, &cwd).map_err(|e| e.to_string())?;
+        let pi = api::build(&lua, &cwd, config.project_trusted).map_err(|e| e.to_string())?;
         // enable_all: the process driver (pi.exec) needs the io/signal
         // drivers in addition to time.
         let rt = tokio::runtime::Builder::new_current_thread()

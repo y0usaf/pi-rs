@@ -1257,8 +1257,37 @@ surface; external editor + suspend. Split into rungs:
       stdout; `cbc65ea` made those checks pipe-safe before the successful branch
       refresh. Repository Actions permission was enabled for generated PRs.
 
-- [ ] **7.6 `/trust`.** trust-selector.ts + the project-trust plumbing
-      and startup warning.
+- [x] **7.6 `/trust`.** Mechanism: the existing trust-manager/project-trust
+      port is now exposed per VM as `pi.trust` (get/get_entry/set/set_many,
+      option generation, path/input/config-dir discovery, prompt text), and
+      `HostConfig.project_trusted` gates the VM's project settings manager.
+      Main's startup path now resolves `--approve`/`--no-approve`, no-input,
+      nearest saved decision, global default, interactive prompt, and headless
+      fallback in Pi's order; the resolved decision gates both Rust and Lua
+      settings and reaches the frontend. Policy in interactive.lua: the full
+      TrustSelectorComponent port (saved direct/inherited labels + checkmark,
+      bounded arrows/j/k, save/cancel), `/trust` editor-slot route, exact status
+      row, and the untrusted-project startup warning. The startup ask reuses the
+      Lua-authored ExtensionSelector pre-runtime TUI with Pi's five generated
+      choices. Global extension `project_trust` interception remains item 9's
+      resource-loader/configuration wiring; its event/store mechanisms and
+      decision-order oracle already exist in discovery_trust.rs.
+
+      **Evidence:** `tests/ui-parity/trust-turn.json` drives Pi's real
+      TrustSelectorComponent + warning/status composition
+      (`pi-trust-turn.ts`) against pi-rs's product policy
+      (`interactive-trust-parity-sequence`); `scripts/ui-diff` matches 10
+      checkpoints (untrusted startup warning, open, parent selection/save,
+      inherited reopen, direct untrusted selection/save/reopen, cancel/editor
+      restore, resize) alongside all 20 prior suites. `interactive_trust.rs`
+      pins parent+child trust.json persistence through the product route;
+      CLI parser tests pin both override spellings; the pre-existing 15-case
+      discovery/trust suite pins prompt options, nearest inheritance, resolver
+      order, extension answers, and untrusted discovery. New public hooks are
+      exercised by `examples/extensions/trust-store-demo.lua` +
+      `trust_bindings.rs`. `cargo test --workspace`: green; `cargo fmt --check`
+      green; `nix build .#checks.x86_64-linux.workspace-test
+      --print-build-logs`: green.
 
 - [ ] **7.7 Session transfer commands.** `/export` (HTML/JSONL),
       `/import`, `/share`, `/copy`.

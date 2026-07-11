@@ -15,6 +15,7 @@ fn host_with(ms: i64, cwd: Option<String>) -> Host {
     Host::new(HostConfig {
         dispatch_timeout_ms: ms,
         cwd,
+        project_trusted: true,
     })
     .expect("host starts")
 }

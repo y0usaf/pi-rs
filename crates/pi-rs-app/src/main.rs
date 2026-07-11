@@ -18,6 +18,7 @@ use pi_rs_app::core::auth_storage::AuthStorage;
 use pi_rs_app::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
 use pi_rs_app::core::model_resolver::{find_initial_model, resolve_cli_model};
 use pi_rs_app::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
+use pi_rs_host::trust::{ProjectTrustStore, has_project_trust_inputs, project_trust_options};
 
 /// Minimal chalk analogue: color only when the stream is a terminal.
 fn stderr_paint(code: &str, text: &str) -> String {
@@ -59,9 +60,10 @@ fn prompt_confirm(message: &str) -> bool {
 
 /// Create a Lua host at `cwd` with the product packs loaded (shared by
 /// the pre-runtime selectors and the interactive frontend).
-fn load_host(cwd: &str) -> Result<pi_rs_host::Host, String> {
+fn load_host_with_trust(cwd: &str, project_trusted: bool) -> Result<pi_rs_host::Host, String> {
     let host = pi_rs_host::Host::new(pi_rs_host::HostConfig {
         cwd: Some(cwd.to_owned()),
+        project_trusted,
         ..Default::default()
     })
     .map_err(|error| format!("Error starting Lua host: {error}"))?;
@@ -76,6 +78,10 @@ fn load_host(cwd: &str) -> Result<pi_rs_host::Host, String> {
         return Err(format!("Error loading {}: {}", error.path, error.error));
     }
     Ok(host)
+}
+
+fn load_host(cwd: &str) -> Result<pi_rs_host::Host, String> {
+    load_host_with_trust(cwd, true)
 }
 
 fn main() -> ExitCode {
@@ -338,6 +344,72 @@ async fn run(args: Args) -> ExitCode {
     };
     let cwd_string = cwd.to_string_lossy().into_owned();
 
+    // project-trust.ts startup decision order. Prompt presentation is the
+    // embedded Lua startup selector; Rust owns only trust-store persistence.
+    let trust_store = ProjectTrustStore::new(&agent_dir);
+    let has_trust_inputs = has_project_trust_inputs(&cwd_string);
+    let mut project_trusted = args.project_trust_override.unwrap_or(!has_trust_inputs);
+    if args.project_trust_override.is_none() && has_trust_inputs {
+        project_trusted = match trust_store.get(&cwd_string) {
+            Ok(Some(decision)) => decision,
+            Ok(None) => match settings_manager.get_default_project_trust() {
+                "always" => true,
+                "never" => false,
+                _ if interactive => {
+                    let host = match load_host(&cwd_string) {
+                        Ok(host) => host,
+                        Err(message) => {
+                            error_line(&message);
+                            return ExitCode::FAILURE;
+                        }
+                    };
+                    let options = project_trust_options(&cwd_string, true);
+                    let request = serde_json::json!({
+                        "title": pi_rs_host::trust::format_project_trust_prompt(&cwd_string),
+                        "options": options.iter().map(|option| option.label.clone()).collect::<Vec<_>>(),
+                        "theme": settings_manager.get_theme(),
+                    });
+                    let selected =
+                        match host.call_command("pi-rs-startup-selector", &request.to_string()) {
+                            Ok(Some(result)) => result
+                                .get("value")
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_owned),
+                            Ok(None) => None,
+                            Err(error) => {
+                                error_line(&format!("Error: {error}"));
+                                return ExitCode::FAILURE;
+                            }
+                        };
+                    let selected = selected
+                        .and_then(|label| options.into_iter().find(|option| option.label == label));
+                    if let Some(option) = selected {
+                        if let Err(error) = trust_store.set_many(&option.updates) {
+                            error_line(&format!("Error: {error}"));
+                            return ExitCode::FAILURE;
+                        }
+                        option.trusted
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            },
+            Err(error) => {
+                error_line(&format!("Error: {error}"));
+                return ExitCode::FAILURE;
+            }
+        };
+    }
+    settings_manager = SettingsManager::create(
+        &cwd,
+        None,
+        SettingsManagerCreateOptions {
+            project_trusted: Some(project_trusted),
+            ..Default::default()
+        },
+    );
+
     // Spec (`buildSessionOptions` / `findInitialModel`): CLI model wins
     // (a `:<thinking>` suffix applies unless --thinking is explicit),
     // else the settings default, else the first available model
@@ -397,7 +469,7 @@ async fn run(args: Args) -> ExitCode {
     let prompt = args.messages.join("\n\n");
     // The CLI is a thin consumer of public Lua packs. Rust resolves startup
     // resources and supplies mechanism values; frontend/loop policy is Lua.
-    let host = match load_host(&cwd_string) {
+    let host = match load_host_with_trust(&cwd_string, project_trusted) {
         Ok(host) => host,
         Err(message) => {
             error_line(&message);
@@ -433,6 +505,7 @@ async fn run(args: Args) -> ExitCode {
         // the settings default from the VM's own `pi.settings` store).
         "modelFromCli": args.model.is_some(),
         "thinkingFromCli": args.thinking.is_some(),
+        "projectTrusted": project_trusted,
     });
     let command = if interactive {
         "pi-rs-interactive"
