@@ -1,13 +1,15 @@
 # pi-rs — execution plan
 
-`DESIGN.md` defines the target: an indistinguishable Rust port of Pi v0.79.0's
-coding agent. `ref/pi` @ `c5582102` is the specification. This plan covers the
-coding agent and its required AI/auth, agent, and TUI machinery—nothing else Pi
-ships. Product-specific work belongs in separate downstream forks.
+`DESIGN.md` defines the target: a Rust port of Pi v0.79.0's coding agent with
+an exhaustive, closed difference list. `ref/pi` @ `c5582102` is the
+specification outside those differences. This plan covers the coding agent and
+its required AI/auth, agent, and TUI machinery—nothing else Pi ships.
+Product-specific work belongs in separate downstream forks.
 
 The first unchecked item is the next task. Product behavior lands as embedded
-Lua through the public extension surface (DESIGN divergence 2); Rust is
-mechanism only. Do not preserve known differences as "temporary" UI.
+Lua through the public extension surface (DESIGN difference 5); Rust is
+mechanism only. User configuration is Lua-only (difference 2). Do not preserve
+known differences as "temporary" UI or treat unfinished work as an exception.
 
 ## Proven foundation
 
@@ -1349,18 +1351,30 @@ surface; external editor + suspend. Split into rungs:
       advertised API has deterministic protocol replays, and the three subscription
       providers' auth-state/request tests remain green.
 
-- [ ] **9. Match coding-agent configuration and extensions.** Support the
-      relevant Pi settings, themes, prompts, skills, packages, and extension
-      use cases through pi-rs's Lua surface without changing their visible
-      outcome. Translated Pi examples land in `examples/` as the conformance
-      suite.
-      Includes the package-manager `pi config`/ConfigSelector surface,
-      custom/registered theme loading + watching, and exported compatibility
-      components (`ThemeSelectorComponent`, `ShowImagesSelectorComponent`,
-      `ThinkingSelectorComponent`) that are not reachable from interactive mode.
+- [ ] **9. Implement Lua-only configuration and Lua extensions.** Replace the
+      temporary Pi-JSON settings path with the two canonical entry points:
+      `~/.pi/agent/config.lua` and `.pi/config.lua`. Inventory every Pi setting,
+      keybinding, model/provider declaration, theme, resource selector,
+      extension source, and package resource toggle; expose one Lua declaration
+      mechanism for each kind. Preserve Pi's global/project precedence, trust,
+      reload, CLI override, `/settings`, and `pi config` outcomes while persisting
+      interactive mutations as Lua rather than JSON.
 
-      **Accept:** translated reference fixtures exercise every exposed hook and
-      representative Pi configurations produce equivalent behavior and frames.
+      Pi's `settings.json`, `keybindings.json`, user `models.json`, and theme
+      JSON are intentionally not configuration inputs. Session, credential,
+      project-instruction, skill, and prompt-template content formats remain
+      compatible. Translate the reference TypeScript extension examples into
+      Lua as bridge conformance tests. Define package transport here; packages
+      contain Lua configuration/extensions, while package commands and resource
+      behavior remain Pi-equivalent unless the DESIGN exception list is amended.
+
+      **Accept:** an automated inventory maps every reachable Pi configuration
+      capability to a Lua API or names it in DESIGN's exhaustive exception list;
+      global/project Lua precedence, trust, reload, and mutation round-trips are
+      fixture-tested; equivalent Lua configurations produce Pi-equivalent
+      behavior and frames; Pi JSON configuration files are ignored; translated
+      fixtures exercise every exposed extension hook; no user-configuration
+      parser bypasses the Lua surface.
 
 - [ ] **10. Match non-interactive coding-agent modes.** Port the pinned CLI's
       print/JSON/RPC/export and other coding-agent modes that are part of the
@@ -1371,12 +1385,13 @@ surface; external editor + suspend. Split into rungs:
 
 - [ ] **11. Final parity audit.** Diff the complete public and reachable
       surface of `ref/pi/packages/coding-agent` and its required `ai`, `agent`,
-      and `tui` behavior. Resolve or explicitly lock every difference.
+      and `tui` behavior. Resolve every difference not present in DESIGN's
+      exhaustive list; verify each listed difference is no broader than stated.
 
       **Accept:** automated parity suites pass and side-by-side scripted
-      sessions are visually indistinguishable. No unapproved product-visible
-      divergence remains. Tag this baseline for compatibility maintenance and
-      downstream forks.
+      sessions are visually indistinguishable under equivalent Lua
+      configuration. No unlisted product-visible difference remains. Tag this
+      baseline for compatibility maintenance and downstream forks.
 
 ## Post-parity — maintenance
 
@@ -1386,10 +1401,13 @@ separate downstream forks, not this repository.
 
 ## Working rules
 
-- Pi is the oracle. If a pi-rs test conflicts with Pi, update the implementation
-  and the test; do not redefine the goal.
-- Product behavior is Lua through the public surface — no Rust shortcutting. A
-  placement that puts behavior in Rust needs a DESIGN locked-decision row.
+- Pi is the oracle outside DESIGN's exhaustive difference list. If a pi-rs test
+  conflicts with Pi elsewhere, update the implementation and the test; do not
+  redefine the goal.
+- Product behavior is Lua through the public surface—no Rust shortcutting. User
+  configuration enters through `config.lua`; no JSON configuration compatibility
+  layer. A placement that puts behavior in Rust needs a DESIGN locked-decision
+  row, and that row cannot create an unlisted product-visible difference.
 - Every UI change includes a Pi-derived frame or input fixture. "Looks close"
   is not review evidence.
 - No temporary UI, approximate component, knowingly different default, or
