@@ -312,3 +312,32 @@ fn subsequent_loads_of_recovered_file_work() {
     assert_eq!(sm2.get_session_id(), session_id);
     assert_eq!(sm2.get_header().unwrap()["type"], "session");
 }
+
+#[test]
+fn export_branch_jsonl_writes_only_current_linear_branch() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path().to_string_lossy().into_owned();
+    let mut sm = SessionManager::create("/tmp/project", Some(&dir), "", None).unwrap();
+    let root = sm.append_message(user_msg("root")).unwrap();
+    let abandoned = sm.append_message(assistant_msg("abandoned")).unwrap();
+    sm.branch(&root).unwrap();
+    let kept = sm.append_message(assistant_msg("kept")).unwrap();
+
+    let output = temp.path().join("nested/export.jsonl");
+    let path = sm
+        .export_branch_jsonl(&output.to_string_lossy(), "2025-07-11T12:34:56.789Z")
+        .unwrap();
+    assert_eq!(path, output.to_string_lossy());
+    let rows: Vec<Value> = fs::read_to_string(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0]["timestamp"], "2025-07-11T12:34:56.789Z");
+    assert_eq!(rows[1]["id"], root);
+    assert_eq!(rows[1]["parentId"], Value::Null);
+    assert_eq!(rows[2]["id"], kept);
+    assert_eq!(rows[2]["parentId"], root);
+    assert!(rows.iter().all(|row| row["id"] != abandoned));
+}

@@ -1325,6 +1325,38 @@ surface; external editor + suspend. Split into rungs:
 - [ ] **7.8 Session transfer commands.** `/export` (HTML/JSONL),
       `/import`, `/share`, `/copy`.
 
+      **Landed slice (2026-07-11):** JSONL export, import, and copy are wired
+      through embedded Lua policy. `SessionHandle.export_branch_jsonl` is the
+      persistence mechanism for `AgentSession.exportToJsonl`: a fresh v3 header,
+      current branch only, and linearized parent IDs; Lua owns path parsing,
+      timestamp/path policy, command routing, confirmation, runtime replacement,
+      status/error rows, and last-assistant-text selection. Import copies external
+      files into the active session directory, reuses the existing runtime rebind +
+      missing-cwd confirmation machinery, and rebuilds the transcript. `/copy` uses
+      the new public `pi.clipboard.write_text` OS mechanism (pbcopy/clip, Termux,
+      Wayland, X11, then bounded OSC 52), with policy and user-visible outcomes in
+      Lua. `/export` is routed only for an explicit `.jsonl` target until HTML lands;
+      the default/HTML forms and `/share` remain unrouted rather than shipping
+      placeholder chrome.
+
+      **Evidence:** session-turn now matches Pi at 32 checkpoints (was 26), adding
+      copy success, quoted-path JSONL export, import confirmation + restored
+      transcript/status, missing-argument error, and empty-session copy error.
+      `jsonl_export_import_and_copy_run_through_product_commands` pins exported
+      header/linear branch, live import replacement, and exact copied text;
+      `export_branch_jsonl_writes_only_current_linear_branch` pins abandoned-branch
+      exclusion. `session-demo.lua` exercises the export handle;
+      `clipboard_bindings` scripts the Wayland write and `clipboard-demo.lua`
+      exercises OSC 52. `cargo fmt --check`, `cargo test --workspace`,
+      `scripts/ui-diff` (all 21 suites), and `nix build
+      .#checks.x86_64-linux.workspace-test --print-build-logs` green.
+
+      **Remaining:** port export-html generation/assets/theme/custom-tool rendering
+      through Lua policy + mechanism bindings, route default/`.html` export, then
+      port `/share`'s `gh` auth check, cancellable gist loader/process, cleanup, and
+      preview URL. Add HTML byte/content evidence, share process/cancellation
+      evidence, and close the checkbox only after the full transfer surface matches.
+
 - [ ] **7.9 Info commands and chrome.** `/changelog`, `/hotkeys`,
       `/debug`, `/reload`, the easter eggs (armin/daxnuts/earendil),
       and the version-update notification.

@@ -3371,6 +3371,23 @@ local function handle_submit(text, actions)
     actions.model_command(search_term)
     return
   end
+  if text:match("^/export%s+.*%.jsonl[\"']?$") then
+    actions.export_command(text)
+    actions.set_text("")
+    return
+  end
+  if text == "/import" or text:sub(1, 8) == "/import " then
+    actions.import_command(text)
+    actions.set_text("")
+    return
+  end
+
+  if text == "/copy" then
+    actions.copy_command()
+    actions.set_text("")
+    return
+  end
+
   if text == "/login" then
     actions.show_oauth_selector("login")
     actions.set_text("")
@@ -3469,6 +3486,14 @@ pi.register_command("interactive-submit-route", {
         compact_command = function(custom)
           trace[#trace + 1] = { action = "compact_command", value = custom }
         end,
+        export_command = function(value)
+          trace[#trace + 1] = { action = "export_command", value = value }
+        end,
+        import_command = function(value)
+          trace[#trace + 1] = { action = "import_command", value = value }
+        end,
+
+        copy_command = function() trace[#trace + 1] = { action = "copy_command" } end,
         is_bash_running = function() return request.bashRunning or false end,
         show_warning = function(message)
           trace[#trace + 1] = { action = "show_warning", value = message }
@@ -3970,6 +3995,10 @@ local function shell_submit_actions(state)
     settings_command = function() DEFAULT_KEYS.__settings_policy.show(state) end,
     scoped_models_command = function() DEFAULT_KEYS.__scoped_models_policy.show(state) end,
     model_command = function(search) handle_model_command(state, search) end,
+    export_command = function(text) handle_export_command(state, text) end,
+    import_command = function(text) handle_import_command(state, text) end,
+
+    copy_command = function() handle_copy_command(state) end,
     name_command = function(text) handle_name_command(state, text) end,
     session_command = function() handle_session_command(state) end,
     clear_command = function() handle_clear_command(state) end,
@@ -5609,6 +5638,105 @@ local function prompt_for_missing_session_cwd(state, issue, on_done)
     })
   end)
 end
+
+function path_command_argument(text, command)
+  if text == command or text:sub(1, #command + 1) ~= command .. " " then return nil end
+  local args = text:sub(#command + 2):gsub("^%s+", "")
+  if args == "" then return nil end
+  local first = args:sub(1, 1)
+  if first == '"' or first == "'" then
+    local close = args:find(first, 2, true)
+    return close and args:sub(2, close - 1) or nil
+  end
+  return args:match("^%S+")
+end
+
+function iso_from_epoch_ms(ms)
+  local seconds = math.floor(ms / 1000)
+  return os.date("!%Y-%m-%dT%H:%M:%S", seconds) .. (".%03dZ"):format(ms % 1000)
+end
+
+function handle_export_command(state, text)
+  local output_path = path_command_argument(text, "/export")
+  local ok, result = pcall(function()
+    if not output_path or output_path:sub(-6) ~= ".jsonl" then
+      error("HTML export is not implemented yet", 0)
+    end
+    local resolved = pi.path.resolve(output_path)
+    return state.session_manager:export_branch_jsonl(resolved, iso_from_epoch_ms(state.wall_now_ms()))
+  end)
+  if ok then show_status(state, "Session exported to: " .. result)
+  else show_error(state, "Failed to export session: " .. tostring(result)) end
+end
+
+function finish_import(state, input_path, destination, cwd_override)
+  local ok, switched, issue = pcall(attempt_switch_session, state, destination, cwd_override)
+  if not ok then return handle_fatal_runtime_error(state, "Failed to import session", switched) end
+  if not switched then
+    prompt_for_missing_session_cwd(state, issue, function(confirmed)
+      if not confirmed then show_status(state, "Import cancelled"); return end
+      finish_import(state, input_path, destination, issue.fallbackCwd)
+    end)
+    return
+  end
+  render_current_session_state(state)
+  show_status(state, "Session imported from: " .. input_path)
+end
+
+function handle_import_command(state, text)
+  local input_path = path_command_argument(text, "/import")
+  if not input_path then show_error(state, "Usage: /import <path.jsonl>"); return end
+  show_selector(state, function(done)
+    return extension_selector({
+      theme = state.theme,
+      title = "Import session\nReplace current session with " .. input_path .. "?",
+      options = { "Yes", "No" },
+      on_select = function(option)
+        done()
+        if option ~= "Yes" then show_status(state, "Import cancelled"); return end
+        local resolved = pi.path.resolve(input_path)
+        if not pi.fs.exists(resolved) then
+          show_error(state, "Failed to import session: File not found: " .. resolved)
+          return
+        end
+        local destination = pi.path.join(state.session_manager:get_session_dir(), pi.path.basename(resolved))
+        if destination ~= resolved then
+          pi.fs.mkdir(state.session_manager:get_session_dir())
+          pi.fs.write_file(destination, pi.fs.read_bytes(resolved))
+        end
+        finish_import(state, input_path, destination, nil)
+      end,
+      on_cancel = function() done(); show_status(state, "Import cancelled") end,
+    })
+  end)
+end
+
+
+
+function handle_copy_command(state)
+  local messages = state.agent:get_state().messages
+  local text = nil
+  for index = #messages, 1, -1 do
+    local message = messages[index]
+    if message.role == "assistant"
+       and not (message.stopReason == "aborted" and #(message.content or {}) == 0) then
+      local parts = {}
+      for _, content in ipairs(message.content or {}) do
+        if content.type == "text" then parts[#parts + 1] = content.text end
+      end
+      local joined = trim(table.concat(parts))
+      if joined ~= "" then text = joined end
+      break
+    end
+  end
+  if not text then show_error(state, "No agent messages to copy yet."); return end
+  local ok, err = pcall(function()
+    if state.copy_text then state.copy_text(text) else pi.clipboard.write_text(text) end
+  end)
+  if ok then show_status(state, "Copied last agent message to clipboard")
+  else show_error(state, tostring(err)) end
+end
+
 
 -- interactive-mode.ts handleResumeSession.
 function handle_resume_session(state, session_path)
@@ -8899,6 +9027,7 @@ pi.register_command("interactive-session-parity-sequence", {
   handler = function(args)
     local request = pi.json.decode(args)
     local state = create_interactive_state(request)
+    state.copy_text = function(text) state.copied_text = text end
     -- The pi driver pins the footer's provider count; runtime rebinds
     -- recompute it, so pin through the registry seam (one scenario model
     -- → one provider).
@@ -8950,6 +9079,7 @@ pi.register_command("interactive-session-parity-sequence", {
       frames = frames,
       sessionFile = state.session_manager:get_session_file(),
       cwd = state.cwd,
+      copiedText = state.copied_text,
     }
   end,
 })

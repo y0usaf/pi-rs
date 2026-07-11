@@ -1,5 +1,5 @@
--- Exerciser for the clipboard-image mechanism: pi.clipboard.read_image,
--- pi.clipboard.extension_for_mime_type, pi.random_uuid, pi.fs.tmpdir.
+-- Exerciser for the clipboard mechanisms: pi.clipboard.read_image /
+-- write_text, extension_for_mime_type, pi.random_uuid, pi.fs.tmpdir.
 --
 -- In pi these are utils/clipboard-image.ts `readClipboardImage` (wl-paste
 -- / xclip / WSL PowerShell probing with format preference and PNG
@@ -34,6 +34,12 @@ pi.register_command("clipboard-demo", {
     local ext = pi.clipboard.extension_for_mime_type("image/jpeg;charset=x") or "png"
     local temp_path = pi.path.join(pi.fs.tmpdir(), "pi-clipboard-" .. pi.random_uuid() .. "." .. ext)
 
+    -- Remote sessions always emit OSC 52 after direct clipboard attempts.
+    -- An empty PATH-independent platform forces that deterministic fallback.
+    pi.clipboard.write_text("clipboard demo", {
+      env = { SSH_CONNECTION = "demo" }, platform = "other",
+    })
+
     return {
       termux_was_nil = termux == nil,
       no_session_was_nil = no_session == nil,
@@ -41,6 +47,7 @@ pi.register_command("clipboard-demo", {
       ext = ext,
       unsupported_ext_was_nil = pi.clipboard.extension_for_mime_type("image/bmp") == nil,
       temp_path = temp_path,
+      wrote_text = true,
     }
   end,
 })

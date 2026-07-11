@@ -252,3 +252,69 @@ fn resume_switches_the_live_runtime_and_new_starts_fresh() {
     assert!(fresh_content.contains("\"start over\""), "{fresh_content}");
     assert!(!fresh_content.contains("\"again\""), "{fresh_content}");
 }
+
+#[test]
+fn jsonl_export_import_and_copy_run_through_product_commands() {
+    let _env = ENV_LOCK.lock().unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let agent_dir = temp.path().join("agent");
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
+    let cwd = temp.path().to_string_lossy().into_owned();
+    let sessions = temp.path().join("sessions");
+    let s1 = write_session_fixture(
+        &sessions,
+        "s1.jsonl",
+        "11",
+        &cwd,
+        1_751_360_000_000,
+        "one",
+        "first reply",
+    );
+    let s2 = write_session_fixture(
+        &sessions,
+        "s2.jsonl",
+        "12",
+        &cwd,
+        1_751_363_000_000,
+        "two",
+        "second reply",
+    );
+    let output = temp.path().join("exports/branch.jsonl");
+
+    let result = host(&cwd)
+        .call_command(
+            "interactive-session-parity-sequence",
+            &serde_json::json!({
+                "columns": 80, "rows": 30, "model": stub_model("http://127.0.0.1:1"),
+                "cwd": cwd, "agentDir": agent_dir.to_string_lossy(),
+                "sessionFile": s1, "sessionDir": sessions.to_string_lossy(),
+                "modelFromCli": true, "nowMs": 1_752_237_296_789i64,
+                "readmePath": "/pi-rs-pkg/README.md", "docsPath": "/pi-rs-pkg/docs",
+                "examplesPath": "/pi-rs-pkg/examples",
+                "steps": [
+                    { "name": "export", "input": [paste(&format!("/export \"{}\"", output.display())), "\r"] },
+                    { "name": "import", "input": [paste(&format!("/import \"{s2}\"")), "\r"] },
+                    { "name": "confirm", "input": ["\r"] },
+                    { "name": "copy", "input": [paste("/copy"), "\r"] },
+                ],
+            })
+            .to_string(),
+        )
+        .expect("command")
+        .expect("result");
+
+    assert_eq!(result["sessionFile"], s2);
+    assert_eq!(result["copiedText"], "second reply");
+    let rows: Vec<serde_json::Value> = std::fs::read_to_string(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows.len(), 5);
+    assert_eq!(rows[0]["timestamp"], "2025-07-11T12:34:56.789Z");
+    assert_eq!(rows[1]["parentId"], serde_json::Value::Null);
+    for pair in rows[1..].windows(2) {
+        assert_eq!(pair[1]["parentId"], pair[0]["id"]);
+    }
+}

@@ -245,6 +245,15 @@ impl UserData for SessionHandle {
         methods.add_method("get_tree", |lua, this, ()| {
             tree_nodes_to_lua(lua, this.0.borrow().get_tree())
         });
+        methods.add_method(
+            "export_branch_jsonl",
+            |_, this, (output_path, timestamp): (String, String)| {
+                this.0
+                    .borrow()
+                    .export_branch_jsonl(&output_path, &timestamp)
+                    .map_err(runtime_err)
+            },
+        );
 
         // ---- branching (spec: branch / resetLeaf / branchWithSummary /
         // createBranchedSession / newSession / appendLabelChange) ----
