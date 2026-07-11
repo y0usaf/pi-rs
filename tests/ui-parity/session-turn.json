@@ -15,8 +15,10 @@
  "sessionDir": "sessions",
  "modelFromCli": true,
  "env": {
-  "PATH": "/tmp/pi-rs-ui-parity-session/bin"
+  "PATH": "/tmp/pi-rs-ui-parity-session/bin",
+  "PI_CODING_AGENT_DIR": "/tmp/pi-rs-ui-parity-session/.pi/agent"
  },
+ "changelogText": "# Changelog\n\n## [0.79.0] - 2026-07-01\n\n### Added\n\n- Exact info command parity\n- Markdown **styling** and tables\n- [Local docs](docs/extensions.md#hooks)\n\n## [0.78.0] - 2026-06-01\n\n### Fixed\n\n- Previous release notes\n",
  "files": {
   "project/": "",
   "exports/": "",
@@ -310,6 +312,27 @@
    "name": "copy-empty",
    "input": [
     "\u001b[200~/copy\u001b[201~",
+    "\r"
+   ]
+  },
+  {
+   "name": "changelog",
+   "input": [
+    "\u001b[200~/changelog\u001b[201~",
+    "\r"
+   ]
+  },
+  {
+   "name": "hotkeys",
+   "input": [
+    "\u001b[200~/hotkeys\u001b[201~",
+    "\r"
+   ]
+  },
+  {
+   "name": "debug",
+   "input": [
+    "\u001b[200~/debug\u001b[201~",
     "\r"
    ]
   },

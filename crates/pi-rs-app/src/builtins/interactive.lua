@@ -856,6 +856,16 @@ local function transcript_lines(state, width)
       -- showStatus: Spacer(1) + Text(dim message, 1, 0)
       lines[#lines + 1] = ""
       append(lines, pi.tui.text_render(state.theme:fg("dim", item.text), width, 1, 0))
+    elseif item.kind == "info_block" then
+      -- /changelog and /hotkeys: Spacer + DynamicBorder + title + Spacer +
+      -- Markdown(1,1) + DynamicBorder.
+      lines[#lines + 1] = ""
+      lines[#lines + 1] = state.theme:fg("border", string.rep("─", math.max(1, width)))
+      append(lines, pi.tui.text_render(
+        state.theme:bold(state.theme:fg("accent", item.title)), width, 1, 0))
+      lines[#lines + 1] = ""
+      append(lines, pi.tui.markdown_render(item.markdown, width, 1, 1, { theme = state.md_theme }))
+      lines[#lines + 1] = state.theme:fg("border", string.rep("─", math.max(1, width)))
     elseif item.kind == "text" then
       -- Pre-styled chat rows (interactive-mode.ts chatContainer.addChild
       -- of Spacer(1) + Text(content, 1, paddingY)): /name, /session, and
@@ -3415,6 +3425,21 @@ local function handle_submit(text, actions)
     actions.set_text("")
     return
   end
+  if text == "/changelog" then
+    actions.changelog_command()
+    actions.set_text("")
+    return
+  end
+  if text == "/hotkeys" then
+    actions.hotkeys_command()
+    actions.set_text("")
+    return
+  end
+  if text == "/debug" then
+    actions.debug_command()
+    actions.set_text("")
+    return
+  end
   if text == "/new" then
     actions.set_text("")
     actions.clear_command()
@@ -3451,6 +3476,7 @@ local function handle_submit(text, actions)
     actions.set_text("")
     return
   end
+
   if text == "/quit" then
     actions.set_text("")
     actions.quit()
@@ -3500,6 +3526,9 @@ pi.register_command("interactive-submit-route", {
           trace[#trace + 1] = { action = "import_command", value = value }
         end,
 
+        changelog_command = function() trace[#trace + 1] = { action = "changelog_command" } end,
+        hotkeys_command = function() trace[#trace + 1] = { action = "hotkeys_command" } end,
+        debug_command = function() trace[#trace + 1] = { action = "debug_command" } end,
         share_command = function() trace[#trace + 1] = { action = "share_command" } end,
         copy_command = function() trace[#trace + 1] = { action = "copy_command" } end,
         is_bash_running = function() return request.bashRunning or false end,
@@ -3550,7 +3579,7 @@ local BUILTIN_SLASH_COMMANDS = {
   { name = "compact", description = "Manually compact the session context" },
   { name = "resume", description = "Resume a different session" },
   { name = "reload", description = "Reload keybindings, extensions, skills, prompts, and themes" },
-  { name = "quit", description = "Quit pi-rs" },
+  { name = "quit", description = "Quit pi" },
 }
 
 -- utils/tools-manager.ts ensureTool, system-binary slice: probe `fd` then
@@ -4002,6 +4031,10 @@ local function shell_submit_actions(state)
     show_oauth_selector = function(mode) show_oauth_selector(state, mode) end,
     settings_command = function() DEFAULT_KEYS.__settings_policy.show(state) end,
     scoped_models_command = function() DEFAULT_KEYS.__scoped_models_policy.show(state) end,
+    changelog_command = function() handle_changelog_command(state) end,
+    hotkeys_command = function() handle_hotkeys_command(state) end,
+    debug_command = function() handle_debug_command(state) end,
+
     model_command = function(search) handle_model_command(state, search) end,
     export_command = function(text) handle_export_command(state, text) end,
     import_command = function(text) handle_import_command(state, text) end,
@@ -5818,6 +5851,224 @@ function handle_copy_command(state)
   if ok then show_status(state, "Copied last agent message to clipboard")
   else show_error(state, tostring(err)) end
 end
+
+-- utils/changelog.ts parseChangelog. The checked-in markdown is the pinned
+-- package asset; parity drivers may inject a smaller changelogText fixture.
+function parse_changelog(markdown)
+  local entries, current, lines = {}, nil, {}
+  local function finish()
+    if current and #lines > 0 then
+      current.content = trim(table.concat(lines, "\n"))
+      entries[#entries + 1] = current
+    end
+  end
+  for line in (markdown .. "\n"):gmatch("([^\n]*)\n") do
+    if line:sub(1, 3) == "## " then
+      finish()
+      local major, minor, patch = line:match("^##%s+%[?(%d+)%.(%d+)%.(%d+)%]?")
+      if major then
+        current = { major = tonumber(major), minor = tonumber(minor), patch = tonumber(patch) }
+        lines = { line }
+      else
+        current, lines = nil, {}
+      end
+    elseif current then
+      lines[#lines + 1] = line
+    end
+  end
+  finish()
+  return entries
+end
+
+function normalize_changelog_links(markdown, entry)
+  local tag = "v" .. entry.major .. "." .. entry.minor .. "." .. entry.patch
+  local repo = "https://github.com/earendil-works/pi"
+  local function target(value)
+    value = value:gsub("^https://github%.com/badlogic/pi%-mono", repo)
+      :gsub("^https://github%.com/earendil%-works/pi%-mono", repo)
+    for _, route in ipairs({ "blob", "tree" }) do
+      for _, branch in ipairs({ "main", "master" }) do
+        local prefix = repo .. "/" .. route .. "/" .. branch .. "/"
+        if value:sub(1, #prefix) == prefix then
+          value = repo .. "/" .. route .. "/" .. tag .. "/" .. value:sub(#prefix + 1)
+        end
+      end
+    end
+    if value:sub(1, 1) == "#" or value:sub(1, 2) == "//"
+       or value:match("^[a-zA-Z][a-zA-Z0-9+%.%-]*:") then return value end
+    local before_fragment, fragment = value:match("^([^#]*)(#.*)$")
+    if not before_fragment then before_fragment, fragment = value, "" end
+    local path_part, query = before_fragment:match("^([^?]*)(%?.*)$")
+    if not path_part then path_part, query = before_fragment, "" end
+    if path_part == "" then return value end
+    path_part = path_part:gsub("\\", "/")
+    local repository_path
+    if path_part:sub(1, 1) == "/" then repository_path = path_part:gsub("^/+", "")
+    else repository_path = "packages/coding-agent/" .. path_part end
+    local parts = {}
+    for part in repository_path:gmatch("[^/]+") do
+      if part == ".." then
+        if #parts == 0 then return value end
+        parts[#parts] = nil
+      elseif part ~= "." then parts[#parts + 1] = part end
+    end
+    repository_path = table.concat(parts, "/")
+    if repository_path == "" then return value end
+    local basename = repository_path:match("([^/]+)$") or repository_path
+    local route = (path_part:sub(-1) == "/" or not basename:find("%.", 1, false)) and "tree" or "blob"
+    repository_path = repository_path:gsub(" ", "%%20")
+    return repo .. "/" .. route .. "/" .. tag .. "/" .. repository_path .. query .. fragment
+  end
+  return (markdown:gsub("(!?%[[^%]\n]+%]%()([^%s%)]+)([^%)]*%))",
+    function(prefix, link, suffix) return prefix .. target(link) .. suffix end))
+end
+
+function handle_changelog_command(state)
+  local all = parse_changelog(state.request.changelogText or CHANGELOG_MD)
+  local chunks = {}
+  for index = #all, 1, -1 do
+    chunks[#chunks + 1] = normalize_changelog_links(all[index].content, all[index])
+  end
+  state.transcript[#state.transcript + 1] = {
+    kind = "info_block", title = "What's New",
+    markdown = #chunks > 0 and table.concat(chunks, "\n\n") or "No changelog entries found.",
+  }
+end
+
+HOTKEY_KEYS = {
+  ["tui.editor.cursorUp"] = "up", ["tui.editor.cursorDown"] = "down",
+  ["tui.editor.cursorLeft"] = { "left", "ctrl+b" },
+  ["tui.editor.cursorRight"] = { "right", "ctrl+f" },
+  ["tui.editor.cursorWordLeft"] = { "alt+left", "ctrl+left", "alt+b" },
+  ["tui.editor.cursorWordRight"] = { "alt+right", "ctrl+right", "alt+f" },
+  ["tui.editor.cursorLineStart"] = { "home", "ctrl+a" },
+  ["tui.editor.cursorLineEnd"] = { "end", "ctrl+e" },
+  ["tui.editor.jumpForward"] = "ctrl+]", ["tui.editor.jumpBackward"] = "ctrl+alt+]",
+  ["tui.editor.pageUp"] = "pageUp", ["tui.editor.pageDown"] = "pageDown",
+  ["tui.input.submit"] = "enter", ["tui.input.newLine"] = "shift+enter",
+  ["tui.editor.deleteWordBackward"] = { "ctrl+w", "alt+backspace" },
+  ["tui.editor.deleteWordForward"] = { "alt+d", "alt+delete" },
+  ["tui.editor.deleteToLineStart"] = "ctrl+u", ["tui.editor.deleteToLineEnd"] = "ctrl+k",
+  ["tui.editor.yank"] = "ctrl+y", ["tui.editor.yankPop"] = "alt+y",
+  ["tui.editor.undo"] = "ctrl+-", ["tui.input.tab"] = "tab",
+}
+
+function display_key(action)
+  local value = DEFAULT_KEYS[action] or HOTKEY_KEYS[action] or ""
+  if type(value) == "table" then value = table.concat(value, "/") end
+  return format_key(value, true)
+end
+
+function handle_hotkeys_command(state)
+  local k = display_key
+  local hotkeys = ([=[
+**Navigation**
+| Key | Action |
+|-----|--------|
+| `%s` / `%s` / `%s` / `%s` | Move cursor / browse history |
+| `%s` / `%s` | Move by word |
+| `%s` | Start of line |
+| `%s` | End of line |
+| `%s` | Jump forward to character |
+| `%s` | Jump backward to character |
+| `%s` / `%s` | Scroll by page |
+
+**Editing**
+| Key | Action |
+|-----|--------|
+| `%s` | Send message |
+| `%s` | New line |
+| `%s` | Delete word backwards |
+| `%s` | Delete word forwards |
+| `%s` | Delete to start of line |
+| `%s` | Delete to end of line |
+| `%s` | Paste the most-recently-deleted text |
+| `%s` | Cycle through the deleted text after pasting |
+| `%s` | Undo |
+
+**Other**
+| Key | Action |
+|-----|--------|
+| `%s` | Path completion / accept autocomplete |
+| `%s` | Cancel autocomplete / abort streaming |
+| `%s` | Clear editor (first) / exit (second) |
+| `%s` | Exit (when editor is empty) |
+| `%s` | Suspend to background |
+| `%s` | Cycle thinking level |
+| `%s` / `%s` | Cycle models |
+| `%s` | Open model selector |
+| `%s` | Toggle tool output expansion |
+| `%s` | Toggle thinking block visibility |
+| `%s` | Edit message in external editor |
+| `%s` | Queue follow-up message |
+| `%s` | Restore queued messages |
+| `%s` | Paste image from clipboard |
+| `/` | Slash commands |
+| `!` | Run bash command |
+| `!!` | Run bash command (excluded from context) |
+ ]=]):format(
+    k("tui.editor.cursorUp"), k("tui.editor.cursorDown"), k("tui.editor.cursorLeft"), k("tui.editor.cursorRight"),
+    k("tui.editor.cursorWordLeft"), k("tui.editor.cursorWordRight"),
+    k("tui.editor.cursorLineStart"), k("tui.editor.cursorLineEnd"),
+    k("tui.editor.jumpForward"), k("tui.editor.jumpBackward"),
+    k("tui.editor.pageUp"), k("tui.editor.pageDown"),
+    k("tui.input.submit"), k("tui.input.newLine"), k("tui.editor.deleteWordBackward"),
+    k("tui.editor.deleteWordForward"), k("tui.editor.deleteToLineStart"),
+    k("tui.editor.deleteToLineEnd"), k("tui.editor.yank"), k("tui.editor.yankPop"),
+    k("tui.editor.undo"), k("tui.input.tab"), k("app.interrupt"), k("app.clear"),
+    k("app.exit"), k("app.suspend"), k("app.thinking.cycle"),
+    k("app.model.cycleForward"), k("app.model.cycleBackward"), k("app.model.select"),
+    k("app.tools.expand"), k("app.thinking.toggle"), k("app.editor.external"),
+    k("app.message.followUp"), k("app.message.dequeue"), k("app.clipboard.pasteImage"))
+  local shortcuts = pi.registered_shortcuts()
+  if #shortcuts > 0 then
+    hotkeys = hotkeys .. "\n\n**Extensions**\n| Key | Action |\n|-----|--------|\n"
+    for _, shortcut in ipairs(shortcuts) do
+      hotkeys = hotkeys .. "| `" .. format_key(shortcut.shortcut, true) .. "` | "
+        .. (shortcut.description or shortcut.source or "") .. " |\n"
+    end
+  end
+  state.transcript[#state.transcript + 1] = {
+    kind = "info_block", title = "Keyboard Shortcuts", markdown = trim(hotkeys),
+  }
+end
+
+function iso_timestamp(ms)
+  ms = ms or pi.now_ms()
+  return os.date("!%Y-%m-%dT%H:%M:%S", math.floor(ms / 1000))
+    .. string.format(".%03dZ", math.floor(ms % 1000))
+end
+
+function handle_debug_command(state)
+  local width, height = state.columns or 80, state.rows or 24
+  local all_lines = frontend_frame(state, width)
+  local debug_path = pi.path.join(state.request.agentDir or pi.path.join(state.home or "", ".pi/agent"),
+    state.app_name .. "-debug.log")
+  local out = {
+    "Debug output at " .. iso_timestamp(state.request.nowMs),
+    "Terminal: " .. width .. "x" .. height,
+    "Total lines: " .. #all_lines, "",
+    "=== All rendered lines with visible widths ===",
+  }
+  for index, line in ipairs(all_lines) do
+    out[#out + 1] = "[" .. (index - 1) .. "] (w=" .. pi.tui.visible_width(line) .. ") "
+      .. pi.json.encode(line)
+  end
+  out[#out + 1] = ""
+  out[#out + 1] = "=== Agent messages (JSONL) ==="
+  for _, message in ipairs(state.agent:get_state().messages or {}) do
+    out[#out + 1] = pi.json.encode(message)
+  end
+  out[#out + 1] = ""
+  pi.fs.mkdir(pi.path.dirname(debug_path))
+  pi.fs.write_file(debug_path, table.concat(out, "\n"))
+  state.transcript[#state.transcript + 1] = {
+    kind = "text", padding_y = 1,
+    text = state.theme:fg("accent", "✓ Debug log written") .. "\n"
+      .. state.theme:fg("muted", debug_path),
+  }
+end
+
 
 
 -- interactive-mode.ts handleResumeSession.
@@ -9144,6 +9395,7 @@ pi.register_command("interactive-session-parity-sequence", {
     update_available_provider_count(state)
     local columns, rows = request.columns, request.rows
     state.columns = columns
+    state.rows = rows
     state.editor.editor:set_terminal_rows(rows)
     local terminal = pi.tui.session(columns, rows, true)
     local frames = {}
@@ -9158,6 +9410,7 @@ pi.register_command("interactive-session-parity-sequence", {
       if step.resize then
         columns, rows = step.resize.columns, step.resize.rows
         state.columns = columns
+        state.rows = rows
         state.editor.editor:set_terminal_rows(rows)
         terminal:resize(columns, rows)
       end
