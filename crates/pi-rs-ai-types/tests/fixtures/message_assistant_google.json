@@ -1,0 +1,25 @@
+{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "toolCall",
+      "id": "tc_1",
+      "name": "bash",
+      "arguments": { "command": "ls -la", "timeout": 30 },
+      "thoughtSignature": "CtQECsEDAXLI2nzr"
+    }
+  ],
+  "api": "google-generative-ai",
+  "provider": "google",
+  "model": "gemini-3-pro-preview",
+  "usage": {
+    "input": 100,
+    "output": 20,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 120,
+    "cost": { "input": 0.0002, "output": 0.0002, "cacheRead": 0, "cacheWrite": 0, "total": 0.0004 }
+  },
+  "stopReason": "toolUse",
+  "timestamp": 1700000000000
+}

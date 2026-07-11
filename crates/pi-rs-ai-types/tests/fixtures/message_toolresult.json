@@ -1,0 +1,1 @@
+{"role":"toolResult","toolCallId":"call_609e55fc1d9b4398b3f50624","toolName":"bash","content":[{"type":"text","text":"flake.lock\nflake.nix\nhosts\nLICENSE\nmodules\nrecursivelyImport.nix\nresult\nstrictix.toml\ntmp\n"}],"isError":false,"timestamp":1783461317780}

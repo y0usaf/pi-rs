@@ -1,0 +1,1650 @@
+{
+	"cases": [
+		{
+			"name": "prepare-cut-at-user",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e3",
+				"isSplitTurn": false,
+				"tokensBefore": 170,
+				"messagesToSummarize": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Please refactor the parser module for me now"
+							}
+						],
+						"timestamp": 1000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Sure, I will start by reading the parser files."
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 100,
+							"output": 12,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 112,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					}
+				],
+				"turnPrefixMessages": [],
+				"fileOps": {
+					"read": [],
+					"written": [],
+					"edited": []
+				}
+			}
+		},
+		{
+			"name": "prepare-split-turn",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e6",
+				"isSplitTurn": true,
+				"tokensBefore": 125,
+				"messagesToSummarize": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Set up the project scaffolding for me please"
+							}
+						],
+						"timestamp": 1000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Scaffolding created with the standard layout."
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 80,
+							"output": 10,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 90,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					}
+				],
+				"turnPrefixMessages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Now refactor the parser and fix every failing test"
+							}
+						],
+						"timestamp": 3000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Reading the parser first."
+							},
+							{
+								"type": "toolCall",
+								"id": "tc1",
+								"name": "read",
+								"arguments": {
+									"path": "/src/parser.ts"
+								}
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 90,
+							"output": 12,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 102,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 4000
+					},
+					{
+						"role": "toolResult",
+						"toolCallId": "tc1",
+						"toolName": "read",
+						"content": [
+							{
+								"type": "text",
+								"text": "export function parse() { return 1; }"
+							}
+						],
+						"isError": false,
+						"timestamp": 5000
+					}
+				],
+				"fileOps": {
+					"read": [
+						"/src/parser.ts"
+					],
+					"written": [],
+					"edited": []
+				}
+			}
+		},
+		{
+			"name": "prepare-toolresult-not-cut",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e6",
+				"isSplitTurn": true,
+				"tokensBefore": 101,
+				"messagesToSummarize": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Investigate the failing integration suite"
+							}
+						],
+						"timestamp": 1000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Looking at the notes file for prior findings."
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 70,
+							"output": 9,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 79,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					}
+				],
+				"turnPrefixMessages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Read the notes and summarize what broke"
+							}
+						],
+						"timestamp": 3000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Reading."
+							},
+							{
+								"type": "toolCall",
+								"id": "tc1",
+								"name": "read",
+								"arguments": {
+									"path": "/notes.md"
+								}
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 75,
+							"output": 8,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 83,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 4000
+					},
+					{
+						"role": "toolResult",
+						"toolCallId": "tc1",
+						"toolName": "read",
+						"content": [
+							{
+								"type": "text",
+								"text": "The nightly run started failing after the cache layer landed last week."
+							}
+						],
+						"isError": false,
+						"timestamp": 5000
+					}
+				],
+				"fileOps": {
+					"read": [
+						"/notes.md"
+					],
+					"written": [],
+					"edited": []
+				}
+			}
+		},
+		{
+			"name": "prepare-nonmessage-backscan",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e3",
+				"isSplitTurn": true,
+				"tokensBefore": 94,
+				"messagesToSummarize": [],
+				"turnPrefixMessages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Start by wiring the configuration loader"
+							}
+						],
+						"timestamp": 1000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Configuration loader wired and covered by tests."
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 60,
+							"output": 11,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 71,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					}
+				],
+				"fileOps": {
+					"read": [],
+					"written": [],
+					"edited": []
+				}
+			}
+		},
+		{
+			"name": "prepare-prev-compaction",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e7",
+				"isSplitTurn": false,
+				"tokensBefore": 134,
+				"previousSummary": "OLD SUMMARY",
+				"messagesToSummarize": [
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Starting with the schema changes."
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 50,
+							"output": 8,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 58,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					},
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Keep going with the data backfill step"
+							}
+						],
+						"timestamp": 4000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Backfilling now."
+							},
+							{
+								"type": "toolCall",
+								"id": "tc1",
+								"name": "read",
+								"arguments": {
+									"path": "/new.txt"
+								}
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 65,
+							"output": 7,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 72,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 5000
+					},
+					{
+						"role": "toolResult",
+						"toolCallId": "tc1",
+						"toolName": "read",
+						"content": [
+							{
+								"type": "text",
+								"text": "backfill checkpoint reached"
+							}
+						],
+						"isError": false,
+						"timestamp": 6000
+					}
+				],
+				"turnPrefixMessages": [],
+				"fileOps": {
+					"read": [
+						"/new.txt",
+						"/old-read.txt"
+					],
+					"written": [],
+					"edited": [
+						"/old-mod.txt"
+					]
+				}
+			}
+		},
+		{
+			"name": "prepare-prev-compaction-from-hook",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e6",
+				"isSplitTurn": false,
+				"tokensBefore": 134,
+				"previousSummary": "HOOK SUMMARY",
+				"messagesToSummarize": [
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Starting with the schema changes."
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 50,
+							"output": 8,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 58,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					},
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Keep going with the data backfill step"
+							}
+						],
+						"timestamp": 4000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Backfilling now."
+							},
+							{
+								"type": "toolCall",
+								"id": "tc1",
+								"name": "read",
+								"arguments": {
+									"path": "/new.txt"
+								}
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 65,
+							"output": 7,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 72,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 5000
+					}
+				],
+				"turnPrefixMessages": [],
+				"fileOps": {
+					"read": [
+						"/new.txt"
+					],
+					"written": [],
+					"edited": []
+				}
+			}
+		},
+		{
+			"name": "prepare-already-compacted",
+			"prepared": false
+		},
+		{
+			"name": "prepare-budget-not-reached",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e1",
+				"isSplitTurn": false,
+				"tokensBefore": 31,
+				"messagesToSummarize": [],
+				"turnPrefixMessages": [],
+				"fileOps": {
+					"read": [],
+					"written": [],
+					"edited": []
+				}
+			}
+		},
+		{
+			"name": "prepare-branch-summary-turn-start",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e3",
+				"isSplitTurn": true,
+				"tokensBefore": 63,
+				"messagesToSummarize": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Explore the alternative parser design"
+							}
+						],
+						"timestamp": 1000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Explored. It trades speed for clarity."
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 40,
+							"output": 9,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 49,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					}
+				],
+				"turnPrefixMessages": [],
+				"fileOps": {
+					"read": [],
+					"written": [],
+					"edited": []
+				}
+			}
+		},
+		{
+			"name": "prepare-custom-message-cut",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e4",
+				"isSplitTurn": true,
+				"tokensBefore": 64,
+				"messagesToSummarize": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Check the deployment credentials for staging"
+							}
+						],
+						"timestamp": 1000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Checking."
+							},
+							{
+								"type": "toolCall",
+								"id": "tc1",
+								"name": "read",
+								"arguments": {
+									"path": "/deploy/env"
+								}
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 45,
+							"output": 6,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 51,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					},
+					{
+						"role": "toolResult",
+						"toolCallId": "tc1",
+						"toolName": "read",
+						"content": [
+							{
+								"type": "text",
+								"text": "STAGING_TOKEN=redacted and the rest of the environment file contents"
+							}
+						],
+						"isError": false,
+						"timestamp": 3000
+					}
+				],
+				"turnPrefixMessages": [],
+				"fileOps": {
+					"read": [
+						"/deploy/env"
+					],
+					"written": [],
+					"edited": []
+				}
+			}
+		},
+		{
+			"name": "compact-basic",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e5",
+				"isSplitTurn": false,
+				"tokensBefore": 170,
+				"messagesToSummarize": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Please refactor the parser module for me now"
+							}
+						],
+						"timestamp": 1000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Sure, I will start by reading the parser files."
+							},
+							{
+								"type": "toolCall",
+								"id": "tc1",
+								"name": "read",
+								"arguments": {
+									"path": "/src/parser.ts"
+								}
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 100,
+							"output": 12,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 112,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					},
+					{
+						"role": "toolResult",
+						"toolCallId": "tc1",
+						"toolName": "read",
+						"content": [
+							{
+								"type": "text",
+								"text": "export function parse() { return 1; }"
+							}
+						],
+						"isError": false,
+						"timestamp": 3000
+					},
+					{
+						"role": "bashExecution",
+						"command": "npm test",
+						"output": "all 12 suites passed",
+						"excluded": false,
+						"timestamp": 4000
+					}
+				],
+				"turnPrefixMessages": [],
+				"fileOps": {
+					"read": [
+						"/src/parser.ts"
+					],
+					"written": [],
+					"edited": []
+				}
+			},
+			"result": {
+				"summary": "## Goal\nRefactor the parser and loader.\n\n## Progress\n- [x] Parser reviewed\n\n<read-files>\n/src/parser.ts\n</read-files>",
+				"firstKeptEntryId": "e5",
+				"tokensBefore": 170,
+				"details": {
+					"readFiles": [
+						"/src/parser.ts"
+					],
+					"modifiedFiles": []
+				}
+			},
+			"requests": [
+				{
+					"systemPrompt": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+					"messages": [
+						{
+							"role": "user",
+							"content": [
+								{
+									"type": "text",
+									"text": "<conversation>\n[User]: Please refactor the parser module for me now\n\n[Assistant]: Sure, I will start by reading the parser files.\n\n[Assistant tool calls]: read(path=\"/src/parser.ts\")\n\n[Tool result]: export function parse() { return 1; }\n\n[User]: Ran `npm test`\n```\nall 12 suites passed\n```\n</conversation>\n\nThe messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned by user]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or \"(none)\" if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+								}
+							],
+							"timestamp": 1750000000000
+						}
+					],
+					"maxTokens": 8192,
+					"apiKey": "oracle-key"
+				}
+			]
+		},
+		{
+			"name": "compact-update-with-previous",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e7",
+				"isSplitTurn": false,
+				"tokensBefore": 134,
+				"previousSummary": "OLD SUMMARY",
+				"messagesToSummarize": [
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Starting with the schema changes."
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 50,
+							"output": 8,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 58,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					},
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Keep going with the data backfill step"
+							}
+						],
+						"timestamp": 4000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Backfilling now."
+							},
+							{
+								"type": "toolCall",
+								"id": "tc1",
+								"name": "read",
+								"arguments": {
+									"path": "/new.txt"
+								}
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 65,
+							"output": 7,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 72,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 5000
+					},
+					{
+						"role": "toolResult",
+						"toolCallId": "tc1",
+						"toolName": "read",
+						"content": [
+							{
+								"type": "text",
+								"text": "backfill checkpoint reached"
+							}
+						],
+						"isError": false,
+						"timestamp": 6000
+					}
+				],
+				"turnPrefixMessages": [],
+				"fileOps": {
+					"read": [
+						"/new.txt",
+						"/old-read.txt"
+					],
+					"written": [],
+					"edited": [
+						"/old-mod.txt"
+					]
+				}
+			},
+			"result": {
+				"summary": "## Goal\nMigration continues.\n\n## Progress\n- [x] Backfill\n\n<read-files>\n/new.txt\n/old-read.txt\n</read-files>\n\n<modified-files>\n/old-mod.txt\n</modified-files>",
+				"firstKeptEntryId": "e7",
+				"tokensBefore": 134,
+				"details": {
+					"readFiles": [
+						"/new.txt",
+						"/old-read.txt"
+					],
+					"modifiedFiles": [
+						"/old-mod.txt"
+					]
+				}
+			},
+			"requests": [
+				{
+					"systemPrompt": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+					"messages": [
+						{
+							"role": "user",
+							"content": [
+								{
+									"type": "text",
+									"text": "<conversation>\n[Assistant]: Starting with the schema changes.\n\n[User]: Keep going with the data backfill step\n\n[Assistant]: Backfilling now.\n\n[Assistant tool calls]: read(path=\"/new.txt\")\n\n[Tool result]: backfill checkpoint reached\n</conversation>\n\n<previous-summary>\nOLD SUMMARY\n</previous-summary>\n\nThe messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.\n\nUpdate the existing structured summary with new information. RULES:\n- PRESERVE all existing information from the previous summary\n- ADD new progress, decisions, and context from the new messages\n- UPDATE the Progress section: move items from \"In Progress\" to \"Done\" when completed\n- UPDATE \"Next Steps\" based on what was accomplished\n- PRESERVE exact file paths, function names, and error messages\n- If something is no longer relevant, you may remove it\n\nUse this EXACT format:\n\n## Goal\n[Preserve existing goals, add new ones if the task expanded]\n\n## Constraints & Preferences\n- [Preserve existing, add new ones discovered]\n\n## Progress\n### Done\n- [x] [Include previously done items AND newly completed items]\n\n### In Progress\n- [ ] [Current work - update based on progress]\n\n### Blocked\n- [Current blockers - remove if resolved]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale] (preserve all previous, add new)\n\n## Next Steps\n1. [Update based on current state]\n\n## Critical Context\n- [Preserve important context, add new if needed]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+								}
+							],
+							"timestamp": 1750000000000
+						}
+					],
+					"maxTokens": 8192,
+					"apiKey": "oracle-key"
+				}
+			]
+		},
+		{
+			"name": "compact-custom-instructions",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e3",
+				"isSplitTurn": false,
+				"tokensBefore": 170,
+				"messagesToSummarize": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Please refactor the parser module for me now"
+							}
+						],
+						"timestamp": 1000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Sure, I will start by reading the parser files."
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 100,
+							"output": 12,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 112,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					}
+				],
+				"turnPrefixMessages": [],
+				"fileOps": {
+					"read": [],
+					"written": [],
+					"edited": []
+				}
+			},
+			"result": {
+				"summary": "## Goal\nLoader focus summary.",
+				"firstKeptEntryId": "e3",
+				"tokensBefore": 170,
+				"details": {
+					"readFiles": [],
+					"modifiedFiles": []
+				}
+			},
+			"requests": [
+				{
+					"systemPrompt": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+					"messages": [
+						{
+							"role": "user",
+							"content": [
+								{
+									"type": "text",
+									"text": "<conversation>\n[User]: Please refactor the parser module for me now\n\n[Assistant]: Sure, I will start by reading the parser files.\n</conversation>\n\nThe messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned by user]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or \"(none)\" if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages.\n\nAdditional focus: Focus on the loader changes"
+								}
+							],
+							"timestamp": 1750000000000
+						}
+					],
+					"maxTokens": 8192,
+					"apiKey": "oracle-key"
+				}
+			]
+		},
+		{
+			"name": "compact-split-turn",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e6",
+				"isSplitTurn": true,
+				"tokensBefore": 125,
+				"messagesToSummarize": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Set up the project scaffolding for me please"
+							}
+						],
+						"timestamp": 1000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Scaffolding created with the standard layout."
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 80,
+							"output": 10,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 90,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					}
+				],
+				"turnPrefixMessages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Now refactor the parser and fix every failing test"
+							}
+						],
+						"timestamp": 3000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Reading the parser first."
+							},
+							{
+								"type": "toolCall",
+								"id": "tc1",
+								"name": "read",
+								"arguments": {
+									"path": "/src/parser.ts"
+								}
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 90,
+							"output": 12,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 102,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 4000
+					},
+					{
+						"role": "toolResult",
+						"toolCallId": "tc1",
+						"toolName": "read",
+						"content": [
+							{
+								"type": "text",
+								"text": "export function parse() { return 1; }"
+							}
+						],
+						"isError": false,
+						"timestamp": 5000
+					}
+				],
+				"fileOps": {
+					"read": [
+						"/src/parser.ts"
+					],
+					"written": [],
+					"edited": []
+				}
+			},
+			"result": {
+				"summary": "HISTORY SUMMARY BODY\n\n---\n\n**Turn Context (split turn):**\n\nTURN PREFIX SUMMARY BODY\n\n<read-files>\n/src/parser.ts\n</read-files>",
+				"firstKeptEntryId": "e6",
+				"tokensBefore": 125,
+				"details": {
+					"readFiles": [
+						"/src/parser.ts"
+					],
+					"modifiedFiles": []
+				}
+			},
+			"requests": [
+				{
+					"systemPrompt": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+					"messages": [
+						{
+							"role": "user",
+							"content": [
+								{
+									"type": "text",
+									"text": "<conversation>\n[User]: Set up the project scaffolding for me please\n\n[Assistant]: Scaffolding created with the standard layout.\n</conversation>\n\nThe messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned by user]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or \"(none)\" if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+								}
+							],
+							"timestamp": 1750000000000
+						}
+					],
+					"maxTokens": 8000,
+					"apiKey": "oracle-key"
+				},
+				{
+					"systemPrompt": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+					"messages": [
+						{
+							"role": "user",
+							"content": [
+								{
+									"type": "text",
+									"text": "<conversation>\n[User]: Now refactor the parser and fix every failing test\n\n[Assistant]: Reading the parser first.\n\n[Assistant tool calls]: read(path=\"/src/parser.ts\")\n\n[Tool result]: export function parse() { return 1; }\n</conversation>\n\nThis is the PREFIX of a turn that was too large to keep. The SUFFIX (recent work) is retained.\n\nSummarize the prefix to provide context for the retained suffix:\n\n## Original Request\n[What did the user ask for in this turn?]\n\n## Early Progress\n- [Key decisions and work done in the prefix]\n\n## Context for Suffix\n- [Information needed to understand the retained recent work]\n\nBe concise. Focus on what's needed to understand the kept suffix."
+								}
+							],
+							"timestamp": 1750000000000
+						}
+					],
+					"maxTokens": 5000,
+					"apiKey": "oracle-key"
+				}
+			]
+		},
+		{
+			"name": "compact-split-empty-history",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e4",
+				"isSplitTurn": true,
+				"tokensBefore": 55,
+				"messagesToSummarize": [],
+				"turnPrefixMessages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "One very large single turn starts here with a long request body"
+							}
+						],
+						"timestamp": 1000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Working through it."
+							},
+							{
+								"type": "toolCall",
+								"id": "tc1",
+								"name": "write",
+								"arguments": {
+									"path": "/out/result.txt"
+								}
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 30,
+							"output": 8,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 38,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					},
+					{
+						"role": "toolResult",
+						"toolCallId": "tc1",
+						"toolName": "write",
+						"content": [
+							{
+								"type": "text",
+								"text": "wrote 120 bytes"
+							}
+						],
+						"isError": false,
+						"timestamp": 3000
+					}
+				],
+				"fileOps": {
+					"read": [],
+					"written": [
+						"/out/result.txt"
+					],
+					"edited": []
+				}
+			},
+			"result": {
+				"summary": "No prior history.\n\n---\n\n**Turn Context (split turn):**\n\nPREFIX ONLY SUMMARY\n\n<modified-files>\n/out/result.txt\n</modified-files>",
+				"firstKeptEntryId": "e4",
+				"tokensBefore": 55,
+				"details": {
+					"readFiles": [],
+					"modifiedFiles": [
+						"/out/result.txt"
+					]
+				}
+			},
+			"requests": [
+				{
+					"systemPrompt": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+					"messages": [
+						{
+							"role": "user",
+							"content": [
+								{
+									"type": "text",
+									"text": "<conversation>\n[User]: One very large single turn starts here with a long request body\n\n[Assistant]: Working through it.\n\n[Assistant tool calls]: write(path=\"/out/result.txt\")\n\n[Tool result]: wrote 120 bytes\n</conversation>\n\nThis is the PREFIX of a turn that was too large to keep. The SUFFIX (recent work) is retained.\n\nSummarize the prefix to provide context for the retained suffix:\n\n## Original Request\n[What did the user ask for in this turn?]\n\n## Early Progress\n- [Key decisions and work done in the prefix]\n\n## Context for Suffix\n- [Information needed to understand the retained recent work]\n\nBe concise. Focus on what's needed to understand the kept suffix."
+								}
+							],
+							"timestamp": 1750000000000
+						}
+					],
+					"maxTokens": 8192,
+					"apiKey": "oracle-key"
+				}
+			]
+		},
+		{
+			"name": "compact-error",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e3",
+				"isSplitTurn": false,
+				"tokensBefore": 170,
+				"messagesToSummarize": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Please refactor the parser module for me now"
+							}
+						],
+						"timestamp": 1000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Sure, I will start by reading the parser files."
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle",
+						"usage": {
+							"input": 100,
+							"output": 12,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 112,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					}
+				],
+				"turnPrefixMessages": [],
+				"fileOps": {
+					"read": [],
+					"written": [],
+					"edited": []
+				}
+			},
+			"error": "Summarization failed: boom",
+			"requests": [
+				{
+					"systemPrompt": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+					"messages": [
+						{
+							"role": "user",
+							"content": [
+								{
+									"type": "text",
+									"text": "<conversation>\n[User]: Please refactor the parser module for me now\n\n[Assistant]: Sure, I will start by reading the parser files.\n</conversation>\n\nThe messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned by user]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or \"(none)\" if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+								}
+							],
+							"timestamp": 1750000000000
+						}
+					],
+					"maxTokens": 8192,
+					"apiKey": "oracle-key"
+				}
+			]
+		},
+		{
+			"name": "compact-reasoning-level",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e3",
+				"isSplitTurn": false,
+				"tokensBefore": 170,
+				"messagesToSummarize": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Please refactor the parser module for me now"
+							}
+						],
+						"timestamp": 1000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Sure, I will start by reading the parser files."
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "claude-oracle-thinking",
+						"usage": {
+							"input": 100,
+							"output": 12,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 112,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					}
+				],
+				"turnPrefixMessages": [],
+				"fileOps": {
+					"read": [],
+					"written": [],
+					"edited": []
+				}
+			},
+			"result": {
+				"summary": "REASONED SUMMARY",
+				"firstKeptEntryId": "e3",
+				"tokensBefore": 170,
+				"details": {
+					"readFiles": [],
+					"modifiedFiles": []
+				}
+			},
+			"requests": [
+				{
+					"systemPrompt": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+					"messages": [
+						{
+							"role": "user",
+							"content": [
+								{
+									"type": "text",
+									"text": "<conversation>\n[User]: Please refactor the parser module for me now\n\n[Assistant]: Sure, I will start by reading the parser files.\n</conversation>\n\nThe messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned by user]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or \"(none)\" if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+								}
+							],
+							"timestamp": 1750000000000
+						}
+					],
+					"maxTokens": 8192,
+					"reasoning": "high",
+					"apiKey": "oracle-key"
+				}
+			]
+		},
+		{
+			"name": "compact-model-max-tokens-clamp",
+			"prepared": true,
+			"preparation": {
+				"firstKeptEntryId": "e3",
+				"isSplitTurn": false,
+				"tokensBefore": 170,
+				"messagesToSummarize": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "text",
+								"text": "Please refactor the parser module for me now"
+							}
+						],
+						"timestamp": 1000
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "Sure, I will start by reading the parser files."
+							}
+						],
+						"api": "anthropic-messages",
+						"provider": "anthropic",
+						"model": "tiny-output",
+						"usage": {
+							"input": 100,
+							"output": 12,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 112,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 2000
+					}
+				],
+				"turnPrefixMessages": [],
+				"fileOps": {
+					"read": [],
+					"written": [],
+					"edited": []
+				}
+			},
+			"result": {
+				"summary": "CLAMPED SUMMARY",
+				"firstKeptEntryId": "e3",
+				"tokensBefore": 170,
+				"details": {
+					"readFiles": [],
+					"modifiedFiles": []
+				}
+			},
+			"requests": [
+				{
+					"systemPrompt": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+					"messages": [
+						{
+							"role": "user",
+							"content": [
+								{
+									"type": "text",
+									"text": "<conversation>\n[User]: Please refactor the parser module for me now\n\n[Assistant]: Sure, I will start by reading the parser files.\n</conversation>\n\nThe messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned by user]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or \"(none)\" if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+								}
+							],
+							"timestamp": 1750000000000
+						}
+					],
+					"maxTokens": 100,
+					"apiKey": "oracle-key"
+				}
+			]
+		},
+		{
+			"name": "tokens-estimate-no-usage",
+			"estimate": {
+				"tokens": 1220,
+				"usageTokens": 0,
+				"trailingTokens": 1220
+			}
+		},
+		{
+			"name": "tokens-estimate-trailing",
+			"estimate": {
+				"tokens": 1264,
+				"usageTokens": 1250,
+				"trailingTokens": 14,
+				"lastUsageIndex": 1
+			}
+		},
+		{
+			"name": "tokens-estimate-skips-aborted",
+			"estimate": {
+				"tokens": 847,
+				"usageTokens": 840,
+				"trailingTokens": 7,
+				"lastUsageIndex": 1
+			}
+		},
+		{
+			"name": "tokens-calculate-fallback",
+			"contextTokens": 20
+		},
+		{
+			"name": "should-under-threshold",
+			"shouldCompact": false
+		},
+		{
+			"name": "should-over-threshold",
+			"shouldCompact": true
+		},
+		{
+			"name": "should-disabled",
+			"shouldCompact": false
+		},
+		{
+			"name": "overflow-anthropic-prompt-too-long",
+			"overflow": true
+		},
+		{
+			"name": "overflow-request-too-large",
+			"overflow": true
+		},
+		{
+			"name": "overflow-litellm-max-context",
+			"overflow": true
+		},
+		{
+			"name": "overflow-cerebras-no-body",
+			"overflow": true
+		},
+		{
+			"name": "overflow-xai-prompt-length",
+			"overflow": true
+		},
+		{
+			"name": "overflow-throttling-excluded",
+			"overflow": false
+		},
+		{
+			"name": "overflow-rate-limit-excluded",
+			"overflow": false
+		},
+		{
+			"name": "overflow-unrelated-error",
+			"overflow": false
+		},
+		{
+			"name": "overflow-silent-stop",
+			"overflow": true
+		},
+		{
+			"name": "overflow-stop-under-window",
+			"overflow": false
+		},
+		{
+			"name": "overflow-length-stop-zero-output",
+			"overflow": true
+		},
+		{
+			"name": "overflow-length-stop-with-output",
+			"overflow": false
+		}
+	]
+}

@@ -1,0 +1,21 @@
+[package]
+name = "pi-rs-tui"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+base64.workspace = true
+crossterm.workspace = true
+libc.workspace = true
+futures-util.workspace = true
+getrandom.workspace = true
+thiserror.workspace = true
+signal-hook.workspace = true
+serde.workspace = true
+tokio.workspace = true
+unicode-segmentation = "1.12"
+vt100.workspace = true

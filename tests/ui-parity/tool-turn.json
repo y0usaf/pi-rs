@@ -1,0 +1,129 @@
+{
+  "command": "interactive-tool-parity-sequence",
+  "columns": 72,
+  "rows": 44,
+  "theme": "dark",
+  "colorMode": "truecolor",
+  "files": {
+    "config.txt": "[server]\nhost = localhost\nport = 8080\nretries = 3\ntimeout = 30\n",
+    "notes.txt": "alpha\nbravo\ncharlie\ndelta\necho\nfoxtrot\n"
+  },
+  "sections": [
+    {
+      "name": "read-grep",
+      "clocks": { "pending": 1000, "results": 1500 },
+      "tools": [
+        {
+          "id": "call-read-1",
+          "name": "read",
+          "args": { "path": "notes.txt", "offset": 1, "limit": 6 },
+          "result": {
+            "content": [
+              { "type": "text", "text": "alpha\nbravo\ncharlie\ndelta\necho\nfoxtrot" }
+            ],
+            "isError": false
+          }
+        },
+        {
+          "id": "call-grep-1",
+          "name": "grep",
+          "args": { "pattern": "port", "path": ".", "glob": "*.txt" },
+          "result": {
+            "content": [
+              { "type": "text", "text": "config.txt:3: port = 8080\nserver/main.rs:12: let port = config.port;\nserver/main.rs:48: bind(host, port)\nserver/net.rs:7: pub port: u16,\nserver/net.rs:21: port: DEFAULT_PORT,\ndocs/setup.md:4: Set the port in config.txt\ndocs/setup.md:9: The default port is 8080\ntests/net_test.rs:3: fn test_port_parse()\ntests/net_test.rs:11: assert_eq!(port, 8080)\ntests/net_test.rs:19: let port = free_port();\nscripts/dev.sh:2: PORT=8080\nscripts/dev.sh:5: echo \"port $PORT\"\nMakefile:7: PORT ?= 8080\nMakefile:12: run: ; ./server --port $(PORT)\nREADME.md:22: configure the port\nREADME.md:31: port forwarding notes\nlib/env.ts:5: export const PORT = 8080\nlib/env.ts:14: validatePort(PORT)" }
+            ],
+            "isError": false
+          }
+        },
+        {
+          "id": "call-grep-2",
+          "name": "grep",
+          "args": { "pattern": "alpha", "path": "missing" },
+          "result": {
+            "content": [{ "type": "text", "text": "Path not found: missing" }],
+            "isError": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "bash",
+      "clocks": { "pending": 1000, "partial": 1300, "results": 2500 },
+      "tools": [
+        {
+          "id": "call-bash-1",
+          "name": "bash",
+          "args": { "command": "seq 1 8", "timeout": 10 },
+          "partialResult": {
+            "content": [{ "type": "text", "text": "1\n2\n3" }]
+          },
+          "result": {
+            "content": [{ "type": "text", "text": "1\n2\n3\n4\n5\n6\n7\n8" }],
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "edit",
+      "clocks": { "pending": 1000, "results": 1500 },
+      "tools": [
+        {
+          "id": "call-edit-1",
+          "name": "edit",
+          "args": {
+            "path": "config.txt",
+            "edits": [{ "oldText": "port = 8080", "newText": "port = 9090" }]
+          },
+          "result": {
+            "content": [
+              { "type": "text", "text": "Successfully replaced 1 block(s) in config.txt." }
+            ],
+            "details": {
+              "diff": " 1 [server]\n 2 host = localhost\n-3 port = 8080\n+3 port = 9090\n 4 retries = 3\n 5 timeout = 30",
+              "firstChangedLine": 3
+            },
+            "isError": false
+          }
+        },
+        {
+          "id": "call-edit-2",
+          "name": "edit",
+          "args": {
+            "path": "config.txt",
+            "edits": [{ "oldText": "port = 9999", "newText": "port = 1234" }]
+          },
+          "result": {
+            "content": [
+              { "type": "text", "text": "Could not find the exact text in config.txt. The old text must match exactly including all whitespace and newlines." }
+            ],
+            "isError": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "generic",
+      "clocks": { "pending": 1000, "results": 1500 },
+      "tools": [
+        {
+          "id": "call-fetch-1",
+          "name": "fetch_page",
+          "args": {
+            "url": "https://example.com/api/items",
+            "method": "POST",
+            "10": "ten",
+            "2": "two",
+            "retries": 1.0,
+            "headers": { "x-request-id": "abc-123", "accept": "application/json" },
+            "verbose": true
+          },
+          "result": {
+            "content": [{ "type": "text", "text": "fetched 1204 bytes in 2 requests" }],
+            "isError": false
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,237 @@
+[
+  {
+    "type": "start",
+    "partial": {
+      "role": "assistant",
+      "content": [],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-opus-4-7",
+      "usage": {
+        "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+      },
+      "stopReason": "stop",
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "thinking_start",
+    "contentIndex": 0,
+    "partial": {
+      "role": "assistant",
+      "content": [{ "type": "thinking", "thinking": "" }],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-opus-4-7",
+      "usage": {
+        "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+      },
+      "stopReason": "stop",
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "thinking_delta",
+    "contentIndex": 0,
+    "delta": "Consider",
+    "partial": {
+      "role": "assistant",
+      "content": [{ "type": "thinking", "thinking": "Consider" }],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-opus-4-7",
+      "usage": {
+        "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+      },
+      "stopReason": "stop",
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "thinking_end",
+    "contentIndex": 0,
+    "content": "Consider the request.",
+    "partial": {
+      "role": "assistant",
+      "content": [{ "type": "thinking", "thinking": "Consider the request.", "thinkingSignature": "sig_1" }],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-opus-4-7",
+      "usage": {
+        "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+      },
+      "stopReason": "stop",
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "text_start",
+    "contentIndex": 1,
+    "partial": {
+      "role": "assistant",
+      "content": [
+        { "type": "thinking", "thinking": "Consider the request.", "thinkingSignature": "sig_1" },
+        { "type": "text", "text": "" }
+      ],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-opus-4-7",
+      "usage": {
+        "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+      },
+      "stopReason": "stop",
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "text_delta",
+    "contentIndex": 1,
+    "delta": "Hel",
+    "partial": {
+      "role": "assistant",
+      "content": [
+        { "type": "thinking", "thinking": "Consider the request.", "thinkingSignature": "sig_1" },
+        { "type": "text", "text": "Hel" }
+      ],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-opus-4-7",
+      "usage": {
+        "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+      },
+      "stopReason": "stop",
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "text_end",
+    "contentIndex": 1,
+    "content": "Hello.",
+    "partial": {
+      "role": "assistant",
+      "content": [
+        { "type": "thinking", "thinking": "Consider the request.", "thinkingSignature": "sig_1" },
+        { "type": "text", "text": "Hello." }
+      ],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-opus-4-7",
+      "usage": {
+        "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+      },
+      "stopReason": "stop",
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "toolcall_start",
+    "contentIndex": 2,
+    "partial": {
+      "role": "assistant",
+      "content": [
+        { "type": "thinking", "thinking": "Consider the request.", "thinkingSignature": "sig_1" },
+        { "type": "text", "text": "Hello." },
+        { "type": "toolCall", "id": "tc_1", "name": "bash", "arguments": {} }
+      ],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-opus-4-7",
+      "usage": {
+        "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+      },
+      "stopReason": "stop",
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "toolcall_delta",
+    "contentIndex": 2,
+    "delta": "{\"command",
+    "partial": {
+      "role": "assistant",
+      "content": [
+        { "type": "thinking", "thinking": "Consider the request.", "thinkingSignature": "sig_1" },
+        { "type": "text", "text": "Hello." },
+        { "type": "toolCall", "id": "tc_1", "name": "bash", "arguments": {} }
+      ],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-opus-4-7",
+      "usage": {
+        "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+      },
+      "stopReason": "stop",
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "toolcall_end",
+    "contentIndex": 2,
+    "toolCall": { "type": "toolCall", "id": "tc_1", "name": "bash", "arguments": { "command": "ls" } },
+    "partial": {
+      "role": "assistant",
+      "content": [
+        { "type": "thinking", "thinking": "Consider the request.", "thinkingSignature": "sig_1" },
+        { "type": "text", "text": "Hello." },
+        { "type": "toolCall", "id": "tc_1", "name": "bash", "arguments": { "command": "ls" } }
+      ],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-opus-4-7",
+      "usage": {
+        "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+      },
+      "stopReason": "stop",
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "done",
+    "reason": "toolUse",
+    "message": {
+      "role": "assistant",
+      "content": [
+        { "type": "thinking", "thinking": "Consider the request.", "thinkingSignature": "sig_1" },
+        { "type": "text", "text": "Hello." },
+        { "type": "toolCall", "id": "tc_1", "name": "bash", "arguments": { "command": "ls" } }
+      ],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-opus-4-7",
+      "usage": {
+        "input": 100, "output": 42, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 142,
+        "cost": { "input": 0.0005, "output": 0.00105, "cacheRead": 0, "cacheWrite": 0, "total": 0.00155 }
+      },
+      "stopReason": "toolUse",
+      "timestamp": 1700000000000
+    }
+  },
+  {
+    "type": "error",
+    "reason": "aborted",
+    "error": {
+      "role": "assistant",
+      "content": [],
+      "api": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-opus-4-7",
+      "usage": {
+        "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+      },
+      "stopReason": "aborted",
+      "errorMessage": "Operation aborted",
+      "timestamp": 1700000000000
+    }
+  }
+]

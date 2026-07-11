@@ -1,0 +1,43 @@
+{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "thinking",
+      "thinking": "The key insight: `model.thinking_value(opts.thinking)` returns `Some(effort)` when thinking/reasoning is enabled. For gpt-5.4, `reasoning: true` and `thinking_levels` has `\"off\": \"none\"`, so when thinking is set to `Off`, it returns `Some(\"none\")`. Let me check:",
+      "thinkingSignature": "reasoning"
+    },
+    {
+      "type": "text",
+      "text": "Let me check `thinking_value`:"
+    },
+    {
+      "type": "toolCall",
+      "id": "call_73988d7fe28b5c7da802921a",
+      "name": "bash",
+      "arguments": {
+        "command": "cd /home/y0usaf/Dev/pi-rs && rg -n \"fn thinking_value\" crates/pi-rs-ai/src/ -A 20"
+      }
+    }
+  ],
+  "api": "openai-completions",
+  "provider": "neuralwatt",
+  "model": "glm-5.2",
+  "usage": {
+    "input": 639,
+    "output": 124,
+    "cacheRead": 37440,
+    "cacheWrite": 0,
+    "totalTokens": 38203,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+    }
+  },
+  "stopReason": "toolUse",
+  "timestamp": 1783466595911,
+  "responseId": "chatcmpl-e3d9b52e-a5bf-494f-b9ae-12526ad93dd9",
+  "responseModel": "zai-org/GLM-5.2-FP8"
+}

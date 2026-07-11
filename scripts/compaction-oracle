@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Regenerate the compaction-parity oracle from Pi's real compaction
+# pipeline in ref/pi (core/compaction/compaction.ts + pi-ai
+# utils/overflow.ts). The oracle pins pi-rs's Lua compaction policy
+# (crates/pi-rs-app/src/builtins/utils/compaction.lua) to the exact cut
+# points, summarization requests, summaries, and overflow decisions Pi
+# computes; see tests/compaction-parity/.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+cases=tests/compaction-parity/cases.json
+oracle=tests/compaction-parity/oracle.json
+if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
+  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
+fi
+nix shell nixpkgs#nodejs_22 --command \
+  ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json \
+  tests/compaction-parity/gen-oracle.ts "$cases" > "$oracle"
+echo "wrote $oracle"

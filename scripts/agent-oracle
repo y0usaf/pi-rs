@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Regenerate the agent-parity oracle from Pi's real Agent/agent-loop.ts
+# in ref/pi. The oracle pins pi-rs's Lua agent loop (crates/pi-rs-agent/lua/
+# agent.lua) to the exact event order, request snapshots, settlement
+# rules, queue drain modes, and abort transitions Pi produces; see
+# tests/agent-parity/.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+cases=tests/agent-parity/cases.json
+oracle=tests/agent-parity/oracle.json
+if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
+  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
+fi
+nix shell nixpkgs#nodejs_22 --command \
+  ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json \
+  tests/agent-parity/gen-oracle.ts "$cases" > "$oracle"
+echo "wrote $oracle"

@@ -1,0 +1,39 @@
+[package]
+name = "pi-rs-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Lua extension host: coroutine async seam, event bus, watchdog"
+
+[dependencies]
+base64.workspace = true
+fancy-regex.workspace = true
+libc.workspace = true
+futures-util.workspace = true
+pi-rs-ai.workspace = true
+pi-rs-ai-auth.workspace = true
+pi-rs-ai-types.workspace = true
+pi-rs-session.workspace = true
+pi-rs-tui.workspace = true
+serde.workspace = true
+mlua.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tempfile = "3"
+unicode-normalization.workspace = true
+# The photon slice (src/image.rs) must byte-match pi's vendored
+# @silvia-odwyer/photon-node 0.3.4 WASM build, which was compiled
+# against image 0.24.9 / png 0.17.14 / flate2 1.0.34 / miniz_oxide
+# 0.8.0 / jpeg-decoder 0.3.1 (versions read from the .wasm's panic
+# strings). image is pinned exactly here; the transitive encoders are
+# pinned in Cargo.lock (`cargo update -p png --precise 0.17.14`, etc.).
+# jpeg-decoder needs `platform_independent`: the WASM build uses the
+# scalar IDCT, and the native SIMD path decodes a handful of pixels
+# differently. Feature set mirrors photon's (rayon comes from image's
+# own jpeg dependency). Pinned by tests/image-parity.
+image = { version = "=0.24.9", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "pnm", "tga", "ico", "hdr", "dds", "farbfeld"] }
+jpeg-decoder = { version = "=0.3.1", default-features = false, features = ["platform_independent", "rayon"] }
+
+[lints]
+workspace = true

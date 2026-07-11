@@ -1,0 +1,32 @@
+{
+  "columns": 72,
+  "rows": 34,
+  "resizes": [
+    {
+      "columns": 56,
+      "rows": 24,
+      "name": "resize"
+    }
+  ],
+  "theme": "dark",
+  "colorMode": "truecolor",
+  "version": "0.79.0",
+  "cwd": "/work/project",
+  "branch": "main",
+  "model": {
+    "id": "faux-1",
+    "provider": "faux",
+    "reasoning": false,
+    "contextWindow": 128000
+  },
+  "input": [
+    "s",
+    "h",
+    "o",
+    "w",
+    "\r"
+  ],
+  "prompt": "show",
+  "partial": "Here is the server bootstrap:\n\n```typescript\nimport { serve } from \"./http\";\n\n// entry point\nexport interface Config {\n  port: number;\n",
+  "completion": "Here is the server bootstrap:\n\n```typescript\nimport { serve } from \"./http\";\n\n// entry point\nexport interface Config {\n  port: number;\n  host: string;\n}\n\nexport function start(config: Config): void {\n  const url = `http://${config.host}:${config.port}/`;\n  console.log(\"listening\", url);\n  serve(config);\n}\n```\n\nAnd the script:\n\n```python\nimport os\n\n@retry(times=3)\ndef main() -> int:\n    \"\"\"Entry point.\"\"\"\n    value = 0x1F\n    print(f\"value {value}\")\n    return 0\n```\n\nAn unknown tag falls back:\n\n```quux\nnot a language\n```\n"
+}

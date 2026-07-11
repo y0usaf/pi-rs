@@ -1,0 +1,8 @@
+{
+  "role": "user",
+  "content": [
+    { "type": "text", "text": "What is in this image?" },
+    { "type": "image", "data": "iVBORw0KGgoAAAANSUhEUg==", "mimeType": "image/png" }
+  ],
+  "timestamp": 1700000000000
+}

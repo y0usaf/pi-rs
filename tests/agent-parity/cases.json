@@ -1,0 +1,708 @@
+{
+  "//": "Shared scenario spec for the agent-loop event-order oracle (PLAN 5.4). tests/agent-parity/gen-oracle.ts drives pi's real Agent/agent-loop.ts; tests/agent-parity/driver.lua replays the same cases through pi.agent.new. Both sides synthesize identical scripted stream events from each turn spec (start, per-block start/delta/end, done|error; abort check before every push), identical scripted tools (per-invocation updates/sleeps/results/throws, abortCheck), and identical hook scripts ({skip:true} means 'return nothing' because JSON null cannot cross the Lua boundary). Triggers fire synchronously inside the recording listener when the Nth event of a type is observed. Timestamps are scrubbed to 0 on both sides.",
+  "models": {
+    "default": {
+      "id": "scripted",
+      "name": "Scripted",
+      "api": "scripted-api",
+      "provider": "scripted",
+      "baseUrl": "http://scripted.test",
+      "reasoning": true,
+      "input": ["text"],
+      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+      "contextWindow": 200000,
+      "maxTokens": 4096
+    },
+    "alt": {
+      "id": "scripted-alt",
+      "name": "Scripted Alt",
+      "api": "scripted-api",
+      "provider": "scripted",
+      "baseUrl": "http://scripted.test",
+      "reasoning": true,
+      "input": ["text"],
+      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+      "contextWindow": 200000,
+      "maxTokens": 4096
+    }
+  },
+  "cases": [
+    {
+      "name": "single-turn-content-kinds",
+      "options": { "systemPrompt": "sys" },
+      "turns": [
+        {
+          "blocks": [
+            { "type": "thinking", "thinking": "plan the reply" },
+            { "type": "text", "text": "hello there" }
+          ],
+          "stopReason": "stop"
+        }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "hi" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "steering-one-at-a-time-preseeded",
+      "options": { "systemPrompt": "sys", "steeringMode": "one-at-a-time" },
+      "turns": [
+        { "blocks": [{ "type": "text", "text": "turn one" }], "stopReason": "stop" },
+        { "blocks": [{ "type": "text", "text": "turn two" }], "stopReason": "stop" }
+      ],
+      "phases": [
+        {
+          "steer": [
+            { "role": "user", "content": [{ "type": "text", "text": "steer one" }], "timestamp": 0 },
+            { "role": "user", "content": [{ "type": "text", "text": "steer two" }], "timestamp": 0 }
+          ],
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "steering-all-preseeded",
+      "options": { "systemPrompt": "sys", "steeringMode": "all" },
+      "turns": [{ "blocks": [{ "type": "text", "text": "single turn" }], "stopReason": "stop" }],
+      "phases": [
+        {
+          "steer": [
+            { "role": "user", "content": [{ "type": "text", "text": "steer one" }], "timestamp": 0 },
+            { "role": "user", "content": [{ "type": "text", "text": "steer two" }], "timestamp": 0 }
+          ],
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "follow-up-one-at-a-time",
+      "options": { "systemPrompt": "sys", "followUpMode": "one-at-a-time" },
+      "turns": [
+        { "blocks": [{ "type": "text", "text": "turn one" }], "stopReason": "stop" },
+        { "blocks": [{ "type": "text", "text": "turn two" }], "stopReason": "stop" },
+        { "blocks": [{ "type": "text", "text": "turn three" }], "stopReason": "stop" }
+      ],
+      "phases": [
+        {
+          "followUp": [
+            { "role": "user", "content": [{ "type": "text", "text": "follow one" }], "timestamp": 0 },
+            { "role": "user", "content": [{ "type": "text", "text": "follow two" }], "timestamp": 0 }
+          ],
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "follow-up-all",
+      "options": { "systemPrompt": "sys", "followUpMode": "all" },
+      "turns": [
+        { "blocks": [{ "type": "text", "text": "turn one" }], "stopReason": "stop" },
+        { "blocks": [{ "type": "text", "text": "turn two" }], "stopReason": "stop" }
+      ],
+      "phases": [
+        {
+          "followUp": [
+            { "role": "user", "content": [{ "type": "text", "text": "follow one" }], "timestamp": 0 },
+            { "role": "user", "content": [{ "type": "text", "text": "follow two" }], "timestamp": 0 }
+          ],
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "steer-after-tool-batch",
+      "options": { "systemPrompt": "sys" },
+      "tools": [
+        {
+          "name": "probe",
+          "parameters": {
+            "type": "object",
+            "properties": { "step": { "type": "string" } },
+            "required": ["step"]
+          },
+          "invocations": [
+            { "result": { "content": [{ "type": "text", "text": "probe done" }], "details": { "step": "one" } } }
+          ]
+        }
+      ],
+      "turns": [
+        {
+          "blocks": [
+            { "type": "toolCall", "id": "call-1", "name": "probe", "arguments": { "step": "one" } }
+          ],
+          "stopReason": "toolUse"
+        },
+        { "blocks": [{ "type": "text", "text": "after steering" }], "stopReason": "stop" }
+      ],
+      "triggers": [
+        {
+          "on": { "event": "tool_execution_end", "count": 1 },
+          "action": "steer",
+          "message": { "role": "user", "content": [{ "type": "text", "text": "steer mid" }], "timestamp": 0 }
+        }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "parallel-completion-order",
+      "options": { "systemPrompt": "sys", "toolExecution": "parallel" },
+      "tools": [
+        {
+          "name": "slow",
+          "parameters": { "type": "object", "properties": {} },
+          "invocations": [
+            {
+              "updates": [
+                {
+                  "sleepMs": 90,
+                  "partial": { "content": [{ "type": "text", "text": "slow half" }], "details": {} }
+                }
+              ],
+              "sleepMs": 60,
+              "result": { "content": [{ "type": "text", "text": "slow done" }], "details": { "pace": "slow" } }
+            }
+          ]
+        },
+        {
+          "name": "fast",
+          "parameters": { "type": "object", "properties": {} },
+          "invocations": [
+            {
+              "updates": [
+                {
+                  "sleepMs": 20,
+                  "partial": { "content": [{ "type": "text", "text": "fast half" }], "details": {} }
+                }
+              ],
+              "sleepMs": 20,
+              "result": { "content": [{ "type": "text", "text": "fast done" }], "details": { "pace": "fast" } }
+            }
+          ]
+        }
+      ],
+      "turns": [
+        {
+          "blocks": [
+            { "type": "toolCall", "id": "slow-1", "name": "slow", "arguments": {} },
+            { "type": "toolCall", "id": "fast-1", "name": "fast", "arguments": {} }
+          ],
+          "stopReason": "toolUse"
+        },
+        { "blocks": [{ "type": "text", "text": "done" }], "stopReason": "stop" }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "run both" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "sequential-config",
+      "options": { "systemPrompt": "sys", "toolExecution": "sequential" },
+      "tools": [
+        {
+          "name": "probe",
+          "parameters": {
+            "type": "object",
+            "properties": { "step": { "type": "string" } },
+            "required": ["step"]
+          },
+          "invocations": [
+            {
+              "updates": [
+                { "partial": { "content": [{ "type": "text", "text": "first working" }], "details": {} } }
+              ],
+              "result": { "content": [{ "type": "text", "text": "first done" }], "details": {} }
+            },
+            { "result": { "content": [{ "type": "text", "text": "second done" }], "details": {} } }
+          ]
+        }
+      ],
+      "turns": [
+        {
+          "blocks": [
+            { "type": "toolCall", "id": "call-1", "name": "probe", "arguments": { "step": "one" } },
+            { "type": "toolCall", "id": "call-2", "name": "probe", "arguments": { "step": "two" } }
+          ],
+          "stopReason": "toolUse"
+        },
+        { "blocks": [{ "type": "text", "text": "done" }], "stopReason": "stop" }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "sequential-tool-override",
+      "options": { "systemPrompt": "sys", "toolExecution": "parallel" },
+      "tools": [
+        {
+          "name": "gate",
+          "executionMode": "sequential",
+          "parameters": { "type": "object", "properties": {} },
+          "invocations": [
+            { "result": { "content": [{ "type": "text", "text": "gate done" }], "details": {} } }
+          ]
+        },
+        {
+          "name": "probe",
+          "parameters": {
+            "type": "object",
+            "properties": { "step": { "type": "string" } },
+            "required": ["step"]
+          },
+          "invocations": [
+            { "result": { "content": [{ "type": "text", "text": "probe done" }], "details": {} } }
+          ]
+        }
+      ],
+      "turns": [
+        {
+          "blocks": [
+            { "type": "toolCall", "id": "gate-1", "name": "gate", "arguments": {} },
+            { "type": "toolCall", "id": "probe-1", "name": "probe", "arguments": { "step": "one" } }
+          ],
+          "stopReason": "toolUse"
+        },
+        { "blocks": [{ "type": "text", "text": "done" }], "stopReason": "stop" }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "mixed-immediate-parallel",
+      "options": { "systemPrompt": "sys", "toolExecution": "parallel" },
+      "tools": [
+        {
+          "name": "probe",
+          "parameters": {
+            "type": "object",
+            "properties": { "step": { "type": "string" } },
+            "required": ["step"]
+          },
+          "invocations": [
+            { "result": { "content": [{ "type": "text", "text": "probe done" }], "details": {} } }
+          ]
+        }
+      ],
+      "turns": [
+        {
+          "blocks": [
+            { "type": "toolCall", "id": "ghost-1", "name": "ghost", "arguments": { "step": "zero" } },
+            { "type": "toolCall", "id": "ok-1", "name": "probe", "arguments": { "step": "one" } },
+            { "type": "toolCall", "id": "bad-1", "name": "probe", "arguments": { "other": 7 } }
+          ],
+          "stopReason": "toolUse"
+        },
+        { "blocks": [{ "type": "text", "text": "done" }], "stopReason": "stop" }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "before-hooks",
+      "options": { "systemPrompt": "sys", "toolExecution": "sequential" },
+      "tools": [
+        {
+          "name": "probe",
+          "parameters": {
+            "type": "object",
+            "properties": { "step": { "type": "string" } },
+            "required": ["step"]
+          },
+          "invocations": [
+            { "result": { "content": [{ "type": "text", "text": "third done" }], "details": {} } }
+          ]
+        }
+      ],
+      "hooks": {
+        "beforeToolCall": [
+          { "block": true, "reason": "policy says no" },
+          { "throw": "before exploded" },
+          { "skip": true }
+        ]
+      },
+      "turns": [
+        {
+          "blocks": [
+            { "type": "toolCall", "id": "call-1", "name": "probe", "arguments": { "step": "one" } },
+            { "type": "toolCall", "id": "call-2", "name": "probe", "arguments": { "step": "two" } },
+            { "type": "toolCall", "id": "call-3", "name": "probe", "arguments": { "step": "three" } }
+          ],
+          "stopReason": "toolUse"
+        },
+        { "blocks": [{ "type": "text", "text": "done" }], "stopReason": "stop" }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "after-hooks",
+      "options": { "systemPrompt": "sys", "toolExecution": "sequential" },
+      "tools": [
+        {
+          "name": "probe",
+          "parameters": {
+            "type": "object",
+            "properties": { "step": { "type": "string" } },
+            "required": ["step"]
+          },
+          "invocations": [
+            { "result": { "content": [{ "type": "text", "text": "first done" }], "details": { "kept": true } } },
+            { "result": { "content": [{ "type": "text", "text": "second done" }], "details": {} } },
+            { "result": { "content": [{ "type": "text", "text": "third done" }], "details": {} } }
+          ]
+        }
+      ],
+      "hooks": {
+        "afterToolCall": [
+          { "content": [{ "type": "text", "text": "replaced content" }], "isError": true },
+          { "throw": "after exploded" },
+          { "skip": true }
+        ]
+      },
+      "turns": [
+        {
+          "blocks": [
+            { "type": "toolCall", "id": "call-1", "name": "probe", "arguments": { "step": "one" } },
+            { "type": "toolCall", "id": "call-2", "name": "probe", "arguments": { "step": "two" } },
+            { "type": "toolCall", "id": "call-3", "name": "probe", "arguments": { "step": "three" } }
+          ],
+          "stopReason": "toolUse"
+        },
+        { "blocks": [{ "type": "text", "text": "done" }], "stopReason": "stop" }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "terminate-batch-with-follow-up",
+      "options": { "systemPrompt": "sys", "toolExecution": "parallel" },
+      "tools": [
+        {
+          "name": "finisher",
+          "parameters": { "type": "object", "properties": {} },
+          "invocations": [
+            {
+              "result": {
+                "content": [{ "type": "text", "text": "finished" }],
+                "details": {},
+                "terminate": true
+              }
+            }
+          ]
+        }
+      ],
+      "turns": [
+        {
+          "blocks": [
+            { "type": "toolCall", "id": "fin-1", "name": "finisher", "arguments": {} },
+            { "type": "toolCall", "id": "fin-2", "name": "finisher", "arguments": {} }
+          ],
+          "stopReason": "toolUse"
+        },
+        { "blocks": [{ "type": "text", "text": "follow-up turn" }], "stopReason": "stop" }
+      ],
+      "triggers": [
+        {
+          "on": { "event": "turn_end", "count": 1 },
+          "action": "followUp",
+          "message": { "role": "user", "content": [{ "type": "text", "text": "late follow" }], "timestamp": 0 }
+        }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "terminate-partial-continues",
+      "options": { "systemPrompt": "sys", "toolExecution": "parallel" },
+      "tools": [
+        {
+          "name": "finisher",
+          "parameters": { "type": "object", "properties": {} },
+          "invocations": [
+            {
+              "result": {
+                "content": [{ "type": "text", "text": "finished" }],
+                "details": {},
+                "terminate": true
+              }
+            }
+          ]
+        },
+        {
+          "name": "probe",
+          "parameters": {
+            "type": "object",
+            "properties": { "step": { "type": "string" } },
+            "required": ["step"]
+          },
+          "invocations": [
+            { "result": { "content": [{ "type": "text", "text": "probe done" }], "details": {} } }
+          ]
+        }
+      ],
+      "turns": [
+        {
+          "blocks": [
+            { "type": "toolCall", "id": "fin-1", "name": "finisher", "arguments": {} },
+            { "type": "toolCall", "id": "probe-1", "name": "probe", "arguments": { "step": "one" } }
+          ],
+          "stopReason": "toolUse"
+        },
+        { "blocks": [{ "type": "text", "text": "kept going" }], "stopReason": "stop" }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "abort-mid-stream",
+      "options": { "systemPrompt": "sys" },
+      "turns": [
+        {
+          "blocks": [
+            { "type": "text", "text": "chunk one" },
+            { "type": "text", "text": "chunk two" }
+          ],
+          "stopReason": "stop"
+        }
+      ],
+      "triggers": [
+        { "on": { "event": "message_update", "count": 2 }, "action": "abort" }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "abort-during-sequential-batch",
+      "options": { "systemPrompt": "sys", "toolExecution": "sequential" },
+      "tools": [
+        {
+          "name": "probe",
+          "parameters": {
+            "type": "object",
+            "properties": { "step": { "type": "string" } },
+            "required": ["step"]
+          },
+          "invocations": [
+            { "result": { "content": [{ "type": "text", "text": "first done" }], "details": {} } },
+            { "result": { "content": [{ "type": "text", "text": "second done" }], "details": {} } }
+          ]
+        }
+      ],
+      "turns": [
+        {
+          "blocks": [
+            { "type": "toolCall", "id": "call-1", "name": "probe", "arguments": { "step": "one" } },
+            { "type": "toolCall", "id": "call-2", "name": "probe", "arguments": { "step": "two" } }
+          ],
+          "stopReason": "toolUse"
+        },
+        { "blocks": [{ "type": "text", "text": "never delivered" }], "stopReason": "stop" }
+      ],
+      "triggers": [
+        { "on": { "event": "tool_execution_end", "count": 1 }, "action": "abort" }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "abort-during-parallel-prepare",
+      "options": { "systemPrompt": "sys", "toolExecution": "parallel" },
+      "tools": [
+        {
+          "name": "sentinel",
+          "parameters": { "type": "object", "properties": {} },
+          "invocations": [
+            {
+              "abortCheck": true,
+              "result": { "content": [{ "type": "text", "text": "sentinel done" }], "details": {} }
+            }
+          ]
+        },
+        {
+          "name": "probe",
+          "parameters": {
+            "type": "object",
+            "properties": { "step": { "type": "string" } },
+            "required": ["step"]
+          },
+          "invocations": [
+            { "result": { "content": [{ "type": "text", "text": "probe done" }], "details": {} } }
+          ]
+        }
+      ],
+      "turns": [
+        {
+          "blocks": [
+            { "type": "toolCall", "id": "sent-1", "name": "sentinel", "arguments": {} },
+            { "type": "toolCall", "id": "probe-1", "name": "probe", "arguments": { "step": "one" } },
+            { "type": "toolCall", "id": "probe-2", "name": "probe", "arguments": { "step": "two" } }
+          ],
+          "stopReason": "toolUse"
+        },
+        { "blocks": [{ "type": "text", "text": "never delivered" }], "stopReason": "stop" }
+      ],
+      "triggers": [
+        { "on": { "event": "tool_execution_start", "count": 2 }, "action": "abort" }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "stream-error-stop",
+      "options": { "systemPrompt": "sys" },
+      "turns": [
+        {
+          "blocks": [{ "type": "text", "text": "partial answer" }],
+          "stopReason": "error",
+          "errorMessage": "server exploded 500"
+        }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "stream-throws",
+      "options": { "systemPrompt": "sys" },
+      "turns": [{ "throw": "stream exploded" }],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "prepare-next-turn-switch",
+      "options": { "systemPrompt": "sys", "thinkingLevel": "low" },
+      "tools": [
+        {
+          "name": "probe",
+          "parameters": {
+            "type": "object",
+            "properties": { "step": { "type": "string" } },
+            "required": ["step"]
+          },
+          "invocations": [
+            { "result": { "content": [{ "type": "text", "text": "probe done" }], "details": {} } }
+          ]
+        }
+      ],
+      "hooks": {
+        "prepareNextTurn": [{ "model": "alt", "thinkingLevel": "high" }, { "skip": true }]
+      },
+      "turns": [
+        {
+          "blocks": [
+            { "type": "toolCall", "id": "call-1", "name": "probe", "arguments": { "step": "one" } }
+          ],
+          "stopReason": "toolUse"
+        },
+        { "blocks": [{ "type": "text", "text": "done" }], "stopReason": "stop" }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        }
+      ]
+    },
+    {
+      "name": "continue-after-assistant-steering",
+      "options": { "systemPrompt": "sys", "steeringMode": "one-at-a-time" },
+      "turns": [
+        { "blocks": [{ "type": "text", "text": "turn one" }], "stopReason": "stop" },
+        { "blocks": [{ "type": "text", "text": "turn two" }], "stopReason": "stop" },
+        { "blocks": [{ "type": "text", "text": "turn three" }], "stopReason": "stop" }
+      ],
+      "phases": [
+        {
+          "prompt": { "role": "user", "content": [{ "type": "text", "text": "prompt" }], "timestamp": 0 }
+        },
+        {
+          "steer": [
+            { "role": "user", "content": [{ "type": "text", "text": "continue one" }], "timestamp": 0 },
+            { "role": "user", "content": [{ "type": "text", "text": "continue two" }], "timestamp": 0 }
+          ],
+          "continue": true
+        }
+      ]
+    },
+    {
+      "name": "continue-from-user-context",
+      "options": {
+        "systemPrompt": "sys",
+        "initialMessages": [
+          { "role": "user", "content": [{ "type": "text", "text": "seed" }], "timestamp": 0 }
+        ]
+      },
+      "turns": [{ "blocks": [{ "type": "text", "text": "continued" }], "stopReason": "stop" }],
+      "phases": [{ "continue": true }]
+    },
+    {
+      "name": "continue-from-assistant-error",
+      "options": {
+        "systemPrompt": "sys",
+        "initialMessages": [
+          { "role": "user", "content": [{ "type": "text", "text": "seed" }], "timestamp": 0 },
+          {
+            "role": "assistant",
+            "content": [{ "type": "text", "text": "settled" }],
+            "api": "scripted-api",
+            "provider": "scripted",
+            "model": "scripted",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 }
+            },
+            "stopReason": "stop",
+            "timestamp": 0
+          }
+        ]
+      },
+      "turns": [{ "blocks": [{ "type": "text", "text": "unused" }], "stopReason": "stop" }],
+      "phases": [{ "continue": true }]
+    }
+  ]
+}

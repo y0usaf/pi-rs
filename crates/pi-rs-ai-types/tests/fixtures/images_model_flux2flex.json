@@ -1,0 +1,10 @@
+{
+  "id": "black-forest-labs/flux.2-flex",
+  "name": "Black Forest Labs: FLUX.2 Flex",
+  "api": "openrouter-images",
+  "provider": "openrouter",
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "input": ["text", "image"],
+  "output": ["image"],
+  "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+}

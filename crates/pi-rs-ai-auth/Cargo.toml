@@ -1,0 +1,21 @@
+[package]
+name = "pi-rs-ai-auth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "packages/ai oauth port: PKCE engine, flows as data, provider registry"
+
+[dependencies]
+base64.workspace = true
+getrandom.workspace = true
+pi-rs-ai-types.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

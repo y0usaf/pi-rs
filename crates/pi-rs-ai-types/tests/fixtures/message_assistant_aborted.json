@@ -1,0 +1,25 @@
+{
+  "role": "assistant",
+  "content": [],
+  "api": "openai-codex-responses",
+  "provider": "openai-codex",
+  "model": "gpt-5.4",
+  "usage": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 0,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+    }
+  },
+  "stopReason": "aborted",
+  "timestamp": 1781017184026,
+  "responseId": "resp_0f7a504f6b8c4f0a016a282a6058308197b765f1a0c04e9549",
+  "errorMessage": "Operation aborted"
+}

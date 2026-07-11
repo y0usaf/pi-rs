@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Regenerate the tool-parity oracle from Pi's real core/tools
+# implementations in ref/pi. The oracle pins pi-rs's Lua tool ports
+# (crates/pi-rs-app/src/builtins/tools/) to the exact execute results,
+# details, truncation notices, errors, and filesystem effects Pi's
+# coding agent produces; see tests/tool-parity/.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+cases=tests/tool-parity/cases.json
+oracle=tests/tool-parity/oracle.json
+if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
+  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
+fi
+nix shell nixpkgs#nodejs_22 nixpkgs#ripgrep nixpkgs#fd --command \
+  ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json \
+  tests/tool-parity/gen-oracle.ts "$cases" > "$oracle"
+echo "wrote $oracle"

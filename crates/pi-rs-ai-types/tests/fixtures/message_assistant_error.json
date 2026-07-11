@@ -1,0 +1,24 @@
+{
+  "role": "assistant",
+  "content": [],
+  "api": "openai-completions",
+  "provider": "neuralwatt",
+  "model": "glm-5.2",
+  "usage": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 0,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+    }
+  },
+  "stopReason": "error",
+  "timestamp": 1783461977628,
+  "errorMessage": "400: {\"message\":\"Model 'glm-5.2' does not support messages with role 'developer'. Use role 'system' instead.\",\"type\":\"invalid_request_error\",\"param\":\"messages\",\"code\":\"unsupported_message_role\"}"
+}

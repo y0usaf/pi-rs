@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Regenerate the image-parity oracle from Pi's real image machinery
+# (utils/image-resize-core.ts resizeImageInProcess and
+# utils/image-convert.ts convertToPng over the vendored
+# @silvia-odwyer/photon-node 0.3.4 WASM build). The oracle pins pi-rs's
+# photon-slice port (crates/pi-rs-host/src/image.rs, pi.image.*) to the
+# exact encoded bytes; see tests/image-parity/.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+cases=tests/image-parity/cases.json
+oracle=tests/image-parity/oracle.json
+if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
+  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
+fi
+nix shell nixpkgs#nodejs_22 --command \
+  ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json \
+  tests/image-parity/gen-oracle.ts "$cases" > "$oracle"
+echo "wrote $oracle"

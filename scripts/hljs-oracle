@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Regenerate the hljs-parity oracle from the vendored highlight.js 10.7.3
+# in ref/pi. The oracle pins pi.hljs.* (crates/pi-rs-host/src/hljs) to the
+# exact library Pi's coding agent uses; see tests/hljs-parity/.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+cases=tests/hljs-parity/cases.json
+oracle=tests/hljs-parity/oracle.json
+if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
+  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
+fi
+nix shell nixpkgs#nodejs_22 --command \
+  ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json \
+  tests/hljs-parity/gen-oracle.ts "$cases" > "$oracle"
+echo "wrote $oracle"

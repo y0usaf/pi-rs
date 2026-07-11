@@ -1,0 +1,77 @@
+{
+  "command": "interactive-login-parity-sequence",
+  "columns": 72,
+  "rows": 24,
+  "authPath": "/home/user/.pi/agent/auth.json",
+  "docsPath": "/opt/pi-rs/docs",
+  "model": { "id": "claude-opus-4-8", "provider": "anthropic", "api": "anthropic-messages" },
+  "oauthProviders": [
+    { "id": "anthropic", "name": "Anthropic (Claude Pro/Max)", "usesCallbackServer": true }
+  ],
+  "loginProviders": {
+    "oauth": [
+      { "id": "anthropic", "name": "Anthropic (Claude Pro/Max)", "authType": "oauth" }
+    ],
+    "api_key": [
+      { "id": "amazon-bedrock", "name": "Amazon Bedrock", "authType": "api_key" },
+      { "id": "anthropic", "name": "Anthropic", "authType": "api_key" },
+      { "id": "openai", "name": "OpenAI", "authType": "api_key" }
+    ]
+  },
+  "credentials": {},
+  "authStatus": {},
+  "steps": [
+    { "name": "login-open", "show": "login" },
+    { "name": "auth-type-down", "input": ["\u001b[B"] },
+    { "name": "auth-type-cancel", "input": ["\u001b"] },
+    { "name": "provider-select", "show": "login", "input": ["\r"] },
+    { "name": "oauth-dialog", "input": ["\r"] },
+    {
+      "name": "oauth-auth",
+      "emit": [
+        {
+          "type": "auth",
+          "url": "https://claude.ai/oauth/authorize?code=true&client_id=pi-rs-parity&state=verifier",
+          "instructions": "Complete login in your browser. If the browser is on another machine, paste the final redirect URL here."
+        }
+      ]
+    },
+    { "name": "oauth-code-typed", "input": ["m", "y", "-", "c", "o", "d", "e"] },
+    { "name": "oauth-code-submit", "input": ["\r"] },
+    {
+      "name": "oauth-progress",
+      "emit": [{ "type": "progress", "message": "Exchanging authorization code for tokens..." }]
+    },
+    { "name": "oauth-done", "emit": [{ "type": "done" }] },
+    { "name": "api-key-provider", "show": "login", "input": ["\u001b[B", "\r"] },
+    { "name": "bedrock-dialog", "input": ["\r"] },
+    { "name": "bedrock-close", "input": ["\u001b"] },
+    {
+      "name": "api-key-prompt",
+      "show": "login",
+      "input": ["\u001b[B", "\r", "\u001b[B", "\u001b[B", "\r"]
+    },
+    { "name": "api-key-typed", "input": ["s", "k", "-", "t", "e", "s", "t"] },
+    { "name": "api-key-saved", "input": ["\r"] },
+    {
+      "name": "api-key-empty-error",
+      "show": "login",
+      "input": ["\u001b[B", "\r", "\u001b[B", "\r", " ", "\r"]
+    },
+    { "name": "logout-open", "show": "logout" },
+    { "name": "logout-confirm", "input": ["\r"] },
+    { "name": "relogin-dialog", "show": "login", "input": ["\r", "\r"] },
+    {
+      "name": "relogin-auth",
+      "emit": [
+        {
+          "type": "auth",
+          "url": "https://claude.ai/oauth/authorize?code=true&client_id=pi-rs-parity&state=verifier",
+          "instructions": "Complete login in your browser. If the browser is on another machine, paste the final redirect URL here."
+        }
+      ]
+    },
+    { "name": "relogin-cancel", "input": ["\u001b"] },
+    { "name": "relogin-error", "emit": [{ "type": "error", "message": "Login cancelled" }] }
+  ]
+}

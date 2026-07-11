@@ -1,0 +1,49 @@
+{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "thinking",
+      "thinking": "",
+      "thinkingSignature": "EqQBCkgIBRABGAI=",
+      "redacted": true
+    },
+    {
+      "type": "text",
+      "text": "Done.",
+      "textSignature": "{\"v\":1,\"id\":\"msg_1\",\"phase\":\"final_answer\"}"
+    }
+  ],
+  "api": "openai-responses",
+  "provider": "openai",
+  "model": "gpt-5.2",
+  "responseModel": "gpt-5.2-2026-01-01",
+  "responseId": "resp_abc123",
+  "diagnostics": [
+    {
+      "type": "retry",
+      "timestamp": 1700000000000,
+      "error": { "name": "APIError", "message": "overloaded", "code": 529 },
+      "details": { "attempt": 1 }
+    },
+    {
+      "type": "stream-error",
+      "timestamp": 1700000000001,
+      "error": {
+        "name": "ThrownValue",
+        "message": "boom",
+        "stack": "Error: boom\n    at stream",
+        "code": "ECONNRESET"
+      }
+    }
+  ],
+  "usage": {
+    "input": 10,
+    "output": 2,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 12,
+    "cost": { "input": 0.0001, "output": 0.0002, "cacheRead": 0, "cacheWrite": 0, "total": 0.0003 }
+  },
+  "stopReason": "stop",
+  "timestamp": 1700000000002
+}

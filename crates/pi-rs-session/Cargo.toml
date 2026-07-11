@@ -1,0 +1,18 @@
+[package]
+name = "pi-rs-session"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Session manager: append-only JSONL session trees (port of core/session-manager.ts)"
+
+[dependencies]
+getrandom.workspace = true
+indexmap.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
