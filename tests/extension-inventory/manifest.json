@@ -1,0 +1,279 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "categories": {
+    "events": [
+      {
+        "status": "planned 9.3",
+        "evidence": "Complete event pipeline + fold-semantics oracle",
+        "items": [
+          "after_provider_response",
+          "agent_end",
+          "agent_start",
+          "before_agent_start",
+          "before_provider_request",
+          "context",
+          "input",
+          "message_end",
+          "message_start",
+          "message_update",
+          "model_select",
+          "project_trust",
+          "resources_discover",
+          "session_before_compact",
+          "session_before_fork",
+          "session_before_switch",
+          "session_before_tree",
+          "session_compact",
+          "session_shutdown",
+          "session_start",
+          "session_tree",
+          "thinking_level_select",
+          "tool_call",
+          "tool_execution_end",
+          "tool_execution_start",
+          "tool_execution_update",
+          "tool_result",
+          "turn_end",
+          "turn_start",
+          "user_bash"
+        ]
+      }
+    ],
+    "api": [
+      {
+        "status": "implemented",
+        "evidence": "pi-rs-host API + registry/OS binding tests; Lua spelling uses snake_case",
+        "items": [
+          "exec",
+          "on",
+          "registerCommand",
+          "registerProvider",
+          "registerShortcut",
+          "registerTool",
+          "unregisterProvider"
+        ]
+      },
+      {
+        "status": "planned 9.4",
+        "evidence": "Non-UI ExtensionAPI actions/registries + translated examples",
+        "items": [
+          "appendEntry",
+          "events",
+          "getActiveTools",
+          "getAllTools",
+          "getCommands",
+          "getFlag",
+          "getSessionName",
+          "getThinkingLevel",
+          "registerFlag",
+          "registerMessageRenderer",
+          "sendMessage",
+          "sendUserMessage",
+          "setActiveTools",
+          "setLabel",
+          "setModel",
+          "setSessionName",
+          "setThinkingLevel"
+        ]
+      }
+    ],
+    "ui": [
+      {
+        "status": "planned 9.5",
+        "evidence": "Queued extension UI action surface + frame/input fixtures",
+        "items": [
+          "addAutocompleteProvider",
+          "confirm",
+          "custom",
+          "editor",
+          "getAllThemes",
+          "getEditorComponent",
+          "getEditorText",
+          "getTheme",
+          "getToolsExpanded",
+          "input",
+          "notify",
+          "onTerminalInput",
+          "pasteToEditor",
+          "select",
+          "setEditorComponent",
+          "setEditorText",
+          "setFooter",
+          "setHeader",
+          "setHiddenThinkingLabel",
+          "setStatus",
+          "setTheme",
+          "setTitle",
+          "setToolsExpanded",
+          "setWidget",
+          "setWorkingIndicator",
+          "setWorkingMessage",
+          "setWorkingVisible",
+          "theme"
+        ]
+      }
+    ],
+    "context": [
+      {
+        "status": "planned 9.2",
+        "evidence": "Live immutable context snapshots + queued lifecycle actions",
+        "items": [
+          "abort",
+          "compact",
+          "cwd",
+          "getContextUsage",
+          "getSystemPrompt",
+          "hasPendingMessages",
+          "hasUI",
+          "isIdle",
+          "isProjectTrusted",
+          "mode",
+          "model",
+          "modelRegistry",
+          "sessionManager",
+          "shutdown",
+          "signal",
+          "ui"
+        ]
+      }
+    ],
+    "command_context": [
+      {
+        "status": "planned 9.2",
+        "evidence": "Command-only actions, stale-handle rejection, replacement oracle",
+        "items": [
+          "fork",
+          "getSystemPromptOptions",
+          "navigateTree",
+          "newSession",
+          "reload",
+          "switchSession",
+          "waitForIdle"
+        ]
+      }
+    ],
+    "loader_rules": [
+      {
+        "status": "implemented",
+        "evidence": "pi-rs-host discover/load/registry tests (mechanism; product wiring remains 9.1)",
+        "items": [
+          "async extension initialization",
+          "configured/CLI path resolution",
+          "direct .lua files",
+          "duplicate command disambiguation",
+          "first-registration tool precedence",
+          "isolated load failures",
+          "per-extension attribution",
+          "project trust gate",
+          "project-local before global",
+          "resolved-path deduplication",
+          "subdirectory init.lua entry"
+        ]
+      },
+      {
+        "status": "planned 9.1",
+        "evidence": "Real product startup disable/CLI precedence + conflict diagnostics",
+        "items": [
+          "disable discovery but retain CLI paths",
+          "tool/flag conflict diagnostics"
+        ]
+      }
+    ],
+    "examples": [
+      {
+        "status": "planned 9.1",
+        "evidence": "Initial product-loaded tool/command/blocking-hook vertical slice",
+        "items": [
+          "commands.ts",
+          "hello.ts",
+          "permission-gate.ts"
+        ]
+      },
+      {
+        "status": "planned 9.8",
+        "evidence": "Translation matrix; bridge capability closes in the owning 9.2–9.7 rung",
+        "items": [
+          "auto-commit-on-exit.ts",
+          "bash-spawn-hook.ts",
+          "bookmark.ts",
+          "border-status-editor.ts",
+          "built-in-tool-renderer.ts",
+          "claude-rules.ts",
+          "confirm-destructive.ts",
+          "custom-compaction.ts",
+          "custom-footer.ts",
+          "custom-header.ts",
+          "custom-provider-anthropic/index.ts",
+          "custom-provider-gitlab-duo/index.ts",
+          "dirty-repo-guard.ts",
+          "doom-overlay/doom-component.ts",
+          "doom-overlay/doom-engine.ts",
+          "doom-overlay/doom-keys.ts",
+          "doom-overlay/index.ts",
+          "doom-overlay/wad-finder.ts",
+          "dynamic-resources/index.ts",
+          "dynamic-tools.ts",
+          "event-bus.ts",
+          "file-trigger.ts",
+          "git-checkpoint.ts",
+          "git-merge-and-resolve.ts",
+          "github-issue-autocomplete.ts",
+          "gondolin/index.ts",
+          "handoff.ts",
+          "hidden-thinking-label.ts",
+          "inline-bash.ts",
+          "input-transform-streaming.ts",
+          "input-transform.ts",
+          "interactive-shell.ts",
+          "mac-system-theme.ts",
+          "message-renderer.ts",
+          "minimal-mode.ts",
+          "modal-editor.ts",
+          "model-status.ts",
+          "notify.ts",
+          "overlay-qa-tests.ts",
+          "overlay-test.ts",
+          "pirate.ts",
+          "plan-mode/index.ts",
+          "plan-mode/utils.ts",
+          "preset.ts",
+          "project-trust.ts",
+          "prompt-customizer.ts",
+          "protected-paths.ts",
+          "provider-payload.ts",
+          "qna.ts",
+          "question.ts",
+          "questionnaire.ts",
+          "rainbow-editor.ts",
+          "reload-runtime.ts",
+          "rpc-demo.ts",
+          "sandbox/index.ts",
+          "send-user-message.ts",
+          "session-name.ts",
+          "shutdown-command.ts",
+          "snake.ts",
+          "space-invaders.ts",
+          "ssh.ts",
+          "status-line.ts",
+          "structured-output.ts",
+          "subagent/agents.ts",
+          "subagent/index.ts",
+          "summarize.ts",
+          "system-prompt-header.ts",
+          "tic-tac-toe.ts",
+          "timed-confirm.ts",
+          "titlebar-spinner.ts",
+          "todo.ts",
+          "tool-override.ts",
+          "tools.ts",
+          "trigger-compact.ts",
+          "truncated-tool.ts",
+          "widget-placement.ts",
+          "with-deps/index.ts",
+          "working-indicator.ts",
+          "working-message-test.ts"
+        ]
+      }
+    ]
+  }
+}
