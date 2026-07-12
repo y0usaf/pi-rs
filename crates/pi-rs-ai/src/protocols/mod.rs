@@ -15,9 +15,9 @@
 //! - [`openai_prompt_cache`] ← `providers/openai-prompt-cache.ts`.
 //! - [`openai_completions`] ← `providers/openai-completions.ts`.
 //! - [`openai_responses`] ← `providers/openai-responses.ts` + shared mapping.
-//! - [`openai_codex_responses`] ← the Codex Responses SSE path.
+//! - [`openai_codex_responses`] ← Codex Responses SSE/WebSocket + continuation.
 //!
-//! Remaining families and Codex WebSocket transport land in PLAN item 8 slices.
+//! Remaining protocol families land in PLAN item 8 slices.
 
 pub mod anthropic;
 pub mod cloudflare;
