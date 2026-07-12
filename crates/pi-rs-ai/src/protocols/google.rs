@@ -33,7 +33,7 @@ pub enum GoogleThinkingLevel {
     High,
 }
 impl GoogleThinkingLevel {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Unspecified => "THINKING_LEVEL_UNSPECIFIED",
             Self::Minimal => "MINIMAL",
@@ -58,7 +58,7 @@ pub enum GoogleToolChoice {
     Any,
 }
 impl GoogleToolChoice {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "AUTO",
             Self::None => "NONE",
@@ -87,7 +87,7 @@ fn is_gemma4(id: &str) -> bool {
     id.contains("gemma-4") || id.contains("gemma4")
 }
 
-fn disabled_thinking(model: &Model) -> Value {
+pub(crate) fn disabled_thinking(model: &Model) -> Value {
     if is_gemini3_pro(&model.id) {
         json!({"thinkingLevel":"LOW"})
     } else if is_gemini3_flash(&model.id) || is_gemma4(&model.id) {
@@ -97,7 +97,7 @@ fn disabled_thinking(model: &Model) -> Value {
     }
 }
 
-fn build_params(model: &Model, context: &Context, options: &GoogleOptions) -> Value {
+pub(crate) fn build_params(model: &Model, context: &Context, options: &GoogleOptions) -> Value {
     let mut root = Map::new();
     root.insert(
         "contents".into(),
@@ -189,7 +189,7 @@ fn headers(model: &Model, options: &GoogleOptions, key: &str) -> Result<HeaderMa
     Ok(result)
 }
 
-fn format_http_error(error: TransportError) -> String {
+pub(crate) fn format_http_error(error: TransportError) -> String {
     match error {
         TransportError::Status {
             status,
@@ -206,7 +206,11 @@ fn format_http_error(error: TransportError) -> String {
     }
 }
 
-fn close_current(stream: &AssistantMessageEventStream, output: &AssistantMessage, index: usize) {
+pub(crate) fn close_current(
+    stream: &AssistantMessageEventStream,
+    output: &AssistantMessage,
+    index: usize,
+) {
     match output.content.get(index) {
         Some(AssistantContent::Text(text)) => stream.push(AssistantMessageEvent::TextEnd {
             content_index: index,
@@ -230,7 +234,7 @@ fn retain_signature(current: &mut Option<String>, incoming: Option<&str>) {
     }
 }
 
-fn process_chunk(
+pub(crate) fn process_chunk(
     model: &Model,
     chunk: &Value,
     stream: &AssistantMessageEventStream,
@@ -558,7 +562,7 @@ pub fn stream_google(
     stream
 }
 
-fn effort_level(model: &Model, effort: ThinkingLevel) -> GoogleThinkingLevel {
+pub(crate) fn effort_level(model: &Model, effort: ThinkingLevel) -> GoogleThinkingLevel {
     if is_gemini3_pro(&model.id) {
         return if matches!(effort, ThinkingLevel::Minimal | ThinkingLevel::Low) {
             GoogleThinkingLevel::Low
@@ -580,7 +584,7 @@ fn effort_level(model: &Model, effort: ThinkingLevel) -> GoogleThinkingLevel {
         _ => GoogleThinkingLevel::High,
     }
 }
-fn budget(
+pub(crate) fn budget(
     model: &Model,
     effort: ThinkingLevel,
     custom: Option<&pi_rs_ai_types::ThinkingBudgets>,
