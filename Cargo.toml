@@ -28,6 +28,7 @@ signal-hook = "0.3"
 sha2 = "0.10"
 thiserror = "2.0"
 tokio = { version = "1.45", features = ["rt", "sync", "time", "macros", "process", "fs", "io-util", "net"] }
+tokio-tungstenite = { version = "0.27", features = ["rustls-tls-webpki-roots"] }
 url = "2"
 unicode-normalization = "0.1"
 

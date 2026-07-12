@@ -1,0 +1,720 @@
+{
+	"scenarios": [
+		{
+			"name": "websocket",
+			"wsRequests": [
+				{
+					"path": "/codex/responses",
+					"headers": {
+						"authorization": "Bearer head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig",
+						"chatgpt-account-id": "acct-123",
+						"openai-beta": "responses_websockets=2026-02-06",
+						"originator": "pi",
+						"session-id": "ws-basic",
+						"x-client-request-id": "ws-basic"
+					},
+					"body": {
+						"type": "response.create",
+						"model": "gpt-5.5",
+						"store": false,
+						"stream": true,
+						"instructions": "Be helpful.",
+						"input": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "input_text",
+										"text": "hello"
+									}
+								]
+							}
+						],
+						"text": {
+							"verbosity": "low"
+						},
+						"include": [
+							"reasoning.encrypted_content"
+						],
+						"prompt_cache_key": "ws-basic",
+						"tool_choice": "auto",
+						"parallel_tool_calls": true
+					}
+				}
+			],
+			"httpRequests": [],
+			"turns": [
+				{
+					"events": [
+						{
+							"type": "start"
+						},
+						{
+							"type": "text_start",
+							"contentIndex": 0
+						},
+						{
+							"type": "text_delta",
+							"contentIndex": 0,
+							"delta": "hello ws"
+						},
+						{
+							"type": "text_end",
+							"contentIndex": 0,
+							"content": "hello ws"
+						},
+						{
+							"type": "done",
+							"reason": "stop"
+						}
+					],
+					"result": {
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "hello ws",
+								"textSignature": "{\"v\":1,\"id\":\"msg_ws\"}"
+							}
+						],
+						"api": "openai-codex-responses",
+						"provider": "openai-codex",
+						"model": "gpt-5.5",
+						"usage": {
+							"input": 4,
+							"output": 2,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 6,
+							"cost": {
+								"input": 0.000008,
+								"output": 0.000016,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0.000024
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 0,
+						"responseId": "resp_ws"
+					}
+				}
+			],
+			"stats": {
+				"requests": 1,
+				"connectionsCreated": 1,
+				"connectionsReused": 0,
+				"cachedContextRequests": 0,
+				"storeTrueRequests": 0,
+				"fullContextRequests": 1,
+				"deltaRequests": 0,
+				"lastInputItems": 1,
+				"websocketFailures": 0,
+				"sseFallbacks": 0
+			}
+		},
+		{
+			"name": "cached-continuation",
+			"wsRequests": [
+				{
+					"path": "/codex/responses",
+					"headers": {
+						"authorization": "Bearer head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig",
+						"chatgpt-account-id": "acct-123",
+						"openai-beta": "responses_websockets=2026-02-06",
+						"originator": "pi",
+						"session-id": "ws-cache",
+						"x-client-request-id": "ws-cache"
+					},
+					"body": {
+						"type": "response.create",
+						"model": "gpt-5.5",
+						"store": false,
+						"stream": true,
+						"instructions": "You are a helpful assistant.",
+						"input": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "input_text",
+										"text": "one"
+									}
+								]
+							}
+						],
+						"text": {
+							"verbosity": "low"
+						},
+						"include": [
+							"reasoning.encrypted_content"
+						],
+						"prompt_cache_key": "ws-cache",
+						"tool_choice": "auto",
+						"parallel_tool_calls": true
+					}
+				},
+				{
+					"path": "/codex/responses",
+					"headers": {
+						"authorization": "Bearer head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig",
+						"chatgpt-account-id": "acct-123",
+						"openai-beta": "responses_websockets=2026-02-06",
+						"originator": "pi",
+						"session-id": "ws-cache",
+						"x-client-request-id": "ws-cache"
+					},
+					"body": {
+						"type": "response.create",
+						"model": "gpt-5.5",
+						"store": false,
+						"stream": true,
+						"instructions": "You are a helpful assistant.",
+						"input": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "input_text",
+										"text": "two"
+									}
+								]
+							}
+						],
+						"text": {
+							"verbosity": "low"
+						},
+						"include": [
+							"reasoning.encrypted_content"
+						],
+						"prompt_cache_key": "ws-cache",
+						"tool_choice": "auto",
+						"parallel_tool_calls": true,
+						"previous_response_id": "resp_one"
+					}
+				}
+			],
+			"httpRequests": [],
+			"turns": [
+				{
+					"events": [
+						{
+							"type": "start"
+						},
+						{
+							"type": "text_start",
+							"contentIndex": 0
+						},
+						{
+							"type": "text_delta",
+							"contentIndex": 0,
+							"delta": "first"
+						},
+						{
+							"type": "text_end",
+							"contentIndex": 0,
+							"content": "first"
+						},
+						{
+							"type": "done",
+							"reason": "stop"
+						}
+					],
+					"result": {
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "first",
+								"textSignature": "{\"v\":1,\"id\":\"msg_one\"}"
+							}
+						],
+						"api": "openai-codex-responses",
+						"provider": "openai-codex",
+						"model": "gpt-5.5",
+						"usage": {
+							"input": 2,
+							"output": 1,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 3,
+							"cost": {
+								"input": 0.000004,
+								"output": 0.000008,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0.000012
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 0,
+						"responseId": "resp_one"
+					}
+				},
+				{
+					"events": [
+						{
+							"type": "start"
+						},
+						{
+							"type": "text_start",
+							"contentIndex": 0
+						},
+						{
+							"type": "text_delta",
+							"contentIndex": 0,
+							"delta": "second"
+						},
+						{
+							"type": "text_end",
+							"contentIndex": 0,
+							"content": "second"
+						},
+						{
+							"type": "done",
+							"reason": "stop"
+						}
+					],
+					"result": {
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "second",
+								"textSignature": "{\"v\":1,\"id\":\"msg_two\"}"
+							}
+						],
+						"api": "openai-codex-responses",
+						"provider": "openai-codex",
+						"model": "gpt-5.5",
+						"usage": {
+							"input": 2,
+							"output": 1,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 3,
+							"cost": {
+								"input": 0.000004,
+								"output": 0.000008,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0.000012
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 0,
+						"responseId": "resp_two"
+					}
+				}
+			],
+			"stats": {
+				"requests": 2,
+				"connectionsCreated": 1,
+				"connectionsReused": 1,
+				"cachedContextRequests": 2,
+				"storeTrueRequests": 0,
+				"fullContextRequests": 1,
+				"deltaRequests": 1,
+				"lastInputItems": 1,
+				"websocketFailures": 0,
+				"sseFallbacks": 0,
+				"lastDeltaInputItems": 1,
+				"lastPreviousResponseId": "resp_one"
+			}
+		},
+		{
+			"name": "fallback-before-start",
+			"wsRequests": [],
+			"httpRequests": [
+				{
+					"method": "POST",
+					"path": "/codex/responses",
+					"headers": {
+						"authorization": "Bearer head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig",
+						"chatgpt-account-id": "acct-123",
+						"openai-beta": "responses=experimental",
+						"originator": "pi",
+						"session-id": "ws-fallback",
+						"x-client-request-id": "ws-fallback"
+					},
+					"body": {
+						"model": "gpt-5.5",
+						"store": false,
+						"stream": true,
+						"instructions": "You are a helpful assistant.",
+						"input": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "input_text",
+										"text": "fallback"
+									}
+								]
+							}
+						],
+						"text": {
+							"verbosity": "low"
+						},
+						"include": [
+							"reasoning.encrypted_content"
+						],
+						"prompt_cache_key": "ws-fallback",
+						"tool_choice": "auto",
+						"parallel_tool_calls": true
+					}
+				}
+			],
+			"turns": [
+				{
+					"events": [
+						{
+							"type": "start"
+						},
+						{
+							"type": "text_start",
+							"contentIndex": 0
+						},
+						{
+							"type": "text_delta",
+							"contentIndex": 0,
+							"delta": "fell back"
+						},
+						{
+							"type": "text_end",
+							"contentIndex": 0,
+							"content": "fell back"
+						},
+						{
+							"type": "done",
+							"reason": "stop"
+						}
+					],
+					"result": {
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "fell back",
+								"textSignature": "{\"v\":1,\"id\":\"msg_sse\"}"
+							}
+						],
+						"api": "openai-codex-responses",
+						"provider": "openai-codex",
+						"model": "gpt-5.5",
+						"usage": {
+							"input": 2,
+							"output": 2,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 4,
+							"cost": {
+								"input": 0.000004,
+								"output": 0.000016,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0.000019999999999999998
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 0,
+						"diagnostics": [
+							{
+								"type": "provider_transport_failure",
+								"timestamp": 0,
+								"error": {
+									"name": "WebSocketCloseError",
+									"message": "WebSocket closed 1006",
+									"code": 1006
+								},
+								"details": {
+									"configuredTransport": "auto",
+									"fallbackTransport": "sse",
+									"eventsEmitted": false,
+									"phase": "before_message_stream_start",
+									"requestBytes": 321
+								}
+							}
+						],
+						"responseId": "resp_sse"
+					}
+				}
+			],
+			"stats": {
+				"requests": 1,
+				"connectionsCreated": 1,
+				"connectionsReused": 0,
+				"cachedContextRequests": 1,
+				"storeTrueRequests": 0,
+				"fullContextRequests": 1,
+				"deltaRequests": 0,
+				"lastInputItems": 1,
+				"websocketFailures": 1,
+				"sseFallbacks": 1,
+				"lastWebSocketError": "WebSocket closed 1006",
+				"websocketFallbackActive": true
+			}
+		},
+		{
+			"name": "idle-timeout-fallback",
+			"wsRequests": [
+				{
+					"path": "/codex/responses",
+					"headers": {
+						"authorization": "Bearer head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig",
+						"chatgpt-account-id": "acct-123",
+						"openai-beta": "responses_websockets=2026-02-06",
+						"originator": "pi",
+						"session-id": "ws-timeout",
+						"x-client-request-id": "ws-timeout"
+					},
+					"body": {
+						"type": "response.create",
+						"model": "gpt-5.5",
+						"store": false,
+						"stream": true,
+						"instructions": "You are a helpful assistant.",
+						"input": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "input_text",
+										"text": "timeout"
+									}
+								]
+							}
+						],
+						"text": {
+							"verbosity": "low"
+						},
+						"include": [
+							"reasoning.encrypted_content"
+						],
+						"prompt_cache_key": "ws-timeout",
+						"tool_choice": "auto",
+						"parallel_tool_calls": true
+					}
+				}
+			],
+			"httpRequests": [
+				{
+					"method": "POST",
+					"path": "/codex/responses",
+					"headers": {
+						"authorization": "Bearer head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig",
+						"chatgpt-account-id": "acct-123",
+						"openai-beta": "responses=experimental",
+						"originator": "pi",
+						"session-id": "ws-timeout",
+						"x-client-request-id": "ws-timeout"
+					},
+					"body": {
+						"model": "gpt-5.5",
+						"store": false,
+						"stream": true,
+						"instructions": "You are a helpful assistant.",
+						"input": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "input_text",
+										"text": "timeout"
+									}
+								]
+							}
+						],
+						"text": {
+							"verbosity": "low"
+						},
+						"include": [
+							"reasoning.encrypted_content"
+						],
+						"prompt_cache_key": "ws-timeout",
+						"tool_choice": "auto",
+						"parallel_tool_calls": true
+					}
+				}
+			],
+			"turns": [
+				{
+					"events": [
+						{
+							"type": "start"
+						},
+						{
+							"type": "text_start",
+							"contentIndex": 0
+						},
+						{
+							"type": "text_delta",
+							"contentIndex": 0,
+							"delta": "after timeout"
+						},
+						{
+							"type": "text_end",
+							"contentIndex": 0,
+							"content": "after timeout"
+						},
+						{
+							"type": "done",
+							"reason": "stop"
+						}
+					],
+					"result": {
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "after timeout",
+								"textSignature": "{\"v\":1,\"id\":\"msg_timeout\"}"
+							}
+						],
+						"api": "openai-codex-responses",
+						"provider": "openai-codex",
+						"model": "gpt-5.5",
+						"usage": {
+							"input": 2,
+							"output": 2,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 4,
+							"cost": {
+								"input": 0.000004,
+								"output": 0.000016,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0.000019999999999999998
+							}
+						},
+						"stopReason": "stop",
+						"timestamp": 0,
+						"diagnostics": [
+							{
+								"type": "provider_transport_failure",
+								"timestamp": 0,
+								"error": {
+									"name": "Error",
+									"message": "WebSocket idle timeout after 20ms"
+								},
+								"details": {
+									"configuredTransport": "auto",
+									"fallbackTransport": "sse",
+									"eventsEmitted": false,
+									"phase": "before_message_stream_start",
+									"requestBytes": 319
+								}
+							}
+						],
+						"responseId": "resp_timeout"
+					}
+				}
+			],
+			"stats": {
+				"requests": 1,
+				"connectionsCreated": 1,
+				"connectionsReused": 0,
+				"cachedContextRequests": 1,
+				"storeTrueRequests": 0,
+				"fullContextRequests": 1,
+				"deltaRequests": 0,
+				"lastInputItems": 1,
+				"websocketFailures": 1,
+				"sseFallbacks": 1,
+				"lastWebSocketError": "WebSocket idle timeout after 20ms",
+				"websocketFallbackActive": true
+			}
+		},
+		{
+			"name": "protocol-error-no-fallback",
+			"wsRequests": [
+				{
+					"path": "/codex/responses",
+					"headers": {
+						"authorization": "Bearer head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig",
+						"chatgpt-account-id": "acct-123",
+						"openai-beta": "responses_websockets=2026-02-06",
+						"originator": "pi",
+						"session-id": "ws-protocol",
+						"x-client-request-id": "ws-protocol"
+					},
+					"body": {
+						"type": "response.create",
+						"model": "gpt-5.5",
+						"store": false,
+						"stream": true,
+						"instructions": "You are a helpful assistant.",
+						"input": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "input_text",
+										"text": "bad"
+									}
+								]
+							}
+						],
+						"text": {
+							"verbosity": "low"
+						},
+						"include": [
+							"reasoning.encrypted_content"
+						],
+						"prompt_cache_key": "ws-protocol",
+						"tool_choice": "auto",
+						"parallel_tool_calls": true
+					}
+				}
+			],
+			"httpRequests": [],
+			"turns": [
+				{
+					"events": [
+						{
+							"type": "error",
+							"reason": "error"
+						}
+					],
+					"result": {
+						"role": "assistant",
+						"content": [],
+						"api": "openai-codex-responses",
+						"provider": "openai-codex",
+						"model": "gpt-5.5",
+						"usage": {
+							"input": 0,
+							"output": 0,
+							"cacheRead": 0,
+							"cacheWrite": 0,
+							"totalTokens": 0,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 0
+							}
+						},
+						"stopReason": "error",
+						"timestamp": 0,
+						"errorMessage": "Codex error: broken websocket request"
+					}
+				}
+			],
+			"stats": {
+				"requests": 1,
+				"connectionsCreated": 1,
+				"connectionsReused": 0,
+				"cachedContextRequests": 1,
+				"storeTrueRequests": 0,
+				"fullContextRequests": 1,
+				"deltaRequests": 0,
+				"lastInputItems": 1,
+				"websocketFailures": 0,
+				"sseFallbacks": 0
+			}
+		}
+	]
+}

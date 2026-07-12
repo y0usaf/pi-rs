@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use futures_util::stream::BoxStream;
 use pi_rs_ai_types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, AssistantRole, CacheRetention,
     Context, Message, Modality, Model, ModelThinkingLevel, OpenAIResponsesCompat, ProviderResponse,
@@ -21,7 +22,7 @@ use super::simple_options::build_base_options;
 use super::transform_messages::transform_messages;
 use super::{ProtocolError, merge_header, merge_header_map, resolve_cache_retention};
 use crate::transport::{
-    AbortSignal, AssistantMessageEventStream, RetryOptions, RetryPolicy, TransportError,
+    AbortSignal, AssistantMessageEventStream, RetryOptions, RetryPolicy, SseReader, TransportError,
     create_assistant_message_event_stream, post_with_retry, response_sse_reader,
 };
 use crate::util::{headers_to_record, parse_streaming_json, sanitize_surrogates};
@@ -532,33 +533,54 @@ pub(crate) enum ResponsesFlavor {
     Codex,
 }
 
-pub(crate) async fn process_responses_stream(
-    response: reqwest::Response,
-    signal: Option<AbortSignal>,
+type HttpSseReader = SseReader<BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>>;
+
+pub(crate) enum ResponsesEventSource {
+    Sse(HttpSseReader),
+    Values(tokio::sync::mpsc::Receiver<Result<Value, ProtocolError>>),
+}
+
+impl ResponsesEventSource {
+    async fn next(&mut self) -> Result<Option<Value>, ProtocolError> {
+        match self {
+            Self::Sse(reader) => loop {
+                let Some(sse) = reader
+                    .next()
+                    .await
+                    .map_err(|error| ProtocolError(error.to_string()))?
+                else {
+                    return Ok(None);
+                };
+                if sse.data.is_empty() || sse.data == "[DONE]" {
+                    continue;
+                }
+                return serde_json::from_str(&sse.data).map(Some).map_err(|error| {
+                    ProtocolError(format!(
+                        "Could not parse OpenAI SSE chunk: {error}; data={}",
+                        sse.data
+                    ))
+                });
+            },
+            Self::Values(receiver) => match receiver.recv().await {
+                Some(result) => result.map(Some),
+                None => Ok(None),
+            },
+        }
+    }
+}
+
+pub(crate) async fn process_responses_events(
+    source: &mut ResponsesEventSource,
     output: &mut AssistantMessage,
     stream: &AssistantMessageEventStream,
     model: &Model,
     service_tier: Option<&str>,
     flavor: ResponsesFlavor,
 ) -> Result<(), ProtocolError> {
-    let mut reader = response_sse_reader(response, signal);
     let mut current_item = Value::Null;
     let mut current_block = None;
     let mut partial_json = String::new();
-    while let Some(sse) = reader
-        .next()
-        .await
-        .map_err(|error| ProtocolError(error.to_string()))?
-    {
-        if sse.data.is_empty() || sse.data == "[DONE]" {
-            continue;
-        }
-        let event: Value = serde_json::from_str(&sse.data).map_err(|error| {
-            ProtocolError(format!(
-                "Could not parse OpenAI SSE chunk: {error}; data={}",
-                sse.data
-            ))
-        })?;
+    while let Some(event) = source.next().await? {
         let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
         match event_type {
             "response.created" => {
@@ -1024,6 +1046,19 @@ pub(crate) async fn process_responses_stream(
         }
     }
     Ok(())
+}
+
+pub(crate) async fn process_responses_stream(
+    response: reqwest::Response,
+    signal: Option<AbortSignal>,
+    output: &mut AssistantMessage,
+    stream: &AssistantMessageEventStream,
+    model: &Model,
+    service_tier: Option<&str>,
+    flavor: ResponsesFlavor,
+) -> Result<(), ProtocolError> {
+    let mut source = ResponsesEventSource::Sse(response_sse_reader(response, signal));
+    process_responses_events(&mut source, output, stream, model, service_tier, flavor).await
 }
 
 fn format_transport_error(error: &TransportError) -> String {

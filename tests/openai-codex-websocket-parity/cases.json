@@ -1,0 +1,113 @@
+{
+  "model": {
+    "id": "gpt-5.5",
+    "name": "GPT-5.5",
+    "api": "openai-codex-responses",
+    "provider": "openai-codex",
+    "baseUrl": "http://placeholder",
+    "reasoning": true,
+    "thinkingLevelMap": { "off": "none", "minimal": "minimal", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh" },
+    "input": ["text", "image"],
+    "cost": { "input": 2, "output": 8, "cacheRead": 0.2, "cacheWrite": 0 },
+    "contextWindow": 200000,
+    "maxTokens": 32768
+  },
+  "token": "head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig",
+  "scenarios": [
+    {
+      "name": "websocket",
+      "transport": "websocket",
+      "sessionId": "ws-basic",
+      "turns": [
+        {
+          "context": { "systemPrompt": "Be helpful.", "messages": [{ "role": "user", "content": "hello", "timestamp": 1 }] },
+          "events": [
+            { "type": "response.created", "response": { "id": "resp_ws" } },
+            { "type": "response.output_item.added", "item": { "type": "message", "id": "msg_ws", "role": "assistant", "content": [], "status": "in_progress" } },
+            { "type": "response.content_part.added", "part": { "type": "output_text", "text": "", "annotations": [] } },
+            { "type": "response.output_text.delta", "delta": "hello ws" },
+            { "type": "response.output_item.done", "item": { "type": "message", "id": "msg_ws", "role": "assistant", "content": [{ "type": "output_text", "text": "hello ws", "annotations": [] }], "status": "completed" } },
+            { "type": "response.done", "response": { "id": "resp_ws", "status": "completed", "usage": { "input_tokens": 4, "output_tokens": 2, "total_tokens": 6 } } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cached-continuation",
+      "transport": "websocket-cached",
+      "sessionId": "ws-cache",
+      "turns": [
+        {
+          "context": { "messages": [{ "role": "user", "content": "one", "timestamp": 1 }] },
+          "events": [
+            { "type": "response.created", "response": { "id": "resp_one" } },
+            { "type": "response.output_item.added", "item": { "type": "message", "id": "msg_one", "role": "assistant", "content": [], "status": "in_progress" } },
+            { "type": "response.content_part.added", "part": { "type": "output_text", "text": "", "annotations": [] } },
+            { "type": "response.output_text.delta", "delta": "first" },
+            { "type": "response.output_item.done", "item": { "type": "message", "id": "msg_one", "role": "assistant", "content": [{ "type": "output_text", "text": "first", "annotations": [] }], "status": "completed" } },
+            { "type": "response.done", "response": { "id": "resp_one", "status": "completed", "usage": { "input_tokens": 2, "output_tokens": 1, "total_tokens": 3 } } }
+          ]
+        },
+        {
+          "context": { "messages": [
+            { "role": "user", "content": "one", "timestamp": 1 },
+            { "role": "assistant", "content": [{ "type": "text", "text": "first", "textSignature": "{\"v\":1,\"id\":\"msg_one\"}" }], "api": "openai-codex-responses", "provider": "openai-codex", "model": "gpt-5.5", "usage": { "input": 2, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 3, "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 } }, "stopReason": "stop", "timestamp": 1 },
+            { "role": "user", "content": "two", "timestamp": 2 }
+          ] },
+          "events": [
+            { "type": "response.created", "response": { "id": "resp_two" } },
+            { "type": "response.output_item.added", "item": { "type": "message", "id": "msg_two", "role": "assistant", "content": [], "status": "in_progress" } },
+            { "type": "response.content_part.added", "part": { "type": "output_text", "text": "", "annotations": [] } },
+            { "type": "response.output_text.delta", "delta": "second" },
+            { "type": "response.output_item.done", "item": { "type": "message", "id": "msg_two", "role": "assistant", "content": [{ "type": "output_text", "text": "second", "annotations": [] }], "status": "completed" } },
+            { "type": "response.done", "response": { "id": "resp_two", "status": "completed", "usage": { "input_tokens": 2, "output_tokens": 1, "total_tokens": 3 } } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fallback-before-start",
+      "transport": "auto",
+      "sessionId": "ws-fallback",
+      "failBeforeStart": true,
+      "turns": [{
+        "context": { "messages": [{ "role": "user", "content": "fallback", "timestamp": 1 }] },
+        "events": [
+          { "type": "response.created", "response": { "id": "resp_sse" } },
+          { "type": "response.output_item.added", "item": { "type": "message", "id": "msg_sse", "role": "assistant", "content": [], "status": "in_progress" } },
+          { "type": "response.content_part.added", "part": { "type": "output_text", "text": "", "annotations": [] } },
+          { "type": "response.output_text.delta", "delta": "fell back" },
+          { "type": "response.output_item.done", "item": { "type": "message", "id": "msg_sse", "role": "assistant", "content": [{ "type": "output_text", "text": "fell back", "annotations": [] }], "status": "completed" } },
+          { "type": "response.done", "response": { "id": "resp_sse", "status": "completed", "usage": { "input_tokens": 2, "output_tokens": 2, "total_tokens": 4 } } }
+        ]
+      }]
+    },
+    {
+      "name": "idle-timeout-fallback",
+      "transport": "auto",
+      "sessionId": "ws-timeout",
+      "timeoutMs": 20,
+      "timeoutBeforeStart": true,
+      "turns": [{
+        "context": { "messages": [{ "role": "user", "content": "timeout", "timestamp": 1 }] },
+        "events": [
+          { "type": "response.created", "response": { "id": "resp_timeout" } },
+          { "type": "response.output_item.added", "item": { "type": "message", "id": "msg_timeout", "role": "assistant", "content": [], "status": "in_progress" } },
+          { "type": "response.content_part.added", "part": { "type": "output_text", "text": "", "annotations": [] } },
+          { "type": "response.output_text.delta", "delta": "after timeout" },
+          { "type": "response.output_item.done", "item": { "type": "message", "id": "msg_timeout", "role": "assistant", "content": [{ "type": "output_text", "text": "after timeout", "annotations": [] }], "status": "completed" } },
+          { "type": "response.done", "response": { "id": "resp_timeout", "status": "completed", "usage": { "input_tokens": 2, "output_tokens": 2, "total_tokens": 4 } } }
+        ]
+      }]
+    },
+    {
+      "name": "protocol-error-no-fallback",
+      "transport": "auto",
+      "sessionId": "ws-protocol",
+      "turns": [{
+        "context": { "messages": [{ "role": "user", "content": "bad", "timestamp": 1 }] },
+        "events": [{ "type": "error", "code": "bad_request", "message": "broken websocket request" }]
+      }]
+    }
+  ]
+}
