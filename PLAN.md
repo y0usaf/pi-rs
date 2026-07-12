@@ -1747,9 +1747,30 @@ surface; external editor + suspend. Split into rungs:
       --workspace`, and `nix build .#checks.x86_64-linux.workspace-test
       --print-build-logs` are green.
 
-      **Remaining:** close Vertex's other google-auth ADC credential-file forms
-      (service-account and workload-identity files; the pinned env discovery
-      treats any existing ADC file as configured), then add deterministic
+      **Seventh landed slice (2026-07-12): Vertex ADC credential files.** The
+      Vertex auth mechanism now covers service-account JSON (RS256 JWT bearer
+      assertion + OAuth exchange) and file-sourced workload identity federation
+      (text/JSON subject-token formats, RFC 8693 STS exchange, optional service-
+      account impersonation/lifetime, and workload project lookup) in addition
+      to the authorized-user path from the prior slice. Auth requests preserve
+      google-auth-library 10.6.2's form order, headers, scopes, and bearer flow;
+      service-account credentials default to Google's OAuth endpoint (the
+      fixture's `token_uri` redirects only the deterministic loopback replay).
+
+      **Seventh-slice evidence:** the Pi-derived Google Vertex oracle now replays
+      13 cases, adding service-account, workload text-file, and workload JSON +
+      impersonation paths. It compares every auth/project/provider request,
+      events, and final messages; the normalized service JWT pins exact header/
+      claims, one-hour lifetime, 256-byte signature, and cryptographic validity
+      against the fixture key. Oracle regeneration is byte-idempotent. No Lua
+      extension hook landed; no example needed. `cargo fmt --check`, `cargo
+      clippy -p pi-rs-ai -- -D warnings`, focused oracle tests, `cargo test
+      --workspace`, and `nix build .#checks.x86_64-linux.workspace-test
+      --print-build-logs` are green.
+
+      **Remaining:** close google-auth's other existing-file `external_account`
+      sources (URL, AWS, executable, and certificate) so Pi's broad ADC file
+      discovery never advertises an unsupported shape; then add deterministic
       differential replays + dispatch for `mistral-conversations` and
       `bedrock-converse-stream`; upgrade the existing `openai-completions`
       fixtures to a Pi-derived differential oracle, then run the whole catalog/

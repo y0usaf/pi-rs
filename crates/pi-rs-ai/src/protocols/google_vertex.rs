@@ -137,6 +137,9 @@ fn request_url(
     )
 }
 
+const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
+const GOOGLE_OAUTH_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+
 fn credential_path() -> Result<std::path::PathBuf, ProtocolError> {
     if let Some(path) = env_non_empty("GOOGLE_APPLICATION_CREDENTIALS") {
         return Ok(path.into());
@@ -155,12 +158,31 @@ fn credential_field<'a>(value: &'a Value, key: &str) -> Result<&'a str, Protocol
         .ok_or_else(|| ProtocolError(format!("ADC credentials are missing {key}")))
 }
 
+async fn token_response(request: reqwest::RequestBuilder) -> Result<Value, ProtocolError> {
+    let response = request
+        .send()
+        .await
+        .map_err(|error| ProtocolError(error.to_string()))?;
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    let value: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    if !status.is_success() {
+        let message = value
+            .get("error_description")
+            .or_else(|| value.get("error"))
+            .and_then(Value::as_str)
+            .unwrap_or(&text);
+        return Err(ProtocolError(message.to_string()));
+    }
+    Ok(value)
+}
+
 async fn refresh_user_token(credentials: &Value) -> Result<String, ProtocolError> {
     let kind = credential_field(credentials, "type")?;
     let endpoint = if kind == "external_account_authorized_user" {
         credential_field(credentials, "token_url")?
     } else if kind == "authorized_user" {
-        "https://oauth2.googleapis.com/token"
+        GOOGLE_OAUTH_TOKEN_URL
     } else {
         return Err(ProtocolError(format!(
             "Unsupported Application Default Credentials type: {kind}"
@@ -197,23 +219,206 @@ async fn refresh_user_token(credentials: &Value) -> Result<String, ProtocolError
             .encode(format!("{client_id}:{client_secret}"));
         request = request.header("authorization", format!("Basic {basic}"));
     }
-    let response = request
-        .body(body)
-        .send()
-        .await
-        .map_err(|error| ProtocolError(error.to_string()))?;
-    let status = response.status();
-    let text = response.text().await.unwrap_or_default();
-    let value: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-    if !status.is_success() {
-        let message = value
-            .get("error_description")
-            .or_else(|| value.get("error"))
-            .and_then(Value::as_str)
-            .unwrap_or(&text);
-        return Err(ProtocolError(message.to_string()));
-    }
+    let value = token_response(request.body(body)).await?;
     credential_field(&value, "access_token").map(str::to_string)
+}
+
+fn service_account_assertion(credentials: &Value) -> Result<String, ProtocolError> {
+    let email = credential_field(credentials, "client_email")?;
+    let private_key = credential_field(credentials, "private_key")?;
+    let key_der = base64::engine::general_purpose::STANDARD
+        .decode(
+            private_key
+                .lines()
+                .filter(|line| !line.starts_with("-----"))
+                .collect::<String>(),
+        )
+        .map_err(|error| ProtocolError(error.to_string()))?;
+    let key = ring::signature::RsaKeyPair::from_pkcs8(&key_der)
+        .map_err(|error| ProtocolError(error.to_string()))?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| ProtocolError(error.to_string()))?
+        .as_secs();
+    let header = serde_json::json!({"alg":"RS256"});
+    let payload = serde_json::json!({
+        "iss": email,
+        "scope": CLOUD_PLATFORM_SCOPE,
+        "aud": GOOGLE_OAUTH_TOKEN_URL,
+        "exp": now + 3600,
+        "iat": now,
+    });
+    let encode =
+        |value: &Value| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(value.to_string());
+    let signing_input = format!("{}.{}", encode(&header), encode(&payload));
+    let mut signature = vec![0; key.public().modulus_len()];
+    key.sign(
+        &ring::signature::RSA_PKCS1_SHA256,
+        &ring::rand::SystemRandom::new(),
+        signing_input.as_bytes(),
+        &mut signature,
+    )
+    .map_err(|error| ProtocolError(error.to_string()))?;
+    Ok(format!(
+        "{signing_input}.{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature)
+    ))
+}
+
+fn service_account_token_url(credentials: &Value) -> &str {
+    credentials
+        .get("token_uri")
+        .and_then(Value::as_str)
+        .unwrap_or(GOOGLE_OAUTH_TOKEN_URL)
+}
+
+async fn service_account_token(credentials: &Value) -> Result<String, ProtocolError> {
+    let body = {
+        let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+        serializer
+            .append_pair("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer")
+            .append_pair("assertion", &service_account_assertion(credentials)?);
+        serializer.finish()
+    };
+    let value = token_response(
+        reqwest::Client::new()
+            .post(service_account_token_url(credentials))
+            .header("accept", "application/json")
+            .header(
+                "content-type",
+                "application/x-www-form-urlencoded;charset=UTF-8",
+            )
+            .header("x-goog-api-client", "gl-node/22.23.1")
+            .body(body),
+    )
+    .await?;
+    credential_field(&value, "access_token").map(str::to_string)
+}
+
+fn external_subject_token(credentials: &Value) -> Result<String, ProtocolError> {
+    let source = credentials
+        .get("credential_source")
+        .ok_or_else(|| ProtocolError("A credential source must be specified.".into()))?;
+    let path = credential_field(source, "file")?;
+    let raw = std::fs::read_to_string(path).map_err(|error| ProtocolError(error.to_string()))?;
+    let format = source.get("format");
+    if format
+        .and_then(|value| value.get("type"))
+        .and_then(Value::as_str)
+        == Some("json")
+    {
+        let field = format
+            .and_then(|value| value.get("subject_token_field_name"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                ProtocolError(
+                    "Missing subject_token_field_name for JSON credential_source format".into(),
+                )
+            })?;
+        let value: Value =
+            serde_json::from_str(&raw).map_err(|error| ProtocolError(error.to_string()))?;
+        return credential_field(&value, field).map(str::to_string);
+    }
+    if raw.is_empty() {
+        return Err(ProtocolError(
+            "Unable to parse the subject_token from the credential_source file".into(),
+        ));
+    }
+    Ok(raw)
+}
+
+async fn external_account_token(credentials: &Value) -> Result<String, ProtocolError> {
+    let audience = credential_field(credentials, "audience")?;
+    let subject_token_type = credential_field(credentials, "subject_token_type")?;
+    let token_url = credential_field(credentials, "token_url")?;
+    let subject_token = external_subject_token(credentials)?;
+    let body = {
+        let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+        serializer
+            .append_pair(
+                "grant_type",
+                "urn:ietf:params:oauth:grant-type:token-exchange",
+            )
+            .append_pair("audience", audience)
+            .append_pair("scope", CLOUD_PLATFORM_SCOPE)
+            .append_pair(
+                "requested_token_type",
+                "urn:ietf:params:oauth:token-type:access_token",
+            )
+            .append_pair("subject_token", &subject_token)
+            .append_pair("subject_token_type", subject_token_type);
+        serializer.finish()
+    };
+    let impersonation_url = credentials
+        .get("service_account_impersonation_url")
+        .and_then(Value::as_str);
+    let configured_lifetime = credentials
+        .pointer("/service_account_impersonation/token_lifetime_seconds")
+        .and_then(Value::as_u64);
+    let mut request = reqwest::Client::new()
+        .post(token_url)
+        .header("accept", "application/json")
+        .header(
+            "content-type",
+            "application/x-www-form-urlencoded;charset=UTF-8",
+        )
+        .header(
+            "x-goog-api-client",
+            format!(
+                "gl-node/22.23.1 auth/10.6.2 google-byoid-sdk source/file sa-impersonation/{} config-lifetime/{}",
+                impersonation_url.is_some(),
+                configured_lifetime.is_some()
+            ),
+        );
+    if let Some(client_id) = credentials.get("client_id").and_then(Value::as_str) {
+        let secret = credentials
+            .get("client_secret")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let basic =
+            base64::engine::general_purpose::STANDARD.encode(format!("{client_id}:{secret}"));
+        request = request.header("authorization", format!("Basic {basic}"));
+    }
+    let value = token_response(request.body(body)).await?;
+    let mut token = credential_field(&value, "access_token")?.to_string();
+    if let Some(url) = impersonation_url {
+        let body = serde_json::json!({
+            "scope": [CLOUD_PLATFORM_SCOPE],
+            "lifetime": format!("{}s", configured_lifetime.unwrap_or(3600)),
+        })
+        .to_string();
+        let value = token_response(
+            reqwest::Client::new()
+                .post(url)
+                .bearer_auth(&token)
+                .header("accept", "application/json")
+                .header("content-type", "application/json")
+                .header("x-goog-api-client", "gl-node/22.23.1")
+                .body(body),
+        )
+        .await?;
+        token = credential_field(&value, "accessToken")?.to_string();
+    }
+    if let Some(project_number) = audience
+        .split("/projects/")
+        .nth(1)
+        .and_then(|rest| rest.split('/').next())
+        .filter(|value| !value.is_empty())
+    {
+        let base = credentials
+            .get("cloud_resource_manager_url")
+            .and_then(Value::as_str)
+            .unwrap_or("https://cloudresourcemanager.googleapis.com/v1/projects/");
+        token_response(
+            reqwest::Client::new()
+                .get(format!("{base}{project_number}"))
+                .bearer_auth(&token)
+                .header("accept", "application/json")
+                .header("x-goog-api-client", "gl-node/22.23.1"),
+        )
+        .await?;
+    }
+    Ok(token)
 }
 
 async fn adc_access_token() -> Result<String, ProtocolError> {
@@ -223,7 +428,16 @@ async fn adc_access_token() -> Result<String, ProtocolError> {
         .map_err(|error| ProtocolError(error.to_string()))?;
     let credentials: Value =
         serde_json::from_str(&raw).map_err(|error| ProtocolError(error.to_string()))?;
-    refresh_user_token(&credentials).await
+    match credential_field(&credentials, "type")? {
+        "authorized_user" | "external_account_authorized_user" => {
+            refresh_user_token(&credentials).await
+        }
+        "service_account" => service_account_token(&credentials).await,
+        "external_account" => external_account_token(&credentials).await,
+        kind => Err(ProtocolError(format!(
+            "Unsupported Application Default Credentials type: {kind}"
+        ))),
+    }
 }
 
 fn request_headers(

@@ -26,6 +26,7 @@ serde_json = { version = "1.0", features = ["preserve_order", "float_roundtrip"]
 vt100 = "0.16.2"
 signal-hook = "0.3"
 sha2 = "0.10"
+ring = "0.17"
 thiserror = "2.0"
 tokio = { version = "1.45", features = ["rt", "sync", "time", "macros", "process", "fs", "io-util", "net"] }
 tokio-tungstenite = { version = "0.27", features = ["rustls-tls-webpki-roots"] }

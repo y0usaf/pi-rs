@@ -50,6 +50,7 @@
               || (lib.hasSuffix ".md" path)
               || (lib.hasSuffix ".base64" path)
               || (lib.hasSuffix ".hex" path)
+              || (lib.hasSuffix ".pem" path)
               || (lib.hasSuffix ".sse" path);
           };
 

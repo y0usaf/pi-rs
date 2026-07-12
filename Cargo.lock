@@ -985,6 +985,7 @@ dependencies = [
  "httpdate",
  "pi-rs-ai-types",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "thiserror",
