@@ -22,6 +22,9 @@ use crate::protocols::azure_openai_responses::{
     stream_simple_azure_openai_responses,
 };
 use crate::protocols::google::{GoogleOptions, stream_google, stream_simple_google};
+use crate::protocols::google_vertex::{
+    GoogleVertexOptions, stream_google_vertex, stream_simple_google_vertex,
+};
 use crate::protocols::openai_codex_responses::{
     OpenAICodexResponsesOptions, stream_openai_codex_responses,
     stream_simple_openai_codex_responses,
@@ -83,6 +86,20 @@ pub fn register_builtin_api_providers() {
                 Ok(stream_google(model, context, options))
             }),
             stream_simple: Arc::new(stream_simple_google),
+        },
+        None,
+    );
+    register_api_provider(
+        ApiProvider {
+            api: "google-vertex".to_owned(),
+            stream: Arc::new(|model, context, options| {
+                let options = options.map(|base| GoogleVertexOptions {
+                    base,
+                    ..GoogleVertexOptions::default()
+                });
+                Ok(stream_google_vertex(model, context, options))
+            }),
+            stream_simple: Arc::new(stream_simple_google_vertex),
         },
         None,
     );

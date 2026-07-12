@@ -14,6 +14,7 @@
 //! - [`anthropic`] ← `providers/anthropic.ts`.
 //! - [`azure_openai_responses`] ← `providers/azure-openai-responses.ts`.
 //! - [`google`] + [`google_shared`] ← Google Generative AI wire protocol.
+//! - [`google_vertex`] ← Google Vertex request/auth policy over the shared wire path.
 //! - [`openai_prompt_cache`] ← `providers/openai-prompt-cache.ts`.
 //! - [`openai_completions`] ← `providers/openai-completions.ts`.
 //! - [`openai_responses`] ← `providers/openai-responses.ts` + shared mapping.
@@ -27,6 +28,7 @@ pub mod cloudflare;
 pub mod copilot_headers;
 pub mod google;
 pub(crate) mod google_shared;
+pub mod google_vertex;
 pub mod openai_codex_responses;
 pub mod openai_completions;
 pub mod openai_prompt_cache;
