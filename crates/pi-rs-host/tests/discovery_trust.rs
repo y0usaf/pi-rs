@@ -139,6 +139,40 @@ fn discovery_missing_dirs_yield_nothing() {
 }
 
 #[test]
+fn product_paths_put_cli_first_and_disable_only_discovery() {
+    let (root, proj, agent) = discovery_fixture();
+    let cli = root.join("cli.lua");
+    let configured = root.join("configured.lua");
+    write(&cli, "local pi = ...");
+    write(&configured, "local pi = ...");
+
+    let found = discover::product_extension_paths(
+        &[s(&configured)],
+        &[s(&cli)],
+        &s(&proj),
+        &s(&agent),
+        true,
+        false,
+    );
+    let cli = s(&cli);
+    let configured = s(&configured);
+    assert_eq!(found[0], cli);
+    assert_eq!(found.last(), Some(&configured));
+    assert!(found.iter().any(|path| path.ends_with("alpha.lua")));
+    assert!(found.iter().any(|path| path.ends_with("global.lua")));
+
+    let disabled = discover::product_extension_paths(
+        std::slice::from_ref(&configured),
+        std::slice::from_ref(&cli),
+        &s(&proj),
+        &s(&agent),
+        true,
+        true,
+    );
+    assert_eq!(disabled, [cli]);
+}
+
+#[test]
 fn load_extensions_collects_errors_without_aborting() {
     let root = temp_dir("load");
     let good = root.join("good.lua");
@@ -158,6 +192,53 @@ fn load_extensions_collects_errors_without_aborting() {
             .starts_with("Failed to load extension:")
     );
     assert_eq!(report.errors[1].path, s(&missing));
+}
+
+#[test]
+fn load_extensions_reports_tool_conflicts_without_unloading_later_files() {
+    let root = temp_dir("conflict");
+    let first = root.join("first.lua");
+    let second = root.join("second.lua");
+    write(
+        &first,
+        "local pi = ...\npi.register_tool({name='same',execute=function() return {from='first'} end})",
+    );
+    write(
+        &second,
+        "local pi = ...\npi.register_tool({name='same',execute=function() return {from='second'} end})\npi.register_command('still-loaded',{handler=function() return 'yes' end})",
+    );
+    let host = Host::new(HostConfig::default()).unwrap();
+    let report = host.load_extensions(&[s(&first), s(&second)]);
+    assert_eq!(report.loaded, [s(&first), s(&second)]);
+    assert_eq!(report.errors.len(), 1);
+    assert_eq!(report.errors[0].path, s(&second));
+    assert_eq!(
+        report.errors[0].error,
+        format!("Tool \"same\" conflicts with {}", s(&first))
+    );
+    assert!(host.call_command("still-loaded", "").unwrap().is_some());
+}
+
+#[test]
+fn failed_async_initialization_rolls_back_partial_registrations() {
+    let host = Host::new(HostConfig::default()).expect("host starts");
+    let report = host.load_extensions(&[
+        s(&{
+            let path = temp_dir("rollback").join("bad.lua");
+            write(
+                &path,
+                "local pi = ...\npi.register_tool({ name = 'ghost', execute = function() end })\npi.on('ghost', function() end)\npi.sleep(1)\nerror('init failed')",
+            );
+            path
+        }),
+    ]);
+    assert_eq!(report.errors.len(), 1);
+    assert!(host.tools().unwrap().is_empty());
+    assert!(
+        host.emit("ghost", &serde_json::json!({ "type": "ghost" }))
+            .unwrap()
+            .is_empty()
+    );
 }
 
 // ---------------------------------------------------------------------------

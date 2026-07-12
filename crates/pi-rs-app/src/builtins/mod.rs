@@ -43,6 +43,8 @@ pub const INTERACTIVE_PACK: EmbeddedPack = EmbeddedPack {
         "\n",
         include_str!("utils/messages.lua"),
         "\n",
+        include_str!("utils/extensions.lua"),
+        "\n",
         include_str!("utils/branch-summary.lua"),
         "\n",
         include_str!("utils/compaction.lua"),
@@ -64,6 +66,8 @@ pub const CODING_AGENT_PACK: EmbeddedPack = EmbeddedPack {
     name: "coding-agent",
     source: concat!(
         include_str!("utils/messages.lua"),
+        "\n",
+        include_str!("utils/extensions.lua"),
         "\n",
         include_str!("utils/branch-summary.lua"),
         "\n",

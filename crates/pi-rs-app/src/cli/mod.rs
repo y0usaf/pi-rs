@@ -3,6 +3,7 @@
 //! initial-message land with their workstreams.
 
 pub mod args;
+pub mod extensions;
 pub mod list_models;
 pub mod login;
 pub mod session_select;

@@ -1643,11 +1643,47 @@ before it landed:
       9.1 and every remaining row has an owning rung. No new runtime hook landed,
       so no exerciser was required for this inventory-only slice.
 
-      **Remaining in 9.1:** wire project/global/configured/CLI Lua files through
-      the shipped binary with trust + disable gates; pin load order, conflicts,
-      isolated async failures, and watchdog behavior against Pi; then run the
-      three initial translations end-to-end (tool, command, blocking hook) and
-      close the checkbox.
+      **Second landed slice (2026-07-12): product loading + first runtime
+      composition.** `main.rs` now calls the shared product loader after trust
+      resolution: explicit `-e/--extension` sources precede trusted project,
+      global, and configured paths; `--no-extensions`/`-ne` suppresses every
+      source except explicit CLI files. All ordinary files load after the
+      embedded packs into the same VM/API, with source attribution, sequential
+      async initialization, per-dispatch watchdogs, missing/load diagnostics,
+      path dedupe, and trust gating. Failed top-level chunks now roll back every
+      partial handler/registration (matching Pi's publish-after-factory-success
+      behavior); later files still initialize. Tool conflicts are diagnosed
+      without unloading either extension; first registration remains effective.
+
+      Lua product policy now composes file-backed tools into the active agent
+      tool/prompt set, folds `tool_call` handlers in Pi's order/block semantics,
+      and resolves numbered extension commands through the real interactive
+      submit path (built-ins retain command-name priority). The translated
+      `hello.lua` executes as an active product tool and the new
+      `permission-gate.lua` blocks dangerous bash in headless mode; a loaded
+      command executes immediately without becoming a provider prompt.
+      Mechanism-only snapshots are `pi.registered_extension_tools`,
+      `pi.registered_extension_commands`, and `pi.extension_handlers`; fold,
+      routing, contexts, and presentation remain embedded Lua.
+
+      **Slice evidence:** `extension_loading.rs` drives CLI/project/global/
+      configured files through `load_product_extensions` + the shipped packs,
+      including async init, failed-init rollback, active hello result, command
+      interception, permission block, trust/disable gates, and exact tool order;
+      `discovery_trust.rs` pins conflict diagnostics and later-extension
+      survival. Existing registry/watchdog tests stay green; `anthropic_replay`
+      pins the unchanged default four-tool request; `scripts/ui-diff` matches all
+      25 suites; `scripts/extension-inventory --check`, `cargo fmt --check`, and
+      `cargo test --workspace` are green.
+
+      **Remaining in 9.1:** generate the Pi side of the loader/runtime
+      differential and compare load order, diagnostics, command result, prompt
+      request, and tool/hook outcome rather than relying only on translated
+      Pi-derived fixtures. Complete `commands.ts` (its `getCommands`, argument
+      completion, and select/confirm/notify calls require the first 9.4/9.5
+      slices), complete permission-gate's interactive confirmation branch,
+      add flag-conflict coverage when `registerFlag` lands, then run
+      `cargo test --workspace` + the Nix workspace check and close the checkbox.
 
 - [ ] **9.2 Extension contexts + lifecycle actions.** Build the live
       `ExtensionContext`/`ExtensionCommandContext` as Lua snapshots and queued

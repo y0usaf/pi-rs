@@ -9,6 +9,7 @@ use std::io::IsTerminal;
 use std::process::ExitCode;
 
 use pi_rs_app::cli::args::{Args, help_text, parse_args};
+use pi_rs_app::cli::extensions::load_product_extensions;
 use pi_rs_app::cli::list_models::render_model_list;
 use pi_rs_app::cli::login::run_login;
 use pi_rs_app::cli::session_select::{SessionChoice, choose_session, session_header_cwd};
@@ -476,7 +477,30 @@ async fn run(args: Args) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // Resource-loader extension precedence: explicit CLI sources first, then
+    // trusted project, global, and configured sources. --no-extensions keeps
+    // CLI sources. Every file loads in isolation through the same VM/API as
+    // the embedded packs; report all diagnostics only after the full batch.
+    let extension_report = load_product_extensions(
+        &host,
+        &settings_manager.get_extension_paths(),
+        &args.extensions,
+        &cwd_string,
+        &agent_dir,
+        project_trusted,
+        args.no_extensions,
+    );
+    if !extension_report.errors.is_empty() {
+        for diagnostic in extension_report.errors {
+            error_line(&format!(
+                "Error: Failed to load extension \"{}\": {}",
+                diagnostic.path, diagnostic.error
+            ));
+        }
+        return ExitCode::FAILURE;
+    }
     let request = serde_json::json!({
+
         "model": model, "apiKey": api_key, "prompt": prompt,
         // The raw --api-key override: the interactive frontend mirrors it
         // into the VM's auth storage (spec: `setRuntimeApiKey`) so the

@@ -97,61 +97,93 @@ pub fn discover_extensions_in_dir(dir: &Path) -> Vec<PathBuf> {
     discovered
 }
 
-/// Spec `discoverAndLoadExtensions` path assembly: project-local
-/// `cwd/.pi/extensions` (gated by `project_trusted`), then global
-/// `agent_dir/extensions`, then explicitly configured paths (a directory
-/// resolves its entry points or falls back to per-file discovery; anything
-/// else is taken as a file path). Deduplicated on the resolved path,
-/// first occurrence wins.
+/// Resolve explicitly configured extension paths relative to `cwd`. A directory
+/// resolves to `init.lua` when present, otherwise its direct extension entries;
+/// a non-directory is retained so loading can report a missing-path error.
+pub fn resolve_explicit_extension_paths(paths: &[String], cwd: &str) -> Vec<String> {
+    let process_cwd = paths::process_cwd();
+    let resolved_cwd = paths::resolve_path(cwd, &process_cwd, false);
+    let mut found = Vec::new();
+    for configured in paths {
+        let resolved = paths::resolve_path(configured, &resolved_cwd, true);
+        let path = Path::new(&resolved);
+        if path.is_dir() {
+            if let Some(entries) = resolve_extension_entries(path) {
+                found.extend(entries);
+            } else {
+                found.extend(discover_extensions_in_dir(path));
+            }
+        } else {
+            found.push(PathBuf::from(resolved));
+        }
+    }
+    dedupe(found)
+}
+
+fn dedupe(found: Vec<PathBuf>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut result = Vec::new();
+    for path in found {
+        let path = path.to_string_lossy().into_owned();
+        if seen.insert(path.clone()) {
+            result.push(path);
+        }
+    }
+    result
+}
+
+/// Product extension path assembly. Pi gives explicit CLI extensions highest
+/// precedence, then project-local, global, and configured sources. `--no-extensions`
+/// disables discovery/configuration but deliberately retains CLI paths.
+pub fn product_extension_paths(
+    configured_paths: &[String],
+    cli_paths: &[String],
+    cwd: &str,
+    agent_dir: &str,
+    project_trusted: bool,
+    no_extensions: bool,
+) -> Vec<String> {
+    let mut paths = resolve_explicit_extension_paths(cli_paths, cwd)
+        .into_iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    if !no_extensions {
+        let process_cwd = paths::process_cwd();
+        let resolved_cwd = paths::resolve_path(cwd, &process_cwd, false);
+        let resolved_agent_dir = paths::resolve_path(agent_dir, &process_cwd, false);
+        if project_trusted {
+            paths.extend(discover_extensions_in_dir(
+                &Path::new(&resolved_cwd)
+                    .join(CONFIG_DIR_NAME)
+                    .join("extensions"),
+            ));
+        }
+        paths.extend(discover_extensions_in_dir(
+            &Path::new(&resolved_agent_dir).join("extensions"),
+        ));
+        paths.extend(
+            resolve_explicit_extension_paths(configured_paths, &resolved_cwd)
+                .into_iter()
+                .map(PathBuf::from),
+        );
+    }
+    dedupe(paths)
+}
+
+/// Backwards-compatible discovery helper used by the host-level tests:
+/// project-local → global → configured, with first-path deduplication.
 pub fn discover_extension_paths(
     configured_paths: &[String],
     cwd: &str,
     agent_dir: &str,
     project_trusted: bool,
 ) -> Vec<String> {
-    let process_cwd = paths::process_cwd();
-    let resolved_cwd = paths::resolve_path(cwd, &process_cwd, false);
-    let resolved_agent_dir = paths::resolve_path(agent_dir, &process_cwd, false);
-
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut all: Vec<String> = Vec::new();
-    let mut add = |found: Vec<PathBuf>| {
-        for p in found {
-            let s = p.to_string_lossy().into_owned();
-            if seen.insert(s.clone()) {
-                all.push(s);
-            }
-        }
-    };
-
-    // 1. Project-local extensions: cwd/CONFIG_DIR_NAME/extensions/
-    //    (only when the project is trusted).
-    if project_trusted {
-        let local = Path::new(&resolved_cwd)
-            .join(CONFIG_DIR_NAME)
-            .join("extensions");
-        add(discover_extensions_in_dir(&local));
-    }
-
-    // 2. Global extensions: agent_dir/extensions/
-    add(discover_extensions_in_dir(
-        &Path::new(&resolved_agent_dir).join("extensions"),
-    ));
-
-    // 3. Explicitly configured paths.
-    for p in configured_paths {
-        let resolved = paths::resolve_path(p, &resolved_cwd, true);
-        let path = Path::new(&resolved);
-        if path.is_dir() {
-            if let Some(found) = resolve_extension_entries(path) {
-                add(found);
-                continue;
-            }
-            add(discover_extensions_in_dir(path));
-            continue;
-        }
-        add(vec![PathBuf::from(resolved)]);
-    }
-
-    all
+    product_extension_paths(
+        configured_paths,
+        &[],
+        cwd,
+        agent_dir,
+        project_trusted,
+        false,
+    )
 }
