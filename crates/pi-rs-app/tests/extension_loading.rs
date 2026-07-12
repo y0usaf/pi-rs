@@ -4,6 +4,11 @@
 //! precedence order; async/failing initialization is isolated; translated
 //! hello + permission-gate execute through product Lua composition.
 
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
+use std::thread;
+
 use pi_rs_app::builtins::{CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
 use pi_rs_app::cli::extensions::load_product_extensions;
 use pi_rs_host::{Host, HostConfig};
@@ -188,4 +193,240 @@ fn no_extensions_and_untrusted_project_keep_only_explicit_cli_sources() {
     );
     assert!(report.errors.is_empty());
     assert_eq!(host.tools().unwrap()[0].name, "cli");
+}
+
+fn read_request(stream: &mut TcpStream) -> serde_json::Value {
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        let count = stream.read(&mut chunk).unwrap();
+        if count == 0 {
+            return serde_json::Value::Null;
+        }
+        bytes.extend_from_slice(&chunk[..count]);
+        if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+            let headers = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
+            let length = headers
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .and_then(|value| value.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            if bytes.len() >= end + 4 + length {
+                return serde_json::from_slice(&bytes[end + 4..end + 4 + length]).unwrap();
+            }
+        }
+    }
+}
+
+fn stable_source(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_stem()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[test]
+fn product_extension_runtime_matches_pi_oracle() {
+    let expected: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/extension-runtime-parity/oracle.json"
+    ))
+    .unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("project");
+    let agent_dir = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+
+    let sources = [
+        (
+            "01-first.lua",
+            r#"local pi = ...
+__extension_trace = {"first:start"}
+pi.sleep(0)
+__extension_trace[#__extension_trace + 1] = "first:end"
+pi.register_tool({name="shared",label="Shared First",description="first wins",parameters={type="object",properties={},required=pi.json.decode("[]")},execute=function() return {content={{type="text",text="first"}},details={owner="first"}} end})
+pi.register_tool({name="hello",label="Hello",description="A simple greeting tool",parameters={type="object",properties={name={type="string",description="Name to greet"}},required={"name"}},execute=function(_,params) return {content={{type="text",text="Hello, "..params.name.."!"}},details={greeted=params.name}} end})
+pi.register_command("dup",{description="first dup",handler=function() return "first-command" end})
+pi.register_command("trace",{description="trace",handler=function() return __extension_trace end})
+pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:first" return {tag="first"} end)"#,
+        ),
+        (
+            "02-bad.lua",
+            r#"local pi = ...
+__extension_trace[#__extension_trace + 1]="bad:start"
+pi.register_tool({name="ghost",label="Ghost",description="must roll back",parameters={},execute=function() return {} end})
+pi.register_command("ghost",{handler=function() return "ghost" end})
+pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:ghost" end)
+pi.sleep(0)
+error("broken init")"#,
+        ),
+        (
+            "03-second.lua",
+            r#"local pi = ...
+__extension_trace[#__extension_trace + 1]="second:start"
+pi.sleep(1)
+__extension_trace[#__extension_trace + 1]="second:end"
+pi.register_tool({name="shared",label="Shared Second",description="loses",parameters={type="object",properties={},required=pi.json.decode("[]")},execute=function() return {content={{type="text",text="second"}},details={owner="second"}} end})
+pi.register_command("dup",{description="second dup",handler=function() return "second-command" end})
+pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:second" return {tag="second"} end)"#,
+        ),
+        (
+            "04-block.lua",
+            r#"local pi = ...
+__extension_trace[#__extension_trace + 1]="block:loaded"
+pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:block" return {block=true,reason="blocked"} end)
+pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:after-block" return {tag="after"} end)"#,
+        ),
+    ];
+    let paths: Vec<String> = sources
+        .iter()
+        .map(|(name, source)| {
+            let path = root.path().join(name);
+            write(&path, source);
+            path.to_string_lossy().into_owned()
+        })
+        .collect();
+
+    // Isolate auth from the developer's real ~/.pi credentials before the VM
+    // constructs its per-host AuthStorage.
+    // SAFETY: this integration-test process owns its environment.
+    unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
+    let host = Host::new(HostConfig {
+        cwd: Some(cwd.to_string_lossy().into_owned()),
+        project_trusted: true,
+        ..HostConfig::default()
+    })
+    .unwrap();
+    let embedded = host.load_embedded(&[
+        pi_rs_agent::PACK,
+        TOOLS_PACK,
+        CODING_AGENT_PACK,
+        INTERACTIVE_PACK,
+    ]);
+    assert!(embedded.errors.is_empty(), "{:?}", embedded.errors);
+    let report = host.load_extensions(&paths);
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&requests);
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        seen.lock().unwrap().push(read_request(&mut stream));
+        let body = concat!(
+            "event: message_start\n",
+            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_ext\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
+            "event: content_block_start\n",
+            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+            "event: content_block_delta\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+            "event: content_block_stop\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+            "event: message_delta\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":1}}\n\n",
+            "event: message_stop\n",
+            "data: {\"type\":\"message_stop\"}\n\n"
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+    });
+    let model = serde_json::json!({
+        "id": "claude-test", "name": "Claude Test", "api": "anthropic-messages",
+        "provider": "anthropic", "baseUrl": format!("http://{address}"), "reasoning": false,
+        "input": ["text"], "cost": {"input":0,"output":0,"cacheRead":0,"cacheWrite":0},
+        "contextWindow": 100000, "maxTokens": 1024
+    });
+    host.call_command(
+        "pi-rs-run",
+        &serde_json::json!({
+            "model": model, "apiKey": "test-key", "prompt": "hello",
+            "cwd": cwd, "agentDir": agent_dir,
+            "readmePath": "/pi-rs-pkg/README.md", "docsPath": "/pi-rs-pkg/docs",
+            "examplesPath": "/pi-rs-pkg/examples"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    server.join().unwrap();
+
+    let errors: Vec<serde_json::Value> = report
+        .errors
+        .iter()
+        .map(|error| {
+            let message = if error.error.contains("broken init") {
+                "Failed to load extension: broken init".to_owned()
+            } else {
+                error
+                    .error
+                    .replace(&format!("{}/", root.path().display()), "")
+                    .replace(".lua", "")
+            };
+            serde_json::json!({"path": stable_source(&error.path), "error": message})
+        })
+        .collect();
+    let tools: Vec<serde_json::Value> = host
+        .tools()
+        .unwrap()
+        .into_iter()
+        .filter(|tool| !tool.source.starts_with('<'))
+        .map(|tool| serde_json::json!({"name":tool.name,"source":stable_source(&tool.source)}))
+        .collect();
+    let commands: Vec<serde_json::Value> = host
+        .commands()
+        .unwrap()
+        .into_iter()
+        .filter(|command| !command.source.starts_with('<'))
+        .map(|command| {
+            serde_json::json!({
+                "name":command.name,"invocationName":command.invocation_name,
+                "source":stable_source(&command.source),"description":command.description
+            })
+        })
+        .collect();
+    let command_results = ["dup:1", "dup:2"]
+        .into_iter()
+        .map(|name| {
+            let result = host.call_command(name, "").unwrap().unwrap();
+            serde_json::json!({"name":name,"result":result["message"]})
+        })
+        .collect::<Vec<_>>();
+    let hello_result = host
+        .call_tool("hello", "call-1", &serde_json::json!({"name":"Ada"}))
+        .unwrap();
+    let hook = host
+        .call_command(
+            "extension-vertical-slice",
+            r#"{"toolCall":{"name":"bash","arguments":{"command":"sudo true"}}}"#,
+        )
+        .unwrap()
+        .unwrap();
+    let trace = host.call_command("trace", "").unwrap().unwrap();
+    let request = &requests.lock().unwrap()[0];
+    let extension_tools = request["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|tool| tool["name"] == "hello" || tool["name"] == "shared")
+        .map(|tool| {
+            serde_json::json!({
+                "name":tool["name"],"description":tool["description"],
+                "parameters":tool["input_schema"]
+            })
+        })
+        .collect::<Vec<_>>();
+    let captured_requests = vec![serde_json::json!({
+        "toolNames":request["tools"].as_array().unwrap().iter().map(|tool| tool["name"].clone()).collect::<Vec<_>>(),
+        "extensionTools":extension_tools
+    })];
+    let actual = serde_json::json!({
+        "loaded":report.loaded.iter().map(|path| stable_source(path)).collect::<Vec<_>>(),
+        "errors":errors,"tools":tools,"commands":commands,"commandResults":command_results,
+        "helloResult":hello_result,"hookResult":hook["hookResult"],"trace":trace,
+        "capturedRequests":captured_requests
+    });
+    assert_eq!(actual, expected);
 }
