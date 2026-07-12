@@ -1,0 +1,122 @@
+{
+	"loaded": [
+		"01-first",
+		"03-second",
+		"04-block"
+	],
+	"errors": [
+		{
+			"path": "02-bad",
+			"error": "Failed to load extension: broken init"
+		},
+		{
+			"path": "03-second",
+			"error": "Tool \"shared\" conflicts with 01-first"
+		}
+	],
+	"tools": [
+		{
+			"name": "shared",
+			"source": "01-first"
+		},
+		{
+			"name": "hello",
+			"source": "01-first"
+		}
+	],
+	"commands": [
+		{
+			"name": "dup",
+			"invocationName": "dup:1",
+			"source": "01-first",
+			"description": "first dup"
+		},
+		{
+			"name": "trace",
+			"invocationName": "trace",
+			"source": "01-first",
+			"description": "trace"
+		},
+		{
+			"name": "dup",
+			"invocationName": "dup:2",
+			"source": "03-second",
+			"description": "second dup"
+		}
+	],
+	"commandResults": [
+		{
+			"name": "dup:1",
+			"result": "first-command"
+		},
+		{
+			"name": "dup:2",
+			"result": "second-command"
+		}
+	],
+	"helloResult": {
+		"content": [
+			{
+				"type": "text",
+				"text": "Hello, Ada!"
+			}
+		],
+		"details": {
+			"greeted": "Ada"
+		}
+	},
+	"hookResult": {
+		"block": true,
+		"reason": "blocked"
+	},
+	"trace": [
+		"first:start",
+		"first:end",
+		"bad:start",
+		"second:start",
+		"second:end",
+		"block:loaded",
+		"hook:first",
+		"hook:second",
+		"hook:block"
+	],
+	"capturedRequests": [
+		{
+			"toolNames": [
+				"read",
+				"bash",
+				"edit",
+				"write",
+				"shared",
+				"hello"
+			],
+			"extensionTools": [
+				{
+					"name": "shared",
+					"description": "first wins",
+					"parameters": {
+						"type": "object",
+						"properties": {},
+						"required": []
+					}
+				},
+				{
+					"name": "hello",
+					"description": "A simple greeting tool",
+					"parameters": {
+						"type": "object",
+						"properties": {
+							"name": {
+								"type": "string",
+								"description": "Name to greet"
+							}
+						},
+						"required": [
+							"name"
+						]
+					}
+				}
+			]
+		}
+	]
+}

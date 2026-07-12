@@ -1676,14 +1676,31 @@ before it landed:
       25 suites; `scripts/extension-inventory --check`, `cargo fmt --check`, and
       `cargo test --workspace` are green.
 
-      **Remaining in 9.1:** generate the Pi side of the loader/runtime
-      differential and compare load order, diagnostics, command result, prompt
-      request, and tool/hook outcome rather than relying only on translated
-      Pi-derived fixtures. Complete `commands.ts` (its `getCommands`, argument
-      completion, and select/confirm/notify calls require the first 9.4/9.5
-      slices), complete permission-gate's interactive confirmation branch,
-      add flag-conflict coverage when `registerFlag` lands, then run
-      `cargo test --workspace` + the Nix workspace check and close the checkbox.
+      **Third landed slice (2026-07-12): Pi-generated loader/runtime
+      differential.** `scripts/extension-runtime-oracle` now drives Pi's real
+      `DefaultResourceLoader`, `ExtensionRunner`, `AgentSession`, and faux-provider
+      request path over four sequential extensions. The checked oracle pins async
+      initialization order, failed-factory publication rollback, later-file
+      survival, first-tool-wins diagnostics, numbered command conflicts + results,
+      hello execution, `tool_call` fold/block short-circuiting, and the actual
+      provider request's built-in + extension tool names/schemas. The pi-rs replay
+      runs the same observations through the shipped packs, public host surface,
+      Lua product fold, and real Anthropic request path; language-specific source
+      suffixes and Lua's scalar command-reply envelope are normalized at the
+      explicit parity boundary. Oracle regeneration is byte-idempotent. No new
+      public hook landed, so no example was needed.
+
+      **Third-slice evidence:** `cargo test -p pi-rs-app --test
+      extension_loading` (3 passed), `scripts/extension-inventory --check`,
+      `cargo fmt --check`, `cargo test --workspace`, and `nix build
+      .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
+
+      **Remaining in 9.1:** complete the `commands.ts` translation (`getCommands`,
+      argument completion, and select/confirm/notify require the first 9.4/9.5
+      slices), complete permission-gate's interactive confirmation branch, add
+      flag-conflict coverage when `registerFlag` lands, then rerun the workspace +
+      Nix gates and close the checkbox. The loader/runtime differential itself is
+      complete; do not replace its Pi-generated evidence with local expectations.
 
 - [ ] **9.2 Extension contexts + lifecycle actions.** Build the live
       `ExtensionContext`/`ExtensionCommandContext` as Lua snapshots and queued
