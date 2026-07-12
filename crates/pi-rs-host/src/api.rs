@@ -1172,6 +1172,8 @@ fn ext_entry(lua: &mlua::Lua, source: &str) -> mlua::Result<mlua::Table> {
     entry.set("provider_order", lua.create_table()?)?;
     entry.set("shortcuts", lua.create_table()?)?;
     entry.set("shortcut_order", lua.create_table()?)?;
+    entry.set("flags", lua.create_table()?)?;
+    entry.set("flag_order", lua.create_table()?)?;
     exts.set(source, &entry)?;
     let ext_order: mlua::Table = registry.get("ext_order")?;
     ext_order.push(source)?;
@@ -1191,6 +1193,7 @@ pub(crate) fn build(
     registry.set("events", lua.create_table()?)?;
     registry.set("exts", lua.create_table()?)?;
     registry.set("ext_order", lua.create_table()?)?;
+    registry.set("flag_values", lua.create_table()?)?;
     registry.set("source", "<host>")?;
     lua.set_named_registry_value(REGISTRY_KEY, registry)?;
 
@@ -1758,6 +1761,60 @@ pub(crate) fn build(
                 }
             }
             Ok(result)
+        })?,
+    )?;
+
+    // Spec `registerFlag`/`getFlag`: definitions stay per extension while
+    // parsed/default values live in one shared runtime map. Defaults are
+    // first-wins, matching `runtime.flagValues.has(name)`.
+    let register_flag = lua.create_function(|lua, (name, options): (String, mlua::Table)| {
+        if name.trim().is_empty() {
+            return Err(mlua::Error::runtime(
+                "register_flag: name must be a non-empty string",
+            ));
+        }
+        let flag_type: String = options.get("type")?;
+        if flag_type != "boolean" && flag_type != "string" {
+            return Err(mlua::Error::runtime(
+                "register_flag: options.type must be 'boolean' or 'string'",
+            ));
+        }
+        let source = current_source(lua);
+        let ext = ext_entry(lua, &source)?;
+        let entry = lua.create_table()?;
+        for pair in options.pairs::<mlua::Value, mlua::Value>() {
+            let (key, value) = pair?;
+            entry.set(key, value)?;
+        }
+        entry.set("name", name.as_str())?;
+        entry.set("extension_path", source.as_str())?;
+        let flags: mlua::Table = ext.get("flags")?;
+        if flags.get::<Option<mlua::Value>>(name.as_str())?.is_none() {
+            let order: mlua::Table = ext.get("flag_order")?;
+            order.push(name.as_str())?;
+        }
+        let default: mlua::Value = entry.get("default")?;
+        flags.set(name.as_str(), entry)?;
+        if !default.is_nil() {
+            let values: mlua::Table = registry_table(lua)?.get("flag_values")?;
+            if values.get::<Option<mlua::Value>>(name.as_str())?.is_none() {
+                values.set(name.as_str(), default)?;
+            }
+        }
+        Ok(())
+    })?;
+    pi.set("register_flag", register_flag)?;
+    pi.set(
+        "get_flag",
+        lua.create_function(|lua, name: String| {
+            let source = current_source(lua);
+            let ext = ext_entry(lua, &source)?;
+            let flags: mlua::Table = ext.get("flags")?;
+            if flags.get::<Option<mlua::Value>>(name.as_str())?.is_none() {
+                return Ok(mlua::Value::Nil);
+            }
+            let values: mlua::Table = registry_table(lua)?.get("flag_values")?;
+            values.get(name.as_str())
         })?,
     )?;
 
@@ -2602,22 +2659,64 @@ pub(crate) fn all_tools(lua: &mlua::Lua) -> mlua::Result<Vec<(String, String, ml
         .collect())
 }
 
-pub(crate) fn tool_conflicts(lua: &mlua::Lua) -> mlua::Result<Vec<(String, String)>> {
-    let mut owners = std::collections::HashMap::<String, String>::new();
+pub(crate) fn extension_conflicts(lua: &mlua::Lua) -> mlua::Result<Vec<(String, String)>> {
+    let registry = registry_table(lua)?;
+    let exts: mlua::Table = registry.get("exts")?;
+    let ext_order: mlua::Table = registry.get("ext_order")?;
+    let mut tool_owners = std::collections::HashMap::<String, String>::new();
+    let mut flag_owners = std::collections::HashMap::<String, String>::new();
     let mut conflicts = Vec::new();
-    for (source, name, _) in registrations(lua, "tools", "tool_order")? {
+    for source in ext_order.sequence_values::<String>() {
+        let source = source?;
         if source.starts_with('<') {
             continue;
         }
-        if let Some(owner) = owners.get(&name) {
-            if owner != &source {
-                conflicts.push((source, format!("Tool \"{name}\" conflicts with {owner}")));
+        let Some(ext) = exts.get::<Option<mlua::Table>>(source.as_str())? else {
+            continue;
+        };
+        for (map_key, order_key, label, decoration, owners) in [
+            ("tools", "tool_order", "Tool", "", &mut tool_owners),
+            ("flags", "flag_order", "Flag", "--", &mut flag_owners),
+        ] {
+            let map: mlua::Table = ext.get(map_key)?;
+            let order: mlua::Table = ext.get(order_key)?;
+            for name in order.sequence_values::<String>() {
+                let name = name?;
+                if map.get::<Option<mlua::Value>>(name.as_str())?.is_none() {
+                    continue;
+                }
+                if let Some(owner) = owners.get(&name) {
+                    if owner != &source {
+                        conflicts.push((
+                            source.clone(),
+                            format!("{label} \"{decoration}{name}\" conflicts with {owner}"),
+                        ));
+                    }
+                } else {
+                    owners.insert(name, source.clone());
+                }
             }
-        } else {
-            owners.insert(name, source);
         }
     }
     Ok(conflicts)
+}
+
+/// Spec `ExtensionRunner.getFlags()`: first registration per name wins.
+pub(crate) fn all_flags(lua: &mlua::Lua) -> mlua::Result<Vec<(String, String, mlua::Table)>> {
+    let mut seen = HashSet::new();
+    Ok(registrations(lua, "flags", "flag_order")?
+        .into_iter()
+        .filter(|(_, name, _)| seen.insert(name.clone()))
+        .collect())
+}
+
+pub(crate) fn set_flag_value(
+    lua: &mlua::Lua,
+    name: &str,
+    value: &serde_json::Value,
+) -> mlua::Result<()> {
+    let values: mlua::Table = registry_table(lua)?.get("flag_values")?;
+    values.set(name, crate::convert::json_to_lua(lua, value)?)
 }
 
 /// Spec `runner.getToolDefinition()`: the first extension that registered

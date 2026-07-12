@@ -248,6 +248,9 @@ pi.register_tool({name="shared",label="Shared First",description="first wins",pa
 pi.register_tool({name="hello",label="Hello",description="A simple greeting tool",parameters={type="object",properties={name={type="string",description="Name to greet"}},required={"name"}},execute=function(_,params) return {content={{type="text",text="Hello, "..params.name.."!"}},details={greeted=params.name}} end})
 pi.register_command("dup",{description="first dup",handler=function() return "first-command" end})
 pi.register_command("trace",{description="trace",handler=function() return __extension_trace end})
+pi.register_flag("plan",{description="Plan mode",type="boolean",default=false})
+pi.register_flag("profile",{description="Profile name",type="string",default="safe"})
+pi.register_command("flag-values",{handler=function() return {plan=pi.get_flag("plan"),profile=pi.get_flag("profile"),missing=pi.get_flag("missing")} end})
 pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:first" return {tag="first"} end)"#,
         ),
         (
@@ -268,6 +271,8 @@ pi.sleep(1)
 __extension_trace[#__extension_trace + 1]="second:end"
 pi.register_tool({name="shared",label="Shared Second",description="loses",parameters={type="object",properties={},required=pi.json.decode("[]")},execute=function() return {content={{type="text",text="second"}},details={owner="second"}} end})
 pi.register_command("dup",{description="second dup",handler=function() return "second-command" end})
+pi.register_flag("plan",{description="Conflicting plan",type="boolean",default=true})
+pi.register_flag("second-only",{type="string"})
 pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:second" return {tag="second"} end)"#,
         ),
         (
@@ -387,6 +392,18 @@ pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:aft
             })
         })
         .collect();
+    let flags: Vec<serde_json::Value> = host
+        .flags()
+        .unwrap()
+        .into_iter()
+        .filter(|flag| !flag.source.starts_with('<'))
+        .map(|flag| {
+            serde_json::json!({
+                "name":flag.name,"source":stable_source(&flag.source),
+                "description":flag.description,"type":flag.flag_type,"default":flag.default
+            })
+        })
+        .collect();
     let command_results = ["dup:1", "dup:2"]
         .into_iter()
         .map(|name| {
@@ -405,6 +422,7 @@ pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:aft
         .unwrap()
         .unwrap();
     let trace = host.call_command("trace", "").unwrap().unwrap();
+    let flag_values = host.call_command("flag-values", "").unwrap().unwrap();
     let request = &requests.lock().unwrap()[0];
     let extension_tools = request["tools"]
         .as_array()
@@ -424,7 +442,8 @@ pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:aft
     })];
     let actual = serde_json::json!({
         "loaded":report.loaded.iter().map(|path| stable_source(path)).collect::<Vec<_>>(),
-        "errors":errors,"tools":tools,"commands":commands,"commandResults":command_results,
+        "errors":errors,"tools":tools,"commands":commands,"flags":flags,
+        "commandResults":command_results,"flagValues":flag_values,
         "helloResult":hello_result,"hookResult":hook["hookResult"],"trace":trace,
         "capturedRequests":captured_requests
     });

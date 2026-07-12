@@ -26,6 +26,9 @@ const sources: Array<[string, string]> = [
       pi.registerTool({ name: "hello", label: "Hello", description: "A simple greeting tool", parameters: {type:"object",properties:{name:{type:"string",description:"Name to greet"}},required:["name"]}, async execute(_id: string, params: any) { return {content:[{type:"text",text:\`Hello, \${params.name}!\`}],details:{greeted:params.name}}; } });
       pi.registerCommand("dup", { description: "first dup", handler: async () => "first-command" });
       pi.registerCommand("trace", { description: "trace", handler: async () => (globalThis as any).__extensionTrace });
+      pi.registerFlag("plan", { description: "Plan mode", type: "boolean", default: false });
+      pi.registerFlag("profile", { description: "Profile name", type: "string", default: "safe" });
+      pi.registerCommand("flag-values", { handler: async () => ({plan:pi.getFlag("plan"),profile:pi.getFlag("profile"),missing:pi.getFlag("missing")}) });
       pi.on("tool_call", async () => { (globalThis as any).__extensionTrace.push("hook:first"); return {tag:"first"}; });
     }
   `],
@@ -46,6 +49,8 @@ const sources: Array<[string, string]> = [
       (globalThis as any).__extensionTrace.push("second:end");
       pi.registerTool({ name: "shared", label: "Shared Second", description: "loses", parameters: {type:"object",properties:{},required:[]}, async execute() { return {content:[{type:"text",text:"second"}],details:{owner:"second"}}; } });
       pi.registerCommand("dup", { description: "second dup", handler: async () => "second-command" });
+      pi.registerFlag("plan", { description: "Conflicting plan", type: "boolean", default: true });
+      pi.registerFlag("second-only", { type: "string" });
       pi.on("tool_call", async () => { (globalThis as any).__extensionTrace.push("hook:second"); return {tag:"second"}; });
     }
   `],
@@ -107,13 +112,16 @@ async function main(): Promise<void> {
     }
     const hookResult = await runner.emitToolCall({type:"tool_call", toolCallId:"call-2", toolName:"bash", input:{command:"sudo true"}});
     const trace = await runner.getCommand("trace")!.handler("", runner.createCommandContext());
+    const flagValues = await runner.getCommand("flag-values")!.handler("", runner.createCommandContext());
 
     const output = {
       loaded: loaded.extensions.map((extension: Json) => stablePath(extension.path)),
       errors: loaded.errors.map((error: Json) => ({path: stablePath(error.path), error: error.error.replaceAll(`${root}${sep}`, "").replaceAll(".ts", "")})),
       tools: runner.getAllRegisteredTools().map((tool: Json) => ({name: tool.definition.name, source: stablePath(tool.sourceInfo.path)})),
       commands: runner.getRegisteredCommands().map((command: Json) => ({name: command.name, invocationName: command.invocationName, source: stablePath(command.sourceInfo.path), description: command.description ?? null})),
+      flags: Array.from(runner.getFlags().values()).map((flag: Json) => ({name: flag.name, source: stablePath(flag.extensionPath), description: flag.description ?? null, type: flag.type, default: flag.default ?? null})),
       commandResults,
+      flagValues,
       helloResult,
       hookResult,
       trace,

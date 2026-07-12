@@ -12,6 +12,10 @@
 		{
 			"path": "03-second",
 			"error": "Tool \"shared\" conflicts with 01-first"
+		},
+		{
+			"path": "03-second",
+			"error": "Flag \"--plan\" conflicts with 01-first"
 		}
 	],
 	"tools": [
@@ -38,10 +42,39 @@
 			"description": "trace"
 		},
 		{
+			"name": "flag-values",
+			"invocationName": "flag-values",
+			"source": "01-first",
+			"description": null
+		},
+		{
 			"name": "dup",
 			"invocationName": "dup:2",
 			"source": "03-second",
 			"description": "second dup"
+		}
+	],
+	"flags": [
+		{
+			"name": "plan",
+			"source": "01-first",
+			"description": "Plan mode",
+			"type": "boolean",
+			"default": false
+		},
+		{
+			"name": "profile",
+			"source": "01-first",
+			"description": "Profile name",
+			"type": "string",
+			"default": "safe"
+		},
+		{
+			"name": "second-only",
+			"source": "03-second",
+			"description": null,
+			"type": "string",
+			"default": null
 		}
 	],
 	"commandResults": [
@@ -54,6 +87,10 @@
 			"result": "second-command"
 		}
 	],
+	"flagValues": {
+		"plan": false,
+		"profile": "safe"
+	},
 	"helloResult": {
 		"content": [
 			{

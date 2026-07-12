@@ -1695,12 +1695,33 @@ before it landed:
       `cargo fmt --check`, `cargo test --workspace`, and `nix build
       .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
+      **Fourth landed slice (2026-07-12): extension flags + conflict parity.**
+      `pi.register_flag`/`pi.get_flag` now mirror the shared ExtensionRuntime
+      value map with per-extension visibility, first-default/registration wins,
+      post-load value updates, and host metadata snapshots; failed chunks still
+      roll back their definitions with the existing publication transaction.
+      Product loading now emits Pi's flag-conflict diagnostics in extension order
+      alongside tool conflicts. The Pi-generated runtime oracle gained boolean +
+      string defaults, a duplicate flag, first-wins metadata/value observations,
+      and the exact `Flag "--plan" conflicts with …` diagnostic. New public hooks
+      are exercised by `examples/extensions/flag-demo.lua`; parsed CLI values/help
+      remain the owning 9.4 slice, so the inventory keeps the complete API members
+      planned there while marking every 9.1 loader rule implemented.
+
+      **Fourth-slice evidence:** `cargo test -p pi-rs-host --test registries`
+      (12 passed), `cargo test -p pi-rs-app --test extension_loading` (3 passed),
+      byte-idempotent `scripts/extension-runtime-oracle`,
+      `scripts/extension-inventory --check`, `cargo fmt --check`, `cargo test
+      --workspace`, and `nix build .#checks.x86_64-linux.workspace-test
+      --print-build-logs` are green.
+
       **Remaining in 9.1:** complete the `commands.ts` translation (`getCommands`,
       argument completion, and select/confirm/notify require the first 9.4/9.5
-      slices), complete permission-gate's interactive confirmation branch, add
-      flag-conflict coverage when `registerFlag` lands, then rerun the workspace +
-      Nix gates and close the checkbox. The loader/runtime differential itself is
-      complete; do not replace its Pi-generated evidence with local expectations.
+      slices) and permission-gate's interactive confirmation branch, then rerun
+      the workspace + Nix gates and close the checkbox. Extension CLI flag value
+      parsing/help stays in 9.4; 9.1's registration/conflict requirement is closed.
+      The loader/runtime differential itself is complete; do not replace its
+      Pi-generated evidence with local expectations.
 
 - [ ] **9.2 Extension contexts + lifecycle actions.** Build the live
       `ExtensionContext`/`ExtensionCommandContext` as Lua snapshots and queued

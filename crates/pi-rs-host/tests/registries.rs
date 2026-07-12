@@ -370,3 +370,49 @@ fn exerciser_command_demo_runs() {
     let reply = host.call_command("echo", "hello").expect("command runs");
     assert_eq!(reply, Some(serde_json::json!({ "message": "echo: hello" })));
 }
+
+#[test]
+fn flag_registry_defaults_values_and_exerciser_match_pi() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/extensions/flag-demo.lua"
+    );
+    let source = std::fs::read_to_string(path).expect("exerciser example exists");
+    let host = host();
+    host.load("examples/extensions/flag-demo.lua", &source)
+        .expect("example loads");
+
+    let flags = host.flags().expect("flags mirror");
+    assert_eq!(flags.len(), 2);
+    assert_eq!(flags[0].name, "demo-enabled");
+    assert_eq!(flags[0].flag_type, "boolean");
+    assert_eq!(flags[0].default, Some(serde_json::json!(false)));
+    assert_eq!(flags[1].name, "demo-label");
+    assert_eq!(
+        flags[1].description.as_deref(),
+        Some("Set the flag demo label")
+    );
+    assert_eq!(flags[1].default, Some(serde_json::json!("default")));
+
+    let defaults = host
+        .call_command("flag-demo", "")
+        .expect("command runs")
+        .expect("result");
+    assert_eq!(
+        defaults,
+        serde_json::json!({"enabled":false,"label":"default"})
+    );
+
+    host.set_flag_value("demo-enabled", serde_json::json!(true))
+        .expect("boolean value updates");
+    host.set_flag_value("demo-label", serde_json::json!("chosen"))
+        .expect("string value updates");
+    let updated = host
+        .call_command("flag-demo", "")
+        .expect("command runs")
+        .expect("result");
+    assert_eq!(
+        updated,
+        serde_json::json!({"enabled":true,"label":"chosen"})
+    );
+}

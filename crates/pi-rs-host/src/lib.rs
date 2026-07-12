@@ -160,6 +160,17 @@ pub struct CommandInfo {
     pub description: Option<String>,
 }
 
+/// Host-side metadata mirror of one registered extension CLI flag (spec:
+/// `ExtensionRunner.getFlags()`). The first registration per name wins.
+#[derive(Debug, Clone)]
+pub struct FlagInfo {
+    pub name: String,
+    pub source: String,
+    pub description: Option<String>,
+    pub flag_type: String,
+    pub default: Option<serde_json::Value>,
+}
+
 /// Handle to the Lua VM thread. Cheap to clone; all methods are
 /// synchronous from the caller's side (dispatch runs on the VM thread).
 #[derive(Clone)]
@@ -236,7 +247,7 @@ impl Host {
         let (reply, rx) = sync_channel(1);
         let conflicts = self
             .tx
-            .send(vm::Msg::ToolConflicts { reply })
+            .send(vm::Msg::ExtensionConflicts { reply })
             .map_err(|_| HostError::VmUnavailable)
             .and_then(|()| rx.recv().map_err(|_| HostError::VmUnavailable))
             .and_then(|result| result);
@@ -290,6 +301,30 @@ impl Host {
         let (reply, rx) = sync_channel(1);
         self.tx
             .send(vm::Msg::Commands { reply })
+            .map_err(|_| HostError::VmUnavailable)?;
+        rx.recv().map_err(|_| HostError::VmUnavailable)?
+    }
+
+    /// Metadata mirror of extension CLI flags in load order; first registration
+    /// per name wins (spec: `ExtensionRunner.getFlags()`).
+    pub fn flags(&self) -> Result<Vec<FlagInfo>, HostError> {
+        let (reply, rx) = sync_channel(1);
+        self.tx
+            .send(vm::Msg::Flags { reply })
+            .map_err(|_| HostError::VmUnavailable)?;
+        rx.recv().map_err(|_| HostError::VmUnavailable)?
+    }
+
+    /// Set one parsed extension flag value in the shared runtime. Individual
+    /// extensions can read it only when they registered that name.
+    pub fn set_flag_value(&self, name: &str, value: serde_json::Value) -> Result<(), HostError> {
+        let (reply, rx) = sync_channel(1);
+        self.tx
+            .send(vm::Msg::SetFlagValue {
+                name: name.to_owned(),
+                value,
+                reply,
+            })
             .map_err(|_| HostError::VmUnavailable)?;
         rx.recv().map_err(|_| HostError::VmUnavailable)?
     }

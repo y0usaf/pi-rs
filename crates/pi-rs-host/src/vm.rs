@@ -26,7 +26,9 @@ use std::time::Instant;
 use crate::api;
 use crate::convert::{json_to_lua, lua_to_json};
 use crate::error::{HostError, WATCHDOG_MARKER};
-use crate::{CommandInfo, HostConfig, Outcome, ProviderInfo, ToolInfo, ToolUpdateCallback};
+use crate::{
+    CommandInfo, FlagInfo, HostConfig, Outcome, ProviderInfo, ToolInfo, ToolUpdateCallback,
+};
 
 /// Check the watchdog deadline every N VM instructions.
 const NTH_INSTRUCTION: u32 = 1000;
@@ -58,12 +60,22 @@ pub(crate) enum Msg {
     Commands {
         reply: SyncSender<Result<Vec<CommandInfo>, HostError>>,
     },
+    /// Host-side metadata mirror of registered extension CLI flags.
+    Flags {
+        reply: SyncSender<Result<Vec<FlagInfo>, HostError>>,
+    },
+    /// Update the shared parsed/default flag-value map.
+    SetFlagValue {
+        name: String,
+        value: serde_json::Value,
+        reply: SyncSender<Result<(), HostError>>,
+    },
     /// Host-side metadata mirror of queued provider registrations (spec:
     /// the loader's queued `registerProvider` calls, drained in order).
     Providers {
         reply: SyncSender<Result<Vec<ProviderInfo>, HostError>>,
     },
-    ToolConflicts {
+    ExtensionConflicts {
         reply: SyncSender<Result<Vec<(String, String)>, HostError>>,
     },
     /// Execute a registered tool on the coroutine path.
@@ -151,12 +163,20 @@ fn vm_main(config: HostConfig, rx: Receiver<Msg>, init_tx: SyncSender<Result<(),
             Msg::Commands { reply } => {
                 let _ = reply.send(commands_mirror(&lua));
             }
+            Msg::Flags { reply } => {
+                let _ = reply.send(flags_mirror(&lua));
+            }
+            Msg::SetFlagValue { name, value, reply } => {
+                let result = api::set_flag_value(&lua, &name, &value)
+                    .map_err(|error| HostError::Lua(error.to_string()));
+                let _ = reply.send(result);
+            }
             Msg::Providers { reply } => {
                 let _ = reply.send(providers_mirror(&lua));
             }
-            Msg::ToolConflicts { reply } => {
-                let result =
-                    api::tool_conflicts(&lua).map_err(|error| HostError::Lua(error.to_string()));
+            Msg::ExtensionConflicts { reply } => {
+                let result = api::extension_conflicts(&lua)
+                    .map_err(|error| HostError::Lua(error.to_string()));
                 let _ = reply.send(result);
             }
             Msg::CallTool {
@@ -232,6 +252,32 @@ fn commands_mirror(lua: &mlua::Lua) -> Result<Vec<CommandInfo>, HostError> {
             description: c.description,
         })
         .collect())
+}
+
+fn flags_mirror(lua: &mlua::Lua) -> Result<Vec<FlagInfo>, HostError> {
+    api::all_flags(lua)
+        .map_err(|error| HostError::Lua(error.to_string()))?
+        .into_iter()
+        .map(|(source, name, flag)| {
+            let default = flag
+                .get::<Option<mlua::Value>>("default")
+                .map_err(|error| HostError::Lua(error.to_string()))?
+                .map(crate::convert::lua_to_json)
+                .transpose()
+                .map_err(|error| HostError::Lua(error.to_string()))?;
+            Ok(FlagInfo {
+                name,
+                source,
+                description: flag
+                    .get("description")
+                    .map_err(|error| HostError::Lua(error.to_string()))?,
+                flag_type: flag
+                    .get("type")
+                    .map_err(|error| HostError::Lua(error.to_string()))?,
+                default,
+            })
+        })
+        .collect()
 }
 
 /// Run optional `def.prepare_arguments(params)`, coerce and validate against
