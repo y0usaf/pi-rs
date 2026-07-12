@@ -1768,13 +1768,29 @@ surface; external editor + suspend. Split into rungs:
       --workspace`, and `nix build .#checks.x86_64-linux.workspace-test
       --print-build-logs` are green.
 
-      **Remaining:** close google-auth's other existing-file `external_account`
-      sources (URL, AWS, executable, and certificate) so Pi's broad ADC file
-      discovery never advertises an unsupported shape; then add deterministic
-      differential replays + dispatch for `mistral-conversations` and
-      `bedrock-converse-stream`; upgrade the existing `openai-completions`
-      fixtures to a Pi-derived differential oracle, then run the whole catalog/
-      auth acceptance gate.
+      **Eighth landed slice (2026-07-12): Vertex URL-sourced workload
+      identity.** External-account ADC now retrieves text or JSON subject tokens
+      from `credential_source.url`, applies configured request headers, matches
+      google-auth's format validation/parsing and source-specific metrics header,
+      then feeds the existing STS/impersonation/project pipeline. The source
+      request remains transport mechanism inside the Vertex protocol; no product
+      policy or extension surface changed.
+
+      **Eighth-slice evidence:** the Pi-derived Google Vertex oracle now replays
+      15 cases, adding text + JSON URL sources and comparing the subject-token
+      GET (format-sensitive Accept, google-auth client header, configured header),
+      STS/project/provider requests, events, and final messages. Oracle
+      regeneration is byte-idempotent. No Lua extension hook landed; no example
+      needed. `cargo fmt --check`, `cargo clippy -p pi-rs-ai -- -D warnings`,
+      focused oracle tests, `cargo test --workspace`, and `nix build
+      .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
+
+      **Remaining:** close google-auth's AWS, executable, and certificate
+      `external_account` sources so Pi's broad ADC file discovery never advertises
+      an unsupported shape; then add deterministic differential replays + dispatch
+      for `mistral-conversations` and `bedrock-converse-stream`; upgrade the
+      existing `openai-completions` fixtures to a Pi-derived differential oracle,
+      then run the whole catalog/auth acceptance gate.
 
 - [ ] **9. Implement Lua-only configuration and Lua extensions.** Replace the
       temporary Pi-JSON settings path with the two canonical entry points:

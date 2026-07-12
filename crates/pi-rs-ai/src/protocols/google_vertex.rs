@@ -295,18 +295,22 @@ async fn service_account_token(credentials: &Value) -> Result<String, ProtocolEr
     credential_field(&value, "access_token").map(str::to_string)
 }
 
-fn external_subject_token(credentials: &Value) -> Result<String, ProtocolError> {
-    let source = credentials
-        .get("credential_source")
-        .ok_or_else(|| ProtocolError("A credential source must be specified.".into()))?;
-    let path = credential_field(source, "file")?;
-    let raw = std::fs::read_to_string(path).map_err(|error| ProtocolError(error.to_string()))?;
+fn parse_external_subject_token(
+    raw: &str,
+    source: &Value,
+    source_name: &str,
+) -> Result<String, ProtocolError> {
     let format = source.get("format");
-    if format
+    let format_type = format
         .and_then(|value| value.get("type"))
         .and_then(Value::as_str)
-        == Some("json")
-    {
+        .unwrap_or("text");
+    if !matches!(format_type, "text" | "json") {
+        return Err(ProtocolError(format!(
+            "Invalid credential_source format \"{format_type}\""
+        )));
+    }
+    if format_type == "json" {
         let field = format
             .and_then(|value| value.get("subject_token_field_name"))
             .and_then(Value::as_str)
@@ -316,22 +320,73 @@ fn external_subject_token(credentials: &Value) -> Result<String, ProtocolError> 
                 )
             })?;
         let value: Value =
-            serde_json::from_str(&raw).map_err(|error| ProtocolError(error.to_string()))?;
-        return credential_field(&value, field).map(str::to_string);
+            serde_json::from_str(raw).map_err(|error| ProtocolError(error.to_string()))?;
+        return value
+            .get(field)
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                ProtocolError(format!(
+                    "Unable to parse the subject_token from the credential_source {source_name}"
+                ))
+            });
     }
     if raw.is_empty() {
-        return Err(ProtocolError(
-            "Unable to parse the subject_token from the credential_source file".into(),
-        ));
+        return Err(ProtocolError(format!(
+            "Unable to parse the subject_token from the credential_source {source_name}"
+        )));
     }
-    Ok(raw)
+    Ok(raw.to_string())
+}
+
+async fn external_subject_token(
+    credentials: &Value,
+) -> Result<(String, &'static str), ProtocolError> {
+    let source = credentials
+        .get("credential_source")
+        .ok_or_else(|| ProtocolError("A credential source must be specified.".into()))?;
+    if let Some(path) = source.get("file").and_then(Value::as_str) {
+        let raw = tokio::fs::read_to_string(path)
+            .await
+            .map_err(|error| ProtocolError(error.to_string()))?;
+        return Ok((parse_external_subject_token(&raw, source, "file")?, "file"));
+    }
+    if let Some(url) = source.get("url").and_then(Value::as_str) {
+        let json = source.pointer("/format/type").and_then(Value::as_str) == Some("json");
+        let mut request = reqwest::Client::new()
+            .get(url)
+            .header("accept", if json { "application/json" } else { "*/*" })
+            .header("x-goog-api-client", "gl-node/22.23.1");
+        if let Some(headers) = source.get("headers").and_then(Value::as_object) {
+            for (name, value) in headers {
+                if let Some(value) = value.as_str() {
+                    request = request.header(name, value);
+                }
+            }
+        }
+        let raw = request
+            .send()
+            .await
+            .map_err(|error| ProtocolError(error.to_string()))?
+            .error_for_status()
+            .map_err(|error| ProtocolError(error.to_string()))?
+            .text()
+            .await
+            .map_err(|error| ProtocolError(error.to_string()))?;
+        return Ok((parse_external_subject_token(&raw, source, "URL")?, "url"));
+    }
+    Err(ProtocolError(
+        "No valid Identity Pool \"credential_source\" provided, must be either file, url, or certificate."
+            .into(),
+    ))
 }
 
 async fn external_account_token(credentials: &Value) -> Result<String, ProtocolError> {
     let audience = credential_field(credentials, "audience")?;
     let subject_token_type = credential_field(credentials, "subject_token_type")?;
     let token_url = credential_field(credentials, "token_url")?;
-    let subject_token = external_subject_token(credentials)?;
+    let (subject_token, source_type) = external_subject_token(credentials).await?;
     let body = {
         let mut serializer = url::form_urlencoded::Serializer::new(String::new());
         serializer
@@ -365,11 +420,12 @@ async fn external_account_token(credentials: &Value) -> Result<String, ProtocolE
         .header(
             "x-goog-api-client",
             format!(
-                "gl-node/22.23.1 auth/10.6.2 google-byoid-sdk source/file sa-impersonation/{} config-lifetime/{}",
+                "gl-node/22.23.1 auth/10.6.2 google-byoid-sdk source/{source_type} sa-impersonation/{} config-lifetime/{}",
                 impersonation_url.is_some(),
                 configured_lifetime.is_some()
             ),
         );
+
     if let Some(client_id) = credentials.get("client_id").and_then(Value::as_str) {
         let secret = credentials
             .get("client_secret")

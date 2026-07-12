@@ -90,6 +90,14 @@ fn serve(responses: Vec<String>) -> (std::net::SocketAddr, Captured) {
             copy.lock().unwrap().push(request);
             let value = match path.as_str() {
                 "/token" | "/oauth-token" => "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 68\r\nconnection: close\r\n\r\n{\"access_token\":\"adc-token\",\"token_type\":\"Bearer\",\"expires_in\":3600}".to_string(),
+                "/subject-text" => {
+                    let body = "url-subject-token";
+                    format!("HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len())
+                }
+                "/subject-json" => {
+                    let body = r#"{"token":"url-json-token"}"#;
+                    format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len())
+                }
                 "/sts" => {
                     let body = r#"{"access_token":"sts-token","issued_token_type":"urn:ietf:params:oauth:token-type:access_token","token_type":"Bearer","expires_in":3600}"#;
                     format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len())
@@ -341,27 +349,39 @@ async fn run(case: &Value, models: &Value) -> Value {
                 json!({"type":"service_account","project_id":"p","client_email":"test@p.iam.gserviceaccount.com","private_key":key,"token_uri":format!("http://{address}/oauth-token")})
             }
             _ => {
-                let uses_json = kind == "workload-json-impersonated";
-                std::fs::write(
-                    &subject_path,
-                    if uses_json {
-                        r#"{"token":"subject-token"}"#
-                    } else {
-                        "subject-token"
-                    },
-                )
-                .unwrap();
+                let uses_json = matches!(kind, "workload-json-impersonated" | "workload-url-json");
+                let uses_url = matches!(kind, "workload-url-text" | "workload-url-json");
+                if !uses_url {
+                    std::fs::write(
+                        &subject_path,
+                        if uses_json {
+                            r#"{"token":"subject-token"}"#
+                        } else {
+                            "subject-token"
+                        },
+                    )
+                    .unwrap();
+                }
+                let mut source = if uses_url {
+                    json!({
+                        "url":format!("http://{address}/subject-{}", if uses_json { "json" } else { "text" }),
+                        "headers":{"x-subject-header":"present"},
+                    })
+                } else {
+                    json!({"file":subject_path})
+                };
+                if uses_json {
+                    source["format"] = json!({"type":"json","subject_token_field_name":"token"});
+                }
                 let mut credentials = json!({
                     "type":"external_account",
                     "audience":"//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
                     "subject_token_type":"urn:ietf:params:oauth:token-type:jwt",
                     "token_url":format!("http://{address}/sts"),
                     "cloud_resource_manager_url":format!("http://{address}/project/"),
-                    "credential_source":{"file":subject_path},
+                    "credential_source":source,
                 });
-                if uses_json {
-                    credentials["credential_source"]["format"] =
-                        json!({"type":"json","subject_token_field_name":"token"});
+                if kind == "workload-json-impersonated" {
                     credentials["service_account_impersonation_url"] =
                         json!(format!("http://{address}/impersonate"));
                     credentials["service_account_impersonation"] =
