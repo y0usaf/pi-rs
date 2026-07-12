@@ -55,6 +55,16 @@ async function run(c: any) {
 				res.end(JSON.stringify({ access_token: "adc-token", token_type: "Bearer", expires_in: 3600 }));
 				return;
 			}
+			if (req.url === "/subject-text") {
+				res.writeHead(200, { "content-type": "text/plain" });
+				res.end("url-subject-token");
+				return;
+			}
+			if (req.url === "/subject-json") {
+				res.writeHead(200, { "content-type": "application/json" });
+				res.end(JSON.stringify({ token: "url-json-token" }));
+				return;
+			}
 			if (req.url === "/sts") {
 				res.writeHead(200, { "content-type": "application/json" });
 				res.end(JSON.stringify({ access_token: "sts-token", issued_token_type: "urn:ietf:params:oauth:token-type:access_token", token_type: "Bearer", expires_in: 3600 }));
@@ -98,17 +108,25 @@ async function run(c: any) {
 				return originalAdapter.call(this, config);
 			};
 		} else {
-			const subjectPath = join(dir, "subject-token");
-			const json = c.adc === "workload-json-impersonated";
-			writeFileSync(subjectPath, json ? JSON.stringify({ token: "subject-token" }) : "subject-token");
+			const usesJson = c.adc === "workload-json-impersonated" || c.adc === "workload-url-json";
+			const usesUrl = c.adc === "workload-url-text" || c.adc === "workload-url-json";
+			const credentialSource = usesUrl
+				? { url: `${url}/subject-${usesJson ? "json" : "text"}`, headers: { "x-subject-header": "present" } }
+				: { file: join(dir, "subject-token") };
+			if (!usesUrl) {
+				writeFileSync(credentialSource.file!, usesJson ? JSON.stringify({ token: "subject-token" }) : "subject-token");
+			}
+			if (usesJson) {
+				Object.assign(credentialSource, { format: { type: "json", subject_token_field_name: "token" } });
+			}
 			credentials = {
 				type: "external_account",
 				audience: "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
 				subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
 				token_url: `${url}/sts`,
-				credential_source: { file: subjectPath, ...(json ? { format: { type: "json", subject_token_field_name: "token" } } : {}) },
+				credential_source: credentialSource,
 				cloud_resource_manager_url: `${url}/project/`,
-				...(json ? { service_account_impersonation_url: `${url}/impersonate`, service_account_impersonation: { token_lifetime_seconds: 1800 } } : {}),
+				...(c.adc === "workload-json-impersonated" ? { service_account_impersonation_url: `${url}/impersonate`, service_account_impersonation: { token_lifetime_seconds: 1800 } } : {}),
 			};
 		}
 		writeFileSync(credentialPath, JSON.stringify(credentials));
