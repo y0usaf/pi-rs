@@ -17,6 +17,10 @@ use std::sync::Once;
 use pi_rs_ai_types::{AssistantMessage, Context, Model};
 
 use crate::protocols::anthropic::{AnthropicOptions, stream_anthropic, stream_simple_anthropic};
+use crate::protocols::azure_openai_responses::{
+    AzureOpenAIResponsesOptions, stream_azure_openai_responses,
+    stream_simple_azure_openai_responses,
+};
 use crate::protocols::openai_codex_responses::{
     OpenAICodexResponsesOptions, stream_openai_codex_responses,
     stream_simple_openai_codex_responses,
@@ -50,6 +54,20 @@ pub fn register_builtin_api_providers() {
                 Ok(stream_anthropic(model, context, options))
             }),
             stream_simple: Arc::new(stream_simple_anthropic),
+        },
+        None,
+    );
+    register_api_provider(
+        ApiProvider {
+            api: "azure-openai-responses".to_owned(),
+            stream: Arc::new(|model, context, options| {
+                let options = options.map(|base| AzureOpenAIResponsesOptions {
+                    base,
+                    ..AzureOpenAIResponsesOptions::default()
+                });
+                Ok(stream_azure_openai_responses(model, context, options))
+            }),
+            stream_simple: Arc::new(stream_simple_azure_openai_responses),
         },
         None,
     );

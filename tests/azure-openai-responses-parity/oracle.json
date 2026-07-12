@@ -1,0 +1,806 @@
+{
+	"cases": [
+		{
+			"name": "request-full",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/responses?api-version=2025-04-01-preview",
+					"headers": {
+						"accept": "application/json",
+						"api-key": "overridden",
+						"content-type": "application/json",
+						"x-extra": "1",
+						"x-model": "yes"
+					},
+					"body": {
+						"model": "deploy-main",
+						"input": [
+							{
+								"role": "developer",
+								"content": "Be helpful."
+							},
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "input_text",
+										"text": "hello"
+									},
+									{
+										"type": "input_image",
+										"detail": "auto",
+										"image_url": "data:image/png;base64,aGk="
+									}
+								]
+							},
+							{
+								"type": "function_call",
+								"id": "fc_old",
+								"call_id": "call_old",
+								"name": "read",
+								"arguments": "{\"path\":\"x\"}"
+							},
+							{
+								"type": "function_call_output",
+								"call_id": "call_old",
+								"output": "done"
+							}
+						],
+						"stream": true,
+						"prompt_cache_key": "sess-1",
+						"store": false,
+						"max_output_tokens": 1234,
+						"temperature": 0.3,
+						"tools": [
+							{
+								"type": "function",
+								"name": "read",
+								"description": "Read",
+								"parameters": {
+									"type": "object",
+									"properties": {
+										"path": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"path"
+									]
+								},
+								"strict": false
+							}
+						],
+						"reasoning": {
+							"effort": "high",
+							"summary": "detailed"
+						},
+						"include": [
+							"reasoning.encrypted_content"
+						]
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "thinking_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "thinking_delta",
+					"contentIndex": 0,
+					"delta": "Think"
+				},
+				{
+					"type": "thinking_end",
+					"contentIndex": 0,
+					"content": "Think"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 1
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 1,
+					"delta": "Use tool."
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 1,
+					"content": "Use tool."
+				},
+				{
+					"type": "toolcall_start",
+					"contentIndex": 2
+				},
+				{
+					"type": "toolcall_delta",
+					"contentIndex": 2,
+					"delta": "{\"path\":\"a"
+				},
+				{
+					"type": "toolcall_delta",
+					"contentIndex": 2,
+					"delta": ".txt\"}"
+				},
+				{
+					"type": "toolcall_end",
+					"contentIndex": 2,
+					"toolCall": {
+						"type": "toolCall",
+						"id": "call_1|fc_1",
+						"name": "read",
+						"arguments": {
+							"path": "a.txt"
+						}
+					}
+				},
+				{
+					"type": "done",
+					"reason": "toolUse"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "thinking",
+						"thinking": "Think",
+						"thinkingSignature": "{\"type\":\"reasoning\",\"id\":\"rs_1\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Think\"}],\"content\":[],\"encrypted_content\":\"enc\"}"
+					},
+					{
+						"type": "text",
+						"text": "Use tool.",
+						"textSignature": "{\"v\":1,\"id\":\"msg_rich\"}"
+					},
+					{
+						"type": "toolCall",
+						"id": "call_1|fc_1",
+						"name": "read",
+						"arguments": {
+							"path": "a.txt"
+						}
+					}
+				],
+				"api": "azure-openai-responses",
+				"provider": "azure-openai-responses",
+				"model": "gpt-5.4",
+				"usage": {
+					"input": 75,
+					"output": 20,
+					"cacheRead": 25,
+					"cacheWrite": 0,
+					"totalTokens": 120,
+					"cost": {
+						"input": 0.00015,
+						"output": 0.00015999999999999999,
+						"cacheRead": 0.000005,
+						"cacheWrite": 0,
+						"total": 0.00031499999999999996
+					}
+				},
+				"stopReason": "toolUse",
+				"timestamp": 0,
+				"responseId": "resp_rich"
+			}
+		},
+		{
+			"name": "deployment-map",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/responses?api-version=2024-10-21",
+					"headers": {
+						"accept": "application/json",
+						"api-key": "key",
+						"content-type": "application/json"
+					},
+					"body": {
+						"model": "mapped-deploy",
+						"input": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "input_text",
+										"text": "hi"
+									}
+								]
+							}
+						],
+						"stream": true,
+						"store": false
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok",
+						"textSignature": "{\"v\":1,\"id\":\"msg_min\"}"
+					}
+				],
+				"api": "azure-openai-responses",
+				"provider": "azure-openai-responses",
+				"model": "gpt-4.1",
+				"usage": {
+					"input": 6,
+					"output": 2,
+					"cacheRead": 4,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.000006,
+						"output": 0.000006,
+						"cacheRead": 4.0000000000000003e-7,
+						"cacheWrite": 0,
+						"total": 0.0000124
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "resp_min"
+			}
+		},
+		{
+			"name": "simple-high",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/responses?api-version=v1",
+					"headers": {
+						"accept": "application/json",
+						"api-key": "key",
+						"content-type": "application/json",
+						"x-model": "yes"
+					},
+					"body": {
+						"model": "gpt-5.4",
+						"input": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "input_text",
+										"text": "hi"
+									}
+								]
+							}
+						],
+						"stream": true,
+						"store": false,
+						"reasoning": {
+							"effort": "high",
+							"summary": "auto"
+						},
+						"include": [
+							"reasoning.encrypted_content"
+						]
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok",
+						"textSignature": "{\"v\":1,\"id\":\"msg_min\"}"
+					}
+				],
+				"api": "azure-openai-responses",
+				"provider": "azure-openai-responses",
+				"model": "gpt-5.4",
+				"usage": {
+					"input": 6,
+					"output": 2,
+					"cacheRead": 4,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.000012,
+						"output": 0.000016,
+						"cacheRead": 8.000000000000001e-7,
+						"cacheWrite": 0,
+						"total": 0.0000288
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "resp_min"
+			}
+		},
+		{
+			"name": "stream-rich",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/responses?api-version=v1",
+					"headers": {
+						"accept": "application/json",
+						"api-key": "key",
+						"content-type": "application/json",
+						"x-model": "yes"
+					},
+					"body": {
+						"model": "gpt-5.4",
+						"input": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "input_text",
+										"text": "hi"
+									}
+								]
+							}
+						],
+						"stream": true,
+						"store": false,
+						"reasoning": {
+							"effort": "none"
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "thinking_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "thinking_delta",
+					"contentIndex": 0,
+					"delta": "Think"
+				},
+				{
+					"type": "thinking_end",
+					"contentIndex": 0,
+					"content": "Think"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 1
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 1,
+					"delta": "Use tool."
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 1,
+					"content": "Use tool."
+				},
+				{
+					"type": "toolcall_start",
+					"contentIndex": 2
+				},
+				{
+					"type": "toolcall_delta",
+					"contentIndex": 2,
+					"delta": "{\"path\":\"a"
+				},
+				{
+					"type": "toolcall_delta",
+					"contentIndex": 2,
+					"delta": ".txt\"}"
+				},
+				{
+					"type": "toolcall_end",
+					"contentIndex": 2,
+					"toolCall": {
+						"type": "toolCall",
+						"id": "call_1|fc_1",
+						"name": "read",
+						"arguments": {
+							"path": "a.txt"
+						}
+					}
+				},
+				{
+					"type": "done",
+					"reason": "toolUse"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "thinking",
+						"thinking": "Think",
+						"thinkingSignature": "{\"type\":\"reasoning\",\"id\":\"rs_1\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Think\"}],\"content\":[],\"encrypted_content\":\"enc\"}"
+					},
+					{
+						"type": "text",
+						"text": "Use tool.",
+						"textSignature": "{\"v\":1,\"id\":\"msg_rich\"}"
+					},
+					{
+						"type": "toolCall",
+						"id": "call_1|fc_1",
+						"name": "read",
+						"arguments": {
+							"path": "a.txt"
+						}
+					}
+				],
+				"api": "azure-openai-responses",
+				"provider": "azure-openai-responses",
+				"model": "gpt-5.4",
+				"usage": {
+					"input": 75,
+					"output": 20,
+					"cacheRead": 25,
+					"cacheWrite": 0,
+					"totalTokens": 120,
+					"cost": {
+						"input": 0.00015,
+						"output": 0.00015999999999999999,
+						"cacheRead": 0.000005,
+						"cacheWrite": 0,
+						"total": 0.00031499999999999996
+					}
+				},
+				"stopReason": "toolUse",
+				"timestamp": 0,
+				"responseId": "resp_rich"
+			}
+		},
+		{
+			"name": "event-error",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/responses?api-version=v1",
+					"headers": {
+						"accept": "application/json",
+						"api-key": "key",
+						"content-type": "application/json",
+						"x-model": "yes"
+					},
+					"body": {
+						"model": "gpt-5.4",
+						"input": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "input_text",
+										"text": "hi"
+									}
+								]
+							}
+						],
+						"stream": true,
+						"store": false,
+						"reasoning": {
+							"effort": "none"
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "azure-openai-responses",
+				"provider": "azure-openai-responses",
+				"model": "gpt-5.4",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "Error Code bad: broken"
+			}
+		},
+		{
+			"name": "response-failed",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/responses?api-version=v1",
+					"headers": {
+						"accept": "application/json",
+						"api-key": "key",
+						"content-type": "application/json",
+						"x-model": "yes"
+					},
+					"body": {
+						"model": "gpt-5.4",
+						"input": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "input_text",
+										"text": "hi"
+									}
+								]
+							}
+						],
+						"stream": true,
+						"store": false,
+						"reasoning": {
+							"effort": "none"
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "azure-openai-responses",
+				"provider": "azure-openai-responses",
+				"model": "gpt-5.4",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "invalid: nope"
+			}
+		},
+		{
+			"name": "http-error",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/responses?api-version=v1",
+					"headers": {
+						"accept": "application/json",
+						"api-key": "key",
+						"content-type": "application/json",
+						"x-model": "yes"
+					},
+					"body": {
+						"model": "gpt-5.4",
+						"input": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "input_text",
+										"text": "hi"
+									}
+								]
+							}
+						],
+						"stream": true,
+						"store": false,
+						"reasoning": {
+							"effort": "none"
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "azure-openai-responses",
+				"provider": "azure-openai-responses",
+				"model": "gpt-5.4",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "Azure OpenAI API error (400): 400 bad request"
+			}
+		},
+		{
+			"name": "missing-key",
+			"requests": [],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "azure-openai-responses",
+				"provider": "azure-openai-responses",
+				"model": "gpt-5.4",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "No API key for provider: azure-openai-responses"
+			}
+		},
+		{
+			"name": "missing-base",
+			"requests": [],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "azure-openai-responses",
+				"provider": "azure-openai-responses",
+				"model": "gpt-5.4",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "Azure OpenAI base URL is required. Set AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME, or pass azureBaseUrl, azureResourceName, or model.baseUrl."
+			}
+		},
+		{
+			"name": "invalid-base",
+			"requests": [],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "azure-openai-responses",
+				"provider": "azure-openai-responses",
+				"model": "gpt-5.4",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "Invalid Azure OpenAI base URL: not a url"
+			}
+		}
+	]
+}

@@ -1,0 +1,68 @@
+{
+  "models": {
+    "gpt": {
+      "id": "gpt-5.4", "name": "GPT-5.4", "api": "azure-openai-responses", "provider": "azure-openai-responses",
+      "baseUrl": "", "reasoning": true,
+      "thinkingLevelMap": { "off": "none", "minimal": "minimal", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh" },
+      "input": ["text", "image"], "cost": { "input": 2, "output": 8, "cacheRead": 0.2, "cacheWrite": 0 },
+      "contextWindow": 200000, "maxTokens": 32768, "headers": { "x-model": "yes" }
+    },
+    "plain": {
+      "id": "gpt-4.1", "name": "GPT-4.1", "api": "azure-openai-responses", "provider": "azure-openai-responses",
+      "baseUrl": "", "reasoning": false, "input": ["text"],
+      "cost": { "input": 1, "output": 3, "cacheRead": 0.1, "cacheWrite": 0 },
+      "contextWindow": 100000, "maxTokens": 8192
+    }
+  },
+  "sse": {
+    "minimal": [
+      { "type": "response.created", "response": { "id": "resp_min" } },
+      { "type": "response.output_item.added", "item": { "type": "message", "id": "msg_min", "role": "assistant", "content": [], "status": "in_progress" } },
+      { "type": "response.content_part.added", "part": { "type": "output_text", "text": "", "annotations": [] } },
+      { "type": "response.output_text.delta", "delta": "ok" },
+      { "type": "response.output_item.done", "item": { "type": "message", "id": "msg_min", "role": "assistant", "content": [{ "type": "output_text", "text": "ok", "annotations": [] }], "status": "completed" } },
+      { "type": "response.completed", "response": { "id": "resp_min", "status": "completed", "usage": { "input_tokens": 10, "output_tokens": 2, "total_tokens": 12, "input_tokens_details": { "cached_tokens": 4 } } } }
+    ],
+    "rich": [
+      { "type": "response.created", "response": { "id": "resp_rich" } },
+      { "type": "response.output_item.added", "item": { "type": "reasoning", "id": "rs_1", "summary": [] } },
+      { "type": "response.reasoning_summary_part.added", "part": { "type": "summary_text", "text": "" } },
+      { "type": "response.reasoning_summary_text.delta", "delta": "Think" },
+      { "type": "response.output_item.done", "item": { "type": "reasoning", "id": "rs_1", "summary": [{ "type": "summary_text", "text": "Think" }], "content": [], "encrypted_content": "enc" } },
+      { "type": "response.output_item.added", "item": { "type": "message", "id": "msg_rich", "role": "assistant", "content": [], "status": "in_progress" } },
+      { "type": "response.content_part.added", "part": { "type": "output_text", "text": "", "annotations": [] } },
+      { "type": "response.output_text.delta", "delta": "Use tool." },
+      { "type": "response.output_item.done", "item": { "type": "message", "id": "msg_rich", "role": "assistant", "content": [{ "type": "output_text", "text": "Use tool.", "annotations": [] }], "status": "completed" } },
+      { "type": "response.output_item.added", "item": { "type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "read", "arguments": "" } },
+      { "type": "response.function_call_arguments.delta", "delta": "{\"path\":\"a" },
+      { "type": "response.function_call_arguments.done", "arguments": "{\"path\":\"a.txt\"}" },
+      { "type": "response.output_item.done", "item": { "type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "read", "arguments": "{\"path\":\"a.txt\"}" } },
+      { "type": "response.completed", "response": { "id": "resp_rich", "status": "completed", "usage": { "input_tokens": 100, "output_tokens": 20, "total_tokens": 120, "input_tokens_details": { "cached_tokens": 25 } } } }
+    ]
+  },
+  "cases": [
+    {
+      "name": "request-full", "model": "gpt",
+      "context": {
+        "systemPrompt": "Be helpful.",
+        "messages": [
+          { "role": "user", "content": [{ "type": "text", "text": "hello" }, { "type": "image", "data": "aGk=", "mimeType": "image/png" }], "timestamp": 1 },
+          { "role": "assistant", "content": [{ "type": "toolCall", "id": "call_old|fc_old", "name": "read", "arguments": { "path": "x" } }], "api": "azure-openai-responses", "provider": "azure-openai-responses", "model": "gpt-5.4", "usage": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0, "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 } }, "stopReason": "toolUse", "timestamp": 1 },
+          { "role": "toolResult", "toolCallId": "call_old|fc_old", "toolName": "read", "content": [{ "type": "text", "text": "done" }], "isError": false, "timestamp": 1 }
+        ],
+        "tools": [{ "name": "read", "description": "Read", "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] } }]
+      },
+      "options": { "apiKey": "sk-test", "maxTokens": 1234, "temperature": 0.3, "sessionId": "sess-1", "reasoningEffort": "high", "reasoningSummary": "detailed", "azureApiVersion": "2025-04-01-preview", "azureDeploymentName": "deploy-main", "headers": { "x-extra": "1", "api-key": "overridden" } },
+      "responses": [{ "status": 200, "sse": "rich" }]
+    },
+    { "name": "deployment-map", "model": "plain", "env": { "AZURE_OPENAI_DEPLOYMENT_NAME_MAP": " bad, gpt-4.1 = mapped-deploy=ignored ,other=x", "AZURE_OPENAI_API_VERSION": "2024-10-21" }, "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "key" }, "responses": [{ "status": 200, "sse": "minimal" }] },
+    { "name": "simple-high", "model": "gpt", "simple": true, "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "key", "reasoning": "high" }, "responses": [{ "status": 200, "sse": "minimal" }] },
+    { "name": "stream-rich", "model": "gpt", "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "key" }, "responses": [{ "status": 200, "sse": "rich" }] },
+    { "name": "event-error", "model": "gpt", "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "key" }, "responses": [{ "status": 200, "events": [{ "type": "error", "code": "bad", "message": "broken" }] }] },
+    { "name": "response-failed", "model": "gpt", "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "key" }, "responses": [{ "status": 200, "events": [{ "type": "response.failed", "response": { "error": { "code": "invalid", "message": "nope" } } }] }] },
+    { "name": "http-error", "model": "gpt", "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "key" }, "responses": [{ "status": 400, "json": { "error": { "message": "bad request", "type": "invalid_request_error" } } }] },
+    { "name": "missing-key", "model": "gpt", "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": {}, "responses": [{ "status": 200, "sse": "minimal" }] },
+    { "name": "missing-base", "model": "gpt", "noServerBase": true, "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "key" }, "responses": [] },
+    { "name": "invalid-base", "model": "gpt", "noServerBase": true, "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "key", "azureBaseUrl": "not a url" }, "responses": [] }
+  ]
+}
