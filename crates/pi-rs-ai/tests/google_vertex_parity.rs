@@ -1,6 +1,7 @@
 //! Differential Google Vertex protocol replay (PLAN item 8).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use base64::Engine;
 use pi_rs_ai::protocols::google::{GoogleThinking, GoogleThinkingLevel, GoogleToolChoice};
 use pi_rs_ai::protocols::google_vertex::{
     GoogleVertexOptions, stream_google_vertex, stream_simple_google_vertex,
@@ -80,19 +81,34 @@ fn serve(responses: Vec<String>) -> (std::net::SocketAddr, Captured) {
                 return;
             };
             let request = read_request(&mut socket).await;
-            let token = request
+            let path = request
                 .lines()
                 .next()
-                .is_some_and(|line| line.contains(" /token "));
+                .and_then(|line| line.split_whitespace().nth(1))
+                .unwrap_or("")
+                .to_string();
             copy.lock().unwrap().push(request);
-            let value = if token {
-                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 68\r\nconnection: close\r\n\r\n{\"access_token\":\"adc-token\",\"token_type\":\"Bearer\",\"expires_in\":3600}".to_string()
-            } else {
-                let Some(value) = responses.get(index).or_else(|| responses.last()) else {
-                    return;
-                };
-                index += 1;
-                value.clone()
+            let value = match path.as_str() {
+                "/token" | "/oauth-token" => "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 68\r\nconnection: close\r\n\r\n{\"access_token\":\"adc-token\",\"token_type\":\"Bearer\",\"expires_in\":3600}".to_string(),
+                "/sts" => {
+                    let body = r#"{"access_token":"sts-token","issued_token_type":"urn:ietf:params:oauth:token-type:access_token","token_type":"Bearer","expires_in":3600}"#;
+                    format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len())
+                }
+                "/impersonate" => {
+                    let body = r#"{"accessToken":"adc-token","expireTime":"2099-01-01T00:00:00Z"}"#;
+                    format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len())
+                }
+                "/project/123" => {
+                    let body = r#"{"projectId":"p"}"#;
+                    format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len())
+                }
+                _ => {
+                    let Some(value) = responses.get(index).or_else(|| responses.last()) else {
+                        return;
+                    };
+                    index += 1;
+                    value.clone()
+                }
             };
             let _ = socket.write_all(value.as_bytes()).await;
             let _ = socket.shutdown().await;
@@ -132,6 +148,61 @@ fn normalize_request(raw: &str) -> Value {
         .unwrap_or("");
     let body = if body.is_empty() {
         Value::Null
+    } else if path == "/oauth-token" {
+        let form = url::form_urlencoded::parse(body.as_bytes())
+            .into_owned()
+            .collect::<BTreeMap<_, _>>();
+        let pieces = form["assertion"].split('.').collect::<Vec<_>>();
+        let header: Value = serde_json::from_slice(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(pieces[0])
+                .unwrap(),
+        )
+        .unwrap();
+        let mut payload: Value = serde_json::from_slice(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(pieces[1])
+                .unwrap(),
+        )
+        .unwrap();
+        let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(pieces[2])
+            .unwrap();
+        let private_key = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/google-vertex-parity/service-account-key.pem"),
+        )
+        .unwrap();
+        let key_der = base64::engine::general_purpose::STANDARD
+            .decode(
+                private_key
+                    .lines()
+                    .filter(|line| !line.starts_with("-----"))
+                    .collect::<String>(),
+            )
+            .unwrap();
+        let key = ring::signature::RsaKeyPair::from_pkcs8(&key_der).unwrap();
+        let signature_valid = ring::signature::UnparsedPublicKey::new(
+            &ring::signature::RSA_PKCS1_2048_8192_SHA256,
+            key.public().as_ref(),
+        )
+        .verify(
+            format!("{}.{}", pieces[0], pieces[1]).as_bytes(),
+            &signature,
+        )
+        .is_ok();
+        let issued = payload["iat"].as_u64().unwrap();
+        payload["exp"] = json!(payload["exp"].as_u64().unwrap() - issued);
+        payload["iat"] = json!(0);
+        json!({
+            "grant_type": form["grant_type"],
+            "assertion": {
+                "header": header,
+                "payload": payload,
+                "signatureBytes": signature.len(),
+                "signatureValid": signature_valid,
+            }
+        })
     } else if content_type.starts_with("application/json") {
         serde_json::from_str(body).unwrap()
     } else {
@@ -253,9 +324,53 @@ async fn run(case: &Value, models: &Value) -> Value {
     }
     let credential_path =
         std::env::temp_dir().join(format!("pi-vertex-adc-{}.json", std::process::id()));
+    let subject_path =
+        std::env::temp_dir().join(format!("pi-vertex-subject-{}", std::process::id()));
     let old_credentials = std::env::var_os("GOOGLE_APPLICATION_CREDENTIALS");
-    if case.get("adc").and_then(Value::as_bool).unwrap_or(false) {
-        std::fs::write(&credential_path, json!({"type":"external_account_authorized_user","client_id":"client","client_secret":"secret","refresh_token":"refresh","token_url":format!("http://{address}/token")}).to_string()).unwrap();
+    if let Some(kind) = case.get("adc").and_then(Value::as_str) {
+        let credentials = match kind {
+            "authorized-user" => {
+                json!({"type":"external_account_authorized_user","client_id":"client","client_secret":"secret","refresh_token":"refresh","token_url":format!("http://{address}/token")})
+            }
+            "service-account" => {
+                let key = std::fs::read_to_string(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../tests/google-vertex-parity/service-account-key.pem"),
+                )
+                .unwrap();
+                json!({"type":"service_account","project_id":"p","client_email":"test@p.iam.gserviceaccount.com","private_key":key,"token_uri":format!("http://{address}/oauth-token")})
+            }
+            _ => {
+                let uses_json = kind == "workload-json-impersonated";
+                std::fs::write(
+                    &subject_path,
+                    if uses_json {
+                        r#"{"token":"subject-token"}"#
+                    } else {
+                        "subject-token"
+                    },
+                )
+                .unwrap();
+                let mut credentials = json!({
+                    "type":"external_account",
+                    "audience":"//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
+                    "subject_token_type":"urn:ietf:params:oauth:token-type:jwt",
+                    "token_url":format!("http://{address}/sts"),
+                    "cloud_resource_manager_url":format!("http://{address}/project/"),
+                    "credential_source":{"file":subject_path},
+                });
+                if uses_json {
+                    credentials["credential_source"]["format"] =
+                        json!({"type":"json","subject_token_field_name":"token"});
+                    credentials["service_account_impersonation_url"] =
+                        json!(format!("http://{address}/impersonate"));
+                    credentials["service_account_impersonation"] =
+                        json!({"token_lifetime_seconds":1800});
+                }
+                credentials
+            }
+        };
+        std::fs::write(&credential_path, credentials.to_string()).unwrap();
         unsafe { std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &credential_path) };
     }
     let model: Model = serde_json::from_value(model).unwrap();
@@ -285,13 +400,15 @@ async fn run(case: &Value, models: &Value) -> Value {
     }
     let mut result = serde_json::to_value(stream.result().await.unwrap()).unwrap();
     result["timestamp"] = json!(0);
-    if case.get("adc").and_then(Value::as_bool).unwrap_or(false) {
+    if case.get("adc").and_then(Value::as_str).is_some() {
         if let Some(value) = old_credentials {
             unsafe { std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", value) }
         } else {
             unsafe { std::env::remove_var("GOOGLE_APPLICATION_CREDENTIALS") }
         }
+
         let _ = std::fs::remove_file(credential_path);
+        let _ = std::fs::remove_file(subject_path);
     }
     let requests = captured
         .lock()
