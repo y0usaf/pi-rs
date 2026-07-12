@@ -442,6 +442,39 @@ fn shell_sequence_toggles_thinking_blocks_and_reports_visibility() {
 }
 
 #[test]
+fn suspend_policy_matches_unix_action_and_windows_status() {
+    let host = host();
+    let unix = host
+        .call_command("interactive-suspend-policy", "linux")
+        .unwrap()
+        .unwrap();
+    assert_eq!(unix["suspend"], true);
+    assert_eq!(unix["transcript"], serde_json::json!({}));
+
+    let windows = host
+        .call_command("interactive-suspend-policy", "win32")
+        .unwrap()
+        .unwrap();
+    assert_eq!(windows["suspend"], false);
+    assert_eq!(
+        windows["transcript"],
+        serde_json::json!([{
+            "kind": "status",
+            "text": "Suspend to background is not supported on Windows"
+        }])
+    );
+
+    let mut scenario: serde_json::Value =
+        serde_json::from_str(include_str!("../../../tests/ui-parity/shell-turn.json")).unwrap();
+    scenario["steps"] = serde_json::json!([{ "name": "suspend", "input": ["\u{001a}"] }]);
+    let routed = host
+        .call_command("interactive-shell-parity-sequence", &scenario.to_string())
+        .unwrap()
+        .unwrap();
+    assert_eq!(routed["suspend"], true);
+}
+
+#[test]
 fn shortcut_example_fires_through_registered_shortcuts() {
     let host = host();
     host.load_file(concat!(

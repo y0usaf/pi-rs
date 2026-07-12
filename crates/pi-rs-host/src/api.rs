@@ -321,6 +321,9 @@ impl UserData for LuaProcessTui {
                                     show_hardware_cursor: control.get("showHardwareCursor")?,
                                     clear_on_shrink: control.get("clearOnShrink")?,
                                     inherited_process,
+                                    suspend: control
+                                        .get::<Option<bool>>("suspend")?
+                                        .unwrap_or(false),
                                 })
                             }
                             .await;

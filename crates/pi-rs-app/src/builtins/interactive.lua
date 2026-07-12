@@ -147,7 +147,8 @@ end
 
 local DEFAULT_KEYS = {
   ["app.interrupt"] = "escape", ["app.clear"] = "ctrl+c", ["app.exit"] = "ctrl+d",
-  ["app.suspend"] = "ctrl+z", ["app.thinking.cycle"] = "shift+tab",
+  ["app.suspend"] = pi.platform() == "win32" and "" or "ctrl+z",
+  ["app.thinking.cycle"] = "shift+tab",
   ["app.model.cycleForward"] = "ctrl+p", ["app.model.cycleBackward"] = "shift+ctrl+p",
   ["app.model.select"] = "ctrl+l", ["app.tools.expand"] = "ctrl+o",
   ["app.thinking.toggle"] = "ctrl+t", ["app.editor.external"] = "ctrl+g",
@@ -4365,6 +4366,20 @@ function toggle_thinking_block_visibility(state)
   show_status(state, "Thinking blocks: " .. (state.hide_thinking_block and "hidden" or "visible"))
 end
 
+function handle_suspend(state)
+  if (state.platform or pi.platform()) == "win32" then
+    show_status(state, "Suspend to background is not supported on Windows")
+    return
+  end
+  state.pending_suspend = true
+end
+
+function take_suspend(state)
+  local suspend = state.pending_suspend == true
+  state.pending_suspend = false
+  return suspend
+end
+
 local function setup_shell_editor(state)
   local shortcuts = pi.registered_shortcuts()
   state.editor = custom_editor({
@@ -4379,6 +4394,7 @@ local function setup_shell_editor(state)
   state.editor.editor:set_autocomplete_max_visible(pi.settings.autocomplete_max_visible())
   state.editor.editor:set_focused(true)
   state.editor:on_action("app.clear", function() handle_ctrl_c(state) end)
+  state.editor:on_action("app.suspend", function() handle_suspend(state) end)
   state.editor:on_action("app.thinking.cycle", function() cycle_thinking_level(state) end)
   state.editor:on_action("app.tools.expand", function()
     set_tools_expanded(state, not state.tools_expanded)
@@ -7104,6 +7120,16 @@ function take_inherited_process(state)
   return action
 end
 
+-- Deterministic policy driver for interactive-mode.ts handleCtrlZ. The live
+-- process-group stop/resume is exercised through pi.tui.process_session.
+pi.register_command("interactive-suspend-policy", {
+  handler = function(platform)
+    local state = { platform = platform, transcript = {} }
+    handle_suspend(state)
+    return { suspend = take_suspend(state), transcript = state.transcript }
+  end,
+})
+
 -- Deterministic driver for interactive-mode.ts/openExternalEditor and
 -- ExtensionEditorComponent.openExternalEditor. Process ownership itself is
 -- exercised by the public live-process example and PTY evidence.
@@ -8580,6 +8606,7 @@ local function create_interactive_state(request)
     hide_thinking_block = pi.settings.hide_thinking_block(),
     project_trusted = request.projectTrusted ~= false,
     inherited_process_callbacks = {}, pending_inherited_process = nil,
+    pending_suspend = false,
   }
   -- Spec: main.ts mirrors --api-key into the auth storage as a runtime
   -- override before the session starts; per-request resolution then
@@ -8665,7 +8692,8 @@ local function run_interactive_state(state)
           progress = pi.settings.show_terminal_progress() and state.session.is_streaming(),
           showHardwareCursor = pi.settings.show_hardware_cursor(),
           clearOnShrink = pi.settings.clear_on_shrink(),
-          inheritedProcess = take_inherited_process(state) }
+          inheritedProcess = take_inherited_process(state),
+          suspend = take_suspend(state) }
       end
       local effect = state.editor:handle_input(event.data)
       if effect.kind == "submit" then
@@ -8677,7 +8705,8 @@ local function run_interactive_state(state)
         progress = pi.settings.show_terminal_progress() and state.session.is_streaming(),
         showHardwareCursor = pi.settings.show_hardware_cursor(),
         clearOnShrink = pi.settings.clear_on_shrink(),
-        inheritedProcess = take_inherited_process(state) }
+        inheritedProcess = take_inherited_process(state),
+        suspend = take_suspend(state) }
     end
     if event.type == "inherited_process_result" then
       local callback = state.inherited_process_callbacks[event.id]
@@ -9070,6 +9099,7 @@ pi.register_command("interactive-shell-parity-sequence", {
       }, exit = false,
       provider_count = request.providerCount or 1,
       scoped_models = {},
+      pending_suspend = false,
     }
     state.external_editor_command = request.externalEditorCommand
     local events = {}
@@ -9130,7 +9160,8 @@ pi.register_command("interactive-shell-parity-sequence", {
       end
       capture(step.name, step.resize ~= nil)
     end
-    return { frames = frames, events = events, exited = state.exit }
+    return { frames = frames, events = events, exited = state.exit,
+      suspend = take_suspend(state) }
   end,
 })
 

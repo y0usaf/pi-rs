@@ -1529,7 +1529,7 @@ surface; external editor + suspend. Split into rungs:
       focused retry/agent/compaction tests, `cargo test --workspace`, and `nix build
       .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
-- [ ] **7.11 Remaining shell actions.** openExternalEditor
+- [x] **7.11 Remaining shell actions.** openExternalEditor
       (app.editor.external), ctrl+z suspend, thinking-block visibility
       toggle (app.thinking.toggle + hideThinkingBlock).
 
@@ -1565,14 +1565,30 @@ surface; external editor + suspend. Split into rungs:
       --workspace`, `scripts/ui-diff` (all 25 suites), and `nix build
       .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
-      **Remaining before closure:** port Ctrl+Z process-group suspend/resume with
-      terminal teardown/restoration, SIGINT handling, Windows status behavior, and
-      live PTY/process evidence. Reuse/extend the process-session action/result
-      mechanism; Lua must retain presentation and command policy.
+      **Closure (2026-07-12):** `app.suspend` is now Lua shell policy over the
+      public `pi.tui.process_session` action seam. Unix Ctrl+Z requests a
+      mechanism-only process-group handoff: stop/flush the TUI, restore cooked
+      terminal mode, ignore SIGINT, signal the group with SIGTSTP, wait for the
+      process-wide SIGCONT notification, then reacquire raw mode, refresh terminal
+      dimensions, and force a redraw. Lua owns the platform decision and exact
+      Windows status (`Suspend to background is not supported on Windows`); the
+      default Windows binding is empty like Pi's. The existing live-process example
+      now exercises `{suspend=true}` alongside inherited children.
 
-      **Accept (whole item):** every reachable interactive component has
-      a parity fixture and no placeholder component or pi-rs-only chrome
-      remains.
+      **Closure evidence:** `suspend_policy_matches_unix_action_and_windows_status`
+      pins the policy branches. The same controlling-PTY script launched pinned Pi
+      and the Nix-built pi-rs in separate foreground process groups, sent Ctrl+Z,
+      observed SIGTSTP with `waitpid(WUNTRACED)`, delivered SIGINT while stopped,
+      sent SIGCONT, observed a forced redraw, then exited both with status 0 —
+      proving terminal teardown/restoration and suppression of delayed SIGINT.
+      Suspend intentionally produces no Unix chrome, so the existing `shell-turn`
+      remains the frame evidence rather than adding an artificial checkpoint;
+      `scripts/ui-diff` matches all 25 suites. `cargo fmt --check`, `cargo test
+      --workspace`, `nix build .#pi-rs --print-build-logs`, and `nix build
+      .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
+
+      **Accept (whole item):** every reachable interactive component has parity
+      evidence and no placeholder component or pi-rs-only chrome remains. ✓
 
 - [ ] **8. Complete coding-agent AI/auth compatibility.** Port the providers
       and model catalog behavior the pinned coding agent exposes, sharing
