@@ -155,11 +155,12 @@
     "loader_rules": [
       {
         "status": "implemented",
-        "evidence": "pi-rs-host discover/load/registry tests (mechanism; product wiring remains 9.1)",
+        "evidence": "Product loader/runtime differential plus pi-rs-host discovery and registry tests",
         "items": [
           "async extension initialization",
           "configured/CLI path resolution",
           "direct .lua files",
+          "disable discovery but retain CLI paths",
           "duplicate command disambiguation",
           "first-registration tool precedence",
           "isolated load failures",
@@ -167,14 +168,7 @@
           "project trust gate",
           "project-local before global",
           "resolved-path deduplication",
-          "subdirectory init.lua entry"
-        ]
-      },
-      {
-        "status": "planned 9.1",
-        "evidence": "Real product startup disable/CLI precedence + conflict diagnostics",
-        "items": [
-          "disable discovery but retain CLI paths",
+          "subdirectory init.lua entry",
           "tool/flag conflict diagnostics"
         ]
       }

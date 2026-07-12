@@ -140,19 +140,19 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 
 | Surface | Status | Evidence / target |
 |---|---|---|
-| `async extension initialization` | implemented | pi-rs-host discover/load/registry tests (mechanism; product wiring remains 9.1) |
-| `configured/CLI path resolution` | implemented | pi-rs-host discover/load/registry tests (mechanism; product wiring remains 9.1) |
-| `direct .lua files` | implemented | pi-rs-host discover/load/registry tests (mechanism; product wiring remains 9.1) |
-| `disable discovery but retain CLI paths` | planned 9.1 | Real product startup disable/CLI precedence + conflict diagnostics |
-| `duplicate command disambiguation` | implemented | pi-rs-host discover/load/registry tests (mechanism; product wiring remains 9.1) |
-| `first-registration tool precedence` | implemented | pi-rs-host discover/load/registry tests (mechanism; product wiring remains 9.1) |
-| `isolated load failures` | implemented | pi-rs-host discover/load/registry tests (mechanism; product wiring remains 9.1) |
-| `per-extension attribution` | implemented | pi-rs-host discover/load/registry tests (mechanism; product wiring remains 9.1) |
-| `project trust gate` | implemented | pi-rs-host discover/load/registry tests (mechanism; product wiring remains 9.1) |
-| `project-local before global` | implemented | pi-rs-host discover/load/registry tests (mechanism; product wiring remains 9.1) |
-| `resolved-path deduplication` | implemented | pi-rs-host discover/load/registry tests (mechanism; product wiring remains 9.1) |
-| `subdirectory init.lua entry` | implemented | pi-rs-host discover/load/registry tests (mechanism; product wiring remains 9.1) |
-| `tool/flag conflict diagnostics` | planned 9.1 | Real product startup disable/CLI precedence + conflict diagnostics |
+| `async extension initialization` | implemented | Product loader/runtime differential plus pi-rs-host discovery and registry tests |
+| `configured/CLI path resolution` | implemented | Product loader/runtime differential plus pi-rs-host discovery and registry tests |
+| `direct .lua files` | implemented | Product loader/runtime differential plus pi-rs-host discovery and registry tests |
+| `disable discovery but retain CLI paths` | implemented | Product loader/runtime differential plus pi-rs-host discovery and registry tests |
+| `duplicate command disambiguation` | implemented | Product loader/runtime differential plus pi-rs-host discovery and registry tests |
+| `first-registration tool precedence` | implemented | Product loader/runtime differential plus pi-rs-host discovery and registry tests |
+| `isolated load failures` | implemented | Product loader/runtime differential plus pi-rs-host discovery and registry tests |
+| `per-extension attribution` | implemented | Product loader/runtime differential plus pi-rs-host discovery and registry tests |
+| `project trust gate` | implemented | Product loader/runtime differential plus pi-rs-host discovery and registry tests |
+| `project-local before global` | implemented | Product loader/runtime differential plus pi-rs-host discovery and registry tests |
+| `resolved-path deduplication` | implemented | Product loader/runtime differential plus pi-rs-host discovery and registry tests |
+| `subdirectory init.lua entry` | implemented | Product loader/runtime differential plus pi-rs-host discovery and registry tests |
+| `tool/flag conflict diagnostics` | implemented | Product loader/runtime differential plus pi-rs-host discovery and registry tests |
 
 ## Reference examples
 
