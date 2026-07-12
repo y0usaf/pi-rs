@@ -340,12 +340,278 @@ fn parse_external_subject_token(
     Ok(raw.to_string())
 }
 
+const EXECUTABLE_ALLOW_ENV: &str = "GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES";
+const DEFAULT_EXECUTABLE_TIMEOUT_MS: u64 = 30_000;
+const MIN_EXECUTABLE_TIMEOUT_MS: u64 = 5_000;
+const MAX_EXECUTABLE_TIMEOUT_MS: u64 = 120_000;
+
+fn parse_executable_command(command: &str) -> Result<Vec<String>, ProtocolError> {
+    let bytes = command.as_bytes();
+    let mut pieces = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+            index += 1;
+        }
+        if index == bytes.len() {
+            break;
+        }
+        if bytes[index] == b'"' {
+            let start = index + 1;
+            index = start;
+            while index < bytes.len() && bytes[index] != b'"' {
+                index += 1;
+            }
+            if index < bytes.len() {
+                pieces.push(command[start..index].to_string());
+                index += 1;
+                continue;
+            }
+            index = start;
+        }
+        let start = index;
+        while index < bytes.len() && !bytes[index].is_ascii_whitespace() && bytes[index] != b'"' {
+            index += 1;
+        }
+        if start != index {
+            pieces.push(command[start..index].to_string());
+        } else {
+            index += 1;
+        }
+    }
+    if pieces.is_empty() {
+        return Err(ProtocolError(format!(
+            "Provided command: \"{command}\" could not be parsed."
+        )));
+    }
+    Ok(pieces)
+}
+
+fn executable_response_token(
+    response: &Value,
+    output_file: bool,
+    cached: bool,
+) -> Result<Option<String>, ProtocolError> {
+    let version = response
+        .get("version")
+        .and_then(Value::as_u64)
+        .filter(|version| *version != 0)
+        .ok_or_else(|| {
+            ProtocolError("Executable response must contain a 'version' field.".into())
+        })?;
+    let success = response
+        .get("success")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| {
+            ProtocolError("Executable response must contain a 'success' field.".into())
+        })?;
+    if !success {
+        let code = response
+            .get("code")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                ProtocolError(
+                    "Executable response must contain a 'code' field when unsuccessful.".into(),
+                )
+            })?;
+        let message = response
+            .get("message")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                ProtocolError(
+                    "Executable response must contain a 'message' field when unsuccessful.".into(),
+                )
+            })?;
+        if cached {
+            return Ok(None);
+        }
+        return Err(ProtocolError(format!(
+            "The executable failed with exit code: {code} and error message: {message}."
+        )));
+    }
+    let token_type = response
+        .get("token_type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let token_field = match token_type {
+        "urn:ietf:params:oauth:token-type:saml2" => "saml_response",
+        "urn:ietf:params:oauth:token-type:id_token" | "urn:ietf:params:oauth:token-type:jwt" => {
+            "id_token"
+        }
+        _ => {
+            return Err(ProtocolError(
+                "Executable response must contain a 'token_type' field when successful and it must be one of urn:ietf:params:oauth:token-type:id_token, urn:ietf:params:oauth:token-type:jwt, or urn:ietf:params:oauth:token-type:saml2."
+                    .into(),
+            ));
+        }
+    };
+    let token = response
+        .get(token_field)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            let message = if token_field == "saml_response" {
+                "Executable response must contain a 'saml_response' field when token_type=urn:ietf:params:oauth:token-type:saml2."
+                    .to_string()
+            } else {
+                "Executable response must contain a 'id_token' field when token_type=urn:ietf:params:oauth:token-type:id_token or urn:ietf:params:oauth:token-type:jwt."
+                    .to_string()
+            };
+            ProtocolError(message)
+        })?;
+    let expiration = response.get("expiration_time").and_then(Value::as_f64);
+    if output_file && expiration.is_none_or(|value| value == 0.0) {
+        return Err(ProtocolError(
+            "The executable response must contain the `expiration_time` field for successful responses when an output_file has been specified in the configuration."
+                .into(),
+        ));
+    }
+    if let Some(expiration) = expiration {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|error| ProtocolError(error.to_string()))?
+            .as_secs_f64()
+            .round();
+        if expiration < now {
+            return Ok(None);
+        }
+    }
+    if version > 1 {
+        return Err(ProtocolError(
+            "Version of executable is not currently supported, maximum supported version is 1."
+                .into(),
+        ));
+    }
+    Ok(Some(token.to_string()))
+}
+
+async fn cached_executable_token(path: &str) -> Result<Option<String>, ProtocolError> {
+    let Ok(path) = tokio::fs::canonicalize(path).await else {
+        return Ok(None);
+    };
+    let metadata = tokio::fs::metadata(&path)
+        .await
+        .map_err(|error| ProtocolError(error.to_string()))?;
+    if !metadata.is_file() {
+        return Ok(None);
+    }
+    let raw = tokio::fs::read_to_string(path)
+        .await
+        .map_err(|error| ProtocolError(error.to_string()))?;
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let response: Value = serde_json::from_str(&raw).map_err(|_| {
+        ProtocolError(format!(
+            "The output file contained an invalid response: {raw}"
+        ))
+    })?;
+    executable_response_token(&response, true, true)
+}
+
+async fn executable_subject_token(
+    credentials: &Value,
+    executable: &Value,
+) -> Result<String, ProtocolError> {
+    let command = executable
+        .get("command")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            ProtocolError("No valid Pluggable Auth \"credential_source\" provided.".into())
+        })?;
+    let timeout_ms = executable
+        .get("timeout_millis")
+        .and_then(Value::as_u64)
+        .unwrap_or(DEFAULT_EXECUTABLE_TIMEOUT_MS);
+    if !(MIN_EXECUTABLE_TIMEOUT_MS..=MAX_EXECUTABLE_TIMEOUT_MS).contains(&timeout_ms) {
+        return Err(ProtocolError(format!(
+            "Timeout must be between {MIN_EXECUTABLE_TIMEOUT_MS} and {MAX_EXECUTABLE_TIMEOUT_MS} milliseconds."
+        )));
+    }
+    if env_non_empty(EXECUTABLE_ALLOW_ENV).as_deref() != Some("1") {
+        return Err(ProtocolError(
+            "Pluggable Auth executables need to be explicitly allowed to run by setting the GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES environment Variable to 1."
+                .into(),
+        ));
+    }
+    let output_file = executable.get("output_file").and_then(Value::as_str);
+    if let Some(path) = output_file
+        && let Some(token) = cached_executable_token(path).await?
+    {
+        return Ok(token);
+    }
+    let pieces = parse_executable_command(command)?;
+    let mut process = tokio::process::Command::new(&pieces[0]);
+    process.args(&pieces[1..]).kill_on_drop(true);
+    process
+        .env(
+            "GOOGLE_EXTERNAL_ACCOUNT_AUDIENCE",
+            credential_field(credentials, "audience")?,
+        )
+        .env(
+            "GOOGLE_EXTERNAL_ACCOUNT_TOKEN_TYPE",
+            credential_field(credentials, "subject_token_type")?,
+        )
+        .env("GOOGLE_EXTERNAL_ACCOUNT_INTERACTIVE", "0");
+    if let Some(path) = output_file {
+        process.env("GOOGLE_EXTERNAL_ACCOUNT_OUTPUT_FILE", path);
+    }
+    if let Some(url) = credentials
+        .get("service_account_impersonation_url")
+        .and_then(Value::as_str)
+        && let Some(email) = url
+            .strip_suffix(":generateAccessToken")
+            .and_then(|value| value.rsplit("serviceAccounts/").next())
+            .filter(|value| *value != url)
+    {
+        process.env("GOOGLE_EXTERNAL_ACCOUNT_IMPERSONATED_EMAIL", email);
+    }
+    let output = tokio::time::timeout(
+        std::time::Duration::from_millis(timeout_ms),
+        process.output(),
+    )
+    .await
+    .map_err(|_| {
+        ProtocolError("The executable failed to finish within the timeout specified.".into())
+    })?
+    .map_err(|error| ProtocolError(error.to_string()))?;
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if !output.status.success() {
+        let code = output
+            .status
+            .code()
+            .map_or_else(|| "null".to_string(), |value| value.to_string());
+        return Err(ProtocolError(format!(
+            "The executable failed with exit code: {code} and error message: {combined}."
+        )));
+    }
+    let response: Value = serde_json::from_str(&combined).map_err(|_| {
+        ProtocolError(format!(
+            "The executable returned an invalid response: {combined}"
+        ))
+    })?;
+    executable_response_token(&response, output_file.is_some(), false)?
+        .ok_or_else(|| ProtocolError("Executable response is expired.".into()))
+}
 async fn external_subject_token(
     credentials: &Value,
 ) -> Result<(String, &'static str), ProtocolError> {
     let source = credentials
         .get("credential_source")
         .ok_or_else(|| ProtocolError("A credential source must be specified.".into()))?;
+    if let Some(executable) = source.get("executable") {
+        return Ok((
+            executable_subject_token(credentials, executable).await?,
+            "executable",
+        ));
+    }
     if let Some(path) = source.get("file").and_then(Value::as_str) {
         let raw = tokio::fs::read_to_string(path)
             .await
