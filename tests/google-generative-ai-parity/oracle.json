@@ -1,0 +1,863 @@
+{
+	"cases": [
+		{
+			"name": "request-full",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/models/gemini-3.1-pro-preview:streamGenerateContent?alt=sse",
+					"headers": {
+						"accept": "*/*",
+						"content-type": "application/json",
+						"x-extra": "1",
+						"x-goog-api-client": "google-genai-sdk/1.52.0 gl-node/v22.23.1",
+						"x-goog-api-key": "key",
+						"x-model": "override"
+					},
+					"body": {
+						"contents": [
+							{
+								"parts": [
+									{
+										"text": "hello"
+									},
+									{
+										"inlineData": {
+											"data": "aGk=",
+											"mimeType": "image/png"
+										}
+									}
+								],
+								"role": "user"
+							},
+							{
+								"parts": [
+									{
+										"text": "consider",
+										"thought": true,
+										"thoughtSignature": "dGhpbms="
+									},
+									{
+										"text": "using tool",
+										"thoughtSignature": "dGV4dA=="
+									},
+									{
+										"functionCall": {
+											"args": {
+												"path": "x"
+											},
+											"name": "read"
+										},
+										"thoughtSignature": "dG9vbA=="
+									}
+								],
+								"role": "model"
+							},
+							{
+								"parts": [
+									{
+										"functionResponse": {
+											"name": "read",
+											"response": {
+												"output": "done"
+											},
+											"parts": [
+												{
+													"inlineData": {
+														"mimeType": "image/png",
+														"data": "aW1n"
+													}
+												}
+											]
+										}
+									}
+								],
+								"role": "user"
+							}
+						],
+						"systemInstruction": {
+							"parts": [
+								{
+									"text": "Be helpful."
+								}
+							],
+							"role": "user"
+						},
+						"tools": [
+							{
+								"functionDeclarations": [
+									{
+										"name": "read",
+										"description": "Read",
+										"parametersJsonSchema": {
+											"$schema": "x",
+											"type": "object",
+											"properties": {
+												"path": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"path"
+											]
+										}
+									}
+								]
+							}
+						],
+						"toolConfig": {
+							"functionCallingConfig": {
+								"mode": "ANY"
+							}
+						},
+						"generationConfig": {
+							"temperature": 0.3,
+							"maxOutputTokens": 1234,
+							"thinkingConfig": {
+								"includeThoughts": true,
+								"thinkingLevel": "HIGH"
+							}
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "google-generative-ai",
+				"provider": "google",
+				"model": "gemini-3.1-pro-preview",
+				"usage": {
+					"input": 10,
+					"output": 2,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 12,
+					"cost": {
+						"input": 0.000019999999999999998,
+						"output": 0.000024,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.000044
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "resp_full"
+			}
+		},
+		{
+			"name": "simple-disabled",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+					"headers": {
+						"accept": "*/*",
+						"content-type": "application/json",
+						"x-goog-api-client": "google-genai-sdk/1.52.0 gl-node/v22.23.1",
+						"x-goog-api-key": "key",
+						"x-model": "yes"
+					},
+					"body": {
+						"contents": [
+							{
+								"parts": [
+									{
+										"text": "hi"
+									}
+								],
+								"role": "user"
+							}
+						],
+						"generationConfig": {
+							"thinkingConfig": {
+								"thinkingBudget": 0
+							}
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "google-generative-ai",
+				"provider": "google",
+				"model": "gemini-2.5-pro",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0
+			}
+		},
+		{
+			"name": "simple-budget-high",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+					"headers": {
+						"accept": "*/*",
+						"content-type": "application/json",
+						"x-goog-api-client": "google-genai-sdk/1.52.0 gl-node/v22.23.1",
+						"x-goog-api-key": "key",
+						"x-model": "yes"
+					},
+					"body": {
+						"contents": [
+							{
+								"parts": [
+									{
+										"text": "hi"
+									}
+								],
+								"role": "user"
+							}
+						],
+						"generationConfig": {
+							"thinkingConfig": {
+								"includeThoughts": true,
+								"thinkingBudget": 7777
+							}
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "google-generative-ai",
+				"provider": "google",
+				"model": "gemini-2.5-pro",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0
+			}
+		},
+		{
+			"name": "simple-level-low",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/models/gemini-3.1-pro-preview:streamGenerateContent?alt=sse",
+					"headers": {
+						"accept": "*/*",
+						"content-type": "application/json",
+						"x-goog-api-client": "google-genai-sdk/1.52.0 gl-node/v22.23.1",
+						"x-goog-api-key": "key"
+					},
+					"body": {
+						"contents": [
+							{
+								"parts": [
+									{
+										"text": "hi"
+									}
+								],
+								"role": "user"
+							}
+						],
+						"generationConfig": {
+							"thinkingConfig": {
+								"includeThoughts": true,
+								"thinkingLevel": "LOW"
+							}
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "google-generative-ai",
+				"provider": "google",
+				"model": "gemini-3.1-pro-preview",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0
+			}
+		},
+		{
+			"name": "stream-rich",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+					"headers": {
+						"accept": "*/*",
+						"content-type": "application/json",
+						"x-goog-api-client": "google-genai-sdk/1.52.0 gl-node/v22.23.1",
+						"x-goog-api-key": "key",
+						"x-model": "yes"
+					},
+					"body": {
+						"contents": [
+							{
+								"parts": [
+									{
+										"text": "hi"
+									}
+								],
+								"role": "user"
+							}
+						],
+						"generationConfig": {
+							"thinkingConfig": {
+								"includeThoughts": true,
+								"thinkingBudget": 2048
+							}
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "thinking_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "thinking_delta",
+					"contentIndex": 0,
+					"delta": "Think"
+				},
+				{
+					"type": "thinking_end",
+					"contentIndex": 0,
+					"content": "Think"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 1
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 1,
+					"delta": "Answer "
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 1,
+					"delta": "more"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 1,
+					"content": "Answer more"
+				},
+				{
+					"type": "toolcall_start",
+					"contentIndex": 2
+				},
+				{
+					"type": "toolcall_delta",
+					"contentIndex": 2,
+					"delta": "{\"path\":\"a.txt\"}"
+				},
+				{
+					"type": "toolcall_end",
+					"contentIndex": 2,
+					"toolCall": {
+						"type": "toolCall",
+						"id": "call_1",
+						"name": "read",
+						"arguments": {
+							"path": "a.txt"
+						},
+						"thoughtSignature": "dG9vbA=="
+					}
+				},
+				{
+					"type": "done",
+					"reason": "toolUse"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "thinking",
+						"thinking": "Think",
+						"thinkingSignature": "dGhpbms="
+					},
+					{
+						"type": "text",
+						"text": "Answer more",
+						"textSignature": "dGV4dA=="
+					},
+					{
+						"type": "toolCall",
+						"id": "call_1",
+						"name": "read",
+						"arguments": {
+							"path": "a.txt"
+						},
+						"thoughtSignature": "dG9vbA=="
+					}
+				],
+				"api": "google-generative-ai",
+				"provider": "google",
+				"model": "gemini-2.5-pro",
+				"usage": {
+					"input": 75,
+					"output": 15,
+					"cacheRead": 25,
+					"cacheWrite": 0,
+					"totalTokens": 115,
+					"cost": {
+						"input": 0.00009375,
+						"output": 0.00015000000000000001,
+						"cacheRead": 0.00000775,
+						"cacheWrite": 0,
+						"total": 0.00025150000000000004
+					}
+				},
+				"stopReason": "toolUse",
+				"timestamp": 0,
+				"responseId": "resp_rich"
+			}
+		},
+		{
+			"name": "finish-length",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/models/gemini-2.0-flash:streamGenerateContent?alt=sse",
+					"headers": {
+						"accept": "*/*",
+						"content-type": "application/json",
+						"x-goog-api-client": "google-genai-sdk/1.52.0 gl-node/v22.23.1",
+						"x-goog-api-key": "key"
+					},
+					"body": {
+						"contents": [
+							{
+								"parts": [
+									{
+										"text": "hi"
+									}
+								],
+								"role": "user"
+							}
+						],
+						"generationConfig": {}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "cut"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "cut"
+				},
+				{
+					"type": "done",
+					"reason": "length"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "cut"
+					}
+				],
+				"api": "google-generative-ai",
+				"provider": "google",
+				"model": "gemini-2.0-flash",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "length",
+				"timestamp": 0
+			}
+		},
+		{
+			"name": "finish-safety",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/models/gemini-2.0-flash:streamGenerateContent?alt=sse",
+					"headers": {
+						"accept": "*/*",
+						"content-type": "application/json",
+						"x-goog-api-client": "google-genai-sdk/1.52.0 gl-node/v22.23.1",
+						"x-goog-api-key": "key"
+					},
+					"body": {
+						"contents": [
+							{
+								"parts": [
+									{
+										"text": "hi"
+									}
+								],
+								"role": "user"
+							}
+						],
+						"generationConfig": {}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "google-generative-ai",
+				"provider": "google",
+				"model": "gemini-2.0-flash",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "An unknown error occurred"
+			}
+		},
+		{
+			"name": "http-json-error",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/models/gemini-2.0-flash:streamGenerateContent?alt=sse",
+					"headers": {
+						"accept": "*/*",
+						"content-type": "application/json",
+						"x-goog-api-client": "google-genai-sdk/1.52.0 gl-node/v22.23.1",
+						"x-goog-api-key": "key"
+					},
+					"body": {
+						"contents": [
+							{
+								"parts": [
+									{
+										"text": "hi"
+									}
+								],
+								"role": "user"
+							}
+						],
+						"generationConfig": {}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "google-generative-ai",
+				"provider": "google",
+				"model": "gemini-2.0-flash",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "{\"error\":{\"code\":400,\"message\":\"bad request\",\"status\":\"INVALID_ARGUMENT\"}}"
+			}
+		},
+		{
+			"name": "http-text-error",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/models/gemini-2.0-flash:streamGenerateContent?alt=sse",
+					"headers": {
+						"accept": "*/*",
+						"content-type": "application/json",
+						"x-goog-api-client": "google-genai-sdk/1.52.0 gl-node/v22.23.1",
+						"x-goog-api-key": "key"
+					},
+					"body": {
+						"contents": [
+							{
+								"parts": [
+									{
+										"text": "hi"
+									}
+								],
+								"role": "user"
+							}
+						],
+						"generationConfig": {}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "google-generative-ai",
+				"provider": "google",
+				"model": "gemini-2.0-flash",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "{\"error\":{\"message\":\"down\",\"code\":503,\"status\":\"Service Unavailable\"}}"
+			}
+		},
+		{
+			"name": "missing-key",
+			"requests": [],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "google-generative-ai",
+				"provider": "google",
+				"model": "gemini-2.0-flash",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "No API key for provider: google"
+			}
+		}
+	]
+}
