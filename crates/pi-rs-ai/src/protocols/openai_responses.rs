@@ -161,8 +161,12 @@ fn normalize_tool_call_id(
     format!("{call_id}|{item_id}")
 }
 
-/// Spec: `convertResponsesMessages`.
-fn convert_messages(model: &Model, context: &Context, include_system_prompt: bool) -> Vec<Value> {
+/// Spec: `convertResponsesMessages`, shared by OpenAI and Codex Responses.
+pub(crate) fn convert_responses_messages(
+    model: &Model,
+    context: &Context,
+    include_system_prompt: bool,
+) -> Vec<Value> {
     let allowed: HashSet<&str> = OPENAI_TOOL_CALL_PROVIDERS.iter().copied().collect();
     let normalize = |id: &str, _model: &Model, source: &AssistantMessage| {
         normalize_tool_call_id(model, id, source, &allowed)
@@ -355,7 +359,7 @@ fn build_params(model: &Model, context: &Context, options: &OpenAIResponsesOptio
     object.insert("model".to_string(), json!(model.id));
     object.insert(
         "input".to_string(),
-        json!(convert_messages(model, context, true)),
+        json!(convert_responses_messages(model, context, true)),
     );
     object.insert("stream".to_string(), json!(true));
     object.insert("store".to_string(), json!(false));
@@ -522,13 +526,20 @@ enum CurrentBlock {
     Tool(usize),
 }
 
-async fn process_stream(
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum ResponsesFlavor {
+    OpenAi,
+    Codex,
+}
+
+pub(crate) async fn process_responses_stream(
     response: reqwest::Response,
     signal: Option<AbortSignal>,
     output: &mut AssistantMessage,
     stream: &AssistantMessageEventStream,
     model: &Model,
-    options: &OpenAIResponsesOptions,
+    service_tier: Option<&str>,
+    flavor: ResponsesFlavor,
 ) -> Result<(), ProtocolError> {
     let mut reader = response_sse_reader(response, signal);
     let mut current_item = Value::Null;
@@ -901,7 +912,9 @@ async fn process_stream(
                     _ => {}
                 }
             }
-            "response.completed" => {
+            "response.completed" | "response.done" | "response.incomplete"
+                if flavor == ResponsesFlavor::Codex || event_type == "response.completed" =>
+            {
                 let response = &event["response"];
                 if let Some(id) = response.get("id").and_then(Value::as_str) {
                     output.response_id = Some(id.to_string());
@@ -930,10 +943,15 @@ async fn process_stream(
                         cost: Default::default(),
                     };
                     calculate_cost(model, &mut output.usage);
-                    let tier = response
-                        .get("service_tier")
-                        .and_then(Value::as_str)
-                        .or(options.service_tier.as_deref());
+                    let response_tier = response.get("service_tier").and_then(Value::as_str);
+                    let tier = if flavor == ResponsesFlavor::Codex
+                        && response_tier == Some("default")
+                        && matches!(service_tier, Some("flex" | "priority"))
+                    {
+                        service_tier
+                    } else {
+                        response_tier.or(service_tier)
+                    };
                     apply_service_tier_pricing(&mut output.usage, model, tier);
                 }
                 output.stop_reason = match response.get("status").and_then(Value::as_str) {
@@ -949,16 +967,37 @@ async fn process_stream(
                 {
                     output.stop_reason = StopReason::ToolUse;
                 }
+                if flavor == ResponsesFlavor::Codex {
+                    break;
+                }
             }
             "error" => {
-                return Err(ProtocolError(format!(
-                    "Error Code {}: {}",
-                    event.get("code").and_then(Value::as_str).unwrap_or(""),
-                    event.get("message").and_then(Value::as_str).unwrap_or("")
-                )));
+                let code = event.get("code").and_then(Value::as_str).unwrap_or("");
+                let message = event.get("message").and_then(Value::as_str).unwrap_or("");
+                return Err(ProtocolError(if flavor == ResponsesFlavor::Codex {
+                    let detail = if !message.is_empty() {
+                        message.to_string()
+                    } else if !code.is_empty() {
+                        code.to_string()
+                    } else {
+                        event.to_string()
+                    };
+                    format!("Codex error: {detail}")
+                } else {
+                    format!("Error Code {code}: {message}")
+                }));
             }
             "response.failed" => {
                 let error = &event["response"]["error"];
+                if flavor == ResponsesFlavor::Codex {
+                    return Err(ProtocolError(
+                        error
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or("Codex response failed")
+                            .to_string(),
+                    ));
+                }
                 let message = if !error.is_null() {
                     format!(
                         "{}: {}",
@@ -1064,13 +1103,14 @@ async fn drive(
     stream.push(AssistantMessageEvent::Start {
         partial: output.clone(),
     });
-    process_stream(
+    process_responses_stream(
         response,
         options.base.signal.clone(),
         output,
         stream,
         model,
-        options,
+        options.service_tier.as_deref(),
+        ResponsesFlavor::OpenAi,
     )
     .await?;
     if options

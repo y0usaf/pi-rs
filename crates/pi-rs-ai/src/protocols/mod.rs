@@ -15,13 +15,14 @@
 //! - [`openai_prompt_cache`] ← `providers/openai-prompt-cache.ts`.
 //! - [`openai_completions`] ← `providers/openai-completions.ts`.
 //! - [`openai_responses`] ← `providers/openai-responses.ts` + shared mapping.
+//! - [`openai_codex_responses`] ← the Codex Responses SSE path.
 //!
-//! Remaining protocol families (codex-responses, azure, google, mistral,
-//! bedrock) land in PLAN item 8 slices.
+//! Remaining families and Codex WebSocket transport land in PLAN item 8 slices.
 
 pub mod anthropic;
 pub mod cloudflare;
 pub mod copilot_headers;
+pub mod openai_codex_responses;
 pub mod openai_completions;
 pub mod openai_prompt_cache;
 pub mod openai_responses;
