@@ -243,6 +243,7 @@ fn builtins_resolve_after_reset() {
     reset_api_providers();
     assert!(get_api_provider("anthropic-messages").is_some());
     assert!(get_api_provider("openai-completions").is_some());
+    assert!(get_api_provider("openai-responses").is_some());
 }
 
 #[test]

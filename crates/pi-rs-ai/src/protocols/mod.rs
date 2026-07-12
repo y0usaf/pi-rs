@@ -14,15 +14,17 @@
 //! - [`anthropic`] ← `providers/anthropic.ts`.
 //! - [`openai_prompt_cache`] ← `providers/openai-prompt-cache.ts`.
 //! - [`openai_completions`] ← `providers/openai-completions.ts`.
+//! - [`openai_responses`] ← `providers/openai-responses.ts` + shared mapping.
 //!
-//! Remaining protocol families (openai-responses, google, bedrock) land
-//! here in later WS2.3 slices.
+//! Remaining protocol families (codex-responses, azure, google, mistral,
+//! bedrock) land in PLAN item 8 slices.
 
 pub mod anthropic;
 pub mod cloudflare;
 pub mod copilot_headers;
 pub mod openai_completions;
 pub mod openai_prompt_cache;
+pub mod openai_responses;
 pub mod options;
 pub mod simple_options;
 pub mod transform_messages;
