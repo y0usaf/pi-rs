@@ -334,7 +334,14 @@ async fn run(case: &Value, models: &Value) -> Value {
         std::env::temp_dir().join(format!("pi-vertex-adc-{}.json", std::process::id()));
     let subject_path =
         std::env::temp_dir().join(format!("pi-vertex-subject-{}", std::process::id()));
+    let executable_path =
+        std::env::temp_dir().join(format!("pi vertex executable {}.sh", std::process::id()));
+    let executable_output_path = std::env::temp_dir().join(format!(
+        "pi-vertex-executable-output-{}.json",
+        std::process::id()
+    ));
     let old_credentials = std::env::var_os("GOOGLE_APPLICATION_CREDENTIALS");
+    let old_allow_executables = std::env::var_os("GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES");
     if let Some(kind) = case.get("adc").and_then(Value::as_str) {
         let credentials = match kind {
             "authorized-user" => {
@@ -347,6 +354,45 @@ async fn run(case: &Value, models: &Value) -> Value {
                 )
                 .unwrap();
                 json!({"type":"service_account","project_id":"p","client_email":"test@p.iam.gserviceaccount.com","private_key":key,"token_uri":format!("http://{address}/oauth-token")})
+            }
+            "workload-executable" => {
+                std::fs::write(
+                    &executable_path,
+                    r##"#!/bin/sh
+printf '{"version":1,"success":true,"token_type":"urn:ietf:params:oauth:token-type:jwt","id_token":"%s|%s|%s|%s"}' "$GOOGLE_EXTERNAL_ACCOUNT_AUDIENCE" "$GOOGLE_EXTERNAL_ACCOUNT_TOKEN_TYPE" "$GOOGLE_EXTERNAL_ACCOUNT_INTERACTIVE" "$GOOGLE_EXTERNAL_ACCOUNT_OUTPUT_FILE"
+"##,
+                )
+                .unwrap();
+                unsafe { std::env::set_var("GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES", "1") };
+                json!({
+                    "type":"external_account",
+                    "audience":"//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
+                    "subject_token_type":"urn:ietf:params:oauth:token-type:jwt",
+                    "token_url":format!("http://{address}/sts"),
+                    "cloud_resource_manager_url":format!("http://{address}/project/"),
+                    "credential_source":{"executable":{"command":format!("/bin/sh \"{}\"", executable_path.display()),"timeout_millis":5000}},
+                })
+            }
+            "workload-executable-cached" => {
+                let expiration = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    + 3600;
+                std::fs::write(
+                    &executable_output_path,
+                    json!({"version":1,"success":true,"token_type":"urn:ietf:params:oauth:token-type:jwt","id_token":"cached-executable-token","expiration_time":expiration}).to_string(),
+                )
+                .unwrap();
+                unsafe { std::env::set_var("GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES", "1") };
+                json!({
+                    "type":"external_account",
+                    "audience":"//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
+                    "subject_token_type":"urn:ietf:params:oauth:token-type:jwt",
+                    "token_url":format!("http://{address}/sts"),
+                    "cloud_resource_manager_url":format!("http://{address}/project/"),
+                    "credential_source":{"executable":{"command":"must-not-run","timeout_millis":5000,"output_file":executable_output_path}},
+                })
             }
             _ => {
                 let uses_json = matches!(kind, "workload-json-impersonated" | "workload-url-json");
@@ -426,9 +472,16 @@ async fn run(case: &Value, models: &Value) -> Value {
         } else {
             unsafe { std::env::remove_var("GOOGLE_APPLICATION_CREDENTIALS") }
         }
+        if let Some(value) = old_allow_executables {
+            unsafe { std::env::set_var("GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES", value) }
+        } else {
+            unsafe { std::env::remove_var("GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES") }
+        }
 
         let _ = std::fs::remove_file(credential_path);
         let _ = std::fs::remove_file(subject_path);
+        let _ = std::fs::remove_file(executable_path);
+        let _ = std::fs::remove_file(executable_output_path);
     }
     let requests = captured
         .lock()

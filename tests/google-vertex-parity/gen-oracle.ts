@@ -92,6 +92,7 @@ async function run(c: any) {
 	const model = { ...spec.models[c.model], ...(!c.noServerBase ? { baseUrl: url + (c.baseSuffix ?? "") } : {}) };
 	let dir: string | undefined;
 	const oldCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+	const oldAllowExecutables = process.env.GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES;
 	const originalAdapter = Gaxios.prototype._defaultAdapter;
 	if (c.adc) {
 		dir = mkdtempSync(join(tmpdir(), "pi-vertex-oracle-"));
@@ -106,6 +107,25 @@ async function run(c: any) {
 					config = { ...config, url: new URL(`${url}/oauth-token`) };
 				}
 				return originalAdapter.call(this, config);
+			};
+		} else if (c.adc === "workload-executable" || c.adc === "workload-executable-cached") {
+			const executablePath = join(dir, "subject token.mjs");
+			const outputFile = join(dir, "executable-output.json");
+			writeFileSync(executablePath, `const token = [process.env.GOOGLE_EXTERNAL_ACCOUNT_AUDIENCE, process.env.GOOGLE_EXTERNAL_ACCOUNT_TOKEN_TYPE, process.env.GOOGLE_EXTERNAL_ACCOUNT_INTERACTIVE, process.env.GOOGLE_EXTERNAL_ACCOUNT_OUTPUT_FILE ?? ""].join("|"); process.stdout.write(JSON.stringify({version:1,success:true,token_type:"urn:ietf:params:oauth:token-type:jwt",id_token:token}));`);
+			const executable: any = { command: `${process.execPath} "${executablePath}"`, timeout_millis: 5000 };
+			if (c.adc === "workload-executable-cached") {
+				writeFileSync(outputFile, JSON.stringify({ version: 1, success: true, token_type: "urn:ietf:params:oauth:token-type:jwt", id_token: "cached-executable-token", expiration_time: Math.round(Date.now() / 1000) + 3600 }));
+				executable.output_file = outputFile;
+				executable.command = "must-not-run";
+			}
+			process.env.GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES = "1";
+			credentials = {
+				type: "external_account",
+				audience: "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
+				subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
+				token_url: `${url}/sts`,
+				credential_source: { executable },
+				cloud_resource_manager_url: `${url}/project/`,
 			};
 		} else {
 			const usesJson = c.adc === "workload-json-impersonated" || c.adc === "workload-url-json";
@@ -129,6 +149,7 @@ async function run(c: any) {
 				...(c.adc === "workload-json-impersonated" ? { service_account_impersonation_url: `${url}/impersonate`, service_account_impersonation: { token_lifetime_seconds: 1800 } } : {}),
 			};
 		}
+
 		writeFileSync(credentialPath, JSON.stringify(credentials));
 		process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialPath;
 	}
@@ -145,6 +166,8 @@ async function run(c: any) {
 		Gaxios.prototype._defaultAdapter = originalAdapter;
 		if (oldCredentials === undefined) delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
 		else process.env.GOOGLE_APPLICATION_CREDENTIALS = oldCredentials;
+		if (oldAllowExecutables === undefined) delete process.env.GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES;
+		else process.env.GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES = oldAllowExecutables;
 		if (dir) rmSync(dir, { recursive: true, force: true });
 	}
 	return { name: c.name, requests, ...(syncError ? { syncError } : { events, result }) };

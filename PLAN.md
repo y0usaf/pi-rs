@@ -1785,12 +1785,30 @@ surface; external editor + suspend. Split into rungs:
       focused oracle tests, `cargo test --workspace`, and `nix build
       .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
-      **Remaining:** close google-auth's AWS, executable, and certificate
-      `external_account` sources so Pi's broad ADC file discovery never advertises
-      an unsupported shape; then add deterministic differential replays + dispatch
-      for `mistral-conversations` and `bedrock-converse-stream`; upgrade the
-      existing `openai-completions` fixtures to a Pi-derived differential oracle,
-      then run the whole catalog/auth acceptance gate.
+      **Ninth landed slice (2026-07-12): Vertex executable-sourced workload
+      identity.** External-account ADC now selects google-auth's pluggable-auth
+      path for `credential_source.executable`: explicit opt-in gate, command
+      splitting, inherited + Google contract environment, 5–120s timeout/process
+      kill, stdout/stderr/exit settlement, v1 OIDC/SAML response validation,
+      expiration, and valid output-file cache reuse. Subject tokens feed the same
+      STS/impersonation/project pipeline with the executable-specific metrics header.
+
+      **Ninth-slice evidence:** the Pi-derived Google Vertex oracle now replays 17
+      cases, adding a live executable whose token encodes the injected audience,
+      token type, interactive flag, and absent output path, plus a cached-output
+      case whose intentionally invalid command proves cache reuse. It compares the
+      exact STS subject token/metrics header, project/provider requests, events, and
+      final messages; regeneration is byte-idempotent. No Lua extension hook landed;
+      no example needed. `cargo fmt --check`, `cargo clippy -p pi-rs-ai -- -D
+      warnings`, focused oracle tests, `cargo test --workspace`, and `nix build
+      .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
+
+      **Remaining:** close google-auth's AWS and certificate `external_account`
+      sources so Pi's broad ADC file discovery never advertises an unsupported
+      shape; then add deterministic differential replays + dispatch for
+      `mistral-conversations` and `bedrock-converse-stream`; upgrade the existing
+      `openai-completions` fixtures to a Pi-derived differential oracle, then run
+      the whole catalog/auth acceptance gate.
 
 - [ ] **9. Implement Lua-only configuration and Lua extensions.** Replace the
       temporary Pi-JSON settings path with the two canonical entry points:

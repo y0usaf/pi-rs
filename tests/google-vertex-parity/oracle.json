@@ -1372,6 +1372,204 @@
 				"stopReason": "stop",
 				"timestamp": 0
 			}
+		},
+		{
+			"name": "adc-workload-executable",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/sts",
+					"headers": {
+						"accept": "application/json",
+						"content-type": "application/x-www-form-urlencoded;charset=UTF-8",
+						"x-goog-api-client": "gl-node/22.23.1 auth/10.6.2 google-byoid-sdk source/executable sa-impersonation/false config-lifetime/false"
+					},
+					"body": "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange&audience=%2F%2Fiam.googleapis.com%2Fprojects%2F123%2Flocations%2Fglobal%2FworkloadIdentityPools%2Fpool%2Fproviders%2Fprovider&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform&requested_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aaccess_token&subject_token=%2F%2Fiam.googleapis.com%2Fprojects%2F123%2Flocations%2Fglobal%2FworkloadIdentityPools%2Fpool%2Fproviders%2Fprovider%7Curn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Ajwt%7C0%7C&subject_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Ajwt"
+				},
+				{
+					"method": "GET",
+					"path": "/project/123",
+					"headers": {
+						"accept": "application/json",
+						"authorization": "Bearer sts-token",
+						"x-goog-api-client": "gl-node/22.23.1"
+					},
+					"body": null
+				},
+				{
+					"method": "POST",
+					"path": "/v1/publishers/google/models/gemini-2.0-flash:streamGenerateContent?alt=sse",
+					"headers": {
+						"accept": "*/*",
+						"authorization": "Bearer sts-token",
+						"content-type": "application/json",
+						"x-goog-api-client": "google-genai-sdk/1.52.0 gl-node/v22.23.1"
+					},
+					"body": {
+						"contents": [
+							{
+								"parts": [
+									{
+										"text": "hi"
+									}
+								],
+								"role": "user"
+							}
+						],
+						"generationConfig": {}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "executable"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "executable"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "executable"
+					}
+				],
+				"api": "google-vertex",
+				"provider": "google-vertex",
+				"model": "gemini-2.0-flash",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0
+			}
+		},
+		{
+			"name": "adc-workload-executable-cached",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/sts",
+					"headers": {
+						"accept": "application/json",
+						"content-type": "application/x-www-form-urlencoded;charset=UTF-8",
+						"x-goog-api-client": "gl-node/22.23.1 auth/10.6.2 google-byoid-sdk source/executable sa-impersonation/false config-lifetime/false"
+					},
+					"body": "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange&audience=%2F%2Fiam.googleapis.com%2Fprojects%2F123%2Flocations%2Fglobal%2FworkloadIdentityPools%2Fpool%2Fproviders%2Fprovider&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform&requested_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aaccess_token&subject_token=cached-executable-token&subject_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Ajwt"
+				},
+				{
+					"method": "GET",
+					"path": "/project/123",
+					"headers": {
+						"accept": "application/json",
+						"authorization": "Bearer sts-token",
+						"x-goog-api-client": "gl-node/22.23.1"
+					},
+					"body": null
+				},
+				{
+					"method": "POST",
+					"path": "/v1/publishers/google/models/gemini-2.0-flash:streamGenerateContent?alt=sse",
+					"headers": {
+						"accept": "*/*",
+						"authorization": "Bearer sts-token",
+						"content-type": "application/json",
+						"x-goog-api-client": "google-genai-sdk/1.52.0 gl-node/v22.23.1"
+					},
+					"body": {
+						"contents": [
+							{
+								"parts": [
+									{
+										"text": "hi"
+									}
+								],
+								"role": "user"
+							}
+						],
+						"generationConfig": {}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "cached executable"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "cached executable"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "cached executable"
+					}
+				],
+				"api": "google-vertex",
+				"provider": "google-vertex",
+				"model": "gemini-2.0-flash",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0
+			}
 		}
 	]
 }
