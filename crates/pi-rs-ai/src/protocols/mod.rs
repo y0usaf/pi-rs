@@ -12,6 +12,7 @@
 //! - [`cloudflare`] ← `providers/cloudflare.ts`.
 //! - [`copilot_headers`] ← `providers/github-copilot-headers.ts`.
 //! - [`anthropic`] ← `providers/anthropic.ts`.
+//! - [`azure_openai_responses`] ← `providers/azure-openai-responses.ts`.
 //! - [`openai_prompt_cache`] ← `providers/openai-prompt-cache.ts`.
 //! - [`openai_completions`] ← `providers/openai-completions.ts`.
 //! - [`openai_responses`] ← `providers/openai-responses.ts` + shared mapping.
@@ -20,6 +21,7 @@
 //! Remaining protocol families land in PLAN item 8 slices.
 
 pub mod anthropic;
+pub mod azure_openai_responses;
 pub mod cloudflare;
 pub mod copilot_headers;
 pub mod openai_codex_responses;

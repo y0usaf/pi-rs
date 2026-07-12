@@ -38,7 +38,7 @@ pub enum ReasoningSummary {
 }
 
 impl ReasoningSummary {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",
             Self::Detailed => "detailed",
@@ -168,7 +168,21 @@ pub(crate) fn convert_responses_messages(
     context: &Context,
     include_system_prompt: bool,
 ) -> Vec<Value> {
-    let allowed: HashSet<&str> = OPENAI_TOOL_CALL_PROVIDERS.iter().copied().collect();
+    convert_responses_messages_for(
+        model,
+        context,
+        include_system_prompt,
+        OPENAI_TOOL_CALL_PROVIDERS,
+    )
+}
+
+pub(crate) fn convert_responses_messages_for(
+    model: &Model,
+    context: &Context,
+    include_system_prompt: bool,
+    allowed_tool_call_providers: &[&str],
+) -> Vec<Value> {
+    let allowed: HashSet<&str> = allowed_tool_call_providers.iter().copied().collect();
     let normalize = |id: &str, _model: &Model, source: &AssistantMessage| {
         normalize_tool_call_id(model, id, source, &allowed)
     };
@@ -321,7 +335,7 @@ pub(crate) fn convert_responses_messages(
     messages
 }
 
-fn convert_tools(tools: &[Tool]) -> Vec<Value> {
+pub(crate) fn convert_tools(tools: &[Tool]) -> Vec<Value> {
     tools
         .iter()
         .map(|tool| {
@@ -333,7 +347,7 @@ fn convert_tools(tools: &[Tool]) -> Vec<Value> {
         .collect()
 }
 
-fn mapped_effort(model: &Model, effort: ThinkingLevel) -> String {
+pub(crate) fn mapped_effort(model: &Model, effort: ThinkingLevel) -> String {
     let level = ModelThinkingLevel::from(effort);
     model
         .thinking_level_map
