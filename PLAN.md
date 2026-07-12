@@ -1590,6 +1590,177 @@ surface; external editor + suspend. Split into rungs:
       **Accept (whole item):** every reachable interactive component has parity
       evidence and no placeholder component or pi-rs-only chrome remains. ✓
 
+## Pulled-forward milestone — Lua API, extensions, and configuration
+
+Reprioritized 2026-07-12: pause the remaining provider-tail work in item 8.
+The interactive product and core loop are now exact enough that the highest-
+leverage next step is making them programmable through the promised public Lua
+surface. This also retires the temporary JSON configuration path before more
+features depend on it. Historical item numbers stay stable, so item 9 now
+executes before item 8.
+
+**9. Implement Lua-only configuration and complete Lua extensions.** Replace
+the temporary Pi-JSON settings path with the two canonical entry points:
+`~/.pi/agent/config.lua` and `.pi/config.lua`. Extend the existing host API into
+the complete product-facing extension contract required to translate the
+pinned v0.79.0 examples. Rust remains mechanism; lifecycle policy, extension
+composition, and configuration declarations remain Lua.
+
+Split into independently landable rungs. Each rung adds Pi-derived differential
+fixtures and translates at least one reference example that was impossible
+before it landed:
+
+- [ ] **9.1 Product-loaded extension vertical slice + closed inventory.** Generate
+      a checked-in inventory from pinned `core/extensions/types.ts`, loader,
+      runner, resource-loader, and `examples/extensions/`: every event, context
+      field/action, registration, UI operation, discovery rule, and example →
+      `implemented` / `planned rung` / explicit DESIGN exception. Wire ordinary
+      user `.lua` extensions into the real product startup path (project-first,
+      global, configured, and CLI sources with trust + disable gates), not only
+      host tests or embedded packs. Preserve per-extension attribution, load
+      order, conflict rules, isolated load failures, async initialization, and
+      watchdog behavior. Start with translated `hello.ts`, `permission-gate.ts`,
+      and `commands.ts` running through `pi`, proving one tool, one command, and
+      one blocking hook end to end.
+
+      **Accept:** the inventory is mechanically checked against the pinned
+      source and fails when an API/event/example is unaccounted for; equivalent
+      Pi/Lua fixtures observe the same load order, conflicts, failures, prompt
+      request, tool outcome, and command result through the shipped binary.
+
+      **Landed slice (2026-07-12): closed inventory.**
+      `scripts/extension-inventory` now extracts the pinned TypeScript surface
+      directly from `types.ts` and verifies loader/runner/resource-loader
+      anchors plus every extension-example source. The grouped manifest at
+      `tests/extension-inventory/manifest.json` must classify every extracted
+      row as implemented, a specific 9.x rung, or an explicit DESIGN exception;
+      duplicates, stale rows, missing rows, empty evidence, and unknown status
+      forms fail closed. `EXTENSION_INVENTORY.md` is generated review output:
+      30 events, 24 ExtensionAPI members, 28 UI operations, 16 base-context
+      members, 7 command-only actions, 13 loader/resource rules, and 82 example
+      source files. `scripts/extension-inventory --check` is green; the initial
+      `hello.ts`/`permission-gate.ts`/`commands.ts` translations are assigned to
+      9.1 and every remaining row has an owning rung. No new runtime hook landed,
+      so no exerciser was required for this inventory-only slice.
+
+      **Remaining in 9.1:** wire project/global/configured/CLI Lua files through
+      the shipped binary with trust + disable gates; pin load order, conflicts,
+      isolated async failures, and watchdog behavior against Pi; then run the
+      three initial translations end-to-end (tool, command, blocking hook) and
+      close the checkbox.
+
+- [ ] **9.2 Extension contexts + lifecycle actions.** Build the live
+      `ExtensionContext`/`ExtensionCommandContext` as Lua snapshots and queued
+      actions: `ui`, mode/hasUI/cwd/trust, read-only session + model registry,
+      current model/signal, idle/abort/pending/shutdown, context usage,
+      compaction, and system prompt; command-only wait/new/fork/tree/switch/
+      reload operations use the already-pinned session machinery without
+      exposing mutable Rust state. Rebind contexts across reload and session
+      replacement so stale handles fail and lifecycle order matches Pi.
+
+      **Accept:** translated lifecycle/session examples and an action oracle pin
+      snapshots, cancellation, stale-handle rejection, replacement ordering,
+      and command-only restrictions against Pi.
+
+- [ ] **9.3 Complete event pipeline and fold semantics.** Emit the pinned event
+      vocabulary at the real product seams: project/resource discovery;
+      session start/before-switch/before-fork/before-compact/compact/shutdown/
+      before-tree/tree; context/before-provider-request/after-provider-response;
+      before-agent-start; agent/turn/message/tool-execution lifecycles;
+      model/thinking selection; `tool_call`, `tool_result`, `user_bash`, and
+      `input`. Port each event's exact ordering, mutable-vs-replacement behavior,
+      middleware chaining, cancellation/fail-safe rule, error isolation, and
+      result merge. Do not add a second product-only callback path.
+
+      **Accept:** a Pi-generated event oracle drives successful, tool-using,
+      blocked, transformed-input, bash, compact/tree/session-switch, provider-
+      failure, abort, and reload scenarios; Lua sees equivalent event/context
+      tables and produces equivalent final state, requests, and transcript.
+
+- [ ] **9.4 Complete non-UI ExtensionAPI actions and registries.** Finish the
+      public operations around the registrations already present: dynamic tool
+      registration + active-tool changes, command argument completion, shortcut
+      conflicts, extension CLI flags, custom-message send/render/persist,
+      session name + labels, command/tool inventory, model/thinking mutation,
+      shared event bus, and immediate provider register/unregister (including
+      custom stream + OAuth callbacks). Registered tools must participate in
+      system-prompt rebuilds, validation, parallel execution, renderer fallback,
+      session persistence, HTML export, and reload exactly like built-ins.
+
+      **Accept:** translated dynamic-tools, tool-override, message-renderer,
+      event-bus, preset, provider, and stateful-tool examples run unprivileged
+      through the same API as shipped Lua; differential fixtures pin dynamic
+      effects without restart and restoration after reload.
+
+- [ ] **9.5 Complete extension UI surface.** Expose Pi-equivalent dialogs
+      (select/confirm/input/editor with cancellation), notifications, status,
+      widgets above/below the editor, working message, header/footer, terminal
+      title, editor text/paste, tool expansion, theme access/switching, raw input,
+      custom editor, and temporary custom component/overlay composition over the
+      existing public TUI mechanisms. Complete custom tool/message rendering
+      contexts, invalidation, focus, resize, and cleanup. UI calls remain queued
+      Lua actions; no extension receives mutable frontend state.
+
+      **Accept:** translated question, timed-confirm, status/widget,
+      custom-header/footer, modal/rainbow-editor, message-renderer, and game/
+      overlay representatives match Pi frames + input behavior; print/headless
+      calls return the pinned no-UI outcomes (RPC serialization closes in item
+      10).
+
+- [ ] **9.6 Canonical `config.lua` declaration + mutation pipeline.** Define one
+      Lua declaration mechanism per kind: scalar/nested settings, keybindings,
+      model/provider definitions, active theme + custom themes, extensions,
+      skills, prompts, package resources, and enable/disable selectors. Load
+      global then trusted project config with Pi-equivalent merge/override
+      outcomes and CLI precedence. `/settings`, `/scoped-models`, model choice,
+      changelog state, and future `pi config` mutations must update Lua
+      idempotently without evaluating a JSON compatibility layer or destroying
+      unrelated user code. `/reload` reruns the complete declaration/resource
+      transaction atomically; a failed config keeps the previous live state and
+      reports an attributed error.
+
+      Pi's `settings.json`, `keybindings.json`, user `models.json`, and theme
+      JSON are intentionally ignored as configuration inputs. Sessions,
+      credentials, project instructions, skill files, and prompt-template
+      content retain Pi-compatible formats.
+
+      **Accept:** fixture matrices pin global/project precedence, trust, CLI
+      overrides, failed/partial declarations, reload rollback, and repeated
+      interactive mutation round-trips; equivalent Lua declarations produce
+      Pi-equivalent effective behavior + frames, while conflicting JSON files
+      have no effect.
+
+- [ ] **9.7 Resources and Lua package transport.** Port resource discovery,
+      provenance, precedence, dedupe, enable/disable state, `/reload`, and
+      `pi config` for Lua extensions/config plus Pi-compatible skill/prompt
+      content and Lua-declared themes. Translate theme definitions to Lua while
+      retaining exact palette validation + hot application. Decide and record
+      package transport in DESIGN; packages contain Lua configuration/extensions
+      and preserve Pi's install/remove/list/update/config outcomes unless the
+      exhaustive difference list is amended.
+
+      **Accept:** Pi/Lua resource fixtures match effective extension/skill/
+      prompt/theme sets and command collisions across global, project, explicit,
+      and package sources; package lifecycle tests pin source identity, trust,
+      updates, toggles, and offline behavior.
+
+- [ ] **9.8 Translation matrix + extension parity gate.** Translate every pinned
+      first-party TypeScript extension example that is inside the coding-agent
+      boundary. Group equivalent examples where one fixture covers the same API,
+      but do not skip an example because the bridge lacks a capability—close the
+      bridge or add a justified DESIGN exception. Publish concise Lua API docs
+      generated/checked from the same inventory and keep examples executable in
+      CI.
+
+      **Accept (whole item):** every reachable pinned configuration capability
+      maps to a Lua declaration or DESIGN exception; every pinned extension API
+      member/event has differential coverage; every in-scope reference example
+      has an executable Lua translation; global/project precedence, trust,
+      reload, and mutation round-trips pass; no user configuration parser or
+      first-party product path bypasses the Lua surface.
+
+## Deferred until the Lua surface closes — remaining AI/auth tail
+
 - [ ] **8. Complete coding-agent AI/auth compatibility.** Port the providers
       and model catalog behavior the pinned coding agent exposes, sharing
       transport/auth machinery rather than cloning provider implementations.
@@ -1827,31 +1998,6 @@ surface; external editor + suspend. Split into rungs:
       deterministic differential replays + dispatch for `mistral-conversations` and
       `bedrock-converse-stream`; upgrade the existing `openai-completions` fixtures to
       a Pi-derived differential oracle, then run the whole catalog/auth acceptance gate.
-
-- [ ] **9. Implement Lua-only configuration and Lua extensions.** Replace the
-      temporary Pi-JSON settings path with the two canonical entry points:
-      `~/.pi/agent/config.lua` and `.pi/config.lua`. Inventory every Pi setting,
-      keybinding, model/provider declaration, theme, resource selector,
-      extension source, and package resource toggle; expose one Lua declaration
-      mechanism for each kind. Preserve Pi's global/project precedence, trust,
-      reload, CLI override, `/settings`, and `pi config` outcomes while persisting
-      interactive mutations as Lua rather than JSON.
-
-      Pi's `settings.json`, `keybindings.json`, user `models.json`, and theme
-      JSON are intentionally not configuration inputs. Session, credential,
-      project-instruction, skill, and prompt-template content formats remain
-      compatible. Translate the reference TypeScript extension examples into
-      Lua as bridge conformance tests. Define package transport here; packages
-      contain Lua configuration/extensions, while package commands and resource
-      behavior remain Pi-equivalent unless the DESIGN exception list is amended.
-
-      **Accept:** an automated inventory maps every reachable Pi configuration
-      capability to a Lua API or names it in DESIGN's exhaustive exception list;
-      global/project Lua precedence, trust, reload, and mutation round-trips are
-      fixture-tested; equivalent Lua configurations produce Pi-equivalent
-      behavior and frames; Pi JSON configuration files are ignored; translated
-      fixtures exercise every exposed extension hook; no user-configuration
-      parser bypasses the Lua surface.
 
 - [ ] **10. Match non-interactive coding-agent modes.** Port the pinned CLI's
       print/JSON/RPC/export and other coding-agent modes that are part of the
