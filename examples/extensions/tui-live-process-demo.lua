@@ -1,13 +1,13 @@
 -- Exercises the public live process TUI driver. Run in a real terminal;
--- press e to hand the terminal to an inherited child, s to suspend a callback,
--- or q to exit.
+-- press e to hand the terminal to an inherited child, z to suspend the
+-- process group (resume with `fg`), s to suspend a callback, or q to exit.
 local pi = ...
 
 pi.register_command("tui-live-process-demo", {
-  description = "Drive live process input, inherited children, rendering, resize, scheduling, and cleanup",
+  description = "Drive live process input, suspension, inherited children, rendering, resize, scheduling, and cleanup",
   handler = function()
     local process = pi.tui.process_session(true)
-    local frame = { "Live process driver", "Press e for inherited child, s to suspend, q to exit" }
+    local frame = { "Live process driver", "Press e for child, z to suspend, s to await, q to exit" }
     local reason, signal = process:run(function(event)
       if event.type == "input" and event.data == "e" then
         return {
@@ -22,6 +22,9 @@ pi.register_command("tui-live-process-demo", {
       if event.type == "inherited_process_result" and event.id == "demo-child" then
         frame[2] = "Inherited child exited with " .. tostring(event.status) .. "; q exits"
         return { lines = frame, force = true }
+      end
+      if event.type == "input" and event.data == "z" then
+        return { suspend = true }
       end
       if event.type == "input" and event.data == "s" then
         -- This callback suspends, but the process keeps dispatching input/ticks;

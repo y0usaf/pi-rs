@@ -50,6 +50,7 @@ pub struct ProcessControl {
     pub show_hardware_cursor: Option<bool>,
     pub clear_on_shrink: Option<bool>,
     pub inherited_process: Option<InheritedProcessAction>,
+    pub suspend: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -195,6 +196,41 @@ impl ProcessTui {
         })
     }
 
+    #[cfg(unix)]
+    fn suspend_process_group(&mut self, raw: &mut ProcessRawModeGuard) -> Result<(), ProcessError> {
+        self.tui.stop();
+        self.flush_output()?;
+        raw.restore()?;
+
+        // Register SIGCONT before stopping so this call does not race ahead of
+        // actual signal delivery. The flag is process-wide (unlike a blocked
+        // thread mask), which matters when host mechanisms own worker threads.
+        let continued = ContinueSignal::install(libc::SIGCONT)?;
+        // Pi ignores SIGINT while stopped: an explicit Ctrl+C/kill must not
+        // become a delayed termination event after the shell resumes us.
+        let ignored_sigint = IgnoredSignal::install(libc::SIGINT)?;
+        let stopped = unsafe { libc::kill(0, libc::SIGTSTP) };
+        let suspend_result = if stopped == -1 {
+            Err(ProcessError::Terminal(TerminalError::Io(
+                io::Error::last_os_error(),
+            )))
+        } else {
+            continued.wait();
+            Ok(())
+        };
+        drop(ignored_sigint);
+        drop(continued);
+
+        // Reacquire the terminal after SIGCONT even when waiting failed so the
+        // caller never inherits a half-torn-down TUI.
+        *raw = ProcessRawModeGuard::start_raw_only()?;
+        self.tui.start();
+        self.tui.request_render(true);
+        self.flush_output()?;
+        suspend_result?;
+        Ok(())
+    }
+
     fn take_ready<Fut>(
         pending: &mut futures_util::stream::FuturesUnordered<Fut>,
     ) -> Vec<Fut::Output>
@@ -321,13 +357,18 @@ impl ProcessTui {
                 for control in Self::take_ready(&mut pending) {
                     let mut control = control?;
                     let action = control.inherited_process.take();
+                    let suspend = control.suspend;
                     exit_requested |= control.exit;
                     self.apply_control(control);
                     if let Some(action) = action {
                         let result = self.run_inherited_process(&mut raw, action).await?;
                         pending.push(callback(ProcessEvent::InheritedProcessResult(result)));
                     }
+                    if suspend {
+                        self.suspend_process_group(&mut raw)?;
+                    }
                 }
+
                 self.render_due(now, false)?;
                 if !exit_requested {
                     tokio::time::sleep(Duration::from_millis(1)).await;
@@ -361,6 +402,74 @@ impl ProcessTui {
         Fut: std::future::Future<Output = Result<ProcessControl, ProcessError>>,
     {
         Err(ProcessError::Unsupported)
+    }
+}
+
+#[cfg(unix)]
+struct ContinueSignal {
+    received: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    id: signal_hook::SigId,
+}
+
+#[cfg(unix)]
+impl ContinueSignal {
+    fn install(signal: i32) -> Result<Self, ProcessError> {
+        let received = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let id = signal_hook::flag::register(signal, std::sync::Arc::clone(&received))
+            .map_err(TerminalError::from)?;
+        Ok(Self { received, id })
+    }
+
+    fn wait(&self) {
+        use std::sync::atomic::Ordering;
+        while !self.received.load(Ordering::SeqCst) {
+            unsafe {
+                libc::pause();
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ContinueSignal {
+    fn drop(&mut self) {
+        signal_hook::low_level::unregister(self.id);
+    }
+}
+
+#[cfg(unix)]
+struct IgnoredSignal {
+    signal: i32,
+    previous: libc::sigaction,
+}
+
+#[cfg(unix)]
+impl IgnoredSignal {
+    fn install(signal: i32) -> Result<Self, ProcessError> {
+        let mut previous = std::mem::MaybeUninit::<libc::sigaction>::uninit();
+        let mut ignored = std::mem::MaybeUninit::<libc::sigaction>::zeroed();
+        let previous = unsafe {
+            let ignored = ignored.assume_init_mut();
+            ignored.sa_sigaction = libc::SIG_IGN;
+            libc::sigemptyset(&mut ignored.sa_mask);
+            ignored.sa_flags = 0;
+            if libc::sigaction(signal, ignored, previous.as_mut_ptr()) == -1 {
+                return Err(ProcessError::Terminal(TerminalError::Io(
+                    io::Error::last_os_error(),
+                )));
+            }
+            previous.assume_init()
+        };
+        Ok(Self { signal, previous })
+    }
+}
+
+#[cfg(unix)]
+impl Drop for IgnoredSignal {
+    fn drop(&mut self) {
+        unsafe {
+            libc::sigaction(self.signal, &self.previous, std::ptr::null_mut());
+        }
     }
 }
 
@@ -406,6 +515,7 @@ mod tests {
                 show_hardware_cursor: None,
                 clear_on_shrink: None,
                 inherited_process: None,
+                suspend: false,
             }
         );
         assert_eq!(MIN_RENDER_INTERVAL, Duration::from_millis(16));
