@@ -1,4 +1,4 @@
-import { createPublicKey, verify } from "node:crypto";
+import { createHash, createHmac, createPublicKey, verify } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -10,6 +10,39 @@ const spec = JSON.parse(readFileSync(process.argv[2]!, "utf8"));
 const fixtureDir = dirname(process.argv[2]!);
 const drop = new Set(["host", "content-length", "connection", "accept-encoding", "accept-language", "sec-fetch-mode", "user-agent"]);
 const { Gaxios } = createRequire(import.meta.url)(join(process.cwd(), "ref/pi/node_modules/gaxios"));
+
+function awsHmac(key: Buffer | string, text: string): Buffer {
+	return createHmac("sha256", key).update(text).digest();
+}
+
+function normalizeAwsSubject(encoded: string): any {
+	const value = JSON.parse(decodeURIComponent(encoded));
+	const headers = Object.fromEntries(value.headers.map(({ key, value }: any) => [key, value]));
+	const authorization = headers.authorization as string;
+	const match = authorization.match(/^AWS4-HMAC-SHA256 Credential=([^/]+)\/(\d{8})\/([^/]+)\/([^/]+)\/aws4_request, SignedHeaders=([^,]+), Signature=([0-9a-f]+)$/);
+	if (!match) throw new Error(`invalid AWS authorization: ${authorization}`);
+	const [, accessKey, date, region, service, signedHeaders, signature] = match;
+	const secret = accessKey === "env-access" ? "env-secret" : "metadata-secret";
+	const signed = signedHeaders!.split(";");
+	const canonicalHeaders = signed.map(name => `${name}:${headers[name]}\n`).join("");
+	const parsed = new URL(value.url);
+	const emptyHash = createHash("sha256").update("").digest("hex");
+	const canonical = `${value.method}\n${parsed.pathname}\n${parsed.search.slice(1)}\n${canonicalHeaders}\n${signedHeaders}\n${emptyHash}`;
+	const stringToSign = `AWS4-HMAC-SHA256\n${headers["x-amz-date"]}\n${date}/${region}/${service}/aws4_request\n${createHash("sha256").update(canonical).digest("hex")}`;
+	const kDate = awsHmac(`AWS4${secret}`, date);
+	const kRegion = awsHmac(kDate, region);
+	const kService = awsHmac(kRegion, service);
+	const kSigning = awsHmac(kService, "aws4_request");
+	const expected = createHmac("sha256", kSigning).update(stringToSign).digest("hex");
+	value.url = `{AWS_ORIGIN}${parsed.pathname}${parsed.search}`;
+	value.headers = value.headers.map((header: any) => {
+		if (header.key === "host") return { ...header, value: "{AWS_HOST}" };
+		if (header.key === "x-amz-date") return { ...header, value: "{AWS_DATE}" };
+		if (header.key === "authorization") return { key: header.key, value: { accessKey, date: "{AWS_DATE}", region, service, signedHeaders, signatureValid: signature === expected } };
+		return header;
+	});
+	return value;
+}
 
 function normalizedBody(path: string | undefined, headers: Record<string, string>, text: string): any {
 	if (!text) return null;
@@ -33,6 +66,12 @@ function normalizedBody(path: string | undefined, headers: Record<string, string
 				),
 			},
 		};
+	}
+	if (path === "/sts") {
+		const form = new URLSearchParams(text);
+		const entries = Object.fromEntries(form);
+		if (entries.subject_token_type === "urn:ietf:params:aws:token-type:aws4_request") entries.subject_token = normalizeAwsSubject(entries.subject_token);
+		return entries;
 	}
 	return headers["content-type"]?.startsWith("application/json") ? JSON.parse(text) : text;
 }
@@ -65,6 +104,26 @@ async function run(c: any) {
 				res.end(JSON.stringify({ token: "url-json-token" }));
 				return;
 			}
+			if (req.url === "/aws-imds-token") {
+				res.writeHead(200, { "content-type": "text/plain" });
+				res.end("imds-token");
+				return;
+			}
+			if (req.url === "/aws-region") {
+				res.writeHead(200, { "content-type": "text/plain" });
+				res.end("us-east-2b");
+				return;
+			}
+			if (req.url === "/aws-creds") {
+				res.writeHead(200, { "content-type": "text/plain" });
+				res.end("fixture-role");
+				return;
+			}
+			if (req.url === "/aws-creds/fixture-role") {
+				res.writeHead(200, { "content-type": "application/json" });
+				res.end(JSON.stringify({ AccessKeyId: "metadata-access", SecretAccessKey: "metadata-secret", Token: "metadata-session" }));
+				return;
+			}
 			if (req.url === "/sts") {
 				res.writeHead(200, { "content-type": "application/json" });
 				res.end(JSON.stringify({ access_token: "sts-token", issued_token_type: "urn:ietf:params:oauth:token-type:access_token", token_type: "Bearer", expires_in: 3600 }));
@@ -87,12 +146,14 @@ async function run(c: any) {
 			res.end(body);
 		});
 	});
+
 	await new Promise<void>(ok => server.listen(0, "127.0.0.1", ok));
 	const url = `http://127.0.0.1:${(server.address() as any).port}`;
 	const model = { ...spec.models[c.model], ...(!c.noServerBase ? { baseUrl: url + (c.baseSuffix ?? "") } : {}) };
 	let dir: string | undefined;
 	const oldCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 	const oldAllowExecutables = process.env.GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES;
+	const oldAws = Object.fromEntries(["AWS_REGION", "AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"].map(name => [name, process.env[name]]));
 	const originalAdapter = Gaxios.prototype._defaultAdapter;
 	if (c.adc) {
 		dir = mkdtempSync(join(tmpdir(), "pi-vertex-oracle-"));
@@ -107,6 +168,28 @@ async function run(c: any) {
 					config = { ...config, url: new URL(`${url}/oauth-token`) };
 				}
 				return originalAdapter.call(this, config);
+			};
+		} else if (c.adc === "workload-aws-env" || c.adc === "workload-aws-metadata") {
+			const source: any = {
+				environment_id: "aws1",
+				regional_cred_verification_url: `${url}/aws-verify?Action=GetCallerIdentity&Version=2011-06-15`,
+			};
+			if (c.adc === "workload-aws-env") {
+				process.env.AWS_REGION = "us-west-1";
+				process.env.AWS_ACCESS_KEY_ID = "env-access";
+				process.env.AWS_SECRET_ACCESS_KEY = "env-secret";
+				process.env.AWS_SESSION_TOKEN = "env-session";
+			} else {
+				for (const name of Object.keys(oldAws)) delete process.env[name];
+				Object.assign(source, { region_url: `${url}/aws-region`, url: `${url}/aws-creds`, imdsv2_session_token_url: `${url}/aws-imds-token` });
+			}
+			credentials = {
+				type: "external_account",
+				audience: "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
+				subject_token_type: "urn:ietf:params:aws:token-type:aws4_request",
+				token_url: `${url}/sts`,
+				credential_source: source,
+				cloud_resource_manager_url: `${url}/project/`,
 			};
 		} else if (c.adc === "workload-executable" || c.adc === "workload-executable-cached") {
 			const executablePath = join(dir, "subject token.mjs");
@@ -168,6 +251,10 @@ async function run(c: any) {
 		else process.env.GOOGLE_APPLICATION_CREDENTIALS = oldCredentials;
 		if (oldAllowExecutables === undefined) delete process.env.GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES;
 		else process.env.GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES = oldAllowExecutables;
+		for (const [name, value] of Object.entries(oldAws)) {
+			if (value === undefined) delete process.env[name];
+			else process.env[name] = value;
+		}
 		if (dir) rmSync(dir, { recursive: true, force: true });
 	}
 	return { name: c.name, requests, ...(syncError ? { syncError } : { events, result }) };

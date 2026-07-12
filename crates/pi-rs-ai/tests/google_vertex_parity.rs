@@ -98,6 +98,22 @@ fn serve(responses: Vec<String>) -> (std::net::SocketAddr, Captured) {
                     let body = r#"{"token":"url-json-token"}"#;
                     format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len())
                 }
+                "/aws-imds-token" => {
+                    let body = "imds-token";
+                    format!("HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len())
+                }
+                "/aws-region" => {
+                    let body = "us-east-2b";
+                    format!("HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len())
+                }
+                "/aws-creds" => {
+                    let body = "fixture-role";
+                    format!("HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len())
+                }
+                "/aws-creds/fixture-role" => {
+                    let body = r#"{"AccessKeyId":"metadata-access","SecretAccessKey":"metadata-secret","Token":"metadata-session"}"#;
+                    format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len())
+                }
                 "/sts" => {
                     let body = r#"{"access_token":"sts-token","issued_token_type":"urn:ietf:params:oauth:token-type:access_token","token_type":"Bearer","expires_in":3600}"#;
                     format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len())
@@ -118,6 +134,7 @@ fn serve(responses: Vec<String>) -> (std::net::SocketAddr, Captured) {
                     value.clone()
                 }
             };
+
             let _ = socket.write_all(value.as_bytes()).await;
             let _ = socket.shutdown().await;
         }
@@ -134,6 +151,112 @@ const DROP: &[&str] = &[
     "sec-fetch-mode",
     "user-agent",
 ];
+fn test_hmac(key: &[u8], value: &str) -> Vec<u8> {
+    ring::hmac::sign(
+        &ring::hmac::Key::new(ring::hmac::HMAC_SHA256, key),
+        value.as_bytes(),
+    )
+    .as_ref()
+    .to_vec()
+}
+
+fn test_sha256(value: &str) -> String {
+    ring::digest::digest(&ring::digest::SHA256, value.as_bytes())
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn normalize_aws_subject(encoded: &str) -> Value {
+    let decoded = url::form_urlencoded::parse(format!("x={encoded}").as_bytes())
+        .find(|(key, _)| key == "x")
+        .unwrap()
+        .1
+        .into_owned();
+    let mut value: Value = serde_json::from_str(&decoded).unwrap();
+    let headers = value["headers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| {
+            (
+                item["key"].as_str().unwrap().to_string(),
+                item["value"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let authorization = headers["authorization"].as_str();
+    let fields = authorization
+        .strip_prefix("AWS4-HMAC-SHA256 Credential=")
+        .unwrap();
+    let (credential, rest) = fields.split_once(", SignedHeaders=").unwrap();
+    let (signed_headers, signature) = rest.split_once(", Signature=").unwrap();
+    let mut credential_parts = credential.split('/');
+    let access_key = credential_parts.next().unwrap();
+    let date = credential_parts.next().unwrap();
+    let region = credential_parts.next().unwrap();
+    let service = credential_parts.next().unwrap();
+    assert_eq!(credential_parts.next(), Some("aws4_request"));
+    let parsed = url::Url::parse(value["url"].as_str().unwrap()).unwrap();
+    let canonical_headers = signed_headers
+        .split(';')
+        .map(|name| format!("{name}:{}\n", headers[name]))
+        .collect::<String>();
+    let canonical = format!(
+        "{}\n{}\n{}\n{canonical_headers}\n{signed_headers}\n{}",
+        value["method"].as_str().unwrap(),
+        parsed.path(),
+        parsed.query().unwrap_or_default(),
+        test_sha256("")
+    );
+    let scope = format!("{date}/{region}/{service}/aws4_request");
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256\n{}\n{scope}\n{}",
+        headers["x-amz-date"],
+        test_sha256(&canonical)
+    );
+    let secret = if access_key == "env-access" {
+        "env-secret"
+    } else {
+        "metadata-secret"
+    };
+    let date_key = test_hmac(format!("AWS4{secret}").as_bytes(), date);
+    let region_key = test_hmac(&date_key, region);
+    let service_key = test_hmac(&region_key, service);
+    let signing_key = test_hmac(&service_key, "aws4_request");
+    let expected = test_hmac(&signing_key, &string_to_sign)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    value["url"] = json!(format!(
+        "{{AWS_ORIGIN}}{}{}",
+        parsed.path(),
+        parsed
+            .query()
+            .map(|query| format!("?{query}"))
+            .unwrap_or_default()
+    ));
+    for item in value["headers"].as_array_mut().unwrap() {
+        match item["key"].as_str().unwrap() {
+            "host" => item["value"] = json!("{AWS_HOST}"),
+            "x-amz-date" => item["value"] = json!("{AWS_DATE}"),
+            "authorization" => {
+                item["value"] = json!({
+                    "accessKey":access_key,
+                    "date":"{AWS_DATE}",
+                    "region":region,
+                    "service":service,
+                    "signedHeaders":signed_headers,
+                    "signatureValid":signature == expected,
+                })
+            }
+            _ => {}
+        }
+    }
+    value
+}
+
 fn normalize_request(raw: &str) -> Value {
     let (head, body) = raw.split_once("\r\n\r\n").unwrap_or((raw, ""));
     let mut lines = head.lines();
@@ -211,6 +334,18 @@ fn normalize_request(raw: &str) -> Value {
                 "signatureValid": signature_valid,
             }
         })
+    } else if path == "/sts" {
+        let mut form = url::form_urlencoded::parse(body.as_bytes())
+            .into_owned()
+            .map(|(key, value)| (key, json!(value)))
+            .collect::<serde_json::Map<_, _>>();
+        if form.get("subject_token_type").and_then(Value::as_str)
+            == Some("urn:ietf:params:aws:token-type:aws4_request")
+        {
+            let encoded = form["subject_token"].as_str().unwrap();
+            form.insert("subject_token".into(), normalize_aws_subject(encoded));
+        }
+        Value::Object(form)
     } else if content_type.starts_with("application/json") {
         serde_json::from_str(body).unwrap()
     } else {
@@ -342,6 +477,14 @@ async fn run(case: &Value, models: &Value) -> Value {
     ));
     let old_credentials = std::env::var_os("GOOGLE_APPLICATION_CREDENTIALS");
     let old_allow_executables = std::env::var_os("GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES");
+    let aws_names = [
+        "AWS_REGION",
+        "AWS_DEFAULT_REGION",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+    ];
+    let old_aws = aws_names.map(|name| std::env::var_os(name));
     if let Some(kind) = case.get("adc").and_then(Value::as_str) {
         let credentials = match kind {
             "authorized-user" => {
@@ -354,6 +497,36 @@ async fn run(case: &Value, models: &Value) -> Value {
                 )
                 .unwrap();
                 json!({"type":"service_account","project_id":"p","client_email":"test@p.iam.gserviceaccount.com","private_key":key,"token_uri":format!("http://{address}/oauth-token")})
+            }
+            "workload-aws-env" | "workload-aws-metadata" => {
+                let mut source = json!({
+                    "environment_id":"aws1",
+                    "regional_cred_verification_url":format!("http://{address}/aws-verify?Action=GetCallerIdentity&Version=2011-06-15"),
+                });
+                if kind == "workload-aws-env" {
+                    unsafe {
+                        std::env::set_var("AWS_REGION", "us-west-1");
+                        std::env::set_var("AWS_ACCESS_KEY_ID", "env-access");
+                        std::env::set_var("AWS_SECRET_ACCESS_KEY", "env-secret");
+                        std::env::set_var("AWS_SESSION_TOKEN", "env-session");
+                    }
+                } else {
+                    for name in aws_names {
+                        unsafe { std::env::remove_var(name) };
+                    }
+                    source["region_url"] = json!(format!("http://{address}/aws-region"));
+                    source["url"] = json!(format!("http://{address}/aws-creds"));
+                    source["imdsv2_session_token_url"] =
+                        json!(format!("http://{address}/aws-imds-token"));
+                }
+                json!({
+                    "type":"external_account",
+                    "audience":"//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
+                    "subject_token_type":"urn:ietf:params:aws:token-type:aws4_request",
+                    "token_url":format!("http://{address}/sts"),
+                    "cloud_resource_manager_url":format!("http://{address}/project/"),
+                    "credential_source":source,
+                })
             }
             "workload-executable" => {
                 std::fs::write(
@@ -476,6 +649,13 @@ printf '{"version":1,"success":true,"token_type":"urn:ietf:params:oauth:token-ty
             unsafe { std::env::set_var("GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES", value) }
         } else {
             unsafe { std::env::remove_var("GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES") }
+        }
+        for (name, value) in aws_names.into_iter().zip(old_aws) {
+            if let Some(value) = value {
+                unsafe { std::env::set_var(name, value) };
+            } else {
+                unsafe { std::env::remove_var(name) };
+            }
         }
 
         let _ = std::fs::remove_file(credential_path);

@@ -1803,12 +1803,30 @@ surface; external editor + suspend. Split into rungs:
       warnings`, focused oracle tests, `cargo test --workspace`, and `nix build
       .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
-      **Remaining:** close google-auth's AWS and certificate `external_account`
-      sources so Pi's broad ADC file discovery never advertises an unsupported
-      shape; then add deterministic differential replays + dispatch for
-      `mistral-conversations` and `bedrock-converse-stream`; upgrade the existing
-      `openai-completions` fixtures to a Pi-derived differential oracle, then run
-      the whole catalog/auth acceptance gate.
+      **Tenth landed slice (2026-07-12): Vertex AWS workload identity.**
+      External-account ADC now selects google-auth's AWS client for
+      `credential_source.environment_id`: AWS_REGION/AWS_DEFAULT_REGION precedence,
+      environment security credentials, IMDSv1/v2 region + role credential retrieval,
+      regional verification URL substitution, AWS Signature V4 GetCallerIdentity
+      construction, target-resource binding, and the percent-encoded request subject
+      token. The token feeds the existing STS/project/provider pipeline with the AWS
+      metrics header; unsupported environment versions fail like google-auth.
+
+      **Tenth-slice evidence:** the Pi-derived Google Vertex oracle now replays 19
+      cases, adding environment-credential and full IMDSv2 metadata paths. It compares
+      every metadata request, normalized signed STS subject-token structure/header
+      order, project/provider requests, events, and final messages; both sides
+      independently verify the SigV4 signature before normalizing its date and
+      loopback origin. Oracle regeneration is byte-idempotent. No Lua extension hook
+      landed; no example needed. `cargo fmt --check`, `cargo clippy -p pi-rs-ai -- -D
+      warnings`, focused oracle tests, `cargo test --workspace`, and `nix build
+      .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
+
+      **Remaining:** close google-auth's certificate `external_account` source so Pi's
+      broad ADC file discovery never advertises an unsupported shape; then add
+      deterministic differential replays + dispatch for `mistral-conversations` and
+      `bedrock-converse-stream`; upgrade the existing `openai-completions` fixtures to
+      a Pi-derived differential oracle, then run the whole catalog/auth acceptance gate.
 
 - [ ] **9. Implement Lua-only configuration and Lua extensions.** Replace the
       temporary Pi-JSON settings path with the two canonical entry points:

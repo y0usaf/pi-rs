@@ -600,12 +600,276 @@ async fn executable_subject_token(
     executable_response_token(&response, output_file.is_some(), false)?
         .ok_or_else(|| ProtocolError("Executable response is expired.".into()))
 }
+#[derive(Debug)]
+struct AwsCredentials {
+    access_key_id: String,
+    secret_access_key: String,
+    token: Option<String>,
+}
+
+async fn aws_imds_token(source: &Value) -> Result<Option<String>, ProtocolError> {
+    let Some(url) = source
+        .get("imdsv2_session_token_url")
+        .and_then(Value::as_str)
+    else {
+        return Ok(None);
+    };
+    let token = reqwest::Client::new()
+        .put(url)
+        .header("accept", "*/*")
+        .header("x-aws-ec2-metadata-token-ttl-seconds", "300")
+        .header("x-goog-api-client", "gl-node/22.23.1")
+        .send()
+        .await
+        .map_err(|error| ProtocolError(error.to_string()))?
+        .error_for_status()
+        .map_err(|error| ProtocolError(error.to_string()))?
+        .text()
+        .await
+        .map_err(|error| ProtocolError(error.to_string()))?;
+    Ok(Some(token))
+}
+
+async fn aws_metadata_text(
+    url: &str,
+    accept: &str,
+    token: Option<&str>,
+) -> Result<String, ProtocolError> {
+    let mut request = reqwest::Client::new()
+        .get(url)
+        .header("accept", accept)
+        .header("x-goog-api-client", "gl-node/22.23.1");
+    if let Some(token) = token {
+        request = request.header("x-aws-ec2-metadata-token", token);
+    }
+    request
+        .send()
+        .await
+        .map_err(|error| ProtocolError(error.to_string()))?
+        .error_for_status()
+        .map_err(|error| ProtocolError(error.to_string()))?
+        .text()
+        .await
+        .map_err(|error| ProtocolError(error.to_string()))
+}
+
+async fn aws_region(source: &Value) -> Result<String, ProtocolError> {
+    if let Some(region) =
+        env_non_empty("AWS_REGION").or_else(|| env_non_empty("AWS_DEFAULT_REGION"))
+    {
+        return Ok(region);
+    }
+    let url = source
+        .get("region_url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            ProtocolError(
+                "Unable to determine AWS region due to missing \"options.credential_source.region_url\""
+                    .into(),
+            )
+        })?;
+    let token = aws_imds_token(source).await?;
+    let zone = aws_metadata_text(url, "*/*", token.as_deref()).await?;
+    zone.get(..zone.len().saturating_sub(1))
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| ProtocolError("Unable to determine AWS region".into()))
+}
+
+async fn aws_credentials(source: &Value) -> Result<AwsCredentials, ProtocolError> {
+    if let (Some(access_key_id), Some(secret_access_key)) = (
+        env_non_empty("AWS_ACCESS_KEY_ID"),
+        env_non_empty("AWS_SECRET_ACCESS_KEY"),
+    ) {
+        return Ok(AwsCredentials {
+            access_key_id,
+            secret_access_key,
+            token: env_non_empty("AWS_SESSION_TOKEN"),
+        });
+    }
+    let base = source.get("url").and_then(Value::as_str).ok_or_else(|| {
+        ProtocolError(
+            "Unable to determine AWS role name due to missing \"options.credential_source.url\""
+                .into(),
+        )
+    })?;
+    let token = aws_imds_token(source).await?;
+    let role = aws_metadata_text(base, "*/*", token.as_deref()).await?;
+    let raw = aws_metadata_text(
+        &format!("{base}/{role}"),
+        "application/json",
+        token.as_deref(),
+    )
+    .await?;
+    let value: Value =
+        serde_json::from_str(&raw).map_err(|error| ProtocolError(error.to_string()))?;
+    Ok(AwsCredentials {
+        access_key_id: credential_field(&value, "AccessKeyId")?.to_string(),
+        secret_access_key: credential_field(&value, "SecretAccessKey")?.to_string(),
+        token: value
+            .get("Token")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+    })
+}
+
+fn aws_date() -> Result<(String, String), ProtocolError> {
+    let value = httpdate::fmt_http_date(std::time::SystemTime::now());
+    let pieces = value.split_whitespace().collect::<Vec<_>>();
+    if pieces.len() != 6 {
+        return Err(ProtocolError("Unable to format AWS request date".into()));
+    }
+    let month = match pieces[2] {
+        "Jan" => "01",
+        "Feb" => "02",
+        "Mar" => "03",
+        "Apr" => "04",
+        "May" => "05",
+        "Jun" => "06",
+        "Jul" => "07",
+        "Aug" => "08",
+        "Sep" => "09",
+        "Oct" => "10",
+        "Nov" => "11",
+        "Dec" => "12",
+        _ => return Err(ProtocolError("Unable to format AWS request date".into())),
+    };
+    let date = format!("{}{}{}", pieces[3], month, pieces[1]);
+    Ok((
+        date.clone(),
+        format!("{date}T{}Z", pieces[4].replace(':', "")),
+    ))
+}
+
+fn sha256_hex(value: &[u8]) -> String {
+    ring::digest::digest(&ring::digest::SHA256, value)
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn hmac_sha256(key: &[u8], value: &str) -> Vec<u8> {
+    ring::hmac::sign(
+        &ring::hmac::Key::new(ring::hmac::HMAC_SHA256, key),
+        value.as_bytes(),
+    )
+    .as_ref()
+    .to_vec()
+}
+
+async fn aws_subject_token(credentials: &Value, source: &Value) -> Result<String, ProtocolError> {
+    let environment_id = source
+        .get("environment_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let version = environment_id
+        .strip_prefix("aws")
+        .filter(|value| !value.is_empty() && value.chars().all(|ch| ch.is_ascii_digit()))
+        .and_then(|value| value.parse::<u64>().ok());
+    let verification_template = source
+        .get("regional_cred_verification_url")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty());
+    if version.is_none() || verification_template.is_none() {
+        return Err(ProtocolError(
+            "No valid AWS \"credential_source\" provided".into(),
+        ));
+    }
+    if version != Some(1) {
+        return Err(ProtocolError(format!(
+            "aws version \"{}\" is not supported in the current build.",
+            version.unwrap_or_default()
+        )));
+    }
+    let region = aws_region(source).await?;
+    let aws_credentials = aws_credentials(source).await?;
+    let verification_url = verification_template
+        .unwrap_or_default()
+        .replace("{region}", &region);
+    let parsed =
+        url::Url::parse(&verification_url).map_err(|error| ProtocolError(error.to_string()))?;
+    let host = parsed
+        .host_str()
+        .map(|host| match parsed.port() {
+            Some(port) => format!("{host}:{port}"),
+            None => host.to_string(),
+        })
+        .ok_or_else(|| ProtocolError("No valid AWS \"credential_source\" provided".into()))?;
+    let service = host.split('.').next().unwrap_or_default();
+    let (date, amz_date) = aws_date()?;
+    let mut canonical = std::collections::BTreeMap::new();
+    canonical.insert("host", host.clone());
+    canonical.insert("x-amz-date", amz_date.clone());
+    if let Some(token) = &aws_credentials.token {
+        canonical.insert("x-amz-security-token", token.clone());
+    }
+    let signed_headers = canonical.keys().copied().collect::<Vec<_>>().join(";");
+    let canonical_headers = canonical
+        .iter()
+        .map(|(name, value)| format!("{name}:{value}\n"))
+        .collect::<String>();
+    let query = parsed.query().unwrap_or_default();
+    let canonical_request = format!(
+        "POST\n{}\n{query}\n{canonical_headers}\n{signed_headers}\n{}",
+        parsed.path(),
+        sha256_hex(b"")
+    );
+    let scope = format!("{date}/{region}/{service}/aws4_request");
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{}",
+        sha256_hex(canonical_request.as_bytes())
+    );
+    let date_key = hmac_sha256(
+        format!("AWS4{}", aws_credentials.secret_access_key).as_bytes(),
+        &date,
+    );
+    let region_key = hmac_sha256(&date_key, &region);
+    let service_key = hmac_sha256(&region_key, service);
+    let signing_key = hmac_sha256(&service_key, "aws4_request");
+    let signature = hmac_sha256(&signing_key, &string_to_sign)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let authorization = format!(
+        "AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders={signed_headers}, Signature={signature}",
+        aws_credentials.access_key_id
+    );
+    let mut headers = vec![
+        serde_json::json!({"key":"authorization", "value":authorization}),
+        serde_json::json!({"key":"host", "value":host}),
+        serde_json::json!({"key":"x-amz-date", "value":amz_date}),
+    ];
+    if let Some(token) = aws_credentials.token {
+        headers.push(serde_json::json!({"key":"x-amz-security-token", "value":token}));
+    }
+    headers.push(serde_json::json!({
+        "key":"x-goog-cloud-target-resource",
+        "value":credential_field(credentials, "audience")?,
+    }));
+    let value = serde_json::json!({
+        "url":verification_url,
+        "method":"POST",
+        "headers":headers,
+    })
+    .to_string();
+    Ok(url::form_urlencoded::byte_serialize(value.as_bytes()).collect())
+}
+
 async fn external_subject_token(
     credentials: &Value,
 ) -> Result<(String, &'static str), ProtocolError> {
     let source = credentials
         .get("credential_source")
         .ok_or_else(|| ProtocolError("A credential source must be specified.".into()))?;
+    if source
+        .get("environment_id")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.is_empty())
+    {
+        return Ok((aws_subject_token(credentials, source).await?, "aws"));
+    }
     if let Some(executable) = source.get("executable") {
         return Ok((
             executable_subject_token(credentials, executable).await?,
