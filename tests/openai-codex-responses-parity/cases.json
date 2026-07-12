@@ -1,0 +1,60 @@
+{
+  "models": {
+    "codex": {
+      "id": "gpt-5.5", "name": "GPT-5.5", "api": "openai-codex-responses", "provider": "openai-codex",
+      "baseUrl": "http://placeholder", "reasoning": true,
+      "thinkingLevelMap": { "off": "none", "minimal": "minimal", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh" },
+      "input": ["text", "image"], "cost": { "input": 2, "output": 8, "cacheRead": 0.2, "cacheWrite": 0 },
+      "contextWindow": 200000, "maxTokens": 32768, "headers": { "x-model": "yes" }
+    }
+  },
+  "sse": {
+    "minimal": [
+      { "type": "response.created", "response": { "id": "resp_min" } },
+      { "type": "response.output_item.added", "item": { "type": "message", "id": "msg_min", "role": "assistant", "content": [], "status": "in_progress" } },
+      { "type": "response.content_part.added", "part": { "type": "output_text", "text": "", "annotations": [] } },
+      { "type": "response.output_text.delta", "delta": "ok" },
+      { "type": "response.output_item.done", "item": { "type": "message", "id": "msg_min", "role": "assistant", "content": [{ "type": "output_text", "text": "ok", "annotations": [] }], "status": "completed" } },
+      { "type": "response.done", "response": { "id": "resp_min", "status": "completed", "service_tier": "default", "usage": { "input_tokens": 10, "output_tokens": 2, "total_tokens": 12, "input_tokens_details": { "cached_tokens": 4 } } } }
+    ],
+    "rich": [
+      { "type": "response.created", "response": { "id": "resp_rich" } },
+      { "type": "response.output_item.added", "item": { "type": "reasoning", "id": "rs_1", "summary": [] } },
+      { "type": "response.reasoning_summary_part.added", "part": { "type": "summary_text", "text": "" } },
+      { "type": "response.reasoning_summary_text.delta", "delta": "Think" },
+      { "type": "response.output_item.done", "item": { "type": "reasoning", "id": "rs_1", "summary": [{ "type": "summary_text", "text": "Think" }], "content": [], "encrypted_content": "enc" } },
+      { "type": "response.output_item.added", "item": { "type": "message", "id": "msg_rich", "role": "assistant", "content": [], "status": "in_progress" } },
+      { "type": "response.content_part.added", "part": { "type": "output_text", "text": "", "annotations": [] } },
+      { "type": "response.output_text.delta", "delta": "Use tool." },
+      { "type": "response.output_item.done", "item": { "type": "message", "id": "msg_rich", "role": "assistant", "content": [{ "type": "output_text", "text": "Use tool.", "annotations": [] }], "status": "completed" } },
+      { "type": "response.output_item.added", "item": { "type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "read", "arguments": "" } },
+      { "type": "response.function_call_arguments.done", "arguments": "{\"path\":\"a.txt\"}" },
+      { "type": "response.output_item.done", "item": { "type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "read", "arguments": "{\"path\":\"a.txt\"}" } },
+      { "type": "response.completed", "response": { "id": "resp_rich", "status": "completed", "service_tier": "priority", "usage": { "input_tokens": 100, "output_tokens": 20, "total_tokens": 120, "input_tokens_details": { "cached_tokens": 25 } } } }
+    ]
+  },
+  "cases": [
+    {
+      "name": "request-full", "model": "codex",
+      "context": {
+        "systemPrompt": "Be helpful.",
+        "messages": [
+          { "role": "user", "content": [{ "type": "text", "text": "hello" }, { "type": "image", "data": "aGk=", "mimeType": "image/png" }], "timestamp": 1 },
+          { "role": "assistant", "content": [{ "type": "thinking", "thinking": "old", "thinkingSignature": "{\"type\":\"reasoning\",\"id\":\"rs_old\",\"summary\":[]}" }, { "type": "text", "text": "reading", "textSignature": "{\"v\":1,\"id\":\"msg_old\"}" }, { "type": "toolCall", "id": "call_old|fc_old", "name": "read", "arguments": { "path": "x" } }], "api": "openai-codex-responses", "provider": "openai-codex", "model": "gpt-5.5", "usage": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0, "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 } }, "stopReason": "toolUse", "timestamp": 1 },
+          { "role": "toolResult", "toolCallId": "call_old|fc_old", "toolName": "read", "content": [{ "type": "text", "text": "done" }], "isError": false, "timestamp": 1 }
+        ],
+        "tools": [{ "name": "read", "description": "Read", "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] } }]
+      },
+      "options": { "apiKey": "head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig", "transport": "sse", "temperature": 0.3, "sessionId": "sess-1", "reasoningEffort": "xhigh", "reasoningSummary": "detailed", "serviceTier": "priority", "textVerbosity": "high", "headers": { "x-extra": "1" } },
+      "responses": [{ "status": 200, "sse": "rich" }]
+    },
+    { "name": "simple-high", "model": "codex", "simple": true, "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig", "transport": "sse", "reasoning": "high" }, "responses": [{ "status": 200, "sse": "minimal" }] },
+    { "name": "status-incomplete", "model": "codex", "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig", "transport": "sse" }, "responses": [{ "status": 200, "events": [{ "type": "response.incomplete", "response": { "id": "r", "status": "incomplete", "usage": { "input_tokens": 1, "output_tokens": 2, "total_tokens": 3 } } }] }] },
+    { "name": "event-error", "model": "codex", "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig", "transport": "sse" }, "responses": [{ "status": 200, "events": [{ "type": "error", "code": "bad", "message": "broken" }] }] },
+    { "name": "response-failed", "model": "codex", "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig", "transport": "sse" }, "responses": [{ "status": 200, "events": [{ "type": "response.failed", "response": { "error": { "code": "invalid", "message": "nope" } } }] }] },
+    { "name": "retry-500", "model": "codex", "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig", "transport": "sse", "maxRetries": 1 }, "responses": [{ "status": 500, "text": "overloaded", "headers": { "retry-after-ms": "0" } }, { "status": 200, "sse": "minimal" }] },
+    { "name": "http-usage-limit", "model": "codex", "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xMjMifX0.sig", "transport": "sse" }, "responses": [{ "status": 429, "json": { "error": { "code": "usage_limit_reached", "message": "limit", "plan_type": "Plus" } } }] },
+    { "name": "invalid-token", "model": "codex", "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "apiKey": "bad", "transport": "sse" }, "responses": [{ "status": 200, "sse": "minimal" }] },
+    { "name": "missing-key", "model": "codex", "context": { "messages": [{ "role": "user", "content": "hi", "timestamp": 1 }] }, "options": { "transport": "sse" }, "responses": [{ "status": 200, "sse": "minimal" }] }
+  ]
+}

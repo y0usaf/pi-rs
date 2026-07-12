@@ -6,6 +6,7 @@ license.workspace = true
 description = "packages/ai port: transport (HTTP/SSE/retry/cancellation), protocols, registry"
 
 [dependencies]
+base64.workspace = true
 bytes.workspace = true
 futures-util.workspace = true
 httpdate.workspace = true
