@@ -1,14 +1,11 @@
 //! Port of `stream.ts` — resolution through the API-provider registry
-//! with env API-key injection — plus the landed half of
-//! `providers/register-builtins.ts`.
+//! with env API-key injection — plus `providers/register-builtins.ts`.
 //!
 //! Compression notes:
 //! - The spec registers all nine api families at module import, each
 //!   behind a lazy dynamic `import()` (a JS bundling concern with no
-//!   Rust analogue — protocols are compiled in). Here only the landed
-//!   protocols register (anthropic-messages, openai-completions); the
-//!   remaining families arrive with WS5 breadth and resolve to the
-//!   spec's `No API provider registered for api: ...` error until then.
+//!   Rust analogue — protocols are compiled in). Landed families register
+//!   here; unresolved families retain Pi's exact registry error.
 //! - Import side effects don't exist in Rust: the entry points ensure
 //!   the one-time builtin registration themselves ([`ensure_builtins`]).
 //! - `complete`/`completeSimple` await the stream result; where the
@@ -22,6 +19,9 @@ use pi_rs_ai_types::{AssistantMessage, Context, Model};
 use crate::protocols::anthropic::{AnthropicOptions, stream_anthropic, stream_simple_anthropic};
 use crate::protocols::openai_completions::{
     OpenAICompletionsOptions, stream_openai_completions, stream_simple_openai_completions,
+};
+use crate::protocols::openai_responses::{
+    OpenAIResponsesOptions, stream_openai_responses, stream_simple_openai_responses,
 };
 use crate::protocols::{ProtocolError, SimpleStreamOptions, StreamOptions};
 use crate::registry::api_registry::{
@@ -60,6 +60,20 @@ pub fn register_builtin_api_providers() {
                 Ok(stream_openai_completions(model, context, options))
             }),
             stream_simple: Arc::new(stream_simple_openai_completions),
+        },
+        None,
+    );
+    register_api_provider(
+        ApiProvider {
+            api: "openai-responses".to_owned(),
+            stream: Arc::new(|model, context, options| {
+                let options = options.map(|base| OpenAIResponsesOptions {
+                    base,
+                    ..OpenAIResponsesOptions::default()
+                });
+                Ok(stream_openai_responses(model, context, options))
+            }),
+            stream_simple: Arc::new(stream_simple_openai_responses),
         },
         None,
     );
