@@ -43,6 +43,10 @@ pub struct Args {
     pub session: Option<String>,
     /// `--resume` / `-r`: select a session to resume via the selector.
     pub resume: bool,
+    /// Explicit `--extension` / `-e` Lua sources, in CLI order.
+    pub extensions: Vec<String>,
+    /// `--no-extensions` / `-ne`: disable discovery/configured sources only.
+    pub no_extensions: bool,
     /// `--approve`/`-a` and `--no-approve`/`-na`: explicit project trust.
     pub project_trust_override: Option<bool>,
     pub messages: Vec<String>,
@@ -71,6 +75,11 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Args {
             "--resume" | "-r" => result.resume = true,
             "--approve" | "-a" => result.project_trust_override = Some(true),
             "--no-approve" | "-na" => result.project_trust_override = Some(false),
+            "--no-extensions" | "-ne" => result.no_extensions = true,
+            "--extension" | "-e" if i + 1 < args.len() => {
+                i += 1;
+                result.extensions.push(args[i].clone());
+            }
             "--session" if i + 1 < args.len() => {
                 i += 1;
                 result.session = Some(args[i].clone());
@@ -154,10 +163,13 @@ Options:
   --continue, -c                 Continue previous session
   --resume, -r                   Select a session to resume
   --session <path|id>            Use specific session file or partial UUID
-  --approve, -a                    Trust project resources for this session
-  --no-approve, -na                Do not trust project resources for this session
+  --extension, -e <path>         Load a Lua extension (repeatable)
+  --no-extensions, -ne           Disable extension discovery (keeps -e)
+  --approve, -a                  Trust project resources for this session
+  --no-approve, -na              Do not trust project resources for this session
   --help, -h                     Show this help
   --version, -v                  Show version number
+
 
 Environment Variables:
   ANTHROPIC_API_KEY                - Anthropic Claude API key
@@ -222,6 +234,12 @@ mod tests {
         assert!(args.resume);
     }
 
+    #[test]
+    fn extension_flags_parse_in_order() {
+        let args = parse(&["-e", "one.lua", "--extension", "two.lua", "--no-extensions"]);
+        assert_eq!(args.extensions, ["one.lua", "two.lua"]);
+        assert!(args.no_extensions);
+    }
     #[test]
     fn project_trust_overrides_parse() {
         assert_eq!(parse(&["--approve"]).project_trust_override, Some(true));

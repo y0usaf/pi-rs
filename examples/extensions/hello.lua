@@ -2,9 +2,8 @@
 -- examples/extensions/hello.ts; exercises pi.register_tool).
 --
 -- The parameters table is the JSON schema pi's TypeBox call generates.
--- Spec execute signature is (tool_call_id, params, signal, on_update,
--- ctx); the host passes the first two today — the rest arrive with their
--- host mechanisms in later WS1 steps.
+-- The host supplies Pi's complete execute signature; unused values are omitted
+-- from this minimal implementation.
 local pi = ...
 
 pi.register_tool({

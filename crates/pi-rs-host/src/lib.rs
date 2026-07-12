@@ -233,6 +233,24 @@ impl Host {
                 }),
             }
         }
+        let (reply, rx) = sync_channel(1);
+        let conflicts = self
+            .tx
+            .send(vm::Msg::ToolConflicts { reply })
+            .map_err(|_| HostError::VmUnavailable)
+            .and_then(|()| rx.recv().map_err(|_| HostError::VmUnavailable))
+            .and_then(|result| result);
+        match conflicts {
+            Ok(conflicts) => errors.extend(
+                conflicts
+                    .into_iter()
+                    .map(|(path, error)| LoadError { path, error }),
+            ),
+            Err(error) => errors.push(LoadError {
+                path: "<host>".to_owned(),
+                error: error.to_string(),
+            }),
+        }
         LoadReport { loaded, errors }
     }
 

@@ -3845,6 +3845,14 @@ local function handle_submit(text, actions)
       return
     end
   end
+  if text:sub(1, 1) == "/" and actions.extension_command then
+    local handled = actions.extension_command(text)
+    if handled then
+      actions.add_to_history(text)
+      actions.set_text("")
+      return
+    end
+  end
   actions.prompt(text)
 end
 
@@ -3857,6 +3865,16 @@ pi.register_command("interactive-submit-route", {
       handle_submit(text, {
         set_text = function(value) trace[#trace + 1] = { action = "set_text", value = value } end,
         quit = function() trace[#trace + 1] = { action = "quit" } end,
+        extension_command = function(value)
+          local handled, err = EXTENSION_POLICY.execute_command(value, {
+            cwd = request.cwd or pi.cwd(), mode = "interactive", hasUI = true,
+          })
+          if handled or err then
+            trace[#trace + 1] = { action = "extension_command", value = value,
+              handled = handled, error = err }
+          end
+          return handled
+        end,
         prompt = function(value) trace[#trace + 1] = { action = "prompt", value = value } end,
         show_oauth_selector = function(mode)
           trace[#trace + 1] = { action = "show_oauth_selector", value = mode }
@@ -3984,6 +4002,16 @@ local function create_base_autocomplete_provider(state)
         end
         return results
       end
+    end
+  end
+  local builtin_names = {}
+  for _, command in ipairs(BUILTIN_SLASH_COMMANDS) do builtin_names[command.name] = true end
+  for _, command in ipairs(pi.registered_extension_commands()) do
+    if not builtin_names[command.name] then
+      commands[#commands + 1] = {
+        name = command.invocation_name,
+        description = command.description,
+      }
     end
   end
   return pi.tui.autocomplete_provider({
@@ -4155,12 +4183,10 @@ local function queue_compaction_message(state, text, mode)
   show_status(state, "Queued message for after compaction")
 end
 
--- interactive-mode.ts flushCompactionQueue. Extension commands execute
--- immediately in the spec (isExtensionCommand); pi-rs's extension-command
--- surface joins item 9, so every queued text takes the prompt/steer/
--- followUp path. The spec's restoreQueue error seam rides on
--- session.prompt rejections; pi-rs's prompt runs as a background
--- coroutine whose failures surface as error turns.
+-- interactive-mode.ts flushCompactionQueue. Extension commands are intercepted
+-- before queueing by handle_submit; queued prompt/steer/follow-up settlement
+-- follows the same session path. Failures surface through the transcript.
+
 local function flush_compaction_queue(state, options)
   if #state.compaction_queued == 0 then return end
   local queued = state.compaction_queued
@@ -4239,9 +4265,8 @@ local function handle_escape(state)
   end
 end
 
--- interactive-mode.ts handleFollowUp. The prompt-template/extension-
--- command expansion inside session.prompt joins its milestones
--- (items 7/9).
+-- interactive-mode.ts handleFollowUp. Extension commands submitted while idle
+-- route through state.submit; streaming follow-ups remain queued messages.
 local function handle_follow_up(state)
   local editor = state.editor.editor
   local text = trim(editor:get_expanded_text())
@@ -4443,6 +4468,16 @@ local function shell_submit_actions(state)
     show_warning = function(message) show_warning(state, message) end,
     add_to_history = function(text) state.editor.editor:add_to_history(text) end,
     bash_command = function(command, excluded) handle_bash_command(state, command, excluded) end,
+    extension_command = function(text)
+      local handled, err = EXTENSION_POLICY.execute_command(text, {
+        cwd = state.cwd,
+        mode = "interactive",
+        hasUI = true,
+        isProjectTrusted = function() return state.project_trusted == true end,
+      })
+      if err then show_error(state, err) end
+      return handled
+    end,
     prompt = function(prompt)
       -- Queue input during compaction (extension commands join item 9).
       if state.session.is_compacting and state.session.is_compacting() then
@@ -5971,18 +6006,10 @@ function bind_session_runtime(state, session_manager)
   state.thinking_level = startup.thinking_level
   state.session_context = startup.context
 
-  -- The default active tool set is read/bash/edit/write (grep/find/ls stay
-  -- registered for rendering but inactive until the tools surface lands,
-  -- item 7); the base system prompt is rebuilt over the active set.
-  local active_tool_names = { "read", "bash", "edit", "write" }
-  local registered_tools = {}
-  for _, definition in ipairs(pi.registered_tools()) do
-    registered_tools[definition.name] = definition
-  end
-  local active_tools = {}
-  for _, name in ipairs(active_tool_names) do
-    if registered_tools[name] then active_tools[#active_tools + 1] = registered_tools[name] end
-  end
+  -- Built-in defaults plus every loaded extension tool. Extension tool
+  -- definitions are active by default in Pi and participate in the same agent
+  -- registry/prompt path as built-ins.
+  local active_tools, active_tool_names = EXTENSION_POLICY.active_tools({ "read", "bash", "edit", "write" })
   local stream_fn = retry_parity_stream(request)
   local agent = pi.agent.new({
     initialState = {
@@ -6010,6 +6037,14 @@ function bind_session_runtime(state, session_manager)
     -- Spec: each request resolves auth for the current model's provider
     -- (modelRegistry.getApiKeyForProvider) so /model can cross providers.
     getApiKey = function(provider) return pi.auth.get_api_key(provider) end,
+    beforeToolCall = function(event)
+      return EXTENSION_POLICY.emit_tool_call(event, {
+        cwd = state.cwd,
+        mode = "interactive",
+        hasUI = true,
+        isProjectTrusted = function() return state.project_trusted == true end,
+      })
+    end,
   })
   state.agent = agent
   -- rebindCurrentSession clears any messages queued during compaction.

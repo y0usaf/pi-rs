@@ -63,6 +63,9 @@ pub(crate) enum Msg {
     Providers {
         reply: SyncSender<Result<Vec<ProviderInfo>, HostError>>,
     },
+    ToolConflicts {
+        reply: SyncSender<Result<Vec<(String, String)>, HostError>>,
+    },
     /// Execute a registered tool on the coroutine path.
     CallTool {
         name: String,
@@ -150,6 +153,11 @@ fn vm_main(config: HostConfig, rx: Receiver<Msg>, init_tx: SyncSender<Result<(),
             }
             Msg::Providers { reply } => {
                 let _ = reply.send(providers_mirror(&lua));
+            }
+            Msg::ToolConflicts { reply } => {
+                let result =
+                    api::tool_conflicts(&lua).map_err(|error| HostError::Lua(error.to_string()));
+                let _ = reply.send(result);
             }
             Msg::CallTool {
                 name,
@@ -375,6 +383,9 @@ fn load_chunk(
     api::set_current_source(lua, source_key);
     let res = dispatch(lua, rt, config, func, mlua::Value::Table(pi.clone()));
     api::set_current_source(lua, "<host>");
+    if res.is_err() {
+        api::remove_source(lua, source_key).map_err(|error| HostError::Lua(error.to_string()))?;
+    }
     res.map(|_| ())
 }
 

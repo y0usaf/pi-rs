@@ -12,15 +12,7 @@ local pi = ...
 local DEFAULT_ACTIVE_TOOL_NAMES = { "read", "bash", "edit", "write" }
 
 local function active_tool_definitions()
-  local registered = {}
-  for _, definition in ipairs(pi.registered_tools()) do
-    registered[definition.name] = definition
-  end
-  local active = {}
-  for _, name in ipairs(DEFAULT_ACTIVE_TOOL_NAMES) do
-    if registered[name] then active[#active + 1] = registered[name] end
-  end
-  return active
+  return EXTENSION_POLICY.active_tools(DEFAULT_ACTIVE_TOOL_NAMES)
 end
 
 pi.register_command("pi-rs-run", { handler = function(args, ctx)
@@ -34,17 +26,24 @@ pi.register_command("pi-rs-run", { handler = function(args, ctx)
   -- Spec: the session header's cwd is the effective runtime cwd.
   local cwd = session:get_cwd()
   local startup = session_startup_from_request(session, request)
+  local active_tools, active_tool_names = active_tool_definitions()
+  local extension_context = {
+    cwd = cwd,
+    mode = "print",
+    hasUI = false,
+    isProjectTrusted = function() return request.projectTrusted == true end,
+  }
   local agent = pi.agent.new({
     initialState = {
       model = startup.model or request.model,
-      tools = active_tool_definitions(),
+      tools = active_tools,
       -- sdk.ts: `agent.state.messages = existingSession.messages`.
       messages = startup.context.messages,
       thinkingLevel = startup.thinking_level,
       systemPrompt = build_session_system_prompt({
         cwd = cwd,
         agentDir = request.agentDir,
-        toolNames = DEFAULT_ACTIVE_TOOL_NAMES,
+        toolNames = active_tool_names,
         readmePath = request.readmePath,
         docsPath = request.docsPath,
         examplesPath = request.examplesPath,
@@ -55,6 +54,9 @@ pi.register_command("pi-rs-run", { handler = function(args, ctx)
     -- Spec (sdk.ts streamFn): each request resolves auth for the current
     -- model's provider — a restored session may cross providers.
     getApiKey = function(provider) return pi.auth.get_api_key(provider) end,
+    beforeToolCall = function(event)
+      return EXTENSION_POLICY.emit_tool_call(event, extension_context)
+    end,
     on_event = function(event) events[#events + 1] = event end,
   })
   agent:subscribe(function(event)
@@ -83,6 +85,41 @@ pi.register_command("pi-rs-run", { handler = function(args, ctx)
     thinkingLevel = startup.thinking_level,
     modelFallbackMessage = startup.fallback_message,
   }
+end })
+
+-- PLAN 9.1 product-extension exerciser: the same active-tool composition and
+-- tool_call fold used by pi-rs-run, without requiring a provider fixture.
+pi.register_command("extension-vertical-slice", { handler = function(args)
+  local request = pi.json.decode(args)
+  local tools, names = active_tool_definitions()
+  if request.tool then
+    for _, tool in ipairs(tools) do
+      if tool.name == request.tool then
+        return {
+          toolNames = names,
+          result = tool.execute("extension-slice", request.arguments or {},
+            pi.abort_signal(), nil,
+            { cwd = pi.cwd(), mode = "print", hasUI = false }),
+        }
+      end
+    end
+  end
+  if request.toolCall then
+    return {
+      toolNames = names,
+      hookResult = EXTENSION_POLICY.emit_tool_call({
+        toolCall = {
+          id = request.toolCall.id or "extension-slice",
+          name = request.toolCall.name,
+        },
+        args = request.toolCall.arguments or {},
+      }, {
+        cwd = pi.cwd(), mode = "print", hasUI = false,
+        isProjectTrusted = function() return request.projectTrusted == true end,
+      }),
+    }
+  end
+  return { toolNames = names }
 end })
 
 -- Differential parity seam (tests/tool-parity): replays oracle cases

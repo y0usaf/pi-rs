@@ -1429,6 +1429,86 @@ pub(crate) fn build(
         })?,
     )?;
     pi.set(
+        "registered_extension_tools",
+        lua.create_function(|lua, ()| {
+            let result = lua.create_table()?;
+            for (source, _, def) in all_tools(lua)? {
+                if !source.starts_with('<') {
+                    result.push(def)?;
+                }
+            }
+            Ok(result)
+        })?,
+    )?;
+    pi.set(
+        "registered_extension_commands",
+        lua.create_function(|lua, ()| {
+            let result = lua.create_table()?;
+            for command in resolved_commands(lua)? {
+                if command.source.starts_with('<') {
+                    continue;
+                }
+                let entry = lua.create_table()?;
+                entry.set("name", command.name)?;
+                entry.set("invocation_name", command.invocation_name)?;
+                entry.set("source", command.source.as_str())?;
+                entry.set("description", command.description)?;
+                let source = command.source;
+                let handler = command.handler;
+                entry.set(
+                    "handler",
+                    lua.create_async_function(move |lua, (args, ctx): (String, mlua::Table)| {
+                        let source = source.clone();
+                        let handler = handler.clone();
+                        async move {
+                            let previous = current_source(&lua);
+                            set_current_source(&lua, &source);
+                            let outcome: mlua::Result<mlua::Value> =
+                                handler.call_async((args, ctx)).await;
+                            set_current_source(&lua, &previous);
+                            outcome
+                        }
+                    })?,
+                )?;
+                result.push(entry)?;
+            }
+            Ok(result)
+        })?,
+    )?;
+    // Snapshot extension handlers for Lua-authored product fold policy. Each
+    // wrapper restores source attribution around the async callback; Rust does
+    // not interpret event results or choose stop/merge semantics.
+    pi.set(
+        "extension_handlers",
+        lua.create_function(|lua, event: String| {
+            let result = lua.create_table()?;
+            for (source, handler) in event_handlers(lua, &event)? {
+                let entry = lua.create_table()?;
+                entry.set("source", source.as_str())?;
+                let wrapper_source = source.clone();
+                entry.set(
+                    "handler",
+                    lua.create_async_function(
+                        move |lua, (event, ctx): (mlua::Table, mlua::Table)| {
+                            let handler = handler.clone();
+                            let source = wrapper_source.clone();
+                            async move {
+                                let previous = current_source(&lua);
+                                set_current_source(&lua, &source);
+                                let outcome: mlua::Result<mlua::Value> =
+                                    handler.call_async((event, ctx)).await;
+                                set_current_source(&lua, &previous);
+                                outcome
+                            }
+                        },
+                    )?,
+                )?;
+                result.push(entry)?;
+            }
+            Ok(result)
+        })?,
+    )?;
+    pi.set(
         "validate_tool_arguments",
         lua.create_function(
             |lua, (name, schema, arguments): (String, mlua::Value, mlua::Value)| {
@@ -2446,6 +2526,43 @@ pub(crate) fn event_handlers(
     Ok(handlers)
 }
 
+/// Roll back every registration attributed to a source whose top-level chunk
+/// failed. Pi constructs an extension off-registry and publishes it only after
+/// its async factory resolves; this gives direct Lua chunks the same atomicity.
+pub(crate) fn remove_source(lua: &mlua::Lua, source: &str) -> mlua::Result<()> {
+    let registry = registry_table(lua)?;
+    let exts: mlua::Table = registry.get("exts")?;
+    exts.set(source, mlua::Nil)?;
+
+    let order: mlua::Table = registry.get("ext_order")?;
+    let kept = lua.create_table()?;
+    for entry in order.sequence_values::<String>() {
+        let entry = entry?;
+        if entry != source {
+            kept.push(entry)?;
+        }
+    }
+    registry.set("ext_order", kept)?;
+
+    let events: mlua::Table = registry.get("events")?;
+    let names = events
+        .pairs::<String, mlua::Table>()
+        .map(|pair| pair.map(|(name, _)| name))
+        .collect::<mlua::Result<Vec<_>>>()?;
+    for name in names {
+        let list: mlua::Table = events.get(name.as_str())?;
+        let kept = lua.create_table()?;
+        for entry in list.sequence_values::<mlua::Table>() {
+            let entry = entry?;
+            if entry.get::<String>("source")? != source {
+                kept.push(entry)?;
+            }
+        }
+        events.set(name, kept)?;
+    }
+    Ok(())
+}
+
 /// Flatten registrations of one kind: extension order (load order), then
 /// per-extension insertion order — the iteration order of the spec's
 /// nested `Map`s.
@@ -2483,6 +2600,24 @@ pub(crate) fn all_tools(lua: &mlua::Lua) -> mlua::Result<Vec<(String, String, ml
         .into_iter()
         .filter(|(_, name, _)| seen.insert(name.clone()))
         .collect())
+}
+
+pub(crate) fn tool_conflicts(lua: &mlua::Lua) -> mlua::Result<Vec<(String, String)>> {
+    let mut owners = std::collections::HashMap::<String, String>::new();
+    let mut conflicts = Vec::new();
+    for (source, name, _) in registrations(lua, "tools", "tool_order")? {
+        if source.starts_with('<') {
+            continue;
+        }
+        if let Some(owner) = owners.get(&name) {
+            if owner != &source {
+                conflicts.push((source, format!("Tool \"{name}\" conflicts with {owner}")));
+            }
+        } else {
+            owners.insert(name, source);
+        }
+    }
+    Ok(conflicts)
 }
 
 /// Spec `runner.getToolDefinition()`: the first extension that registered
