@@ -133,7 +133,7 @@
     }
   ],
   "required_open_rows": [
-    "rust.synthetic-source-identity",
+
     "modules.chunk-local-helpers",
     "dogfood.pi-compact-renderer-patching",
     "dogfood.gecko-long-lived-resource",
