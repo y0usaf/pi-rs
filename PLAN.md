@@ -1784,7 +1784,7 @@ ablation, and replacement fixtures:
       tests, `scripts/ui-diff` (all 26 suites), `cargo test --workspace`, and `nix
       build .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
-- [ ] **9.1a Close the construction and dogfood inventories before growing the
+- [x] **9.1a Close the construction and dogfood inventories before growing the
       surface.** Extend the current Pi compatibility inventory with two checked,
       fail-closed manifests:
 
@@ -1816,7 +1816,20 @@ ablation, and replacement fixtures:
       all appear as open rows with owning rungs rather than disappearing outside
       the official Pi API inventory.
 
-- [ ] **9.1b Replace privileged product assembly with generic public
+      **Closure (2026-07-13):** `CONSTRUCTION_INVENTORY.md` now derives every
+      embedded source/declaration and Rust composition seam from checked provenance;
+      `EXTERNAL_EXTENSION_INVENTORY.md` pins all 15 dogfood trees and classifies their
+      API, import, ambient, lifetime, system, and private-class requirements. Both
+      generators are byte-idempotent and fail closed under checked negative controls.
+      `LUA_SURFACE.md` fixes the three public tiers and denies synthetic sources a
+      private tier. The assembly defects present at the inventory baseline were
+      retained with owning rungs, then reconciled only when 9.1b landed.
+
+      **Closure evidence:** dedicated construction/external Nix checks, both
+      generators and negative-control suites, `cargo test --workspace`, and the
+      integrated workspace Nix check are green.
+
+- [x] **9.1b Replace privileged product assembly with generic public
       declarations.** Add one public declaration mechanism for application/
       frontend roles and one declarative builtins manifest. The thin Rust binary
       selects a generic role from the registry for interactive/print modes; it
@@ -1837,6 +1850,19 @@ ablation, and replacement fixtures:
       frames/requests; zero-pack boot remains green; removing one package does
       not break the host; and ordinary file-backed replacements receive exactly
       the capabilities and watchdog treatment of their embedded counterparts.
+
+      **Closure (2026-07-13):** `pi.register_role` is one source-neutral application
+      registry with explicit activation/priority/conflict data; the thin launcher
+      calls generic `interactive`, `print`, `resume-picker`, and `startup-selector`
+      roles. `BuiltinManifest` owns default package selection and suppression, while
+      zero-pack and ordinary file-backed role/tool/policy replacements use the same
+      host transactions and watchdog path. The construction ledger now inventories
+      role declarations and records synthetic keys as provenance-only.
+
+      **Closure evidence:** assembly/registry/public-surface tests, every construction
+      negative control, `cargo test --workspace`, all 26 `scripts/ui-diff` suites,
+      and `nix build .#checks.x86_64-linux.workspace-test --print-build-logs` are
+      green.
 
 - [ ] **9.2 Extension contexts + lifecycle actions.** Build the live
       `ExtensionContext`/`ExtensionCommandContext` as Lua snapshots and queued
@@ -1875,12 +1901,18 @@ ablation, and replacement fixtures:
       `cargo test --workspace`, and `nix build
       .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
-      **Remaining in 9.2:** carry the same complete context into print/JSON/RPC and
-      shortcut/event dispatches; add command-only new/fork/tree/switch/reload plus
-      `withSession` callbacks over the existing session machinery; pin action
-      cancellation, stale handles after real replacement/reload, lifecycle ordering,
-      and command-only restrictions with translated session examples. The checkbox
-      remains open; 9.3 still owns emission/folding of the event vocabulary.
+      **Second landed slice (2026-07-13): complete command lifecycle actions.** One
+      shared context policy now serves TUI and one-shot tool/shortcut/event callers.
+      Command contexts expose new/fork/tree/switch/reload and `withSession`; real
+      session replacement/reload advances generations, rejects stale captures, and
+      preserves Pi callback order. A file-backed lifecycle translation and expanded
+      Pi-generated oracle pin modes, restrictions, cancellation outcomes, replacement
+      identity, and post-rebind work.
+
+      **Remaining in 9.2:** carry the context through JSON/RPC delivery, add
+      signal-driven cancellation coverage for queued/in-flight lifecycle waits, and
+      complete context/emission ordering for the event vocabulary through 9.3. The
+      checkbox remains open.
 
 - [ ] **9.3 Complete event pipeline and fold semantics.** Emit the pinned event
       vocabulary at the real product seams: project/resource discovery;
