@@ -297,7 +297,14 @@ integrator after the wave.
   **Accept:** mechanism tests cover Unicode/wide cells, resize, cursor, clipping,
   minimal diffs, and malformed input; benchmark budgets from 0.2 pass.
 
-- [ ] **2.2 — Async OS/effect mechanism** (**Wave M**, path owner:
+  **Landed slice:** `a2e32b4` adds a versioned bounded retained display tree,
+  transactional validation, iterative layout/clipping, Unicode cells, stable
+  identities, focus/cursor metadata, minimal ANSI diffs, and bounded raw-input
+  decoding. Focused tests and the unchanged input/render budgets pass. Remaining:
+  migrate host/app/example consumers and delete inherited Pi-specific editor,
+  markdown, selector, settings, loader, component, and TUI policy modules.
+
+- [x] **2.2 — Async OS/effect mechanism** (**Wave M**, path owner:
   `crates/pi-rs-host/src/effects/**` plus focused new tests; depends on 1.3).
 
   Consolidate abort-aware filesystem, process-tree, HTTP streaming, timer,
@@ -307,6 +314,12 @@ integrator after the wave.
 
   **Accept:** file-backed Lua exercisers cover each effect; leak tests prove no
   process/task/socket survives disposal; backpressure is bounded.
+
+  **Landed:** `57c7aec`, `3ec66f1`, and `7e3a82f` add one scope-owned typed
+  effect queue for filesystem, process trees, HTTP streams, timers, clipboard,
+  and crypto, with bounded channels/output plus cancellation, timeout, reload,
+  disposal, and shutdown cleanup. File-backed coverage and process/task/socket
+  leak tests pass; `0a83812` reconciles the dependency lock.
 
 - [ ] **2.3 — Generic durable record store** (**Wave M**, path owner:
   `crates/pi-rs-session/**`; depends on 1.3).
@@ -320,6 +333,12 @@ integrator after the wave.
   copy, and XDG-path tests pass; a file-backed Lua package uses it without private
   methods.
 
+  **Landed slice:** `bababc1` replaces the session crate with an opaque,
+  checksummed record log with synced append/copy, file locks, bounded cursors,
+  diagnostics, cancellation, and explicit destinations; `5889eee` exposes it to
+  an ordinary file-backed Lua package. All focused tests pass. Remaining: remove
+  or replace the tracked legacy `examples/extensions/session-demo.lua` consumer.
+
 - [ ] **2.4 — Provider transport and auth mechanism preservation** (**Wave M**,
   path owners: `crates/pi-rs-ai{,-types,-auth}/**`; depends on 1.3).
 
@@ -331,6 +350,14 @@ integrator after the wave.
   **Accept:** focused wire replays remain deterministic; secrets are redacted;
   credential writes use XDG only while legacy credentials are fallback-readable;
   shared transport/retry/SSE machinery has one implementation.
+
+  **Landed slice:** `d493178` restores the pinned 35-provider/969-model catalog,
+  fail-closed dispatch/auth inventory, pooled transport, explicit XDG credential
+  storage with read-only legacy fallback, cancellable OAuth flows, and broad
+  redaction evidence while retaining deterministic protocol/auth replays.
+  Remaining review fixes: redact known secrets of every length, bound the
+  process-lifetime command cache, and make credential locking crash-safe rather
+  than leaving a stale sentinel that can permanently block writes.
 
 ## 3 — Expose the complete public Lua kernel
 
