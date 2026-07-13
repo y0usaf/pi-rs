@@ -1,0 +1,293 @@
+{
+	"beforeSwitch": {
+		"cancel": true,
+		"owner": "second"
+	},
+	"beforeFork": {
+		"cancel": true
+	},
+	"beforeCompact": {
+		"cancel": true
+	},
+	"beforeTree": {
+		"summary": {
+			"summary": "tree summary",
+			"details": {
+				"second": true
+			}
+		},
+		"replaceInstructions": true,
+		"label": "second-label"
+	},
+	"context": [
+		{
+			"role": "user",
+			"content": "base",
+			"timestamp": 0
+		},
+		{
+			"role": "user",
+			"content": "first",
+			"timestamp": 0
+		},
+		{
+			"role": "user",
+			"content": "second",
+			"timestamp": 0
+		}
+	],
+	"payload": {
+		"base": true,
+		"first": true,
+		"second": true
+	},
+	"beforeAgent": {
+		"messages": [
+			{
+				"customType": "first",
+				"content": "notice",
+				"display": true
+			},
+			{
+				"customType": "second",
+				"content": "system|first",
+				"display": false
+			}
+		],
+		"systemPrompt": "system|first|second"
+	},
+	"message": {
+		"role": "assistant",
+		"content": [
+			{
+				"type": "text",
+				"text": "first replacement"
+			}
+		],
+		"api": "x",
+		"provider": "x",
+		"model": "x",
+		"usage": {},
+		"stopReason": "stop",
+		"timestamp": 0
+	},
+	"toolInput": {
+		"command": "echo --first"
+	},
+	"toolCall": {
+		"block": true,
+		"reason": "echo --first"
+	},
+	"toolResult": {
+		"content": [
+			{
+				"type": "text",
+				"text": "first result"
+			}
+		],
+		"details": {
+			"second": true
+		},
+		"isError": true
+	},
+	"userBash": {
+		"result": {
+			"output": "handled bash",
+			"exitCode": 7,
+			"cancelled": false,
+			"truncated": false
+		}
+	},
+	"input": {
+		"action": "transform",
+		"text": "go|first|second"
+	},
+	"handledInput": {
+		"action": "handled"
+	},
+	"trust": {
+		"trusted": "yes",
+		"remember": true
+	},
+	"resources": {
+		"skillPaths": [
+			{
+				"path": "skills-a",
+				"extensionPath": "01-first"
+			}
+		],
+		"promptPaths": [
+			{
+				"path": "prompts-b",
+				"extensionPath": "02-second"
+			}
+		],
+		"themePaths": [
+			{
+				"path": "themes-b",
+				"extensionPath": "02-second"
+			}
+		]
+	},
+	"errors": [
+		{
+			"extensionPath": "01-first",
+			"event": "agent_end",
+			"error": "first agent error"
+		},
+		{
+			"extensionPath": "02-second",
+			"event": "message_end",
+			"error": "message_end handlers must return a message with the same role"
+		},
+		{
+			"extensionPath": "02-second",
+			"event": "message_end",
+			"error": "message_end handlers must return a message with the same role"
+		},
+		{
+			"extensionPath": "02-second",
+			"event": "message_end",
+			"error": "message_end handlers must return a message with the same role"
+		},
+		{
+			"extensionPath": "02-second",
+			"event": "message_end",
+			"error": "message_end handlers must return a message with the same role"
+		},
+		{
+			"extensionPath": "02-second",
+			"event": "message_end",
+			"error": "message_end handlers must return a message with the same role"
+		},
+		{
+			"extensionPath": "02-second",
+			"event": "message_end",
+			"error": "message_end handlers must return a message with the same role"
+		},
+		{
+			"extensionPath": "01-first",
+			"event": "agent_end",
+			"error": "first agent error"
+		}
+	],
+	"foldErrorCount": 2,
+	"trace": [
+		"first:session_start",
+		"second:session_start",
+		"first:session_compact",
+		"second:session_compact",
+		"first:session_shutdown",
+		"second:session_shutdown",
+		"first:session_tree",
+		"second:session_tree",
+		"first:after_provider_response",
+		"second:after_provider_response",
+		"first:agent_start",
+		"second:agent_start",
+		"first:agent_end",
+		"second:agent_end",
+		"first:turn_start",
+		"second:turn_start",
+		"first:turn_end",
+		"second:turn_end",
+		"first:message_start",
+		"second:message_start",
+		"first:message_update",
+		"second:message_update",
+		"first:tool_execution_start",
+		"second:tool_execution_start",
+		"first:tool_execution_update",
+		"second:tool_execution_update",
+		"first:tool_execution_end",
+		"second:tool_execution_end",
+		"first:model_select",
+		"second:model_select",
+		"first:thinking_level_select",
+		"second:thinking_level_select",
+		"first:session_before_switch",
+		"second:session_before_switch",
+		"first:session_before_fork",
+		"second:session_before_fork",
+		"first:session_before_compact",
+		"second:session_before_compact",
+		"first:session_before_tree",
+		"second:session_before_tree",
+		"first:context",
+		"second:context",
+		"first:before_provider_request",
+		"second:before_provider_request",
+		"first:before_agent_start",
+		"second:before_agent_start",
+		"first:message_end",
+		"second:message_end",
+		"first:tool_call",
+		"second:tool_call",
+		"first:tool_result",
+		"second:tool_result",
+		"first:user_bash",
+		"second:user_bash",
+		"first:input",
+		"second:input",
+		"first:input",
+		"second:input",
+		"first:project_trust",
+		"second:project_trust",
+		"first:resources_discover",
+		"second:resources_discover"
+	],
+	"productTrace": [
+		"first:input",
+		"second:input",
+		"first:before_agent_start",
+		"second:before_agent_start",
+		"first:agent_start",
+		"second:agent_start",
+		"first:turn_start",
+		"second:turn_start",
+		"first:message_start",
+		"second:message_start",
+		"first:message_end",
+		"second:message_end",
+		"first:message_start",
+		"second:message_start",
+		"first:message_end",
+		"second:message_end",
+		"first:message_start",
+		"second:message_start",
+		"first:message_end",
+		"second:message_end",
+		"first:after_provider_response",
+		"second:after_provider_response",
+		"first:message_start",
+		"second:message_start",
+		"first:message_end",
+		"second:message_end",
+		"first:tool_execution_start",
+		"second:tool_execution_start",
+		"first:tool_call",
+		"second:tool_call",
+		"first:tool_result",
+		"second:tool_result",
+		"first:tool_execution_end",
+		"second:tool_execution_end",
+		"first:message_start",
+		"second:message_start",
+		"first:message_end",
+		"second:message_end",
+		"first:turn_end",
+		"second:turn_end",
+		"first:turn_start",
+		"second:turn_start",
+		"first:after_provider_response",
+		"second:after_provider_response",
+		"first:message_start",
+		"second:message_start",
+		"first:message_end",
+		"second:message_end",
+		"first:turn_end",
+		"second:turn_end",
+		"first:agent_end",
+		"second:agent_end"
+	]
+}

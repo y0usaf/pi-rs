@@ -29,6 +29,10 @@ pi.register_role({
     readmePath = request.readmePath, docsPath = request.docsPath,
     examplesPath = request.examplesPath,
   }
+  local extension_errors = {}
+  EXTENSION_POLICY.on_error = function(error)
+    extension_errors[#extension_errors + 1] = error
+  end
   local extension_state = {
     request = request, cwd = cwd, session_manager = session, model = model,
     project_trusted = request.projectTrusted == true,
@@ -43,22 +47,47 @@ pi.register_role({
       is_using_oauth = pi.ai.is_using_oauth,
     },
   }
-  local agent = pi.agent.new({
+  local system_prompt = build_session_system_prompt(system_prompt_options)
+  local agent
+  agent = pi.agent.new({
     initialState = {
       model = model, tools = active_tools,
       messages = startup.context.messages,
       thinkingLevel = startup.thinking_level,
-      systemPrompt = build_session_system_prompt(system_prompt_options),
+      systemPrompt = system_prompt,
     },
     convertToLlm = convert_to_llm_with_block_images,
+    transformContext = function(messages, signal)
+      return EXTENSION_POLICY.emit_context(messages,
+        EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = signal }))
+    end,
     apiKey = request.apiKey,
     getApiKey = function(provider) return pi.auth.get_api_key(provider) end,
+    onPayload = function(payload)
+      return EXTENSION_POLICY.emit_before_provider_request(payload,
+        EXTENSION_CONTEXT_POLICY.snapshot(extension_state,
+          { signal = agent and agent:get_state().signal or nil }))
+    end,
+    onResponse = function(response)
+      EXTENSION_POLICY.emit_generic({ type = "after_provider_response",
+        status = response.status, headers = response.headers },
+        EXTENSION_CONTEXT_POLICY.snapshot(extension_state,
+          { signal = agent and agent:get_state().signal or nil }))
+    end,
     createToolContext = function(signal)
       return EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = signal })
     end,
     beforeToolCall = function(event, signal)
       return EXTENSION_POLICY.emit_tool_call(event,
         EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = signal }))
+    end,
+    afterToolCall = function(event, signal)
+      return EXTENSION_POLICY.emit_tool_result({
+        type = "tool_result", toolCallId = event.toolCall.id,
+        toolName = event.toolCall.name, input = event.args,
+        content = event.result.content, details = event.result.details,
+        isError = event.isError,
+      }, EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = signal }))
     end,
     on_event = function(event) events[#events + 1] = event end,
   })
@@ -85,7 +114,12 @@ pi.register_role({
       end
     end,
   }
+  local turn_state = { index = 0 }
   agent:subscribe(function(event)
+    local signal = agent:get_state().signal
+    EXTENSION_POLICY.emit_agent_event(event,
+      EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = signal }),
+      pi.now_ms, turn_state)
     if event.type == "message_update" and event.assistantMessageEvent and
        event.assistantMessageEvent.type == "text_delta" then
       pi.output(event.assistantMessageEvent.delta or "")
@@ -93,16 +127,36 @@ pi.register_role({
     persist_agent_event(session, event)
   end)
 
+  EXTENSION_POLICY.emit_generic({ type = "session_start", reason = "startup" },
+    EXTENSION_CONTEXT_POLICY.snapshot(extension_state))
+  local extension_resources = EXTENSION_POLICY.emit_resources_discover(
+    cwd, "startup", EXTENSION_CONTEXT_POLICY.snapshot(extension_state))
+
   -- Keep the queued-action applier live while the provider/tool coroutine
   -- runs. Extensions never mutate the one-shot state directly.
-  local turn = pi.spawn(function() agent:prompt(request.prompt) end)
+  local turn = pi.spawn(function()
+    local context = EXTENSION_CONTEXT_POLICY.snapshot(extension_state)
+    local input = EXTENSION_POLICY.emit_input(request.prompt, nil, "interactive", nil, context)
+    if input.action == "handled" then return end
+    local prompt = input.action == "transform" and input.text or request.prompt
+    local before = EXTENSION_POLICY.emit_before_agent_start(prompt, nil, system_prompt,
+      system_prompt_options, EXTENSION_CONTEXT_POLICY.snapshot(extension_state))
+    agent:set_system_prompt(before and before.systemPrompt or system_prompt)
+    local prompts = { { role = "user", content = { { type = "text", text = prompt } },
+      timestamp = pi.now_ms() } }
+    for _, message in ipairs(before and before.messages or {}) do
+      prompts[#prompts + 1] = { role = "custom", customType = message.customType,
+        content = message.content, display = message.display, details = message.details,
+        timestamp = pi.now_ms() }
+    end
+    agent:prompt(prompts)
+  end)
   while not turn:done() do
     EXTENSION_CONTEXT_POLICY.pump(extension_state)
     pi.sleep(1)
   end
   turn:join()
   EXTENSION_CONTEXT_POLICY.pump(extension_state)
-
   local state = agent:get_state()
   local last = state.messages[#state.messages]
   local text = ""
@@ -116,11 +170,80 @@ pi.register_role({
     model = startup.model and { provider = startup.model.provider, id = startup.model.id } or nil,
     thinkingLevel = startup.thinking_level,
     modelFallbackMessage = startup.fallback_message,
+    extensionErrors = extension_errors, extensionResources = extension_resources,
   }
 end })
 
--- PLAN 9.1 product-extension exerciser: the print role's active-tool
--- composition and tool_call fold, without requiring a provider fixture.
+-- PLAN 9.3 differential fold driver. Ordinary file-backed extensions register
+-- through pi.on; this invokes the same policy used by real product seams.
+pi.register_command("extension-event-fold-parity", { handler = function(args)
+  local request = pi.json.decode(args)
+  local errors = {}
+  EXTENSION_POLICY.on_error = function(error) errors[#errors + 1] = error end
+  local context = { cwd = request.cwd, mode = "tui", hasUI = false,
+    getSystemPrompt = function() return "system" end }
+  local generic_types = { "session_start", "session_compact", "session_shutdown",
+    "session_tree", "after_provider_response", "agent_start", "agent_end",
+    "turn_start", "turn_end", "message_start", "message_update",
+    "tool_execution_start", "tool_execution_update", "tool_execution_end",
+    "model_select", "thinking_level_select" }
+  for _, kind in ipairs(generic_types) do
+    EXTENSION_POLICY.emit_generic({ type = kind, status = 201, headers = { x = "y" },
+      messages = {}, turnIndex = 2, timestamp = 123,
+      message = { role = "assistant", content = {}, timestamp = 0 },
+      toolResults = {}, toolCallId = "call", toolName = "bash",
+      args = { command = "x" }, partialResult = { content = {} },
+      result = { content = {} }, isError = false, source = "set",
+      level = "low", previousLevel = "off", newLeafId = "leaf",
+      oldLeafId = "old", fromExtension = false, compactionEntry = { id = "compact" },
+    }, context)
+  end
+  local before_switch = EXTENSION_POLICY.emit_generic({ type = "session_before_switch",
+    reason = "resume", targetSessionFile = "target.jsonl" }, context)
+  local before_fork = EXTENSION_POLICY.emit_generic({ type = "session_before_fork",
+    entryId = "entry", position = "before" }, context)
+  local before_compact = EXTENSION_POLICY.emit_generic({ type = "session_before_compact",
+    preparation = { firstKeptEntryId = "keep" }, branchEntries = {},
+    signal = pi.abort_signal() }, context)
+  local before_tree = EXTENSION_POLICY.emit_generic({ type = "session_before_tree",
+    preparation = { targetId = "target" }, signal = pi.abort_signal() }, context)
+  local messages = EXTENSION_POLICY.emit_context(
+    { { role = "user", content = "base", timestamp = 0 } }, context)
+  local payload = EXTENSION_POLICY.emit_before_provider_request({ base = true }, context)
+  local before_agent = EXTENSION_POLICY.emit_before_agent_start(
+    "prompt", nil, "system", { cwd = request.cwd }, context)
+  local message = EXTENSION_POLICY.emit_message_end({ type = "message_end",
+    message = { role = "assistant", content = { { type = "text", text = "base" } },
+      api = "x", provider = "x", model = "x", usage = {},
+      stopReason = "stop", timestamp = 0 } }, context)
+  local tool_input = { command = "echo" }
+  local tool_call = EXTENSION_POLICY.emit_tool_call({ type = "tool_call",
+    toolCallId = "call", toolName = "bash", input = tool_input }, context)
+  local tool_result = EXTENSION_POLICY.emit_tool_result({ type = "tool_result",
+    toolCallId = "call", toolName = "bash", input = tool_input,
+    content = { { type = "text", text = "base result" } },
+    details = { base = true }, isError = false }, context)
+  local user_bash = EXTENSION_POLICY.emit_user_bash({ type = "user_bash",
+    command = "echo hi", excludeFromContext = false, cwd = request.cwd }, context)
+  local input = EXTENSION_POLICY.emit_input("go", nil, "interactive", nil, context)
+  local handled = EXTENSION_POLICY.emit_input("handle", nil, "interactive", "steer", context)
+  local trust = EXTENSION_POLICY.emit_project_trust(
+    { type = "project_trust", cwd = request.cwd }, context)
+  local resources = EXTENSION_POLICY.emit_resources_discover(request.cwd, "startup", context)
+  local trace
+  for _, command in ipairs(pi.registered_extension_commands()) do
+    if command.invocation_name == "event-trace" then trace = command.handler("", context) end
+  end
+  return { beforeSwitch = before_switch, beforeFork = before_fork,
+    beforeCompact = before_compact, beforeTree = before_tree, context = messages,
+    payload = payload, beforeAgent = before_agent, message = message,
+    toolInput = tool_input, toolCall = tool_call, toolResult = tool_result,
+    userBash = user_bash, input = input, handledInput = handled, trust = trust,
+    resources = resources, errors = errors, trace = trace }
+end })
+
+-- PLAN 9.1 product-extension exerciser: the same active-tool composition and
+-- tool_call fold used by pi-rs-run, without requiring a provider fixture.
 pi.register_command("extension-vertical-slice", { handler = function(args)
   local request = pi.json.decode(args)
   local tools, names = active_tool_definitions()

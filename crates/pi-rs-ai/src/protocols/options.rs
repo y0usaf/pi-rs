@@ -1,11 +1,13 @@
 //! Runtime stream options — the non-serde half of the spec's `types.ts`
 //! options families (the serde-able pieces live in `pi-rs-ai-types`).
 //!
-//! The spec's `onPayload`/`onResponse` hooks may be async; here they are
-//! synchronous callbacks — the coroutine-awaitable form arrives with the
-//! Lua provider binding (WS2.4) if a translation needs it.
+//! The spec's `onPayload`/`onResponse` hooks are async. They are represented
+//! as boxed futures so the Lua host can suspend provider startup while public
+//! extension middleware runs on the VM thread.
 
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use pi_rs_ai_types::{
@@ -17,11 +19,13 @@ use crate::transport::AbortSignal;
 
 /// Spec: `StreamOptions["onPayload"]` — inspect or replace the provider
 /// payload before sending; `None` keeps it unchanged.
-pub type PayloadHook = Arc<dyn Fn(Value, &Model) -> Option<Value> + Send + Sync>;
+pub type PayloadHook =
+    Arc<dyn Fn(Value, Model) -> Pin<Box<dyn Future<Output = Option<Value>> + Send>> + Send + Sync>;
 
 /// Spec: `StreamOptions["onResponse"]` — invoked after HTTP response
 /// headers arrive, before the body stream is consumed.
-pub type ResponseHook = Arc<dyn Fn(&ProviderResponse, &Model) + Send + Sync>;
+pub type ResponseHook =
+    Arc<dyn Fn(ProviderResponse, Model) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Spec: `StreamOptions`.
 #[derive(Clone, Default)]

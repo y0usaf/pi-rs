@@ -266,7 +266,7 @@ async fn drive(
     let (base_url, api_version) = resolve_azure_config(model, options)?;
     let mut params = build_params(model, context, options, &deployment);
     if let Some(hook) = &options.base.on_payload
-        && let Some(next) = hook(params.clone(), model)
+        && let Some(next) = hook(params.clone(), model.clone()).await
     {
         params = next;
     }
@@ -287,12 +287,13 @@ async fn drive(
     .map_err(|error| ProtocolError(format_azure_error(&error)))?;
     if let Some(hook) = &options.base.on_response {
         hook(
-            &ProviderResponse {
+            ProviderResponse {
                 status: response.status().as_u16(),
                 headers: headers_to_record(response.headers()),
             },
-            model,
-        );
+            model.clone(),
+        )
+        .await;
     }
     stream.push(AssistantMessageEvent::Start {
         partial: output.clone(),
