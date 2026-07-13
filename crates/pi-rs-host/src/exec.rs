@@ -16,22 +16,35 @@ pub(crate) struct ExecResult {
     pub(crate) killed: bool,
 }
 
-pub(crate) async fn exec_command(
-    hub: &crate::effects::EffectHub,
-    scope: crate::kernel::ScopeId,
-    command: &str,
-    args: &[String],
-    cwd: &str,
+struct ExecRequest {
+    command: String,
+    args: Vec<String>,
+    cwd: String,
     timeout_ms: Option<u64>,
     signal: Option<AbortSignal>,
     on_data: Option<mlua::Function>,
     max_output_bytes: usize,
+}
+
+async fn exec_command(
+    hub: &crate::effects::EffectHub,
+    scope: crate::kernel::ScopeId,
+    request: ExecRequest,
 ) -> mlua::Result<ExecResult> {
+    let ExecRequest {
+        command,
+        args,
+        cwd,
+        timeout_ms,
+        signal,
+        on_data,
+        max_output_bytes,
+    } = request;
     let cancellation = crate::effects::cancellation();
     let request = ProcessRequest {
-        program: command.to_owned(),
-        args: args.to_vec(),
-        cwd: Some(cwd.to_owned()),
+        program: command,
+        args,
+        cwd: Some(cwd),
         stdin: None,
         options: EffectOptions {
             timeout: timeout_ms.map_or(EffectTimeout::Disabled, |milliseconds| {
@@ -166,13 +179,15 @@ pub(crate) fn install(
                 let result = exec_command(
                     &hub,
                     scope,
-                    &command,
-                    &arg_vec,
-                    &cwd,
-                    timeout_ms,
-                    signal,
-                    on_data,
-                    max_output_bytes,
+                    ExecRequest {
+                        command,
+                        args: arg_vec,
+                        cwd,
+                        timeout_ms,
+                        signal,
+                        on_data,
+                        max_output_bytes,
+                    },
                 )
                 .await?;
                 let reply = lua.create_table()?;
