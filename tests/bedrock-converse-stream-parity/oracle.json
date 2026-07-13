@@ -1,0 +1,439 @@
+{
+	"cases": [
+		{
+			"name": "rich-bearer-stream",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/model/anthropic.claude-opus-4-8-v1%3A0/converse-stream",
+					"headers": {
+						"authorization": "Bearer bearer",
+						"content-type": "application/json",
+						"x-extra": "yes"
+					},
+					"body": {
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"text": "hello"
+									},
+									{
+										"image": {
+											"format": "png",
+											"source": {
+												"bytes": "aW1n"
+											}
+										}
+									}
+								]
+							},
+							{
+								"role": "assistant",
+								"content": [
+									{
+										"reasoningContent": {
+											"reasoningText": {
+												"text": "old thought",
+												"signature": "signature"
+											}
+										}
+									},
+									{
+										"text": "using tool"
+									},
+									{
+										"toolUse": {
+											"toolUseId": "call.invalid/long",
+											"name": "read",
+											"input": {
+												"path": "x"
+											}
+										}
+									}
+								]
+							},
+							{
+								"role": "user",
+								"content": [
+									{
+										"toolResult": {
+											"toolUseId": "call.invalid/long",
+											"content": [
+												{
+													"text": "done"
+												},
+												{
+													"image": {
+														"format": "png",
+														"source": {
+															"bytes": "aW1n"
+														}
+													}
+												}
+											],
+											"status": "success"
+										}
+									},
+									{
+										"cachePoint": {
+											"type": "default",
+											"ttl": "1h"
+										}
+									}
+								]
+							}
+						],
+						"system": [
+							{
+								"text": "Be helpful."
+							},
+							{
+								"cachePoint": {
+									"type": "default",
+									"ttl": "1h"
+								}
+							}
+						],
+						"inferenceConfig": {
+							"maxTokens": 1234,
+							"temperature": 0.2
+						},
+						"toolConfig": {
+							"tools": [
+								{
+									"toolSpec": {
+										"name": "read",
+										"inputSchema": {
+											"json": {
+												"type": "object",
+												"properties": {
+													"path": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"path"
+												]
+											}
+										},
+										"description": "Read"
+									}
+								}
+							],
+							"toolChoice": {
+								"auto": {}
+							}
+						},
+						"additionalModelRequestFields": {
+							"thinking": {
+								"type": "adaptive",
+								"display": "summarized"
+							},
+							"output_config": {
+								"effort": "medium"
+							}
+						},
+						"requestMetadata": {
+							"team": "pi"
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "thinking_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "thinking_delta",
+					"contentIndex": 0,
+					"delta": "Think "
+				},
+				{
+					"type": "thinking_end",
+					"contentIndex": 0,
+					"content": "Think "
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 1
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 1,
+					"delta": "Answer"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 1,
+					"content": "Answer"
+				},
+				{
+					"type": "toolcall_start",
+					"contentIndex": 2
+				},
+				{
+					"type": "toolcall_delta",
+					"contentIndex": 2,
+					"delta": "{\"path\":"
+				},
+				{
+					"type": "toolcall_delta",
+					"contentIndex": 2,
+					"delta": "\"a\"}"
+				},
+				{
+					"type": "toolcall_end",
+					"contentIndex": 2,
+					"toolCall": {
+						"type": "toolCall",
+						"id": "call_1",
+						"name": "read",
+						"arguments": {
+							"path": "a"
+						}
+					}
+				},
+				{
+					"type": "done",
+					"reason": "toolUse"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "thinking",
+						"thinking": "Think ",
+						"thinkingSignature": "sig"
+					},
+					{
+						"type": "text",
+						"text": "Answer"
+					},
+					{
+						"type": "toolCall",
+						"id": "call_1",
+						"name": "read",
+						"arguments": {
+							"path": "a"
+						}
+					}
+				],
+				"api": "bedrock-converse-stream",
+				"provider": "amazon-bedrock",
+				"model": "anthropic.claude-opus-4-8-v1:0",
+				"usage": {
+					"input": 20,
+					"output": 5,
+					"cacheRead": 4,
+					"cacheWrite": 1,
+					"totalTokens": 25,
+					"cost": {
+						"input": 0.0001,
+						"output": 0.000125,
+						"cacheRead": 0.000002,
+						"cacheWrite": 0.00000625,
+						"total": 0.00023324999999999998
+					}
+				},
+				"stopReason": "toolUse",
+				"timestamp": 0
+			}
+		},
+		{
+			"name": "simple-nova",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/model/amazon.nova-pro-v1%3A0/converse-stream",
+					"headers": {
+						"authorization": "Bearer bearer",
+						"content-type": "application/json"
+					},
+					"body": {
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"text": "hi"
+									}
+								]
+							}
+						],
+						"inferenceConfig": {}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "bedrock-converse-stream",
+				"provider": "amazon-bedrock",
+				"model": "amazon.nova-pro-v1:0",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0
+			}
+		},
+		{
+			"name": "validation-event-error",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/model/amazon.nova-pro-v1%3A0/converse-stream",
+					"headers": {
+						"authorization": "Bearer bearer",
+						"content-type": "application/json"
+					},
+					"body": {
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"text": "hi"
+									}
+								]
+							}
+						],
+						"inferenceConfig": {}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "bedrock-converse-stream",
+				"provider": "amazon-bedrock",
+				"model": "amazon.nova-pro-v1:0",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "{\"message\":\"bad input\"}"
+			}
+		},
+		{
+			"name": "http-error",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/model/amazon.nova-pro-v1%3A0/converse-stream",
+					"headers": {
+						"authorization": "Bearer bearer",
+						"content-type": "application/json"
+					},
+					"body": {
+						"messages": [
+							{
+								"role": "user",
+								"content": [
+									{
+										"text": "hi"
+									}
+								]
+							}
+						],
+						"inferenceConfig": {}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "bedrock-converse-stream",
+				"provider": "amazon-bedrock",
+				"model": "amazon.nova-pro-v1:0",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "Unknown: bad request"
+			}
+		}
+	]
+}

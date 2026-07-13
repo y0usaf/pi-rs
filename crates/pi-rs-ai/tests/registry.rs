@@ -241,10 +241,12 @@ fn unregistered_api_is_the_spec_error() {
 fn builtins_resolve_after_reset() {
     let _guard = global_lock();
     reset_api_providers();
+    assert!(get_api_provider("bedrock-converse-stream").is_some());
     assert!(get_api_provider("anthropic-messages").is_some());
     assert!(get_api_provider("azure-openai-responses").is_some());
     assert!(get_api_provider("google-generative-ai").is_some());
     assert!(get_api_provider("google-vertex").is_some());
+    assert!(get_api_provider("mistral-conversations").is_some());
     assert!(get_api_provider("openai-completions").is_some());
     assert!(get_api_provider("openai-responses").is_some());
     assert!(get_api_provider("openai-codex-responses").is_some());

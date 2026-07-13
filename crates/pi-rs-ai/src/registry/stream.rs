@@ -21,10 +21,12 @@ use crate::protocols::azure_openai_responses::{
     AzureOpenAIResponsesOptions, stream_azure_openai_responses,
     stream_simple_azure_openai_responses,
 };
+use crate::protocols::bedrock::{BedrockOptions, stream_bedrock, stream_simple_bedrock};
 use crate::protocols::google::{GoogleOptions, stream_google, stream_simple_google};
 use crate::protocols::google_vertex::{
     GoogleVertexOptions, stream_google_vertex, stream_simple_google_vertex,
 };
+use crate::protocols::mistral::{MistralOptions, stream_mistral, stream_simple_mistral};
 use crate::protocols::openai_codex_responses::{
     OpenAICodexResponsesOptions, stream_openai_codex_responses,
     stream_simple_openai_codex_responses,
@@ -63,6 +65,48 @@ pub fn register_builtin_api_providers() {
     );
     register_api_provider(
         ApiProvider {
+            api: "openai-completions".to_owned(),
+            stream: Arc::new(|model, context, options| {
+                let options = options.map(|base| OpenAICompletionsOptions {
+                    base,
+                    ..OpenAICompletionsOptions::default()
+                });
+                Ok(stream_openai_completions(model, context, options))
+            }),
+            stream_simple: Arc::new(stream_simple_openai_completions),
+        },
+        None,
+    );
+    register_api_provider(
+        ApiProvider {
+            api: "mistral-conversations".to_owned(),
+            stream: Arc::new(|model, context, options| {
+                let options = options.map(|base| MistralOptions {
+                    base,
+                    ..MistralOptions::default()
+                });
+                Ok(stream_mistral(model, context, options))
+            }),
+            stream_simple: Arc::new(stream_simple_mistral),
+        },
+        None,
+    );
+    register_api_provider(
+        ApiProvider {
+            api: "openai-responses".to_owned(),
+            stream: Arc::new(|model, context, options| {
+                let options = options.map(|base| OpenAIResponsesOptions {
+                    base,
+                    ..OpenAIResponsesOptions::default()
+                });
+                Ok(stream_openai_responses(model, context, options))
+            }),
+            stream_simple: Arc::new(stream_simple_openai_responses),
+        },
+        None,
+    );
+    register_api_provider(
+        ApiProvider {
             api: "azure-openai-responses".to_owned(),
             stream: Arc::new(|model, context, options| {
                 let options = options.map(|base| AzureOpenAIResponsesOptions {
@@ -72,6 +116,20 @@ pub fn register_builtin_api_providers() {
                 Ok(stream_azure_openai_responses(model, context, options))
             }),
             stream_simple: Arc::new(stream_simple_azure_openai_responses),
+        },
+        None,
+    );
+    register_api_provider(
+        ApiProvider {
+            api: "openai-codex-responses".to_owned(),
+            stream: Arc::new(|model, context, options| {
+                let options = options.map(|base| OpenAICodexResponsesOptions {
+                    base,
+                    ..OpenAICodexResponsesOptions::default()
+                });
+                Ok(stream_openai_codex_responses(model, context, options))
+            }),
+            stream_simple: Arc::new(stream_simple_openai_codex_responses),
         },
         None,
     );
@@ -105,43 +163,15 @@ pub fn register_builtin_api_providers() {
     );
     register_api_provider(
         ApiProvider {
-            api: "openai-completions".to_owned(),
+            api: "bedrock-converse-stream".to_owned(),
             stream: Arc::new(|model, context, options| {
-                let options = options.map(|base| OpenAICompletionsOptions {
+                let options = options.map(|base| BedrockOptions {
                     base,
-                    ..OpenAICompletionsOptions::default()
+                    ..BedrockOptions::default()
                 });
-                Ok(stream_openai_completions(model, context, options))
+                Ok(stream_bedrock(model, context, options))
             }),
-            stream_simple: Arc::new(stream_simple_openai_completions),
-        },
-        None,
-    );
-    register_api_provider(
-        ApiProvider {
-            api: "openai-responses".to_owned(),
-            stream: Arc::new(|model, context, options| {
-                let options = options.map(|base| OpenAIResponsesOptions {
-                    base,
-                    ..OpenAIResponsesOptions::default()
-                });
-                Ok(stream_openai_responses(model, context, options))
-            }),
-            stream_simple: Arc::new(stream_simple_openai_responses),
-        },
-        None,
-    );
-    register_api_provider(
-        ApiProvider {
-            api: "openai-codex-responses".to_owned(),
-            stream: Arc::new(|model, context, options| {
-                let options = options.map(|base| OpenAICodexResponsesOptions {
-                    base,
-                    ..OpenAICodexResponsesOptions::default()
-                });
-                Ok(stream_openai_codex_responses(model, context, options))
-            }),
-            stream_simple: Arc::new(stream_simple_openai_codex_responses),
+            stream_simple: Arc::new(stream_simple_bedrock),
         },
         None,
     );

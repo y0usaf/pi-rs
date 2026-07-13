@@ -1182,13 +1182,20 @@ struct ToolMeta {
 /// Spec: the OpenRouter `error.error.metadata.raw` append in the catch —
 /// extracted from the HTTP error body here (see module docs).
 fn shape_transport_error(error: &TransportError) -> String {
-    let mut message = error.to_string();
-    if let TransportError::Status { body, .. } = error
-        && let Ok(parsed) = serde_json::from_str::<Value>(body)
-        && let Some(raw) = parsed
-            .pointer("/error/metadata/raw")
-            .and_then(Value::as_str)
-        && !raw.is_empty()
+    let TransportError::Status { status, body, .. } = error else {
+        return error.to_string();
+    };
+    let Ok(parsed) = serde_json::from_str::<Value>(body) else {
+        return error.to_string();
+    };
+    let mut message = parsed
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .map_or_else(|| error.to_string(), |value| format!("{status} {value}"));
+    if let Some(raw) = parsed
+        .pointer("/error/metadata/raw")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
     {
         message.push('\n');
         message.push_str(raw);
