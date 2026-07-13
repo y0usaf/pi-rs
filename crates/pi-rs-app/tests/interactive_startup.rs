@@ -490,6 +490,23 @@ fn shortcut_example_fires_through_registered_shortcuts() {
     );
     assert_eq!(result["notices"], serde_json::json!(["replaced ping"]));
     assert_eq!(result["fired"], serde_json::json!([{ "replaced": true }]));
+
+    let mut scenario: serde_json::Value =
+        serde_json::from_str(include_str!("../../../tests/ui-parity/shell-turn.json")).unwrap();
+    scenario["steps"] = serde_json::json!([{
+        "name": "shortcut-context", "input": ["\u{0018}"]
+    }]);
+    let routed = host
+        .call_command("interactive-shell-parity-sequence", &scenario.to_string())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        routed["shortcutContext"],
+        serde_json::json!({
+            "mode": "tui", "hasUI": true, "idle": true, "pending": false,
+            "cwd": "/home/user/work/project"
+        })
+    );
 }
 
 #[test]

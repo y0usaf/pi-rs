@@ -8,7 +8,7 @@ local fired = {}
 pi.register_shortcut("ctrl+x", {
   description = "Record a ping and notify",
   handler = function(ctx)
-    fired[#fired + 1] = { idle = ctx.is_idle(), cwd = ctx.cwd }
+    fired[#fired + 1] = { idle = ctx.isIdle(), cwd = ctx.cwd, mode = ctx.mode }
     ctx.ui.notify("shortcut ping", "info")
   end,
 })
@@ -17,7 +17,7 @@ pi.register_shortcut("ctrl+x", {
 pi.register_shortcut("CTRL+X", {
   description = "Replacement wins",
   handler = function(ctx)
-    fired[#fired + 1] = { replaced = true }
+    fired[#fired + 1] = { replaced = ctx.mode == "tui" and ctx.hasUI == true }
     ctx.ui.notify("replaced ping", "info")
   end,
 })
@@ -29,9 +29,9 @@ pi.register_command("shortcut-demo", {
     local notices = {}
     for _, shortcut in ipairs(shortcuts) do
       shortcut.handler({
-        cwd = pi.cwd(),
-        is_idle = function() return true end,
-        has_pending_messages = function() return false end,
+        cwd = pi.cwd(), mode = "tui", hasUI = true,
+        isIdle = function() return true end,
+        hasPendingMessages = function() return false end,
         abort = function() end,
         shutdown = function() end,
         ui = { notify = function(message) notices[#notices + 1] = message end },

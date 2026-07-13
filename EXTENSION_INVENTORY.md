@@ -107,34 +107,34 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 
 | Surface | Status | Evidence / target |
 |---|---|---|
-| `abort` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `compact` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `cwd` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `getContextUsage` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `getSystemPrompt` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `hasPendingMessages` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `hasUI` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `isIdle` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `isProjectTrusted` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `mode` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `model` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `modelRegistry` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `sessionManager` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `shutdown` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `signal` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
-| `ui` | planned 9.2 | Live immutable context snapshots + queued lifecycle actions |
+| `abort` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `compact` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `cwd` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `getContextUsage` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `getSystemPrompt` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `hasPendingMessages` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `hasUI` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `isIdle` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `isProjectTrusted` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `mode` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `model` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `modelRegistry` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `sessionManager` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `shutdown` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `signal` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
+| `ui` | implemented | Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests |
 
 ## ExtensionCommandContext-only actions
 
 | Surface | Status | Evidence / target |
 |---|---|---|
-| `fork` | planned 9.2 | Command-only actions, stale-handle rejection, replacement oracle |
-| `getSystemPromptOptions` | planned 9.2 | Command-only actions, stale-handle rejection, replacement oracle |
-| `navigateTree` | planned 9.2 | Command-only actions, stale-handle rejection, replacement oracle |
-| `newSession` | planned 9.2 | Command-only actions, stale-handle rejection, replacement oracle |
-| `reload` | planned 9.2 | Command-only actions, stale-handle rejection, replacement oracle |
-| `switchSession` | planned 9.2 | Command-only actions, stale-handle rejection, replacement oracle |
-| `waitForIdle` | planned 9.2 | Command-only actions, stale-handle rejection, replacement oracle |
+| `fork` | implemented | Queued command actions + Pi-derived restriction/cancellation/order oracle + real replacement tests |
+| `getSystemPromptOptions` | implemented | Queued command actions + Pi-derived restriction/cancellation/order oracle + real replacement tests |
+| `navigateTree` | implemented | Queued command actions + Pi-derived restriction/cancellation/order oracle + real replacement tests |
+| `newSession` | implemented | Queued command actions + Pi-derived restriction/cancellation/order oracle + real replacement tests |
+| `reload` | implemented | Queued command actions + Pi-derived restriction/cancellation/order oracle + real replacement tests |
+| `switchSession` | implemented | Queued command actions + Pi-derived restriction/cancellation/order oracle + real replacement tests |
+| `waitForIdle` | implemented | Queued command actions + Pi-derived restriction/cancellation/order oracle + real replacement tests |
 
 ## Loader/resource rules
 
@@ -218,7 +218,7 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 | `sandbox/index.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `send-user-message.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `session-name.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `shutdown-command.ts` | planned 9.2 | Base context/action oracle + executable shutdown-command.lua translation |
+| `shutdown-command.ts` | implemented | Executable shutdown-command.lua translation + context/action oracle |
 | `snake.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `space-invaders.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `ssh.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
