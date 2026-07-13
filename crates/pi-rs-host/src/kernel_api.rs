@@ -16,6 +16,7 @@ const DECLARATIONS_KEY: &str = "kernel_declarations";
 const RESOURCES_KEY: &str = "kernel_resources";
 const TRANSACTION_KEY: &str = "kernel_transaction";
 const CURRENT_SCOPE_KEY: &str = "kernel_scope";
+const DECLARATION_SEQUENCE_KEY: &str = "kernel_declaration_sequence";
 
 #[derive(Clone)]
 struct LuaCancellation(CancellationToken);
@@ -95,6 +96,7 @@ pub(crate) fn install(
     let registry = crate::api::registry_table(lua)?;
     registry.set(ROOTS_KEY, lua.create_table()?)?;
     registry.set(DECLARATIONS_KEY, lua.create_table()?)?;
+    registry.set(DECLARATION_SEQUENCE_KEY, 0_u64)?;
     registry.set(RESOURCES_KEY, lua.create_table()?)?;
     registry.set(TRANSACTION_KEY, Value::Nil)?;
     registry.set(CURRENT_SCOPE_KEY, 0_u64)?;
@@ -154,12 +156,9 @@ pub(crate) fn install(
         "resource",
         lua.create_function(move |lua, callback: Function| {
             let registry = crate::api::registry_table(lua)?;
-            let scope = ScopeId::from_raw(registry.get::<u64>(CURRENT_SCOPE_KEY)?);
-            if scope.get() == 0 {
-                return Err(mlua::Error::runtime(
-                    "resource registration requires a package or dispatch scope",
-                ));
-            }
+            let scope = current_scope(lua).map_err(|_| {
+                mlua::Error::runtime("resource registration requires a package or dispatch scope")
+            })?;
             let id = resource_control
                 .register_resource(scope)
                 .map_err(mlua::Error::external)?;
@@ -192,6 +191,23 @@ pub(crate) fn install(
 fn register_root(lua: &mlua::Lua, definition: Table) -> mlua::Result<()> {
     let kind = required_name(&definition, "kind", "root kind")?;
     RootKind::parse(&kind).map_err(mlua::Error::external)?;
+    register_root_entry(lua, &kind, definition, false)
+}
+
+pub(crate) fn register_adapter_root(
+    lua: &mlua::Lua,
+    family: &str,
+    definition: Table,
+) -> mlua::Result<()> {
+    register_root_entry(lua, family, definition, true)
+}
+
+fn register_root_entry(
+    lua: &mlua::Lua,
+    kind: &str,
+    definition: Table,
+    source_scoped: bool,
+) -> mlua::Result<()> {
     let id = required_name(&definition, "id", "root id")?;
     let _handler: Function = definition
         .get("dispatch")
@@ -202,10 +218,16 @@ fn register_root(lua: &mlua::Lua, definition: Table) -> mlua::Result<()> {
     let scope = current_scope(lua)?;
     let registry = crate::api::registry_table(lua)?;
     let roots: Table = registry.get(ROOTS_KEY)?;
-    let key = format!("{kind}\0{id}");
+    let key = if source_scoped {
+        format!("{kind}\0{source}\0{id}")
+    } else {
+        format!("{kind}\0{id}")
+    };
     if let Some(existing) = roots.get::<Option<Table>>(key.as_str())? {
-        let other: String = existing.get("source")?;
-        return Err(conflict_error("root", &kind, &id, &source, &other));
+        if !source_scoped {
+            let other: String = existing.get("source")?;
+            return Err(conflict_error("root", kind, &id, &source, &other));
+        }
     }
     let entry = copy_table(lua, &definition)?;
     entry.set("kind", kind)?;
@@ -217,57 +239,148 @@ fn register_root(lua: &mlua::Lua, definition: Table) -> mlua::Result<()> {
     roots.set(key, entry)
 }
 
-fn register_declaration(lua: &mlua::Lua, kind: &str, definition: Table) -> mlua::Result<()> {
-    DeclarationKind::parse(kind).map_err(mlua::Error::external)?;
-    let id = definition
-        .get::<Option<String>>("id")?
-        .or(definition.get::<Option<String>>("name")?)
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| mlua::Error::runtime("declaration id/name must be a non-empty string"))?;
-    let source = crate::api::current_source(lua);
-    let scope = current_scope(lua)?;
-    let registry = crate::api::registry_table(lua)?;
-    let declarations: Table = registry.get(DECLARATIONS_KEY)?;
-    let key = format!("{kind}\0{id}");
-    if let Some(existing) = declarations.get::<Option<Table>>(key.as_str())? {
-        let other: String = existing.get("source")?;
-        return Err(conflict_error("declaration", kind, &id, &source, &other));
-    }
-    let entry = copy_table(lua, &definition)?;
-    entry.set("kind", kind)?;
-    entry.set("id", id)?;
-    entry.set(
-        "order",
-        definition.get::<Option<i64>>("order")?.unwrap_or(0),
-    )?;
-    entry.set("source", source)?;
-    entry.set("scope", scope.get())?;
-    declarations.set(key, entry)
-}
-
-fn registered_declarations(lua: &mlua::Lua, kind: &str) -> mlua::Result<Table> {
-    DeclarationKind::parse(kind).map_err(mlua::Error::external)?;
-    let declarations: Table = crate::api::registry_table(lua)?.get(DECLARATIONS_KEY)?;
-    let mut entries = declarations
+pub(crate) fn root_entries(lua: &mlua::Lua, family: &str) -> mlua::Result<Vec<Table>> {
+    let roots: Table = crate::api::registry_table(lua)?.get(ROOTS_KEY)?;
+    roots
         .pairs::<String, Table>()
         .filter_map(|pair| match pair {
-            Ok((_, entry)) if entry.get::<String>("kind").is_ok_and(|value| value == kind) => {
+            Ok((_, entry)) if entry.get::<String>("kind").is_ok_and(|kind| kind == family) => {
                 Some(Ok(entry))
             }
             Ok(_) => None,
             Err(error) => Some(Err(error)),
         })
-        .collect::<mlua::Result<Vec<_>>>()?;
+        .collect()
+}
+
+fn register_declaration(lua: &mlua::Lua, kind: &str, definition: Table) -> mlua::Result<()> {
+    let id = definition
+        .get::<Option<String>>("id")?
+        .or(definition.get::<Option<String>>("name")?)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| mlua::Error::runtime("declaration id/name must be a non-empty string"))?;
+    definition.set("id", id.as_str())?;
+    register_declaration_entry(lua, kind, &id, definition, true)
+}
+
+/// Canonical registration path used by retained public names. Compatibility
+/// adapters may compose duplicate public ids, but state, attribution, ordering,
+/// cleanup, and visibility all live in this one declaration list.
+pub(crate) fn register_adapter_declaration(
+    lua: &mlua::Lua,
+    kind: &str,
+    id: &str,
+    definition: Table,
+) -> mlua::Result<()> {
+    register_declaration_entry(lua, kind, id, definition, false)
+}
+
+fn register_declaration_entry(
+    lua: &mlua::Lua,
+    kind: &str,
+    id: &str,
+    definition: Table,
+    unique: bool,
+) -> mlua::Result<()> {
+    DeclarationKind::parse(kind).map_err(mlua::Error::external)?;
+    if id.trim().is_empty() {
+        return Err(mlua::Error::runtime(
+            "declaration id/name must be a non-empty string",
+        ));
+    }
+    let source = crate::api::current_source(lua);
+    let scope = current_scope(lua)?;
+    let registry = crate::api::registry_table(lua)?;
+    let declarations: Table = registry.get(DECLARATIONS_KEY)?;
+    if unique {
+        for existing in declarations.clone().sequence_values::<Table>() {
+            let existing = existing?;
+            if existing.get::<String>("kind")? == kind
+                && existing.get::<String>("declaration_id")? == id
+            {
+                let other: String = existing.get("source")?;
+                return Err(conflict_error("declaration", kind, id, &source, &other));
+            }
+        }
+    }
+    let sequence = registry.get::<u64>(DECLARATION_SEQUENCE_KEY)?;
+    registry.set(DECLARATION_SEQUENCE_KEY, sequence + 1)?;
+    let order = definition.get::<Option<i64>>("order")?.unwrap_or(0);
+    let entry = if unique {
+        copy_table(lua, &definition)?
+    } else {
+        definition
+    };
+    entry.set("kind", kind)?;
+    entry.set("declaration_id", id)?;
+    entry.set("order", order)?;
+    entry.set("source", source)?;
+    entry.set("scope", scope.get())?;
+    entry.set("sequence", sequence)?;
+    declarations.push(entry)
+}
+
+pub(crate) fn declaration_entries(lua: &mlua::Lua, kind: &str) -> mlua::Result<Vec<Table>> {
+    DeclarationKind::parse(kind).map_err(mlua::Error::external)?;
+    let declarations: Table = crate::api::registry_table(lua)?.get(DECLARATIONS_KEY)?;
+    declarations
+        .sequence_values::<Table>()
+        .filter_map(|entry| match entry {
+            Ok(entry) if entry.get::<String>("kind").is_ok_and(|value| value == kind) => {
+                Some(Ok(entry))
+            }
+            Ok(_) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .collect()
+}
+
+pub(crate) fn effective_declaration_entries(
+    lua: &mlua::Lua,
+    kind: &str,
+) -> mlua::Result<Vec<Table>> {
+    let mut entries: Vec<Table> = Vec::new();
+    for entry in declaration_entries(lua, kind)? {
+        let id = entry.get::<String>("declaration_id")?;
+        if entry.get::<Option<bool>>("removed")?.unwrap_or(false) {
+            entries.retain(|existing| {
+                existing
+                    .get::<String>("declaration_id")
+                    .is_ok_and(|existing_id| existing_id != id)
+            });
+            continue;
+        }
+        let source = entry.get::<String>("source")?;
+        if let Some(position) = entries.iter().position(|existing| {
+            existing
+                .get::<String>("source")
+                .is_ok_and(|existing_source| existing_source == source)
+                && existing
+                    .get::<String>("declaration_id")
+                    .is_ok_and(|existing_id| existing_id == id)
+        }) {
+            entries[position] = entry;
+        } else {
+            entries.push(entry);
+        }
+    }
+    Ok(entries)
+}
+
+fn registered_declarations(lua: &mlua::Lua, kind: &str) -> mlua::Result<Table> {
+    let mut entries = effective_declaration_entries(lua, kind)?;
     entries.sort_by(|left, right| {
         let left_key = (
             left.get::<i64>("order").unwrap_or(0),
             left.get::<String>("source").unwrap_or_default(),
-            left.get::<String>("id").unwrap_or_default(),
+            left.get::<String>("declaration_id").unwrap_or_default(),
+            left.get::<u64>("sequence").unwrap_or_default(),
         );
         let right_key = (
             right.get::<i64>("order").unwrap_or(0),
             right.get::<String>("source").unwrap_or_default(),
-            right.get::<String>("id").unwrap_or_default(),
+            right.get::<String>("declaration_id").unwrap_or_default(),
+            right.get::<u64>("sequence").unwrap_or_default(),
         );
         left_key.cmp(&right_key)
     });
@@ -286,13 +399,41 @@ fn required_name(table: &Table, key: &str, label: &str) -> mlua::Result<String> 
 }
 
 fn current_scope(lua: &mlua::Lua) -> mlua::Result<ScopeId> {
-    let raw = crate::api::registry_table(lua)?.get::<u64>(CURRENT_SCOPE_KEY)?;
-    if raw == 0 {
-        return Err(mlua::Error::runtime(
-            "kernel declarations require a package scope",
-        ));
+    let registry = crate::api::registry_table(lua)?;
+    let raw = registry.get::<u64>(CURRENT_SCOPE_KEY)?;
+    if raw != 0 {
+        return Ok(ScopeId::from_raw(raw));
     }
-    Ok(ScopeId::from_raw(raw))
+    let source = crate::api::current_source(lua);
+    let declarations: Table = registry.get(DECLARATIONS_KEY)?;
+    for entry in declarations.sequence_values::<Table>() {
+        let entry = entry?;
+        if entry.get::<String>("source")? == source {
+            return Ok(ScopeId::from_raw(entry.get("scope")?));
+        }
+    }
+    let roots: Table = registry.get(ROOTS_KEY)?;
+    for pair in roots.pairs::<String, Table>() {
+        let (_, entry) = pair?;
+        if entry.get::<String>("source")? == source {
+            return Ok(ScopeId::from_raw(entry.get("scope")?));
+        }
+    }
+    if let Some(modules) = registry.get::<Option<Table>>("modules")? {
+        for pair in modules.pairs::<String, Table>() {
+            let (_, entry) = pair?;
+            if entry.get::<String>("source")? == source {
+                return Ok(ScopeId::from_raw(entry.get("scope")?));
+            }
+        }
+    }
+    Err(mlua::Error::runtime(
+        "kernel declarations require a package scope",
+    ))
+}
+
+pub(crate) fn scope_for_current_entry(lua: &mlua::Lua) -> mlua::Result<ScopeId> {
+    current_scope(lua)
 }
 
 fn copy_table(lua: &mlua::Lua, source: &Table) -> mlua::Result<Table> {
@@ -570,30 +711,37 @@ pub(crate) fn take_resource_disposers(
         .collect()
 }
 
-pub(crate) fn remove_source(lua: &mlua::Lua, source: &str) -> mlua::Result<()> {
+pub(crate) fn remove_scope(lua: &mlua::Lua, scope: ScopeId) -> mlua::Result<()> {
     let registry = crate::api::registry_table(lua)?;
-    for table_key in [ROOTS_KEY, DECLARATIONS_KEY] {
-        let table: Table = registry.get(table_key)?;
-        let keys = table
-            .clone()
-            .pairs::<String, Table>()
-            .filter_map(|pair| match pair {
-                Ok((key, entry))
-                    if entry
-                        .get::<String>("source")
-                        .is_ok_and(|owner| owner == source) =>
-                {
-                    Some(Ok(key))
-                }
-                Ok(_) => None,
-                Err(error) => Some(Err(error)),
-            })
-            .collect::<mlua::Result<Vec<_>>>()?;
-        for key in keys {
-            table.set(key, Value::Nil)?;
+    let roots: Table = registry.get(ROOTS_KEY)?;
+    let root_keys = roots
+        .clone()
+        .pairs::<String, Table>()
+        .filter_map(|pair| match pair {
+            Ok((key, entry))
+                if entry
+                    .get::<u64>("scope")
+                    .is_ok_and(|owner| owner == scope.get()) =>
+            {
+                Some(Ok(key))
+            }
+            Ok(_) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .collect::<mlua::Result<Vec<_>>>()?;
+    for key in root_keys {
+        roots.set(key, Value::Nil)?;
+    }
+
+    let declarations: Table = registry.get(DECLARATIONS_KEY)?;
+    let kept = lua.create_table()?;
+    for entry in declarations.sequence_values::<Table>() {
+        let entry = entry?;
+        if entry.get::<u64>("scope")? != scope.get() {
+            kept.push(entry)?;
         }
     }
-    Ok(())
+    registry.set(DECLARATIONS_KEY, kept)
 }
 
 pub(crate) fn dispose_callbacks(

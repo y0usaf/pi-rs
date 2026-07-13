@@ -97,6 +97,9 @@ pub enum DeclarationKind {
     UiSlot,
     Theme,
     Keymap,
+    /// Retained CLI compatibility declaration; product policy should not add
+    /// new flag-shaped kernel concepts.
+    Flag,
 }
 
 impl DeclarationKind {
@@ -110,6 +113,7 @@ impl DeclarationKind {
             "ui_slot" => Ok(Self::UiSlot),
             "theme" => Ok(Self::Theme),
             "keymap" => Ok(Self::Keymap),
+            "flag" => Ok(Self::Flag),
             _ => Err(HostError::InvalidDeclarationKind(value.to_owned())),
         }
     }
@@ -125,6 +129,7 @@ impl DeclarationKind {
             Self::UiSlot => "ui_slot",
             Self::Theme => "theme",
             Self::Keymap => "keymap",
+            Self::Flag => "flag",
         }
     }
 }

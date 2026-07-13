@@ -24,6 +24,7 @@ use std::sync::mpsc::{Receiver, Sender, SyncSender, sync_channel};
 use std::time::Instant;
 
 use crate::api;
+use crate::bindings;
 use crate::convert::{json_to_lua, lua_to_json};
 use crate::error::{HostError, WATCHDOG_MARKER};
 use crate::kernel::{CancellationToken, Control, DispatchBatch, DispatchRequest, ScopeId};
@@ -52,7 +53,6 @@ pub(crate) enum Msg {
     },
     /// Dispose one package's callbacks and published registrations.
     DisposePackage {
-        source: String,
         scope: ScopeId,
         reply: SyncSender<Result<(), HostError>>,
     },
@@ -153,7 +153,7 @@ fn vm_main(
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_else(|_| ".".to_owned())
         });
-        let pi = api::build(&lua, &cwd, config.project_trusted, Arc::clone(&control))
+        let pi = bindings::build(&lua, &cwd, config.project_trusted, Arc::clone(&control))
             .map_err(|e| e.to_string())?;
         // enable_all: the process driver (pi.exec) needs the io/signal
         // drivers in addition to time.
@@ -188,6 +188,7 @@ fn vm_main(
                 if result.is_err() {
                     let _ =
                         crate::kernel_api::dispose_callbacks(&lua, &rt, &config, &control, scope);
+                    let _ = api::remove_scope(&lua, scope);
                 }
                 let _ = crate::kernel_api::set_scope(&lua, None);
                 let _ = reply.send(result);
@@ -196,22 +197,18 @@ fn vm_main(
                 let result = dispatch_root(&lua, &rt, &config, &control, &request);
                 let _ = reply.send(result);
             }
-            Msg::DisposePackage {
-                source,
-                scope,
-                reply,
-            } => {
+            Msg::DisposePackage { scope, reply } => {
                 let callbacks =
                     crate::kernel_api::dispose_callbacks(&lua, &rt, &config, &control, scope);
-                let removal = api::remove_source(&lua, &source)
+                let removal = api::remove_scope(&lua, scope)
                     .map_err(|error| HostError::Lua(error.to_string()));
                 let _ = reply.send(callbacks.and(removal));
             }
             Msg::Shutdown { scopes, reply } => {
-                for (scope, source) in scopes {
+                for (scope, _) in scopes {
                     let _ =
                         crate::kernel_api::dispose_callbacks(&lua, &rt, &config, &control, scope);
-                    let _ = api::remove_source(&lua, &source);
+                    let _ = api::remove_scope(&lua, scope);
                 }
                 let _ = reply.send(());
                 return;
@@ -550,9 +547,6 @@ fn load_chunk(
     api::set_current_source(lua, source_key);
     let res = dispatch(lua, rt, config, func, mlua::Value::Table(pi.clone()));
     api::set_current_source(lua, "<host>");
-    if res.is_err() {
-        api::remove_source(lua, source_key).map_err(|error| HostError::Lua(error.to_string()))?;
-    }
     res.map(|_| ())
 }
 
