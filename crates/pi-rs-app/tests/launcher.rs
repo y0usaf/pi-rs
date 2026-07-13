@@ -10,6 +10,11 @@ fn write(path: &Path, source: &str) {
 fn invoke(root: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_pi"))
         .current_dir(root)
+        .env("HOME", root)
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .env_remove("XDG_STATE_HOME")
+        .env_remove("XDG_CACHE_HOME")
         .args(arguments)
         .output()
         .expect("run pi")
