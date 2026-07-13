@@ -1,0 +1,2 @@
+# Pinned upstream fixtures are byte-exact, including upstream EOF whitespace.
+tests/external-extension-inventory/fixtures/** whitespace=-blank-at-eof

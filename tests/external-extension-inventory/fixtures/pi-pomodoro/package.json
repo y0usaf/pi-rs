@@ -1,0 +1,21 @@
+{
+  "name": "pi-pomodoro",
+  "version": "1.0.0",
+  "description": "Synced non-blocking pomodoro indicator for Pi",
+  "license": "MIT",
+  "homepage": "https://github.com/y0usaf/pi-flake/tree/main/extensions/pi-pomodoro",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/y0usaf/pi-flake.git",
+    "directory": "extensions/pi-pomodoro"
+  },
+  "keywords": ["pi", "extension", "pomodoro", "timer", "focus"],
+  "files": ["src", "README.md"],
+  "type": "module",
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.0"
+  }
+}

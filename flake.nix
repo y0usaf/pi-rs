@@ -252,6 +252,27 @@
             touch $out
           '';
 
+      # Offline, pinned-source capability inventory for the maintained external
+      # extension dogfood suite. Includes idempotency and fail-closed controls.
+      mkExternalExtensionInventoryTest =
+        system:
+        let
+          pkgs = mkPkgs system;
+        in
+        pkgs.runCommand "external-extension-inventory-test"
+          {
+            nativeBuildInputs = [
+              pkgs.bash
+              pkgs.coreutils
+              pkgs.gnugrep
+              pkgs.python3
+            ];
+          }
+          ''
+            bash ${self}/scripts/test-external-extension-inventory
+            touch $out
+          '';
+
       mkModelCatalogUpdater =
         system:
         let
@@ -308,6 +329,7 @@
         bare-boot = mkBareBoot system;
         model-catalog-update = mkModelCatalogUpdateTest system;
         construction-inventory = mkConstructionInventoryTest system;
+        external-extension-inventory = mkExternalExtensionInventoryTest system;
       });
 
       packages = forAllSystems (system: rec {
