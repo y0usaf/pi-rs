@@ -1,4 +1,4 @@
-# Reproducible, offline terminal demo. Render with `nix run .#demo`.
+# Terminal demo. Requires OPENROUTER_API_KEY; render with `nix run .#demo`.
 Output "demo/pi-rs.gif"
 
 Require pi
@@ -14,21 +14,22 @@ Set Theme "Catppuccin Mocha"
 Set WindowBar "ColorfulRight"
 Set WindowBarSize 32
 
-# Isolate the recording from the user's config, credentials, and sessions.
+# Isolate the recording from the user's config, stored credentials, and sessions.
 Hide
 Type "export HOME=$(mktemp -d)"
 Enter
 Type "mkdir -p $HOME/pi-rs && cd $HOME/pi-rs"
 Enter
-Type "export ANTHROPIC_API_KEY=demo"
-Enter
-Type "export PI_OFFLINE=1"
-Enter
 Type "clear"
 Enter
+Type "env -i HOME=$HOME PATH=$PATH TERM=$TERM PI_OFFLINE=1 ANTHROPIC_API_KEY=demo OPENROUTER_API_KEY=$OPENROUTER_API_KEY pi --approve --model anthropic/claude-fable-5"
+Enter
+Sleep 3s
 Show
 
-Type "pi --approve --model anthropic/claude-sonnet-4-5"
+# Run a local shell command.
+Type "!echo 'pi-rs: Rust core, Lua everything else'"
+Sleep 1s
 Enter
 Sleep 3s
 
@@ -41,27 +42,12 @@ Escape
 Enter
 Sleep 2s
 
-# Filter and select a different model without making a provider request.
-Type "opus-4-8"
+# Filter and select GPT-5.6 Luna.
+Type "gpt-5.6-luna"
 Sleep 2s
 Enter
 Sleep 2s
 
-# Show the built-in keyboard reference.
-Type "/hotkeys"
-Sleep 1s
-Escape
+Type "Say hello to everyone!"
 Enter
-Sleep 3s
-
-# Run a local shell command; this demo never contacts a model provider.
-Type "!echo 'pi-rs: Rust core, Lua everything else'"
-Sleep 1s
-Enter
-Sleep 3s
-
-Type "/quit"
-Sleep 1s
-Escape
-Enter
-Sleep 2s
+Sleep 8s
