@@ -3,7 +3,7 @@ name = "pi-rs-session"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Session manager: append-only JSONL session trees (port of core/session-manager.ts)"
+description = "Generic durable append-only JSON value record store"
 
 [dependencies]
 getrandom.workspace = true

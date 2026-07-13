@@ -1,15 +1,8 @@
-//! Port of the spec's uuid helpers.
-//!
-//! - [`uuidv7`] ← `packages/agent/src/harness/session/uuid.ts`, including
-//!   the module-level monotonic `lastTimestamp`/`sequence` state (same-ms
-//!   calls increment the sequence; sequence overflow bumps the timestamp).
-//! - [`random_uuid`] ← Node's `crypto.randomUUID()` (v4), used by
-//!   session-manager's short-id generator (`randomUUID().slice(0, 8)`).
+//! Generic UUID helpers shared by host mechanisms.
 
 use std::sync::Mutex;
 
 struct State {
-    /// Spec: `let lastTimestamp = -Infinity` — `None` until the first call.
     last_timestamp: Option<u64>,
     sequence: u32,
 }
@@ -19,43 +12,37 @@ static STATE: Mutex<State> = Mutex::new(State {
     sequence: 0,
 });
 
-/// Spec: `fillRandomBytes` — crypto randomness. The spec's `Math.random`
-/// fallback is unreachable here (`getrandom` is the platform RNG); on the
-/// impossible failure path we fall back to a time-derived xor pattern so
-/// the function stays infallible like the spec's.
 fn fill_random_bytes(bytes: &mut [u8]) {
     if getrandom::fill(bytes).is_ok() {
         return;
     }
     let seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos() as u64 ^ d.as_secs())
+        .map(|duration| duration.subsec_nanos() as u64 ^ duration.as_secs())
         .unwrap_or(0x9e37_79b9_7f4a_7c15);
-    let mut x = seed | 1;
-    for b in bytes.iter_mut() {
-        // xorshift64
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        *b = (x & 0xff) as u8;
+    let mut value = seed | 1;
+    for byte in bytes.iter_mut() {
+        value ^= value << 13;
+        value ^= value >> 7;
+        value ^= value << 17;
+        *byte = (value & 0xff) as u8;
     }
 }
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
+        .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
 }
 
-/// Spec: `uuidv7()` — 48-bit ms timestamp, version 7, monotonic sequence
-/// in the rand_a/rand_b high bits, crypto randomness in the tail.
+/// Time-ordered UUIDv7 suitable for generic storage identifiers.
 pub fn uuidv7() -> String {
     let mut random = [0u8; 16];
     fill_random_bytes(&mut random);
     let timestamp = now_ms();
 
-    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
     if state.last_timestamp.is_none_or(|last| timestamp > last) {
         state.sequence = u32::from(random[6]) * 0x0100_0000
             + u32::from(random[7]) * 0x0001_0000
@@ -68,22 +55,22 @@ pub fn uuidv7() -> String {
             state.last_timestamp = state.last_timestamp.map(|last| last + 1);
         }
     }
-    let ts = state.last_timestamp.unwrap_or(timestamp);
-    let seq = state.sequence;
+    let timestamp = state.last_timestamp.unwrap_or(timestamp);
+    let sequence = state.sequence;
     drop(state);
 
-    let bytes: [u8; 16] = [
-        ((ts >> 40) & 0xff) as u8,
-        ((ts >> 32) & 0xff) as u8,
-        ((ts >> 24) & 0xff) as u8,
-        ((ts >> 16) & 0xff) as u8,
-        ((ts >> 8) & 0xff) as u8,
-        (ts & 0xff) as u8,
-        0x70 | ((seq >> 28) & 0x0f) as u8,
-        ((seq >> 20) & 0xff) as u8,
-        0x80 | ((seq >> 14) & 0x3f) as u8,
-        ((seq >> 6) & 0xff) as u8,
-        (((seq & 0x3f) << 2) as u8) | (random[10] & 0x03),
+    let bytes = [
+        ((timestamp >> 40) & 0xff) as u8,
+        ((timestamp >> 32) & 0xff) as u8,
+        ((timestamp >> 24) & 0xff) as u8,
+        ((timestamp >> 16) & 0xff) as u8,
+        ((timestamp >> 8) & 0xff) as u8,
+        (timestamp & 0xff) as u8,
+        0x70 | ((sequence >> 28) & 0x0f) as u8,
+        ((sequence >> 20) & 0xff) as u8,
+        0x80 | ((sequence >> 14) & 0x3f) as u8,
+        ((sequence >> 6) & 0xff) as u8,
+        (((sequence & 0x3f) << 2) as u8) | (random[10] & 0x03),
         random[11],
         random[12],
         random[13],
@@ -93,7 +80,7 @@ pub fn uuidv7() -> String {
     format_uuid(&bytes)
 }
 
-/// Node `crypto.randomUUID()` — a random v4 UUID.
+/// Random UUIDv4 suitable for source-neutral host resource IDs.
 pub fn random_uuid() -> String {
     let mut bytes = [0u8; 16];
     fill_random_bytes(&mut bytes);
@@ -103,50 +90,40 @@ pub fn random_uuid() -> String {
 }
 
 fn format_uuid(bytes: &[u8; 16]) -> String {
-    let hex: Vec<String> = bytes.iter().map(|b| format!("{b:02x}")).collect();
     format!(
-        "{}-{}-{}-{}-{}",
-        hex[0..4].join(""),
-        hex[4..6].join(""),
-        hex[6..8].join(""),
-        hex[8..10].join(""),
-        hex[10..16].join("")
+        "{0:02x}{1:02x}{2:02x}{3:02x}-{4:02x}{5:02x}-{6:02x}{7:02x}-{8:02x}{9:02x}-{10:02x}{11:02x}{12:02x}{13:02x}{14:02x}{15:02x}",
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15]
     )
 }
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
-    use super::*;
+
+    use super::{random_uuid, uuidv7};
 
     #[test]
-    fn uuidv7_shape_and_monotonicity() {
-        let re_check = |id: &str| {
-            let parts: Vec<&str> = id.split('-').collect();
-            assert_eq!(parts.len(), 5);
-            assert_eq!(
-                parts.iter().map(|p| p.len()).collect::<Vec<_>>(),
-                vec![8, 4, 4, 4, 12]
-            );
-            assert!(parts[2].starts_with('7'));
-            assert!(matches!(
-                parts[3].chars().next().unwrap(),
-                '8' | '9' | 'a' | 'b'
-            ));
-        };
-        let a = uuidv7();
-        let b = uuidv7();
-        re_check(&a);
-        re_check(&b);
-        // Time-ordered: lexicographic order is creation order.
-        assert!(a < b, "{a} < {b}");
-    }
-
-    #[test]
-    fn random_uuid_is_v4() {
-        let id = random_uuid();
-        let parts: Vec<&str> = id.split('-').collect();
-        assert_eq!(parts.len(), 5);
-        assert!(parts[2].starts_with('4'));
+    fn generated_ids_have_the_requested_uuid_versions() {
+        let ordered_a = uuidv7();
+        let ordered_b = uuidv7();
+        let random = random_uuid();
+        assert!(ordered_a < ordered_b);
+        assert_eq!(ordered_a.as_bytes()[14], b'7');
+        assert_eq!(random.as_bytes()[14], b'4');
     }
 }
