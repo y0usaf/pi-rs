@@ -1,0 +1,12 @@
+{
+  "schema": "pi-rs-performance-v1",
+  "fixture_revision": "experience-v1@c5582102f51b143fadc05180e0f8aed050e923b3",
+  "warmup_runs": 5,
+  "startup_samples": 30,
+  "idle_samples": 10,
+  "idle_settle_ms": 500,
+  "input_samples": 500,
+  "render_samples": 5000,
+  "lua_samples": 2000,
+  "effect_samples": 500
+}

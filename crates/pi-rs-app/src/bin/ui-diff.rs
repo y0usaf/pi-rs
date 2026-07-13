@@ -1,29 +1,127 @@
-//! Differential Pi/pi-rs terminal-cell harness.
+//! Offline checker for the compact canonical-experience fixture format.
 
-use std::io::{Read as _, Write as _};
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt as _;
-use std::{fs, path::PathBuf, process::ExitCode};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
-use pi_rs_host::{Host, HostConfig};
-use pi_rs_tui::ui_harness::{FrameRecorder, FrameSnapshot, first_diff};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
-struct RawFrame {
-    name: String,
-    columns: u16,
-    rows: u16,
-    ansi: String,
+const FORMAT: &str = "pi-rs-experience-grid";
+const VERSION: u16 = 1;
+const EMPTY: char = '░';
+const SPACE: char = '␠';
+const REQUIRED_COVERAGE: [&str; 9] = [
+    "startup",
+    "prompt-editing",
+    "streaming",
+    "thinking",
+    "tool-call-result",
+    "queueing",
+    "cancellation",
+    "selector-dialog",
+    "session-resume",
+];
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Fixture {
+    format: String,
+    version: u16,
+    oracle: Oracle,
+    styles: BTreeMap<String, Style>,
+    journeys: Vec<Journey>,
 }
 
-#[derive(Debug, Deserialize)]
-struct RawSequence {
-    frames: Vec<RawFrame>,
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Oracle {
+    product: String,
+    revision: String,
+    terminal: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+struct Style {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    foreground: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    background: Option<String>,
+    #[serde(skip_serializing_if = "is_false")]
+    bold: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    dim: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    italic: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    underline: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    inverse: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Journey {
+    name: String,
+    covers: Vec<String>,
+    source: String,
+    steps: Vec<Step>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Step {
+    name: String,
+    from: String,
+    input: Vec<Input>,
+    frame: Frame,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case", tag = "type", content = "value")]
+enum Input {
+    Text(String),
+    Key(String),
+    BytesHex(String),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Frame {
+    size: [u16; 2],
+    cursor: Cursor,
+    /// One character per terminal cell. `░` = untouched empty cell and
+    /// `␠` = a written space. Missing row tails/rows are empty cells.
+    glyphs: Vec<String>,
+    /// `[row, start_column, end_column_exclusive, style_name]`.
+    styles: Vec<(u16, u16, u16, String)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    wide: Vec<(u16, u16)>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Cursor {
+    row: u16,
+    column: u16,
+    visible: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Cell {
+    glyph: String,
+    style: Style,
+    wide: bool,
+    wide_continuation: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
-enum HarnessError {
+enum Error {
     #[error("I/O failed for {path}: {source}")]
     Io {
         path: PathBuf,
@@ -34,435 +132,432 @@ enum HarnessError {
         path: PathBuf,
         source: serde_json::Error,
     },
-    #[error("pi-rs host failed: {0}")]
-    Host(#[from] pi_rs_host::HostError),
-    #[error("pi-rs parity command returned no result")]
-    MissingResult,
-    #[error("invalid arguments: {0}")]
-    Arguments(String),
+    #[error("invalid fixture: {0}")]
+    Invalid(String),
+    #[error("fixture is not byte-idempotent: {0}")]
+    NotCanonical(PathBuf),
+    #[error("{0}")]
+    Mismatch(String),
+    #[error(
+        "usage: ui-diff --check FIXTURE | --compare EXPECTED ACTUAL | --self-test FIXTURE | --canonicalize FIXTURE"
+    )]
+    Usage,
 }
 
-fn read(path: &PathBuf) -> Result<String, HarnessError> {
-    fs::read_to_string(path).map_err(|source| HarnessError::Io {
-        path: path.clone(),
-        source,
-    })
-}
-
-/// Render one scripted stub response (tests/ui-parity scenario `stub`
-/// vocabulary, shared with tests/anthropic-parity/cases.json) to raw
-/// HTTP bytes plus its hang flag.
-fn scripted_response(
-    response: &serde_json::Value,
-    shared_sse: &serde_json::Value,
-) -> (String, bool) {
-    let status = response["status"].as_u64().unwrap_or(200);
-    let hang = response["hang"].as_bool().unwrap_or(false);
-    let events = response
-        .get("sse")
-        .and_then(serde_json::Value::as_str)
-        .map(|name| shared_sse[name].clone())
-        .or_else(|| response.get("events").cloned());
-    let (body, content_type) = if let Some(events) = events {
-        let body: String = events
-            .as_array()
-            .map(|events| {
-                events
-                    .iter()
-                    .map(|event| {
-                        format!(
-                            "event: {}\ndata: {}\n\n",
-                            event["event"].as_str().unwrap_or_default(),
-                            event["data"]
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        (body, "text/event-stream")
-    } else if let Some(json_body) = response.get("json") {
-        (json_body.to_string(), "application/json")
-    } else {
-        (
-            response
-                .get("text")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .to_owned(),
-            "text/plain",
-        )
-    };
-    let head = format!("HTTP/1.1 {status} X\r\ncontent-type: {content_type}\r\n");
-    if hang {
-        // No content-length: the body runs until connection close, which
-        // never comes — the client must abort.
-        (format!("{head}\r\n{body}"), true)
-    } else {
-        (
-            format!(
-                "{head}content-length: {}\r\nconnection: close\r\n\r\n{body}",
-                body.len()
-            ),
-            false,
-        )
-    }
-}
-
-/// Read one HTTP request (headers plus content-length body), blocking.
-fn read_stub_request(sock: &mut std::net::TcpStream) {
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 1024];
-    loop {
-        let n = match sock.read(&mut tmp) {
-            Ok(0) | Err(_) => return,
-            Ok(n) => n,
-        };
-        buf.extend_from_slice(&tmp[..n]);
-        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-            let head = String::from_utf8_lossy(&buf[..pos]).to_lowercase();
-            let content_length: usize = head
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length:"))
-                .and_then(|v| v.trim().parse().ok())
-                .unwrap_or(0);
-            while buf.len() - (pos + 4) < content_length {
-                match sock.read(&mut tmp) {
-                    Ok(0) | Err(_) => return,
-                    Ok(n) => buf.extend_from_slice(&tmp[..n]),
-                }
-            }
-            return;
-        }
-    }
-}
-
-/// Serve the scenario's scripted provider responses (one connection per
-/// request, in order, last response repeated), exactly like the pi
-/// driver's node stub. Hanging sockets stay open until the client aborts.
-fn spawn_stub(stub: &serde_json::Value) -> Result<String, HarnessError> {
-    let shared_sse = stub.get("sse").cloned().unwrap_or(serde_json::Value::Null);
-    let responses: Vec<(String, bool)> = stub["responses"]
-        .as_array()
-        .map(|responses| {
-            responses
-                .iter()
-                .map(|response| scripted_response(response, &shared_sse))
-                .collect()
-        })
-        .unwrap_or_default();
-    let listener =
-        std::net::TcpListener::bind("127.0.0.1:0").map_err(|source| HarnessError::Io {
-            path: PathBuf::from("<stub listener>"),
-            source,
-        })?;
-    let addr = listener.local_addr().map_err(|source| HarnessError::Io {
-        path: PathBuf::from("<stub listener>"),
+fn read_fixture(path: &Path) -> Result<(Fixture, Vec<u8>), Error> {
+    let bytes = fs::read(path).map_err(|source| Error::Io {
+        path: path.to_path_buf(),
         source,
     })?;
-    std::thread::spawn(move || {
-        for (index, conn) in listener.incoming().enumerate() {
-            let Ok(mut sock) = conn else { break };
-            read_stub_request(&mut sock);
-            let Some((response, hang)) = responses.get(index).or_else(|| responses.last()) else {
-                break;
-            };
-            let _ = sock.write_all(response.as_bytes());
-            if *hang {
-                // Park the connection on its own thread; the read returns
-                // when the client aborts and drops the socket.
-                std::thread::spawn(move || {
-                    let mut sink = [0u8; 64];
-                    let _ = sock.read(&mut sink);
-                });
-            } else {
-                let _ = sock.shutdown(std::net::Shutdown::Both);
-            }
-        }
-    });
-    Ok(format!("http://{addr}"))
+    let fixture = serde_json::from_slice(&bytes).map_err(|source| Error::Json {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    validate(&fixture)?;
+    Ok((fixture, bytes))
 }
 
-fn raw_snapshots(sequence: RawSequence) -> Vec<FrameSnapshot> {
-    let Some(first) = sequence.frames.first() else {
-        return Vec::new();
-    };
-    let mut recorder = FrameRecorder::new(first.columns, first.rows);
-    sequence
-        .frames
-        .into_iter()
-        .map(|frame| {
-            recorder.resize(frame.columns, frame.rows);
-            recorder.process(frame.ansi.as_bytes());
-            recorder.snapshot(frame.name)
+fn canonical_bytes(fixture: &Fixture) -> Result<Vec<u8>, Error> {
+    let mut bytes = serde_json::to_vec_pretty(fixture)
+        .map_err(|error| Error::Invalid(format!("serialization failed: {error}")))?;
+    bytes.push(b'\n');
+    Ok(bytes)
+}
+
+fn input_bytes(input: &Input) -> Result<Vec<u8>, Error> {
+    match input {
+        Input::Text(text) => Ok(text.as_bytes().to_vec()),
+        Input::Key(key) => match key.as_str() {
+            "enter" => Ok(vec![b'\r']),
+            "escape" => Ok(vec![0x1b]),
+            "ctrl-c" => Ok(vec![0x03]),
+            "ctrl-o" => Ok(vec![0x0f]),
+            "ctrl-t" => Ok(vec![0x14]),
+            "alt-enter" => Ok(b"\x1b[13;3u".to_vec()),
+            "up" => Ok(b"\x1b[A".to_vec()),
+            "down" => Ok(b"\x1b[B".to_vec()),
+            "ctrl-left" => Ok(b"\x1b[1;5D".to_vec()),
+            other => Err(Error::Invalid(format!("unknown input key {other:?}"))),
+        },
+        Input::BytesHex(hex) => decode_hex(hex),
+    }
+}
+
+fn decode_hex(hex: &str) -> Result<Vec<u8>, Error> {
+    if !hex.len().is_multiple_of(2) || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(Error::Invalid(format!(
+            "bytes-hex must contain an even number of hexadecimal digits: {hex:?}"
+        )));
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&hex[index..index + 2], 16)
+                .map_err(|error| Error::Invalid(format!("invalid bytes-hex: {error}")))
         })
         .collect()
 }
 
-fn main() -> ExitCode {
-    match run() {
-        Ok(code) => code,
-        Err(error) => {
-            eprintln!("ui-diff: {error}");
-            ExitCode::from(2)
+fn validate(fixture: &Fixture) -> Result<(), Error> {
+    if fixture.format != FORMAT || fixture.version != VERSION {
+        return Err(Error::Invalid(format!(
+            "expected format={FORMAT:?} version={VERSION}, got format={:?} version={}",
+            fixture.format, fixture.version
+        )));
+    }
+    if fixture.oracle.product != "Pi v0.79.0"
+        || fixture.oracle.revision != "c5582102f51b143fadc05180e0f8aed050e923b3"
+    {
+        return Err(Error::Invalid(
+            "oracle must identify pinned Pi v0.79.0 c5582102".to_owned(),
+        ));
+    }
+    let mut coverage = BTreeSet::new();
+    let mut journey_names = BTreeSet::new();
+    for journey in &fixture.journeys {
+        if !journey_names.insert(&journey.name) {
+            return Err(Error::Invalid(format!(
+                "duplicate journey {:?}",
+                journey.name
+            )));
         }
+        coverage.extend(journey.covers.iter().map(String::as_str));
+        let mut step_names = BTreeSet::new();
+        for step in &journey.steps {
+            if !step_names.insert(&step.name) {
+                return Err(Error::Invalid(format!(
+                    "duplicate step {:?} in journey {:?}",
+                    step.name, journey.name
+                )));
+            }
+            for input in &step.input {
+                let _ = input_bytes(input)?;
+            }
+            let _ = decode_frame(&step.frame, &fixture.styles).map_err(|error| {
+                Error::Invalid(format!(
+                    "journey {:?} step {:?}: {error}",
+                    journey.name, step.name
+                ))
+            })?;
+        }
+    }
+    let missing: Vec<_> = REQUIRED_COVERAGE
+        .iter()
+        .filter(|name| !coverage.contains(**name))
+        .collect();
+    if !missing.is_empty() {
+        return Err(Error::Invalid(format!(
+            "missing canonical coverage: {}",
+            missing
+                .iter()
+                .map(|name| format!("{name:?}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
+    Ok(())
+}
+
+fn decode_frame(frame: &Frame, palette: &BTreeMap<String, Style>) -> Result<Vec<Cell>, String> {
+    let [columns, rows] = frame.size;
+    if columns == 0 || rows == 0 {
+        return Err("frame dimensions must be non-zero".to_owned());
+    }
+    if frame.cursor.row >= rows || frame.cursor.column > columns {
+        return Err(format!(
+            "cursor ({},{}) is outside {}x{} frame",
+            frame.cursor.row, frame.cursor.column, columns, rows
+        ));
+    }
+    if frame.glyphs.len() > usize::from(rows) {
+        return Err("glyph row count exceeds frame height".to_owned());
+    }
+    let mut cells = vec![
+        Cell {
+            glyph: String::new(),
+            style: Style::default(),
+            wide: false,
+            wide_continuation: false,
+        };
+        usize::from(columns) * usize::from(rows)
+    ];
+    for (row, glyphs) in frame.glyphs.iter().enumerate() {
+        let encoded: Vec<char> = glyphs.chars().collect();
+        if encoded.len() > usize::from(columns) {
+            return Err(format!("glyph row {row} exceeds frame width"));
+        }
+        for (column, glyph) in encoded.into_iter().enumerate() {
+            cells[row * usize::from(columns) + column].glyph = match glyph {
+                EMPTY => String::new(),
+                SPACE => " ".to_owned(),
+                other => other.to_string(),
+            };
+        }
+    }
+    for (row, start, end, style_name) in &frame.styles {
+        if *row >= rows || start >= end || *end > columns {
+            return Err(format!(
+                "invalid style span [{row},{start},{end},{style_name:?}]"
+            ));
+        }
+        let style = palette
+            .get(style_name)
+            .ok_or_else(|| format!("unknown style {style_name:?}"))?;
+        for column in *start..*end {
+            cells[usize::from(*row) * usize::from(columns) + usize::from(column)].style =
+                style.clone();
+        }
+    }
+    let wide: BTreeSet<_> = frame.wide.iter().copied().collect();
+    for (row, column) in wide {
+        if row >= rows || column + 1 >= columns {
+            return Err(format!("invalid wide cell ({row},{column})"));
+        }
+        let index = usize::from(row) * usize::from(columns) + usize::from(column);
+        cells[index].wide = true;
+        cells[index + 1].wide_continuation = true;
+    }
+    Ok(cells)
+}
+
+fn compare(expected: &Fixture, actual: &Fixture) -> Result<(), Error> {
+    if expected.journeys.len() != actual.journeys.len() {
+        return Err(Error::Mismatch(format!(
+            "journey count differs: expected {}, got {}",
+            expected.journeys.len(),
+            actual.journeys.len()
+        )));
+    }
+    for (journey_index, (expected_journey, actual_journey)) in
+        expected.journeys.iter().zip(&actual.journeys).enumerate()
+    {
+        if expected_journey.name != actual_journey.name {
+            return Err(Error::Mismatch(format!(
+                "journey {journey_index} name differs: expected {:?}, got {:?}",
+                expected_journey.name, actual_journey.name
+            )));
+        }
+        if expected_journey.steps.len() != actual_journey.steps.len() {
+            return Err(Error::Mismatch(format!(
+                "step count differs journey={:?}: expected {}, got {}",
+                expected_journey.name,
+                expected_journey.steps.len(),
+                actual_journey.steps.len()
+            )));
+        }
+        for (step_index, (expected_step, actual_step)) in expected_journey
+            .steps
+            .iter()
+            .zip(&actual_journey.steps)
+            .enumerate()
+        {
+            if expected_step.name != actual_step.name {
+                return Err(Error::Mismatch(format!(
+                    "step {step_index} name differs journey={:?}: expected {:?}, got {:?}",
+                    expected_journey.name, expected_step.name, actual_step.name
+                )));
+            }
+            compare_input(&expected_journey.name, expected_step, actual_step)?;
+            compare_frame(
+                &expected_journey.name,
+                expected_step,
+                actual_step,
+                &expected.styles,
+                &actual.styles,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn compare_input(journey: &str, expected: &Step, actual: &Step) -> Result<(), Error> {
+    let expected_bytes = expected
+        .input
+        .iter()
+        .map(input_bytes)
+        .collect::<Result<Vec<_>, _>>()?
+        .concat();
+    let actual_bytes = actual
+        .input
+        .iter()
+        .map(input_bytes)
+        .collect::<Result<Vec<_>, _>>()?
+        .concat();
+    let common = expected_bytes.len().min(actual_bytes.len());
+    for index in 0..common {
+        if expected_bytes[index] != actual_bytes[index] {
+            return Err(Error::Mismatch(format!(
+                "input mismatch journey={journey:?} step={:?} byte={index}: expected 0x{:02x}, got 0x{:02x}",
+                expected.name, expected_bytes[index], actual_bytes[index]
+            )));
+        }
+    }
+    if expected_bytes.len() != actual_bytes.len() {
+        return Err(Error::Mismatch(format!(
+            "input mismatch journey={journey:?} step={:?} byte={common}: expected length {}, got {}",
+            expected.name,
+            expected_bytes.len(),
+            actual_bytes.len()
+        )));
+    }
+    Ok(())
+}
+
+fn compare_frame(
+    journey: &str,
+    expected: &Step,
+    actual: &Step,
+    expected_palette: &BTreeMap<String, Style>,
+    actual_palette: &BTreeMap<String, Style>,
+) -> Result<(), Error> {
+    if expected.frame.size != actual.frame.size {
+        return Err(Error::Mismatch(format!(
+            "frame size mismatch journey={journey:?} step={:?}: expected {:?}, got {:?}",
+            expected.name, expected.frame.size, actual.frame.size
+        )));
+    }
+    if expected.frame.cursor != actual.frame.cursor {
+        return Err(Error::Mismatch(format!(
+            "cursor mismatch journey={journey:?} step={:?}: expected {:?}, got {:?}",
+            expected.name, expected.frame.cursor, actual.frame.cursor
+        )));
+    }
+    let expected_cells = decode_frame(&expected.frame, expected_palette).map_err(Error::Invalid)?;
+    let actual_cells = decode_frame(&actual.frame, actual_palette).map_err(Error::Invalid)?;
+    for (index, (expected_cell, actual_cell)) in
+        expected_cells.iter().zip(&actual_cells).enumerate()
+    {
+        if expected_cell != actual_cell {
+            let columns = usize::from(expected.frame.size[0]);
+            return Err(Error::Mismatch(format!(
+                "cell mismatch journey={journey:?} step={:?} row={} column={}: expected {:?}, got {:?}",
+                expected.name,
+                index / columns,
+                index % columns,
+                expected_cell,
+                actual_cell
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn first_input_mut(fixture: &mut Fixture) -> Option<&mut Input> {
+    fixture
+        .journeys
+        .iter_mut()
+        .flat_map(|journey| &mut journey.steps)
+        .flat_map(|step| &mut step.input)
+        .next()
+}
+
+fn self_test(fixture: &Fixture) -> Result<(String, String), Error> {
+    let mut bad_cell = fixture.clone();
+    let first_frame = bad_cell
+        .journeys
+        .first_mut()
+        .and_then(|journey| journey.steps.first_mut())
+        .ok_or_else(|| Error::Invalid("self-test requires a frame".to_owned()))?;
+    if first_frame.frame.glyphs.is_empty() || first_frame.frame.glyphs[0].is_empty() {
+        first_frame.frame.glyphs = vec!["X".to_owned()];
+    } else {
+        let first_len = first_frame.frame.glyphs[0]
+            .chars()
+            .next()
+            .map_or(0, char::len_utf8);
+        first_frame.frame.glyphs[0].replace_range(..first_len, "X");
+    }
+    let cell = match compare(fixture, &bad_cell) {
+        Err(Error::Mismatch(message)) if message.starts_with("cell mismatch") => message,
+        Err(error) => return Err(Error::Invalid(format!("cell negative control: {error}"))),
+        Ok(()) => return Err(Error::Invalid("cell negative control matched".to_owned())),
+    };
+
+    let mut bad_input = fixture.clone();
+    let input = first_input_mut(&mut bad_input)
+        .ok_or_else(|| Error::Invalid("self-test requires an input".to_owned()))?;
+    *input = Input::BytesHex("ff".to_owned());
+    let input = match compare(fixture, &bad_input) {
+        Err(Error::Mismatch(message)) if message.starts_with("input mismatch") => message,
+        Err(error) => return Err(Error::Invalid(format!("input negative control: {error}"))),
+        Ok(()) => return Err(Error::Invalid("input negative control matched".to_owned())),
+    };
+    Ok((cell, input))
+}
+
+fn run() -> Result<(), Error> {
+    let mut args = std::env::args_os().skip(1);
+    match args
+        .next()
+        .and_then(|arg| arg.into_string().ok())
+        .as_deref()
+    {
+        Some("--check") => {
+            let path = PathBuf::from(args.next().ok_or(Error::Usage)?);
+            if args.next().is_some() {
+                return Err(Error::Usage);
+            }
+            let (fixture, original) = read_fixture(&path)?;
+            if canonical_bytes(&fixture)? != original {
+                return Err(Error::NotCanonical(path));
+            }
+            println!(
+                "experience fixture valid: {} journeys, {} steps",
+                fixture.journeys.len(),
+                fixture
+                    .journeys
+                    .iter()
+                    .map(|journey| journey.steps.len())
+                    .sum::<usize>()
+            );
+            Ok(())
+        }
+        Some("--compare") => {
+            let expected_path = PathBuf::from(args.next().ok_or(Error::Usage)?);
+            let actual_path = PathBuf::from(args.next().ok_or(Error::Usage)?);
+            if args.next().is_some() {
+                return Err(Error::Usage);
+            }
+            let (expected, _) = read_fixture(&expected_path)?;
+            let (actual, _) = read_fixture(&actual_path)?;
+            compare(&expected, &actual)?;
+            println!("experience fixtures match");
+            Ok(())
+        }
+        Some("--self-test") => {
+            let path = PathBuf::from(args.next().ok_or(Error::Usage)?);
+            if args.next().is_some() {
+                return Err(Error::Usage);
+            }
+            let (fixture, _) = read_fixture(&path)?;
+            let (cell, input) = self_test(&fixture)?;
+            println!("cell-negative: {cell}");
+            println!("input-negative: {input}");
+            Ok(())
+        }
+        Some("--canonicalize") => {
+            let path = PathBuf::from(args.next().ok_or(Error::Usage)?);
+            if args.next().is_some() {
+                return Err(Error::Usage);
+            }
+            let (fixture, _) = read_fixture(&path)?;
+            fs::write(&path, canonical_bytes(&fixture)?).map_err(|source| Error::Io {
+                path: path.clone(),
+                source,
+            })?;
+            println!("canonicalized {}", path.display());
+            Ok(())
+        }
+        _ => Err(Error::Usage),
     }
 }
 
-fn run() -> Result<ExitCode, HarnessError> {
-    let mut args = std::env::args_os().skip(1);
-    let scenario_path = PathBuf::from(
-        args.next()
-            .unwrap_or_else(|| "tests/ui-parity/basic-turn.json".into()),
-    );
-    let oracle_path = PathBuf::from(
-        args.next()
-            .unwrap_or_else(|| "tests/ui-parity/basic-turn.pi.json".into()),
-    );
-    if let Some(raw_path) = args.next() {
-        if args.next().is_some() {
-            return Err(HarnessError::Arguments(
-                "expected [scenario] [oracle] [Pi raw capture]".to_owned(),
-            ));
-        }
-        let raw_path = PathBuf::from(raw_path);
-        let raw: RawSequence =
-            serde_json::from_str(&read(&raw_path)?).map_err(|source| HarnessError::Json {
-                path: raw_path,
-                source,
-            })?;
-        let encoded = serde_json::to_string_pretty(&raw_snapshots(raw)).map_err(|source| {
-            HarnessError::Json {
-                path: oracle_path.clone(),
-                source,
-            }
-        })?;
-        fs::write(&oracle_path, format!("{encoded}\n")).map_err(|source| HarnessError::Io {
-            path: oracle_path.clone(),
-            source,
-        })?;
-        println!("updated Pi oracle {}", oracle_path.display());
-        return Ok(ExitCode::SUCCESS);
-    }
-
-    let mut scenario: serde_json::Value =
-        serde_json::from_str(&read(&scenario_path)?).map_err(|source| HarnessError::Json {
-            path: scenario_path.clone(),
-            source,
-        })?;
-    let expected: Vec<FrameSnapshot> =
-        serde_json::from_str(&read(&oracle_path)?).map_err(|source| HarnessError::Json {
-            path: oracle_path.clone(),
-            source,
-        })?;
-    // Scenario files land in a fresh temp cwd, mirroring the Pi driver's
-    // mkdtemp; renderers only surface the relative paths from the args.
-    // Session-UI scenarios (PLAN 6.3) instead pin `fixedCwd` — an absolute
-    // recreated-per-run directory — because /session and the cwd prompt
-    // surface absolute paths that must match the recorded oracle.
-    let mut scenario_dir = None;
-    if let Some(files) = scenario.get("files").and_then(|v| v.as_object()).cloned() {
-        let root: PathBuf =
-            if let Some(fixed) = scenario.get("fixedCwd").and_then(serde_json::Value::as_str) {
-                let fixed = PathBuf::from(fixed);
-                let io_error = |source| HarnessError::Io {
-                    path: fixed.clone(),
-                    source,
-                };
-                if fixed.exists() {
-                    fs::remove_dir_all(&fixed).map_err(io_error)?;
-                }
-                fs::create_dir_all(&fixed).map_err(io_error)?;
-                fixed
-            } else {
-                let dir = tempfile::tempdir().map_err(|source| HarnessError::Io {
-                    path: scenario_path.clone(),
-                    source,
-                })?;
-                let path = dir.path().to_path_buf();
-                scenario_dir = Some(dir);
-                path
-            };
-        for (name, contents) in &files {
-            let path = root.join(name);
-            let io_error = |source| HarnessError::Io {
-                path: path.clone(),
-                source,
-            };
-            if name.ends_with('/') {
-                fs::create_dir_all(&path).map_err(io_error)?;
-                continue;
-            }
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).map_err(io_error)?;
-            }
-            fs::write(&path, contents.as_str().unwrap_or_default()).map_err(io_error)?;
-        }
-        #[cfg(unix)]
-        if let Some(executables) = scenario
-            .get("executables")
-            .and_then(|value| value.as_array())
-        {
-            for name in executables.iter().filter_map(serde_json::Value::as_str) {
-                let path = root.join(name);
-                let io_error = |source| HarnessError::Io {
-                    path: path.clone(),
-                    source,
-                };
-                fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).map_err(io_error)?;
-            }
-        }
-        let cwd = root.to_string_lossy().into_owned();
-        // Resume scenarios (PLAN 6.2): the session fixture materializes
-        // with the file tree; the product opens it by absolute path (the
-        // pi driver joins its temp cwd the same way). `sessionDir` and
-        // `cwdSubdir` join the same root (PLAN 6.3).
-        for key in ["sessionFile", "sessionDir"] {
-            if let Some(name) = scenario
-                .get(key)
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned)
-            {
-                scenario[key] =
-                    serde_json::Value::String(root.join(name).to_string_lossy().into_owned());
-            }
-        }
-        scenario["cwd"] = serde_json::Value::String(cwd);
-    }
-    let _scenario_dir = scenario_dir;
-    // Deterministic process environment (e.g. PATH="" so the delete flow's
-    // `trash` probe fails identically on both sides).
-    if let Some(env) = scenario.get("env").and_then(|v| v.as_object()) {
-        for (key, value) in env {
-            // SAFETY: single-threaded at this point; the Lua host starts below.
-            unsafe { std::env::set_var(key, value.as_str().unwrap_or_default()) };
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("ui-diff: {error}");
+            ExitCode::FAILURE
         }
     }
-    // The provider scenario's footer shows the scenario cwd as "~": both
-    // drivers point HOME at the temp cwd so real (per-run) paths never
-    // reach the frames.
-    if scenario
-        .get("homeFromCwd")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-    {
-        scenario["home"] = scenario["cwd"].clone();
-    }
-    // Real-provider scenarios (PLAN 4.2): serve the scripted SSE stub and
-    // point the scenario model at it, like the pi driver's node stub.
-    if let Some(stub) = scenario.get("stub").cloned() {
-        let base_url = spawn_stub(&stub)?;
-        scenario["model"]["baseUrl"] = serde_json::Value::String(base_url);
-    }
-    // Deterministic auth/registry state: the product wiring reads the
-    // coding-agent dir at Host::new; pin it to an empty temp dir so
-    // ambient credentials on the developer machine cannot change frames
-    // (the pi driver pins HOME the same way).
-    let agent_dir = tempfile::tempdir().map_err(|source| HarnessError::Io {
-        path: scenario_path.clone(),
-        source,
-    })?;
-    if let Some(retry) = scenario.get("retry") {
-        let config_path = agent_dir.path().join("config.lua");
-        let settings = serde_json::Map::from_iter([
-            (
-                "lastChangelogVersion".to_owned(),
-                scenario
-                    .get("version")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null),
-            ),
-            ("retry".to_owned(), retry.clone()),
-        ]);
-        fs::write(
-            &config_path,
-            pi_rs_host::config::update_managed_settings("", &settings),
-        )
-        .map_err(|source| HarnessError::Io {
-            path: config_path,
-            source,
-        })?;
-    }
-    // SAFETY: single-threaded at this point; the Lua host starts below.
-    unsafe { std::env::set_var("PI_CODING_AGENT_DIR", agent_dir.path()) };
-    let command = scenario
-        .get("command")
-        .and_then(|v| v.as_str())
-        .unwrap_or("interactive-parity-sequence")
-        .to_owned();
-    // Deterministic environment, matching the Pi drivers' setCapabilities
-    // pin: no images, truecolor, no OSC 8 hyperlinks.
-    pi_rs_tui::terminal_image::set_capabilities(pi_rs_tui::terminal_image::TerminalCapabilities {
-        images: None,
-        true_color: true,
-        hyperlinks: false,
-    });
-    // Tools execute against the host cwd (`pi.cwd()`); scenarios with a
-    // temp file tree run there, like the pi driver's process.chdir.
-    let host = Host::new(HostConfig {
-        cwd: scenario
-            .get("cwd")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned),
-        ..HostConfig::default()
-    })?;
-    let report = host.load_embedded(&[
-        pi_rs_agent::PACK,
-        pi_rs_app::builtins::TOOLS_PACK,
-        pi_rs_app::builtins::INTERACTIVE_PACK,
-    ]);
-    if let Some(error) = report.errors.first() {
-        return Err(HarnessError::Arguments(format!(
-            "builtin pack failed to load: {}",
-            error.error
-        )));
-    }
-    if let Some(extensions) = scenario
-        .get("extensions")
-        .and_then(serde_json::Value::as_array)
-    {
-        for path in extensions {
-            let path = path.as_str().ok_or_else(|| {
-                HarnessError::Arguments("scenario extension paths must be strings".to_owned())
-            })?;
-            host.load_file(path)?;
-        }
-    }
-    let scenario = serde_json::to_string(&scenario).map_err(|source| HarnessError::Json {
-        path: scenario_path.clone(),
-        source,
-    })?;
-    let result = host
-        .call_command(&command, &scenario)?
-        .ok_or(HarnessError::MissingResult)?;
-    let raw: RawSequence = serde_json::from_value(result).map_err(|source| HarnessError::Json {
-        path: scenario_path,
-        source,
-    })?;
-    let actual = raw_snapshots(raw);
-    // Debug aid: UI_DIFF_DUMP=<checkpoint> prints pi-rs's rendered rows.
-    if let Some(dump) = std::env::var_os("UI_DIFF_DUMP") {
-        let wanted = dump.to_string_lossy();
-        for frame in &actual {
-            if frame.name == wanted {
-                for row in 0..frame.rows as usize {
-                    let line: String = frame.cells
-                        [row * frame.columns as usize..(row + 1) * frame.columns as usize]
-                        .iter()
-                        .map(|cell| cell.text.as_str())
-                        .collect();
-                    println!("{row:2}|{}", line.trim_end());
-                }
-                println!("cursor {} {}", frame.cursor_row, frame.cursor_column);
-            }
-        }
-    }
-    if let Some(diff) = first_diff(&expected, &actual) {
-        eprintln!(
-            "UI mismatch at checkpoint {:?}:\n{}",
-            diff.checkpoint, diff.message
-        );
-        return Ok(ExitCode::FAILURE);
-    }
-    println!("Pi/pi-rs UI cells match at {} checkpoints", actual.len());
-    Ok(ExitCode::SUCCESS)
 }
