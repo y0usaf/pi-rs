@@ -4995,6 +4995,10 @@ local function handle_agent_event(state, event)
         .. (event.finalError or "Unknown error"))
     end
   end
+  -- Agent events mutate rows outside the process callback. Always leave one
+  -- coalesced frame pending: relying only on is_streaming() loses the final
+  -- update when a fast message_end/agent_end settles between render ticks.
+  state.async_render = true
 
 end
 

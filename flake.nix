@@ -249,6 +249,34 @@
             exec bun ${self}/scripts/update-model-catalog.ts "$@"
           '';
         };
+
+      mkDemo =
+        system:
+        let
+          pkgs = mkPkgs system;
+          # nixpkgs e73de5be's libwebsockets embeds a doubled plugin path,
+          # which prevents ttyd (and therefore VHS) from starting. This is
+          # the upstream fix already present in newer nixpkgs revisions.
+          libwebsockets = pkgs.libwebsockets.overrideAttrs (old: {
+            postPatch = old.postPatch + ''
+              substituteInPlace cmake/lws_config.h.in \
+                --replace-fail '"''${CMAKE_INSTALL_PREFIX}/''${LWS_INSTALL_LIB_DIR}"' \
+                               '"''${CMAKE_INSTALL_FULL_LIBDIR}"'
+            '';
+          });
+          ttyd = pkgs.ttyd.override { inherit libwebsockets; };
+          vhs = pkgs.vhs.override { inherit ttyd; };
+        in
+        pkgs.writeShellApplication {
+          name = "pi-rs-demo";
+          runtimeInputs = [
+            (mkPiRs system)
+            vhs
+          ];
+          text = ''
+            exec vhs ${./demo/pi-rs.tape} "$@"
+          '';
+        };
     in
     {
       checks = forAllSystems (system: {
@@ -266,6 +294,10 @@
       });
 
       apps = forAllSystems (system: {
+        demo = {
+          type = "app";
+          program = "${mkDemo system}/bin/pi-rs-demo";
+        };
         update-model-catalog = {
           type = "app";
           program = "${mkModelCatalogUpdater system}/bin/update-model-catalog";
