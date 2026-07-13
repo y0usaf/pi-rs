@@ -362,13 +362,23 @@ fn run() -> Result<ExitCode, HarnessError> {
         source,
     })?;
     if let Some(retry) = scenario.get("retry") {
-        let settings_path = agent_dir.path().join("settings.json");
-        let settings = serde_json::json!({
-            "lastChangelogVersion": scenario.get("version"),
-            "retry": retry,
-        });
-        fs::write(&settings_path, settings.to_string()).map_err(|source| HarnessError::Io {
-            path: settings_path,
+        let config_path = agent_dir.path().join("config.lua");
+        let settings = serde_json::Map::from_iter([
+            (
+                "lastChangelogVersion".to_owned(),
+                scenario
+                    .get("version")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
+            ),
+            ("retry".to_owned(), retry.clone()),
+        ]);
+        fs::write(
+            &config_path,
+            pi_rs_host::config::update_managed_settings("", &settings),
+        )
+        .map_err(|source| HarnessError::Io {
+            path: config_path,
             source,
         })?;
     }

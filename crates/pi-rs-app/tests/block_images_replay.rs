@@ -106,11 +106,11 @@ fn block_images_filters_provider_context_but_not_the_session() {
     unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
     let cwd = temp.path().to_string_lossy().into_owned();
     std::fs::write(temp.path().join("pic.png"), TINY_PNG).unwrap();
-    // The settings seam: project scope switches the filter on.
+    // Canonical trusted project config switches the filter on.
     std::fs::create_dir_all(temp.path().join(".pi")).unwrap();
     std::fs::write(
-        temp.path().join(".pi/settings.json"),
-        r#"{"images":{"blockImages":true}}"#,
+        temp.path().join(".pi/config.lua"),
+        "local pi = ...\npi.config.settings({ images = { blockImages = true } })\n",
     )
     .unwrap();
 

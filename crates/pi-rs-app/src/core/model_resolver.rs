@@ -294,7 +294,7 @@ pub fn resolve_cli_model(
     if available_models.is_empty() {
         return ResolveCliModelResult {
             error: Some(
-                "No models available. Check your installation or add models to models.json."
+                "No models available. Check your installation or declare models in config.lua."
                     .to_owned(),
             ),
             ..Default::default()

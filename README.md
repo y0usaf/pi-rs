@@ -61,6 +61,33 @@ inventory boundaries. Synthetic source identity records provenance only: an
 embedded builtin cannot receive capabilities, modules, lifecycle treatment, or
 declaration paths unavailable to an ordinary file-backed package.
 
+## Lua configuration
+
+Both canonical files receive `pi` as their Lua vararg. Global declarations load
+first; trusted project declarations override them:
+
+```lua
+local pi = ...
+
+pi.config.settings({
+  theme = "dark",
+  defaultProvider = "anthropic",
+  retry = { enabled = true, maxRetries = 3 },
+})
+pi.config.keybinding("app.model.next", "ctrl+n")
+pi.config.provider("local", { api = "openai-completions", baseUrl = "http://localhost:8080" })
+pi.config.model("local", { id = "my-model" })
+pi.config.theme("paper", { dark = false, colors = {} })
+pi.config.active_theme("paper")
+pi.config.enable("extensions", { "~/my-extension.lua" })
+```
+
+Interactive changes update a deterministic managed block in global `config.lua`;
+user code outside that block is preserved. Repeating a mutation is byte-idempotent.
+`/reload` evaluates the complete next global/project declaration graph before
+publishing it, so errors keep the previous live state. `settings.json`,
+`keybindings.json`, user `models.json`, and JSON theme files are ignored.
+
 Build and test:
 
 ```sh

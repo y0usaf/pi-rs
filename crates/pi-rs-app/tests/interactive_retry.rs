@@ -130,8 +130,8 @@ fn retryable_error_retries_then_recovers() {
     let sessions = temp.path().join("sessions");
     std::fs::create_dir_all(&agent_dir).unwrap();
     std::fs::write(
-        agent_dir.join("settings.json"),
-        r#"{"retry":{"baseDelayMs":1,"maxRetries":2}}"#,
+        agent_dir.join("config.lua"),
+        "local pi = ...\npi.config.settings({ retry = { baseDelayMs = 1, maxRetries = 2 } })\n",
     )
     .unwrap();
     unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
@@ -164,8 +164,8 @@ fn escape_cancels_retry_backoff_without_another_request() {
     let sessions = temp.path().join("sessions");
     std::fs::create_dir_all(&agent_dir).unwrap();
     std::fs::write(
-        agent_dir.join("settings.json"),
-        r#"{"retry":{"baseDelayMs":2000,"maxRetries":2}}"#,
+        agent_dir.join("config.lua"),
+        "local pi = ...\npi.config.settings({ retry = { baseDelayMs = 2000, maxRetries = 2 } })\n",
     )
     .unwrap();
     unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };

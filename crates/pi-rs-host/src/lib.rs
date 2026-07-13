@@ -21,6 +21,7 @@ mod api;
 mod auth;
 pub mod auth_storage;
 mod clipboard;
+pub mod config;
 mod convert;
 pub mod discover;
 mod error;

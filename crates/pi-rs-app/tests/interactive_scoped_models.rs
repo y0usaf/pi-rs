@@ -26,9 +26,8 @@ fn selector_order_drives_cycle_and_persists_exact_ids() {
     assert_eq!(result["savedModels"], ordered);
     assert_eq!(result["currentModel"], "openai/gpt-5-mini");
 
-    let persisted: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(agent_dir.path().join("settings.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(persisted["enabledModels"], ordered);
+    let source = std::fs::read_to_string(agent_dir.path().join("config.lua")).unwrap();
+    let persisted = pi_rs_host::config::evaluate(&source, "config.lua").unwrap();
+    assert_eq!(persisted.settings["enabledModels"], ordered);
+    assert!(!agent_dir.path().join("settings.json").exists());
 }

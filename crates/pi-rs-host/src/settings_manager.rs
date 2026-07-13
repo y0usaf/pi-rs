@@ -1,30 +1,15 @@
-//! Port of `core/settings-manager.ts` — scoped (global/project)
-//! settings with per-field persistence.
+//! Pi-compatible settings outcomes over pi-rs's canonical Lua configuration.
 //!
-//! Global settings live at `<agentDir>/settings.json`, project settings
-//! at `<cwd>/.pi/settings.json`; project values win via a one-level
-//! deep merge. Writes persist only the fields modified this session
-//! (nested-key granular for object fields), so concurrent instances
-//! don't clobber each other's keys.
+//! Global declarations live in `<agentDir>/config.lua`; trusted project
+//! declarations in `<cwd>/.pi/config.lua` override them with Pi's one-level
+//! nested merge. Interactive setters update one generated block atomically
+//! while preserving all user-authored bytes outside that block. JSON settings
+//! files are never read or written.
 //!
-//! Divergences (recorded):
-//! - the TS `Settings` interface is runtime-erased; settings are a raw
-//!   JSON object ([`Settings`]) with the spec's typed accessors as
-//!   methods — unknown keys survive round-trips exactly as in pi;
-//! - the spec's async write queue (promise chain + `flush()`) collapses
-//!   to synchronous in-order writes; [`SettingsManager::flush`] is a
-//!   no-op kept for surface parity; error capture (`drainErrors`) is
-//!   unchanged;
-//! - the spec's `proper-lockfile` is the mkdir `<file>.lock` (as in
-//!   `auth_storage`) with the spec's 10×20ms retry; staleness uses the
-//!   library's default 10s (the spec passes no `stale` option here);
-//! - `settings.json` keys serialize in map order (lexicographic), not
-//!   JS insertion order — the same JSON object;
-//! - the spec's `resolvePath(cwd)`/`resolvePath(agentDir)` is the
-//!   caller's: pi-rs passes absolute paths (the full `utils/paths.ts`
-//!   port lands with the WS3.3 tools that need its options);
-//! - numeric getters return integers (`u64`); non-integer stored values
-//!   fall back to the documented defaults.
+//! The typed accessors retain the pinned SettingsManager outcome contract.
+//! Writes are synchronous in this port; [`SettingsManager::flush`] is a no-op.
+//! Every reload evaluates both scopes before publishing either, so a syntax or
+//! runtime failure keeps the previous complete live snapshot.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -129,8 +114,6 @@ impl std::fmt::Display for SettingsScope {
 pub enum SettingsManagerError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("json error: {0}")]
-    Json(#[from] serde_json::Error),
     #[error("{0}")]
     Message(String),
 }
@@ -153,7 +136,7 @@ pub struct SettingsManagerCreateOptions {
 // Storage backends
 // ---------------------------------------------------------------------------
 
-/// Held mkdir lock (`<settings.json>.lock`); removed on drop.
+/// Held mkdir lock (`<config.lua>.lock`); removed on drop.
 struct FileLock(PathBuf);
 
 impl Drop for FileLock {
@@ -188,9 +171,13 @@ fn try_acquire(lock_path: &Path) -> Option<FileLock> {
     }
 }
 
-/// Spec: `acquireLockSyncWithRetry` — 10 attempts, 20ms apart.
+/// Acquire the per-config mutation lock (10 attempts, 20ms apart).
 fn acquire_lock_sync_with_retry(path: &Path) -> Result<FileLock, SettingsManagerError> {
-    let lock_path = path.with_extension("json.lock");
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.lua");
+    let lock_path = path.with_file_name(format!("{file_name}.lock"));
     for attempt in 1..=10u32 {
         if let Some(lock) = try_acquire(&lock_path) {
             return Ok(lock);
@@ -200,7 +187,7 @@ fn acquire_lock_sync_with_retry(path: &Path) -> Result<FileLock, SettingsManager
         }
     }
     Err(SettingsManagerError::Message(format!(
-        "Failed to acquire settings lock: {}",
+        "Failed to acquire config lock: {}",
         lock_path.display()
     )))
 }
@@ -220,11 +207,11 @@ pub enum SettingsStorage {
 }
 
 impl SettingsStorage {
-    /// Spec: `new FileSettingsStorage(cwd, agentDir)`.
+    /// Canonical Lua configuration paths.
     pub fn file(cwd: &Path, agent_dir: &Path) -> Self {
         SettingsStorage::File {
-            global_settings_path: agent_dir.join("settings.json"),
-            project_settings_path: cwd.join(CONFIG_DIR_NAME).join("settings.json"),
+            global_settings_path: agent_dir.join("config.lua"),
+            project_settings_path: cwd.join(CONFIG_DIR_NAME).join("config.lua"),
         }
     }
 
@@ -275,7 +262,14 @@ impl SettingsStorage {
                     if lock.is_none() {
                         lock = Some(acquire_lock_sync_with_retry(path)?);
                     }
-                    std::fs::write(&path, next)?;
+                    let temp_path = path.with_file_name(format!(
+                        ".{}.tmp",
+                        path.file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("config.lua")
+                    ));
+                    std::fs::write(&temp_path, next)?;
+                    std::fs::rename(&temp_path, path)?;
                 }
                 drop(lock);
                 Ok(())
@@ -502,17 +496,16 @@ impl SettingsManager {
         }
     }
 
-    /// Spec: `SettingsManager.inMemory(settings?)` — no file I/O.
+    /// Create an in-memory manager through the same Lua declaration format.
     pub fn in_memory(settings: Settings) -> Self {
         let mut storage = SettingsStorage::in_memory();
         let mut initial = settings;
         migrate_settings(&mut initial);
-        let serialized = serde_json::to_string_pretty(&initial).unwrap_or_else(|_| "{}".to_owned());
-        let _ = storage.with_lock(SettingsScope::Global, |_| Ok(Some(serialized)));
+        let source = crate::config::update_managed_settings("", &initial);
+        let _ = storage.with_lock(SettingsScope::Global, |_| Ok(Some(source)));
         Self::from_storage(storage, SettingsManagerCreateOptions::default())
     }
 
-    /// Spec: `loadFromStorage`.
     fn load_from_storage(
         storage: &mut SettingsStorage,
         scope: SettingsScope,
@@ -534,12 +527,13 @@ impl SettingsManager {
         if content.is_empty() {
             return Ok(Settings::new());
         }
-        let value: Value = serde_json::from_str(&content)?;
-        let Value::Object(mut settings) = value else {
-            return Err(SettingsManagerError::Message(
-                "settings file must contain a JSON object".to_owned(),
-            ));
+        let source_name = match scope {
+            SettingsScope::Global => "global config.lua",
+            SettingsScope::Project => "project .pi/config.lua",
         };
+        let mut settings = crate::config::evaluate(&content, source_name)
+            .map_err(SettingsManagerError::Message)?
+            .settings;
         migrate_settings(&mut settings);
         Ok(settings)
     }
@@ -598,43 +592,52 @@ impl SettingsManager {
         self.settings = deep_merge_settings(&self.global_settings, &self.project_settings);
     }
 
-    /// Spec: `reload()`.
-    pub fn reload(&mut self) {
-        let (global_settings, global_load_error) =
-            Self::try_load_from_storage(&mut self.storage, SettingsScope::Global, true);
-        match global_load_error {
-            None => {
-                self.global_settings = global_settings;
-                self.global_load_error = None;
-            }
-            Some(error) => {
-                self.record_error(SettingsScope::Global, &error);
-                self.global_load_error = Some(error);
-            }
-        }
-
-        self.modified_fields.clear();
-        self.modified_nested_fields.clear();
-        self.modified_project_fields.clear();
-        self.modified_project_nested_fields.clear();
-
-        let (project_settings, project_load_error) = Self::try_load_from_storage(
+    /// Atomically reload both declaration scopes. Either both publish or neither does.
+    pub fn try_reload(&mut self) -> Result<(), SettingsManagerError> {
+        let global = Self::load_from_storage(&mut self.storage, SettingsScope::Global, true);
+        let project = Self::load_from_storage(
             &mut self.storage,
             SettingsScope::Project,
             self.project_trusted,
         );
-        match project_load_error {
-            None => {
-                self.project_settings = project_settings;
-                self.project_load_error = None;
+        let (global_settings, project_settings) = match (global, project) {
+            (Ok(global), Ok(project)) => (global, project),
+            (Err(error), Ok(_)) => {
+                self.global_load_error = Some(error.to_string());
+                self.record_error(SettingsScope::Global, &error);
+                return Err(error);
             }
-            Some(error) => {
+            (Ok(_), Err(error)) => {
+                self.project_load_error = Some(error.to_string());
                 self.record_error(SettingsScope::Project, &error);
-                self.project_load_error = Some(error);
+                return Err(error);
             }
-        }
+            (Err(global), Err(project)) => {
+                self.global_load_error = Some(global.to_string());
+                self.project_load_error = Some(project.to_string());
+                self.record_error(SettingsScope::Global, &global);
+                self.record_error(SettingsScope::Project, &project);
+                return Err(SettingsManagerError::Message(format!(
+                    "global config: {global}; project config: {project}"
+                )));
+            }
+        };
 
+        self.global_settings = global_settings;
+        self.project_settings = project_settings;
+        self.global_load_error = None;
+        self.project_load_error = None;
+        self.modified_fields.clear();
+        self.modified_nested_fields.clear();
+        self.modified_project_fields.clear();
+        self.modified_project_nested_fields.clear();
         self.settings = deep_merge_settings(&self.global_settings, &self.project_settings);
+        Ok(())
+    }
+
+    /// Compatibility wrapper for callers that consume diagnostics via `drain_errors`.
+    pub fn reload(&mut self) {
+        let _ = self.try_reload();
     }
 
     /// Spec: `applyOverrides(overrides)` — on top of merged settings.
@@ -715,19 +718,20 @@ impl SettingsManager {
         }
 
         let result = self.storage.with_lock(scope, |current| {
-            let mut merged = match current {
-                Some(content) if !content.is_empty() => {
-                    let value: Value = serde_json::from_str(content)?;
-                    let Value::Object(mut settings) = value else {
-                        return Err(SettingsManagerError::Message(
-                            "settings file must contain a JSON object".to_owned(),
-                        ));
-                    };
-                    migrate_settings(&mut settings);
-                    settings
-                }
-                _ => Settings::new(),
+            let source = current.unwrap_or("");
+            let source_name = match scope {
+                SettingsScope::Global => "global config.lua",
+                SettingsScope::Project => "project .pi/config.lua",
             };
+            if !source.is_empty() {
+                // Refuse to mutate a concurrently broken user file.
+                crate::config::evaluate(source, source_name)
+                    .map_err(SettingsManagerError::Message)?;
+            }
+            // The generated block owns only fields changed interactively. Do not
+            // copy evaluated user declarations into it and shadow future edits.
+            let mut merged =
+                crate::config::managed_settings(source).map_err(SettingsManagerError::Message)?;
 
             for field in &modified_fields {
                 let value = snapshot.get(field);
@@ -763,9 +767,9 @@ impl SettingsManager {
                 }
             }
 
-            Ok(Some(
-                serde_json::to_string_pretty(&merged).unwrap_or_else(|_| "{}".to_owned()),
-            ))
+            Ok(Some(crate::config::update_managed_settings(
+                source, &merged,
+            )))
         });
 
         match result {
@@ -1648,9 +1652,14 @@ mod tests {
         let cwd = dir.path().join("project");
         let agent_dir = dir.path().join("agent");
         std::fs::create_dir_all(&agent_dir).unwrap();
+        let initial = obj(json!({
+            "theme": "dark", "unknownKey": 42,
+            "compaction": { "reserveTokens": 99 }
+        }));
+        let user_prefix = "local pi = ...\n-- user code remains\n";
         std::fs::write(
-            agent_dir.join("settings.json"),
-            r#"{ "theme": "dark", "unknownKey": 42, "compaction": { "reserveTokens": 99 } }"#,
+            agent_dir.join("config.lua"),
+            crate::config::update_managed_settings(user_prefix, &initial),
         )
         .unwrap();
 
@@ -1663,11 +1672,11 @@ mod tests {
         manager.set_compaction_enabled(false);
         assert!(manager.drain_errors().is_empty());
 
-        let written: Value = serde_json::from_str(
-            &std::fs::read_to_string(agent_dir.join("settings.json")).unwrap(),
-        )
-        .unwrap();
-        // Unmodified + unknown keys survive; nested merge is key-granular.
+        let source = std::fs::read_to_string(agent_dir.join("config.lua")).unwrap();
+        assert!(source.starts_with(user_prefix));
+        let written = crate::config::evaluate(&source, "config.lua")
+            .unwrap()
+            .settings;
         assert_eq!(written["theme"], json!("dark"));
         assert_eq!(written["unknownKey"], json!(42));
         assert_eq!(written["defaultModel"], json!("m1"));
@@ -1675,8 +1684,7 @@ mod tests {
             written["compaction"],
             json!({ "reserveTokens": 99, "enabled": false })
         );
-        // Lock directory is released.
-        assert!(!agent_dir.join("settings.json.lock").exists());
+        assert!(!agent_dir.join("config.lua.lock").exists());
     }
 
     #[test]
@@ -1689,9 +1697,10 @@ mod tests {
             Some(agent_dir.clone()),
             SettingsManagerCreateOptions::default(),
         );
-        assert!(!agent_dir.join("settings.json").exists());
+        assert!(!agent_dir.join("config.lua").exists());
         manager.set_theme("light");
-        assert!(agent_dir.join("settings.json").exists());
+        assert!(agent_dir.join("config.lua").exists());
+        assert!(!agent_dir.join("settings.json").exists());
     }
 
     #[test]
@@ -1700,9 +1709,10 @@ mod tests {
         let cwd = dir.path().join("project");
         let agent_dir = dir.path().join("agent");
         std::fs::create_dir_all(cwd.join(".pi")).unwrap();
+        let project = obj(json!({ "theme": "project-theme" }));
         std::fs::write(
-            cwd.join(".pi/settings.json"),
-            r#"{ "theme": "project-theme" }"#,
+            cwd.join(".pi/config.lua"),
+            crate::config::update_managed_settings("", &project),
         )
         .unwrap();
 
@@ -1711,15 +1721,14 @@ mod tests {
             Some(agent_dir),
             SettingsManagerCreateOptions::default(),
         );
-        // Project overrides global.
         assert_eq!(manager.get_theme().as_deref(), Some("project-theme"));
-
         manager
             .set_project_skill_paths(&["skills/".to_owned()])
             .unwrap();
-        let written: Value =
-            serde_json::from_str(&std::fs::read_to_string(cwd.join(".pi/settings.json")).unwrap())
-                .unwrap();
+        let source = std::fs::read_to_string(cwd.join(".pi/config.lua")).unwrap();
+        let written = crate::config::evaluate(&source, ".pi/config.lua")
+            .unwrap()
+            .settings;
         assert_eq!(written["theme"], json!("project-theme"));
         assert_eq!(written["skills"], json!(["skills/"]));
     }
@@ -1730,7 +1739,12 @@ mod tests {
         let cwd = dir.path().join("project");
         let agent_dir = dir.path().join("agent");
         std::fs::create_dir_all(cwd.join(".pi")).unwrap();
-        std::fs::write(cwd.join(".pi/settings.json"), r#"{ "theme": "evil" }"#).unwrap();
+        let project = obj(json!({ "theme": "evil" }));
+        std::fs::write(
+            cwd.join(".pi/config.lua"),
+            crate::config::update_managed_settings("", &project),
+        )
+        .unwrap();
 
         let mut manager = SettingsManager::create(
             &cwd,
@@ -1741,12 +1755,8 @@ mod tests {
         );
         assert_eq!(manager.get_theme(), None);
         assert!(manager.set_project_skill_paths(&[]).is_err());
-
-        // Trusting reloads project settings.
         manager.set_project_trusted(true);
         assert_eq!(manager.get_theme().as_deref(), Some("evil"));
-
-        // Revoking trust drops them again.
         manager.set_project_trusted(false);
         assert_eq!(manager.get_theme(), None);
     }
@@ -1757,7 +1767,7 @@ mod tests {
         let cwd = dir.path().join("project");
         let agent_dir = dir.path().join("agent");
         std::fs::create_dir_all(&agent_dir).unwrap();
-        std::fs::write(agent_dir.join("settings.json"), "not json").unwrap();
+        std::fs::write(agent_dir.join("config.lua"), "this is not lua").unwrap();
 
         let mut manager = SettingsManager::create(
             &cwd,
@@ -1767,15 +1777,11 @@ mod tests {
         let errors = manager.drain_errors();
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].scope, SettingsScope::Global);
-        assert!(manager.drain_errors().is_empty());
-
-        // Spec: save is a no-op while the load error stands.
         manager.set_theme("light");
         assert_eq!(
-            std::fs::read_to_string(agent_dir.join("settings.json")).unwrap(),
-            "not json"
+            std::fs::read_to_string(agent_dir.join("config.lua")).unwrap(),
+            "this is not lua"
         );
-        // The in-memory (merged) value still updates.
         assert_eq!(manager.get_theme().as_deref(), Some("light"));
     }
 
@@ -1790,13 +1796,13 @@ mod tests {
             SettingsManagerCreateOptions::default(),
         );
         manager.set_theme("light");
-
+        let external = obj(json!({ "theme": "external" }));
         std::fs::write(
-            agent_dir.join("settings.json"),
-            r#"{ "theme": "external" }"#,
+            agent_dir.join("config.lua"),
+            crate::config::update_managed_settings("", &external),
         )
         .unwrap();
-        manager.reload();
+        manager.try_reload().unwrap();
         assert_eq!(manager.get_theme().as_deref(), Some("external"));
     }
 

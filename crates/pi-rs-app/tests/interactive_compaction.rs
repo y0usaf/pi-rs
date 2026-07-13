@@ -194,12 +194,14 @@ fn fixture(keep_recent_tokens: Option<u64>) -> Fixture {
     unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
     let cwd = temp.path().to_string_lossy().into_owned();
     if let Some(keep) = keep_recent_tokens {
-        // Project settings: force the cut into the fixture's small turns.
+        // Trusted project config forces the cut into the fixture's small turns.
         let pi_dir = temp.path().join(".pi");
         std::fs::create_dir_all(&pi_dir).unwrap();
         std::fs::write(
-            pi_dir.join("settings.json"),
-            serde_json::json!({"compaction": {"keepRecentTokens": keep}}).to_string(),
+            pi_dir.join("config.lua"),
+            format!(
+                "local pi = ...\npi.config.settings({{ compaction = {{ keepRecentTokens = {keep} }} }})\n"
+            ),
         )
         .unwrap();
     }

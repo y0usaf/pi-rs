@@ -5,7 +5,7 @@
 //! WS2.6 subset: the consumers landed so far are `auth-storage.ts`
 //! (stored `api_key` credentials) and the registry's auth-status
 //! checks. The header-resolution helpers and the legacy env-var-name
-//! migration land with models.json / `registerProvider` glue (WS7).
+//! migration land with Lua provider declaration glue.
 //!
 //! Divergence (recorded): the spec's Windows configured-shell branch is
 //! not ported — commands run through `sh -c` with the spec's 10s

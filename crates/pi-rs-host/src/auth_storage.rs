@@ -9,8 +9,8 @@
 //! - the spec's pluggable backend interface collapses to the two
 //!   implementations it ships (file / in-memory) — an enum, revisited
 //!   if a consumer needs a custom backend;
-//! - `setFallbackResolver` (models.json custom-provider keys) lands
-//!   with the models.json port (WS7); until then the fallback branches
+//! - `setFallbackResolver` (Lua-declared custom-provider keys) lands
+//!   with provider declaration registry integration; until then fallback branches
 //!   resolve to nothing;
 //! - credential order in `auth.json` is not preserved on reload
 //!   (`HashMap`); no landed consumer observes order.
@@ -401,7 +401,7 @@ impl AuthStorage {
         if get_env_api_key(provider).is_some() {
             return true;
         }
-        // Fallback resolver (models.json custom providers): WS7.
+        // Fallback resolver for Lua-declared custom providers: registry integration.
         false
     }
 
@@ -559,7 +559,7 @@ impl AuthStorage {
         }
 
         get_env_api_key(provider_id)
-        // Fallback resolver (models.json custom providers): WS7.
+        // Fallback resolver for Lua-declared custom providers: registry integration.
     }
 }
 
