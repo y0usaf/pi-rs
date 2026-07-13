@@ -1,0 +1,483 @@
+{
+  "oracle": {
+    "repository": "pi-flake",
+    "revision": "94694da7321ce74aa7b82c13db7e60e28c0caba6",
+    "pi_runtime": "0.80.6",
+    "root_tree": "d618b6d10b574a8624991b055838e7a16e8c8a35",
+    "extensions_tree": "c4a04dfe88314b5e48ebb200ccfd546645c3af9e"
+  },
+  "packages": [
+    {
+      "id": "codex-fast",
+      "source": {
+        "directory": "pi-codex-fast",
+        "package_name": "pi-codex-fast",
+        "version": "1.0.0",
+        "entrypoint": "src/index.ts",
+        "tree": "d986679665640e82610eb3a207177f1a213556e2"
+      },
+      "default_bundle": true,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "codex-fast.priority-request",
+          "kinds": ["provider", "filesystem", "terminal"],
+          "script": {
+            "global_config": {"enabled": false, "supportedModels": ["gpt-5.5"], "showStatus": true},
+            "project_config": {"enabled": true, "supportedModels": ["gpt-5.5"]},
+            "model": {"provider": "openai-codex", "id": "gpt-5.5"},
+            "request": {"input": "hello"}
+          },
+          "expect": {
+            "request_patch": {"service_tier": "priority"},
+            "status": "⚡",
+            "command_state": "on"
+          }
+        }
+      ],
+      "cleanup": ["status key removed on replacement/reload", "no state survives session shutdown"]
+    },
+    {
+      "id": "gecko-websearch",
+      "source": {
+        "directory": "pi-gecko-websearch",
+        "package_name": "pi-gecko-websearch",
+        "version": "1.0.0",
+        "entrypoint": "src/index.ts",
+        "tree": "d14e1be3c3518a73d8e847850e4aa66b90081f22"
+      },
+      "default_bundle": true,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "gecko-websearch.search-and-browse",
+          "kinds": ["browser_socket", "subprocess", "filesystem"],
+          "script": {
+            "profile": {"cookies": "fixture-cookies.sqlite"},
+            "marionette": ["new-session", "navigate", "page-source", "execute-script"],
+            "search_html": "two-result-duckduckgo.html",
+            "browse_text": "fixture article"
+          },
+          "expect": {
+            "tools": ["web_search", "web_browse"],
+            "search_result_count": 2,
+            "browse_content": "fixture article",
+            "progress": ["Acquiring browser...", "Searching duckduckgo...", "Extracting results..."]
+          }
+        }
+      ],
+      "cleanup": ["session shutdown closes every Marionette socket", "browser processes are reaped", "temporary profiles are removed"]
+    },
+    {
+      "id": "rtk",
+      "source": {
+        "directory": "pi-rtk",
+        "package_name": "@sherif-fanous/pi-rtk",
+        "version": "0.3.0",
+        "entrypoint": "index.ts",
+        "tree": "aed5f7967be1d941ebef3f7fb40dbba81c1db688"
+      },
+      "default_bundle": true,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "rtk.rewrite-fallback",
+          "kinds": ["subprocess"],
+          "script": {
+            "commands": ["git status", "printf raw"],
+            "rtk": [{"status": 0, "stdout": "git status --short\n"}, {"status": 127, "stderr": "missing"}],
+            "user_bash_excluded": true
+          },
+          "expect": {
+            "agent_commands": ["git status --short", "printf raw"],
+            "excluded_user_bash_claimed": false,
+            "rewrite_timeout_ms": 5000
+          }
+        }
+      ],
+      "cleanup": ["rewrite subprocesses are killed on timeout/reload", "replacement bash execution owns no process after shutdown"]
+    },
+    {
+      "id": "compact",
+      "source": {
+        "directory": "pi-compact",
+        "package_name": "pi-compact",
+        "version": "0.1.0",
+        "entrypoint": "src/index.ts",
+        "tree": "d0985c0c44c23def835c813b0977b0da90befb13"
+      },
+      "default_bundle": true,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "compact.middleware-modes",
+          "kinds": ["terminal", "timer"],
+          "script": {
+            "settings": {"tools": {"mode": "compact", "gap": false}, "user": {"mode": "borderless", "gap": true}, "thinking": {"mode": "compact"}},
+            "rows": ["user", "thinking", "builtin-tool", "extension-tool", "custom-message"],
+            "clock_ms": [1000, 2200]
+          },
+          "expect": {
+            "tool_row": "✓ bash ╱ git status",
+            "thinking_row": "🧠 1.2s",
+            "expanded_uses_default": true,
+            "private_class_patches": 0
+          }
+        }
+      ],
+      "cleanup": ["renderer middleware registrations are disposed on reload", "render timer is cancelled on shutdown"]
+    },
+    {
+      "id": "context-janitor",
+      "source": {
+        "directory": "pi-context-janitor",
+        "package_name": "pi-context-janitor",
+        "version": "0.1.0",
+        "entrypoint": "src/index.ts",
+        "tree": "8b0a34c91ec7102fda8e666d9af0512536bd4481"
+      },
+      "default_bundle": true,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "context-janitor.clean-undo-branch",
+          "kinds": ["provider", "compaction", "session", "timer", "filesystem", "terminal"],
+          "script": {
+            "tool_results": 6,
+            "raw_chars": 17000,
+            "sidecar_decision": [0, 2, 5],
+            "session_changes": ["compact", "branch", "replace", "reload"],
+            "clock_ms": [0, 60000]
+          },
+          "expect": {
+            "cleaned_results": 3,
+            "context_replacement": "zero-width-placeholder",
+            "notice_custom_type": "context-janitor-notice",
+            "undo_restores_raw": true,
+            "history_is_branch_scoped": true
+          }
+        }
+      ],
+      "cleanup": ["sidecar timer and task are cancelled before session replacement", "status and custom renderer are removed on reload", "old-session index handles reject writes"]
+    },
+    {
+      "id": "morph",
+      "source": {
+        "directory": "pi-morph",
+        "package_name": "pi-morph",
+        "version": "0.1.0",
+        "entrypoint": "src/index.ts",
+        "tree": "053b9195a0d598a0d5b22461a03bf07c7b5e4f5f"
+      },
+      "default_bundle": false,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "morph.apply-response",
+          "kinds": ["provider", "filesystem", "terminal"],
+          "script": {
+            "file": "alpha\nbeta\ngamma\n",
+            "instruction": "replace beta",
+            "gateway": {"status": 200, "body": "alpha\nBETA\ngamma\n"},
+            "model": "morph-v3-fast"
+          },
+          "expect": {
+            "request_contains_original": true,
+            "file": "alpha\nBETA\ngamma\n",
+            "tool": "morph_edit",
+            "status_cleared": true
+          }
+        }
+      ],
+      "cleanup": ["in-flight gateway request aborts on reload", "per-file mutation ownership releases on error/shutdown"]
+    },
+    {
+      "id": "tool-management",
+      "source": {
+        "directory": "pi-tool-management",
+        "package_name": "pi-tool-management",
+        "version": "1.0.0",
+        "entrypoint": "src/index.ts",
+        "tree": "a073980dd35a9a4f73985445b8bfe42c08606283"
+      },
+      "default_bundle": true,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "tool-management.persist-filter",
+          "kinds": ["filesystem", "terminal", "session"],
+          "script": {
+            "tools": ["read", "bash", "project_tool"],
+            "active": ["read", "bash"],
+            "settings": {"version": 1, "disabledTools": ["read", "future_tool"]},
+            "toggle": {"bash": "blocked"}
+          },
+          "expect": {
+            "active": [],
+            "blocked_external": ["project_tool"],
+            "persisted_disabled": ["bash", "future_tool", "read"],
+            "unknown_names_retained": true
+          }
+        }
+      ],
+      "cleanup": ["custom settings overlay is disposed on session switch", "active-tool filter is recomputed after reload"]
+    },
+    {
+      "id": "webfetch",
+      "source": {
+        "directory": "pi-webfetch",
+        "package_name": "pi-webfetch",
+        "version": "1.0.0",
+        "entrypoint": "src/index.ts",
+        "tree": "6a13fa1bb8b47cb48e9a5bb81d42ea1be1afaf43"
+      },
+      "default_bundle": true,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "webfetch.redirect-markdown-cache",
+          "kinds": ["provider", "timer"],
+          "script": {
+            "requests": [{"url": "http://example.test/doc", "result": "https-failure"}, {"url": "http://example.test/doc", "status": 200, "content_type": "text/html", "body_fixture": "article.html"}],
+            "clock_ms": [0, 1000, 901001],
+            "prompt": "installation"
+          },
+          "expect": {
+            "https_first": true,
+            "same_host_redirect_limit": 5,
+            "markdown_fixture": "article.md",
+            "second_result_cached": true,
+            "expired_result_refetched": true
+          }
+        }
+      ],
+      "cleanup": ["in-flight requests abort with the tool signal", "LRU cache is disposed on package replacement"]
+    },
+    {
+      "id": "hashline",
+      "source": {
+        "directory": "pi-hashline",
+        "package_name": "pi-hashline",
+        "version": "0.2.0",
+        "entrypoint": "src/index.ts",
+        "tree": "7496e74f6bedea661678e7709178ced1123279c9"
+      },
+      "default_bundle": true,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "hashline.read-edit-atomic",
+          "kinds": ["filesystem", "session"],
+          "script": {
+            "file": "one\ntwo\nthree\n",
+            "read": {"offset": 1, "limit": 3},
+            "edit": {"anchor": "line-2-hash", "replacement": "TWO"},
+            "race": "change-after-read"
+          },
+          "expect": {
+            "read_format": "hashline-v2",
+            "edited_file": "one\nTWO\nthree\n",
+            "stale_anchor_fails_closed": true,
+            "symlink_and_mode_preserved": true
+          }
+        }
+      ],
+      "cleanup": ["temporary atomic-write files are removed after success/error", "per-file mutation queue entries are released on shutdown"]
+    },
+    {
+      "id": "minimal-editor",
+      "source": {
+        "directory": "pi-minimal-editor",
+        "package_name": "pi-minimal-editor",
+        "version": "0.1.0",
+        "entrypoint": "src/index.ts",
+        "tree": "2b61951f3b0c4d3222dedc84e30efa1b199cfd32"
+      },
+      "default_bundle": true,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "minimal-editor.footer-frame",
+          "kinds": ["terminal", "session"],
+          "script": {
+            "widths": [40, 80],
+            "cwd": "/home/test/project",
+            "branch": "main",
+            "session_name": "fixture",
+            "usage": {"input": 1200, "output": 34, "percent": 72.5}
+          },
+          "expect": {
+            "padding_x": 0,
+            "top_contains": ["~/project (main) • fixture", "72.5%"],
+            "bottom_contains": ["no-model"],
+            "cursor_preserved": true
+          }
+        }
+      ],
+      "cleanup": ["branch-change subscription is disposed", "editor and footer slots are cleared on session shutdown/replacement"]
+    },
+    {
+      "id": "working-indicator",
+      "source": {
+        "directory": "pi-working-indicator",
+        "package_name": "pi-working-indicator",
+        "version": "0.1.0",
+        "entrypoint": "extensions/index.ts",
+        "tree": "8ec6bb77bcdcc4b1383952b9c0e95810e18bee06"
+      },
+      "default_bundle": true,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "working-indicator.seeded-frames",
+          "kinds": ["terminal", "timer"],
+          "script": {
+            "random": [0.0, 0.25, 0.5, 0.75],
+            "theme": {"accent": [0, 128, 255], "thinkingHigh": [255, 0, 128]},
+            "thinking": "high",
+            "ticks_ms": [0, 50, 1000]
+          },
+          "expect": {
+            "width": 15,
+            "interval_ms": 50,
+            "startup_switch_ms": 1000,
+            "working_message": "zero-width-space",
+            "frame_fixture": "seeded-gradient"
+          }
+        }
+      ],
+      "cleanup": ["startup timeout is cancelled on model/session replacement", "working message and indicator slots are cleared on shutdown"]
+    },
+    {
+      "id": "pomodoro",
+      "source": {
+        "directory": "pi-pomodoro",
+        "package_name": "pi-pomodoro",
+        "version": "1.0.0",
+        "entrypoint": "src/index.ts",
+        "tree": "83f4405a76741b883440aaa3e58eb3befd6082a2"
+      },
+      "default_bundle": true,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "pomodoro.synced-lifecycle",
+          "kinds": ["timer", "filesystem", "terminal", "session"],
+          "script": {
+            "settings": {"workMinutes": 0.05, "breakMinutes": 0.02, "longBreakEvery": 4},
+            "commands": ["start", "pause", "resume", "status"],
+            "clock_ms": [0, 1000, 2000, 3001],
+            "external_sync": {"phase": "break", "cycle": 1, "updatedAt": 4000}
+          },
+          "expect": {
+            "phases": ["work", "break"],
+            "state_write_is_atomic": true,
+            "transition_notification": "🍅 break time",
+            "tick_ms": 1000
+          }
+        }
+      ],
+      "cleanup": ["interval and file watcher are disposed on reload/session replacement", "status key is removed on shutdown", "no timer writes after disposal"]
+    },
+    {
+      "id": "rlm",
+      "source": {
+        "directory": "pi-rlm",
+        "package_name": "pi-rlm",
+        "version": "0.1.0",
+        "entrypoint": "src/index.ts",
+        "tree": "80c5f219c04d502b27092e9b02aef8725d9967ec"
+      },
+      "default_bundle": true,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "rlm.recursive-finalization",
+          "kinds": ["provider", "subprocess", "session", "terminal"],
+          "script": {
+            "root_prompt": "decompose fixture",
+            "repl": ["state['parts'] = llm_query_batch([...])", "FINAL_VAR('answer')"],
+            "child_provider_outputs": ["part A", "part B"],
+            "max_concurrent": 2,
+            "max_depth": 2,
+            "session_changes": ["tree", "replace", "reload"]
+          },
+          "expect": {
+            "child_tools": ["repl"],
+            "completion_order_preserved": true,
+            "custom_type": "rlm_final",
+            "final_not_refed_to_model": true
+          }
+        }
+      ],
+      "cleanup": ["root/child Python REPL process trees are killed on abort/reload/shutdown", "child provider tasks are cancelled before session replacement", "context stores are generation-bound"]
+    },
+    {
+      "id": "review",
+      "source": {
+        "directory": "earendil_pi-review",
+        "package_name": "@earendil-works/pi-review",
+        "version": "0.1.0",
+        "entrypoint": "review.ts",
+        "tree": "0d2767278f978ea450ee471c2f7b01030256323c"
+      },
+      "default_bundle": true,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "review.local-and-pr-workflow",
+          "kinds": ["subprocess", "filesystem", "session", "terminal", "compaction"],
+          "script": {
+            "git": {"base": "main", "diff_fixture": "review.diff"},
+            "gh": {"pr": 42, "metadata_fixture": "pr-42.json"},
+            "commands": ["review", "end-review"],
+            "session_changes": ["tree", "compact", "replace", "reload"]
+          },
+          "expect": {
+            "widget": "review-mode",
+            "system_prompt_has_review_instructions": true,
+            "append_entry_tracks_review": true,
+            "editor_restored": true
+          }
+        }
+      ],
+      "cleanup": ["git/gh processes and custom overlays abort on reload", "review widget/editor state is cleared on end-review and session replacement", "stale review state does not cross branches"]
+    },
+    {
+      "id": "vcc",
+      "source": {
+        "directory": "sting8k_pi-vcc",
+        "package_name": "@sting8k/pi-vcc",
+        "version": "0.3.12",
+        "entrypoint": "index.ts",
+        "tree": "0387247559584cc50dde0781f4695234b6afd442"
+      },
+      "default_bundle": true,
+      "load_modes": ["direct", "configured", "bundled"],
+      "cases": [
+        {
+          "id": "vcc.compact-recall-lineage",
+          "kinds": ["compaction", "session", "filesystem", "terminal", "timer"],
+          "script": {
+            "jsonl_fixture": "branched-session.jsonl",
+            "commands": ["pi-vcc", "pi-vcc-recall error", "vcc_recall"],
+            "scope": "lineage",
+            "session_changes": ["branch", "compact", "replace", "reload"],
+            "clock_ms": [1000, 2000]
+          },
+          "expect": {
+            "sections": ["Goals", "Files And Changes", "Brief Transcript"],
+            "recall_filters_noise": true,
+            "lineage_excludes_off_branch": true,
+            "before_compact_result_is_stable": true
+          }
+        }
+      ],
+      "cleanup": ["compaction/recall tasks are cancelled on session replacement", "session-derived caches are rebuilt after branch/reload", "temporary report files are removed"]
+    }
+  ],
+  "bundles": {
+    "all": ["codex-fast", "gecko-websearch", "rtk", "compact", "context-janitor", "morph", "tool-management", "webfetch", "hashline", "minimal-editor", "working-indicator", "pomodoro", "rlm", "review", "vcc"],
+    "default": ["codex-fast", "gecko-websearch", "rtk", "compact", "context-janitor", "tool-management", "webfetch", "hashline", "minimal-editor", "working-indicator", "pomodoro", "rlm", "review", "vcc"]
+  }
+}
