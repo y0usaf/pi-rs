@@ -46,7 +46,7 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 | Surface | Status | Evidence / target |
 |---|---|---|
 | `appendEntry` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
-| `events` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
+| `events` | implemented | Pi EventEmitter semantics in registries.rs + examples/extensions/event-bus-demo.lua |
 | `exec` | implemented | pi-rs-host API + registry/OS binding tests; Lua spelling uses snake_case |
 | `getActiveTools` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
 | `getAllTools` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |

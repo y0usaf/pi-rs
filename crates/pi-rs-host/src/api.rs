@@ -1205,6 +1205,7 @@ pub(crate) fn build(
     registry.set("exts", lua.create_table()?)?;
     registry.set("ext_order", lua.create_table()?)?;
     registry.set("flag_values", lua.create_table()?)?;
+    registry.set("bus_listeners", lua.create_table()?)?;
     registry.set("source", "<host>")?;
     lua.set_named_registry_value(REGISTRY_KEY, registry)?;
 
@@ -1642,6 +1643,63 @@ pub(crate) fn build(
         Ok(())
     })?;
     pi.set("on", on)?;
+
+    // Shared inter-extension event bus (`pi.events`). Unlike lifecycle events,
+    // channels are open strings, listeners see the same payload, and failures
+    // are isolated. Snapshotting active listeners preserves EventEmitter's
+    // add/remove-during-emit behavior.
+    let events_api = lua.create_table()?;
+    events_api.set(
+        "on",
+        lua.create_function(|lua, (channel, handler): (String, mlua::Function)| {
+            let registry = registry_table(lua)?;
+            let listeners: mlua::Table = registry.get("bus_listeners")?;
+            let list = match listeners.get::<Option<mlua::Table>>(channel.as_str())? {
+                Some(list) => list,
+                None => {
+                    let list = lua.create_table()?;
+                    listeners.set(channel.as_str(), &list)?;
+                    list
+                }
+            };
+            let entry = lua.create_table()?;
+            entry.set("fn", handler)?;
+            entry.set("source", current_source(lua))?;
+            entry.set("active", true)?;
+            list.push(entry.clone())?;
+            lua.create_function(move |_, ()| entry.set("active", false))
+        })?,
+    )?;
+    events_api.set(
+        "emit",
+        lua.create_function(|lua, (channel, data): (String, mlua::Value)| {
+            let listeners: mlua::Table = registry_table(lua)?.get("bus_listeners")?;
+            let Some(list) = listeners.get::<Option<mlua::Table>>(channel.as_str())? else {
+                return Ok(());
+            };
+            let mut snapshot = Vec::new();
+            for entry in list.sequence_values::<mlua::Table>() {
+                let entry = entry?;
+                if entry.get::<Option<bool>>("active")?.unwrap_or(true) {
+                    snapshot.push((
+                        entry.get::<String>("source")?,
+                        entry.get::<mlua::Function>("fn")?,
+                    ));
+                }
+            }
+            for (source, handler) in snapshot {
+                let previous = current_source(lua);
+                set_current_source(lua, &source);
+                let outcome = handler.call::<()>(data.clone());
+                set_current_source(lua, &previous);
+                if let Err(error) = outcome {
+                    eprintln!("Event handler error ({channel}): {error}");
+                }
+            }
+            Ok(())
+        })?,
+    )?;
+    pi.set("events", events_api)?;
 
     // Awaitable host future: the calling coroutine suspends; the VM thread
     // stays free to run the timer. Await time is excluded from the watchdog
@@ -2757,13 +2815,23 @@ pub(crate) fn remove_source(lua: &mlua::Lua, source: &str) -> mlua::Result<()> {
     }
     registry.set("ext_order", kept)?;
 
-    let events: mlua::Table = registry.get("events")?;
-    let names = events
+    remove_source_listeners(lua, &registry, "events", source)?;
+    remove_source_listeners(lua, &registry, "bus_listeners", source)
+}
+
+fn remove_source_listeners(
+    lua: &mlua::Lua,
+    registry: &mlua::Table,
+    table_key: &str,
+    source: &str,
+) -> mlua::Result<()> {
+    let listeners: mlua::Table = registry.get(table_key)?;
+    let names = listeners
         .pairs::<String, mlua::Table>()
         .map(|pair| pair.map(|(name, _)| name))
         .collect::<mlua::Result<Vec<_>>>()?;
     for name in names {
-        let list: mlua::Table = events.get(name.as_str())?;
+        let list: mlua::Table = listeners.get(name.as_str())?;
         let kept = lua.create_table()?;
         for entry in list.sequence_values::<mlua::Table>() {
             let entry = entry?;
@@ -2771,7 +2839,7 @@ pub(crate) fn remove_source(lua: &mlua::Lua, source: &str) -> mlua::Result<()> {
                 kept.push(entry)?;
             }
         }
-        events.set(name, kept)?;
+        listeners.set(name, kept)?;
     }
     Ok(())
 }
