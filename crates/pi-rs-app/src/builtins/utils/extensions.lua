@@ -1,9 +1,9 @@
 -- Product-side extension composition. Rust exposes registration/handler
 -- snapshots; this Lua policy chooses active tools and the complete Pi event
 -- fold semantics. Every product seam dispatches through extension_handlers;
--- there is no embedded-only callback path.
-EXTENSION_POLICY = EXTENSION_POLICY or {}
-EXTENSION_POLICY.api = pi
+-- there is no embedded-only callback path. Each product pack gets an isolated
+-- policy table while using the same public API.
+local EXTENSION_POLICY = { api = pi }
 
 function EXTENSION_POLICY.active_tools()
   local active, names = {}, {}
@@ -376,7 +376,7 @@ end
 function EXTENSION_CONTEXT_POLICY.context_usage(state, agent_state)
   if state.extension_context_usage then return state.extension_context_usage() end
   if state.model and (state.model.contextWindow or 0) > 0 then
-    local estimate = compaction_lib.estimate_context_tokens(agent_state.messages or {})
+    local estimate = EXTENSION_POLICY.compaction.estimate_context_tokens(agent_state.messages or {})
     return {
       tokens = estimate.tokens,
       contextWindow = state.model.contextWindow,

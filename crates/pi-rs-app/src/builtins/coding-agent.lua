@@ -417,23 +417,23 @@ pi.register_command("compaction-parity", { handler = function(args)
   if mode == "tokens" then
     local out = {}
     if case.messages then
-      out.estimate = compaction_lib.estimate_context_tokens(case.messages)
+      out.estimate = EXTENSION_POLICY.compaction.estimate_context_tokens(case.messages)
     end
     if case.usage then
-      out.contextTokens = compaction_lib.calculate_context_tokens(case.usage)
+      out.contextTokens = EXTENSION_POLICY.compaction.calculate_context_tokens(case.usage)
     end
     return out
   end
   if mode == "should" then
-    return { shouldCompact = compaction_lib.should_compact(
+    return { shouldCompact = EXTENSION_POLICY.compaction.should_compact(
       case.contextTokens, case.contextWindow, settings) }
   end
   if mode == "overflow" then
-    return { overflow = compaction_lib.is_context_overflow(
+    return { overflow = EXTENSION_POLICY.compaction.is_context_overflow(
       case.message, case.contextWindow) }
   end
 
-  local preparation = compaction_lib.prepare_compaction(case.entries, settings)
+  local preparation = EXTENSION_POLICY.compaction.prepare_compaction(case.entries, settings)
   if not preparation then return { prepared = false } end
   local out = { prepared = true, preparation = cp_preparation(preparation) }
   if mode == "compact" then
@@ -457,7 +457,7 @@ pi.register_command("compaction-parity", { handler = function(args)
         api = stream_model.api, provider = stream_model.provider,
         model = stream_model.id, stopReason = "stop", timestamp = 0 }
     end
-    local executed, value = pcall(compaction_lib.compact, preparation, model, {
+    local executed, value = pcall(EXTENSION_POLICY.compaction.compact, preparation, model, {
       apiKey = case.apiKey or "oracle-key",
       customInstructions = case.customInstructions,
       thinkingLevel = case.thinkingLevel,
