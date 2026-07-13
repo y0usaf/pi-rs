@@ -233,32 +233,37 @@ async fn pre_aborted_signal_short_circuits() {
 }
 
 #[tokio::test]
-async fn status_errors_redact_request_and_response_secrets() {
-    let secret = "transport-secret-value";
-    let body = format!(r#"{{"message":"echo {secret}","access_token":"response-token"}}"#);
-    let addr = serve(vec![http_response(401, "Unauthorized", "", &body)], false);
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        reqwest::header::AUTHORIZATION,
-        format!("Bearer {secret}").parse().unwrap(),
-    );
-    let error = post_with_retry(
-        &reqwest::Client::new(),
-        &url(addr),
-        &headers,
-        "{}",
-        &RetryOptions::default(),
-        None,
-    )
-    .await
-    .unwrap_err();
-    let display = error.to_string();
-    let debug = format!("{error:?}");
-    for value in [secret, "response-token"] {
-        assert!(!display.contains(value));
-        assert!(!debug.contains(value));
+async fn status_errors_redact_every_non_empty_short_header_secret() {
+    for secret in ["x", "yz", "q9z"] {
+        let body = format!(
+            r#"{{"message":"provider denied <{secret}> safely","access_token":"response-token"}}"#
+        );
+        let addr = serve(vec![http_response(401, "Unauthorized", "", &body)], false);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {secret}").parse().unwrap(),
+        );
+        let error = post_with_retry(
+            &reqwest::Client::new(),
+            &url(addr),
+            &headers,
+            "{}",
+            &RetryOptions::default(),
+            None,
+        )
+        .await
+        .unwrap_err();
+        let display = error.to_string();
+        let debug = format!("{error:?}");
+        let echoed = format!("<{secret}>");
+        assert!(!display.contains(&echoed));
+        assert!(!debug.contains(&echoed));
+        assert!(!display.contains("response-token"));
+        assert!(!debug.contains("response-token"));
+        assert!(display.contains("provider denied <[REDACTED]> safely"));
+        assert!(debug.contains("provider denied <[REDACTED]> safely"));
     }
-    assert!(display.contains("[REDACTED]"));
 }
 
 #[tokio::test]

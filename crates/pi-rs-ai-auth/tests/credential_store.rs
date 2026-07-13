@@ -144,6 +144,33 @@ async fn concurrent_writers_merge_and_snapshots_and_debug_are_secret_free() {
     assert!(debug.contains("[REDACTED]"));
 }
 
+#[tokio::test]
+async fn debug_and_snapshots_hide_every_non_empty_short_stored_secret() {
+    let root = TempRoot::new();
+    let (store, _, _) = store(&root);
+    let credentials = [("anthropic", "x"), ("openai", "yz"), ("mistral", "q9z")];
+    for (provider, secret) in credentials {
+        store
+            .set(
+                provider,
+                AuthCredential::ApiKey {
+                    key: secret.to_owned(),
+                },
+            )
+            .await
+            .unwrap();
+    }
+
+    let snapshot = serde_json::to_string(&store.snapshot().unwrap()).unwrap();
+    for (provider, secret) in credentials {
+        let debug = format!("{:?}", store.get(provider).unwrap().unwrap());
+        assert!(snapshot.contains(provider));
+        assert!(!snapshot.contains(secret));
+        assert!(!debug.contains(secret));
+        assert!(debug.contains("[REDACTED]"));
+    }
+}
+
 struct RefreshProvider;
 
 impl OAuthProviderInterface for RefreshProvider {

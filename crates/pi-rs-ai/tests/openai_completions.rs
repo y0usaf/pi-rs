@@ -489,30 +489,31 @@ async fn tool_history_without_tools_sends_empty_tools() {
 }
 
 #[tokio::test]
-async fn provider_error_snapshots_redact_api_keys() {
-    let secret = "snapshot-secret-value";
-    let body = serde_json::json!({
-        "error": {"message": format!("provider echoed {secret}")}
-    })
-    .to_string();
-    let (addr, _) = serve(vec![error_response(401, &body)]);
-    let model = openai_model(addr);
-    let stream = stream_openai_completions(
-        &model,
-        &Context::default(),
-        Some(OpenAICompletionsOptions {
-            base: StreamOptions {
-                api_key: Some(secret.into()),
-                ..StreamOptions::default()
-            },
-            ..OpenAICompletionsOptions::default()
-        }),
-    );
-    while stream.next().await.is_some() {}
-    let result = stream.result().await.unwrap();
-    let snapshot = serde_json::to_string(&result).unwrap();
-    assert!(!snapshot.contains(secret));
-    assert!(snapshot.contains("[REDACTED]"));
+async fn provider_error_snapshots_redact_every_non_empty_short_api_key() {
+    for secret in ["x", "yz", "q9z"] {
+        let body = serde_json::json!({
+            "error": {"message": format!("provider denied <{secret}> safely")}
+        })
+        .to_string();
+        let (addr, _) = serve(vec![error_response(401, &body)]);
+        let model = openai_model(addr);
+        let stream = stream_openai_completions(
+            &model,
+            &Context::default(),
+            Some(OpenAICompletionsOptions {
+                base: StreamOptions {
+                    api_key: Some(secret.into()),
+                    ..StreamOptions::default()
+                },
+                ..OpenAICompletionsOptions::default()
+            }),
+        );
+        while stream.next().await.is_some() {}
+        let result = stream.result().await.unwrap();
+        let snapshot = serde_json::to_string(&result).unwrap();
+        assert!(!snapshot.contains(&format!("<{secret}>")));
+        assert!(snapshot.contains("provider denied <[REDACTED]> safely"));
+    }
 }
 
 #[tokio::test]
