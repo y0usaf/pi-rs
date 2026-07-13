@@ -1614,6 +1614,111 @@
 			}
 		},
 		{
+			"name": "adc-workload-certificate",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/sts",
+					"headers": {
+						"accept": "application/json",
+						"content-type": "application/x-www-form-urlencoded;charset=UTF-8",
+						"x-goog-api-client": "gl-node/22.23.1 auth/10.6.2 google-byoid-sdk source/certificate sa-impersonation/false config-lifetime/false"
+					},
+					"body": {
+						"grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+						"audience": "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
+						"scope": "https://www.googleapis.com/auth/cloud-platform",
+						"requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
+						"subject_token": "[\"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\"]",
+						"subject_token_type": "urn:ietf:params:oauth:token-type:mtls"
+					}
+				},
+				{
+					"method": "GET",
+					"path": "/project/123",
+					"headers": {
+						"accept": "application/json",
+						"authorization": "Bearer sts-token"
+					},
+					"body": null
+				},
+				{
+					"method": "POST",
+					"path": "/v1/publishers/google/models/gemini-2.0-flash:streamGenerateContent?alt=sse",
+					"headers": {
+						"accept": "*/*",
+						"authorization": "Bearer sts-token",
+						"content-type": "application/json",
+						"x-goog-api-client": "google-genai-sdk/1.52.0 gl-node/v22.23.1"
+					},
+					"body": {
+						"contents": [
+							{
+								"parts": [
+									{
+										"text": "hi"
+									}
+								],
+								"role": "user"
+							}
+						],
+						"generationConfig": {}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "certificate"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "certificate"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "certificate"
+					}
+				],
+				"api": "google-vertex",
+				"provider": "google-vertex",
+				"model": "gemini-2.0-flash",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0
+			}
+		},
+		{
 			"name": "adc-workload-aws-env",
 			"requests": [
 				{

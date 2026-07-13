@@ -1,0 +1,30 @@
+{
+  "models": {
+    "claude": {"id":"anthropic.claude-opus-4-8-v1:0","name":"Claude Opus 4.8","api":"bedrock-converse-stream","provider":"amazon-bedrock","baseUrl":"","reasoning":true,"input":["text","image"],"cost":{"input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25},"contextWindow":200000,"maxTokens":32000},
+    "nova": {"id":"amazon.nova-pro-v1:0","name":"Amazon Nova Pro","api":"bedrock-converse-stream","provider":"amazon-bedrock","baseUrl":"","reasoning":false,"input":["text","image"],"cost":{"input":0.8,"output":3.2,"cacheRead":0.2,"cacheWrite":0},"contextWindow":300000,"maxTokens":5000}
+  },
+  "cases": [
+    {
+      "name":"rich-bearer-stream","model":"claude",
+      "context":{"systemPrompt":"Be helpful.","messages":[{"role":"user","content":[{"type":"text","text":"hello"},{"type":"image","data":"aW1n","mimeType":"image/png"}],"timestamp":1},{"role":"assistant","content":[{"type":"thinking","thinking":"old thought","thinkingSignature":"signature"},{"type":"text","text":"using tool"},{"type":"toolCall","id":"call.invalid/long","name":"read","arguments":{"path":"x"}}],"api":"bedrock-converse-stream","provider":"amazon-bedrock","model":"anthropic.claude-opus-4-8-v1:0","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"toolUse","timestamp":1},{"role":"toolResult","toolCallId":"call.invalid/long","toolName":"read","content":[{"type":"text","text":"done"},{"type":"image","data":"aW1n","mimeType":"image/png"}],"isError":false,"timestamp":1}],"tools":[{"name":"read","description":"Read","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}]},
+      "options":{"bearerToken":"bearer","maxTokens":1234,"temperature":0.2,"toolChoice":"auto","reasoning":"medium","cacheRetention":"long","requestMetadata":{"team":"pi"},"headers":{"x-extra":"yes"}},
+      "responses":[{"status":200,"events":[
+        {"type":"messageStart","value":{"role":"assistant"}},
+        {"type":"contentBlockDelta","value":{"contentBlockIndex":0,"delta":{"reasoningContent":{"text":"Think "}}}},
+        {"type":"contentBlockDelta","value":{"contentBlockIndex":0,"delta":{"reasoningContent":{"signature":"sig"}}}},
+        {"type":"contentBlockStop","value":{"contentBlockIndex":0}},
+        {"type":"contentBlockDelta","value":{"contentBlockIndex":1,"delta":{"text":"Answer"}}},
+        {"type":"contentBlockStop","value":{"contentBlockIndex":1}},
+        {"type":"contentBlockStart","value":{"contentBlockIndex":2,"start":{"toolUse":{"toolUseId":"call_1","name":"read"}}}},
+        {"type":"contentBlockDelta","value":{"contentBlockIndex":2,"delta":{"toolUse":{"input":"{\"path\":"}}}},
+        {"type":"contentBlockDelta","value":{"contentBlockIndex":2,"delta":{"toolUse":{"input":"\"a\"}"}}}},
+        {"type":"contentBlockStop","value":{"contentBlockIndex":2}},
+        {"type":"messageStop","value":{"stopReason":"tool_use"}},
+        {"type":"metadata","value":{"usage":{"inputTokens":20,"outputTokens":5,"totalTokens":25,"cacheReadInputTokens":4,"cacheWriteInputTokens":1}}}
+      ]}]
+    },
+    {"name":"simple-nova","model":"nova","simple":true,"context":{"messages":[{"role":"user","content":"hi","timestamp":1}]},"options":{"bearerToken":"bearer","reasoning":"high"},"responses":[{"status":200,"events":[{"type":"messageStart","value":{"role":"assistant"}},{"type":"contentBlockDelta","value":{"contentBlockIndex":0,"delta":{"text":"ok"}}},{"type":"contentBlockStop","value":{"contentBlockIndex":0}},{"type":"messageStop","value":{"stopReason":"end_turn"}}]}]},
+    {"name":"validation-event-error","model":"nova","context":{"messages":[{"role":"user","content":"hi","timestamp":1}]},"options":{"bearerToken":"bearer"},"responses":[{"status":200,"events":[{"type":"validationException","value":{"message":"bad input"}}]}]},
+    {"name":"http-error","model":"nova","context":{"messages":[{"role":"user","content":"hi","timestamp":1}]},"options":{"bearerToken":"bearer"},"responses":[{"status":400,"json":{"message":"bad request"}}]}
+  ]
+}

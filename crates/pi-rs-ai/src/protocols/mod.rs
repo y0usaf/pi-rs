@@ -24,11 +24,13 @@
 
 pub mod anthropic;
 pub mod azure_openai_responses;
+pub mod bedrock;
 pub mod cloudflare;
 pub mod copilot_headers;
 pub mod google;
 pub(crate) mod google_shared;
 pub mod google_vertex;
+pub mod mistral;
 pub mod openai_codex_responses;
 pub mod openai_completions;
 pub mod openai_prompt_cache;

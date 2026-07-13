@@ -169,6 +169,32 @@ async function run(c: any) {
 				}
 				return originalAdapter.call(this, config);
 			};
+		} else if (c.adc === "workload-certificate") {
+			const certificateConfigPath = join(dir, "certificate-config.json");
+			writeFileSync(certificateConfigPath, JSON.stringify({
+				cert_configs: { workload: {
+					cert_path: join(fixtureDir, "certificate.pem"),
+					key_path: join(fixtureDir, "certificate-key.pem"),
+				} },
+			}));
+			credentials = {
+				type: "external_account",
+				audience: "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
+				subject_token_type: "urn:ietf:params:oauth:token-type:mtls",
+				token_url: `${url}/sts`,
+				credential_source: { certificate: {
+					certificate_config_location: certificateConfigPath,
+					trust_chain_path: join(fixtureDir, "certificate-chain.pem"),
+				} },
+				cloud_resource_manager_url: `${url}/project/`,
+			};
+			// The oracle's loopback is HTTP; remove only the mTLS agent at this
+			// deterministic transport seam. Production google-auth still creates and
+			// installs the certificate-backed agent before every request.
+			Gaxios.prototype._defaultAdapter = function(config: any) {
+				if (config.url.toString().startsWith(url)) config = { ...config, agent: undefined };
+				return originalAdapter.call(this, config);
+			};
 		} else if (c.adc === "workload-aws-env" || c.adc === "workload-aws-metadata") {
 			const source: any = {
 				environment_id: "aws1",

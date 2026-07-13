@@ -340,6 +340,180 @@ fn parse_external_subject_token(
     Ok(raw.to_string())
 }
 
+fn pem_certificates(raw: &[u8]) -> Result<Vec<Vec<u8>>, ProtocolError> {
+    const BEGIN: &str = "-----BEGIN CERTIFICATE-----";
+    const END: &str = "-----END CERTIFICATE-----";
+    let text = std::str::from_utf8(raw).map_err(|error| ProtocolError(error.to_string()))?;
+    let mut certificates = Vec::new();
+    let mut remaining = text;
+    while let Some(begin) = remaining.find(BEGIN) {
+        let content = &remaining[begin + BEGIN.len()..];
+        let Some(end) = content.find(END) else {
+            return Err(ProtocolError("Invalid certificate PEM block".into()));
+        };
+        let encoded = content[..end].lines().map(str::trim).collect::<String>();
+        certificates.push(
+            base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .map_err(|error| ProtocolError(error.to_string()))?,
+        );
+        remaining = &content[end + END.len()..];
+    }
+    if certificates.is_empty() {
+        return Err(ProtocolError("Invalid certificate PEM block".into()));
+    }
+    Ok(certificates)
+}
+
+fn certificate_config_default_path() -> std::path::PathBuf {
+    if let Some(directory) = env_non_empty("CLOUDSDK_CONFIG") {
+        return std::path::PathBuf::from(directory).join("certificate_config.json");
+    }
+    if cfg!(windows) {
+        return std::path::PathBuf::from(env_non_empty("APPDATA").unwrap_or_default())
+            .join("gcloud/certificate_config.json");
+    }
+    std::path::PathBuf::from(env_non_empty("HOME").unwrap_or_default())
+        .join(".config/gcloud/certificate_config.json")
+}
+
+async fn valid_file(path: &std::path::Path) -> bool {
+    tokio::fs::metadata(path)
+        .await
+        .is_ok_and(|metadata| metadata.is_file())
+}
+
+async fn certificate_config_path(certificate: &Value) -> Result<std::path::PathBuf, ProtocolError> {
+    let use_default = certificate
+        .get("use_default_certificate_config")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let configured = certificate
+        .get("certificate_config_location")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty());
+    if !use_default && configured.is_none() {
+        return Err(ProtocolError(
+            "Either `useDefaultCertificateConfig` must be true or a `certificateConfigLocation` must be provided.".into(),
+        ));
+    }
+    if use_default && configured.is_some() {
+        return Err(ProtocolError(
+            "Both `useDefaultCertificateConfig` and `certificateConfigLocation` cannot be provided.".into(),
+        ));
+    }
+    if let Some(path) = configured {
+        let path = std::path::PathBuf::from(path);
+        if valid_file(&path).await {
+            return Ok(path);
+        }
+        return Err(ProtocolError(format!(
+            "Provided certificate config path is invalid: {}",
+            path.display()
+        )));
+    }
+    if let Some(path) = env_non_empty("GOOGLE_API_CERTIFICATE_CONFIG") {
+        let path = std::path::PathBuf::from(path);
+        if valid_file(&path).await {
+            return Ok(path);
+        }
+        return Err(ProtocolError(format!(
+            "Path from environment variable \"GOOGLE_API_CERTIFICATE_CONFIG\" is invalid: {}",
+            path.display()
+        )));
+    }
+    let path = certificate_config_default_path();
+    if valid_file(&path).await {
+        return Ok(path);
+    }
+    Err(ProtocolError(format!(
+        "Could not find certificate configuration file. Searched override path, the \"GOOGLE_API_CERTIFICATE_CONFIG\" env var, and the gcloud path ({}).",
+        path.display()
+    )))
+}
+
+async fn certificate_subject_token(
+    certificate: &Value,
+) -> Result<(String, reqwest::Identity), ProtocolError> {
+    let config_path = certificate_config_path(certificate).await?;
+    let config_raw = tokio::fs::read_to_string(&config_path).await.map_err(|_| {
+        ProtocolError(format!(
+            "Failed to read certificate config file at: {}",
+            config_path.display()
+        ))
+    })?;
+    let config: Value = serde_json::from_str(&config_raw).map_err(|error| {
+        ProtocolError(format!(
+            "Failed to parse certificate config from {}: {error}",
+            config_path.display()
+        ))
+    })?;
+    let cert_path = config
+        .pointer("/cert_configs/workload/cert_path")
+        .and_then(Value::as_str);
+    let key_path = config
+        .pointer("/cert_configs/workload/key_path")
+        .and_then(Value::as_str);
+    let (Some(cert_path), Some(key_path)) = (cert_path, key_path) else {
+        return Err(ProtocolError(format!(
+            "Certificate config file ({}) is missing required \"cert_path\" or \"key_path\" in the workload config.",
+            config_path.display()
+        )));
+    };
+    let cert = tokio::fs::read(cert_path).await.map_err(|error| {
+        ProtocolError(format!(
+            "Failed to read certificate file at {cert_path}: {error}"
+        ))
+    })?;
+    let key = tokio::fs::read(key_path).await.map_err(|error| {
+        ProtocolError(format!(
+            "Failed to read private key file at {key_path}: {error}"
+        ))
+    })?;
+    let leaf = pem_certificates(&cert)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| ProtocolError("Invalid certificate PEM block".into()))?;
+    let mut chain = vec![leaf.clone()];
+    if let Some(path) = certificate
+        .get("trust_chain_path")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
+        let raw = tokio::fs::read(path).await.map_err(|error| {
+            ProtocolError(format!(
+                "Failed to process certificate chain from {path}: {error}"
+            ))
+        })?;
+        let parsed = pem_certificates(&raw)?;
+        if let Some(index) = parsed.iter().position(|value| *value == leaf) {
+            if index != 0 {
+                return Err(ProtocolError(format!(
+                    "Leaf certificate exists in the trust chain but is not the first entry (found at index {index})."
+                )));
+            }
+            chain = parsed;
+        } else {
+            chain.extend(parsed);
+        }
+    }
+    let subject = serde_json::to_string(
+        &chain
+            .iter()
+            .map(|value| base64::engine::general_purpose::STANDARD.encode(value))
+            .collect::<Vec<_>>(),
+    )
+    .map_err(|error| ProtocolError(error.to_string()))?;
+    let mut identity_pem = cert;
+    if !identity_pem.ends_with(b"\n") {
+        identity_pem.push(b'\n');
+    }
+    identity_pem.extend(key);
+    let identity = reqwest::Identity::from_pem(&identity_pem)
+        .map_err(|error| ProtocolError(error.to_string()))?;
+    Ok((subject, identity))
+}
+
 const EXECUTABLE_ALLOW_ENV: &str = "GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES";
 const DEFAULT_EXECUTABLE_TIMEOUT_MS: u64 = 30_000;
 const MIN_EXECUTABLE_TIMEOUT_MS: u64 = 5_000;
@@ -857,9 +1031,15 @@ async fn aws_subject_token(credentials: &Value, source: &Value) -> Result<String
     Ok(url::form_urlencoded::byte_serialize(value.as_bytes()).collect())
 }
 
+struct ExternalSubjectToken {
+    token: String,
+    source_type: &'static str,
+    identity: Option<reqwest::Identity>,
+}
+
 async fn external_subject_token(
     credentials: &Value,
-) -> Result<(String, &'static str), ProtocolError> {
+) -> Result<ExternalSubjectToken, ProtocolError> {
     let source = credentials
         .get("credential_source")
         .ok_or_else(|| ProtocolError("A credential source must be specified.".into()))?;
@@ -868,19 +1048,28 @@ async fn external_subject_token(
         .and_then(Value::as_str)
         .is_some_and(|value| !value.is_empty())
     {
-        return Ok((aws_subject_token(credentials, source).await?, "aws"));
+        return Ok(ExternalSubjectToken {
+            token: aws_subject_token(credentials, source).await?,
+            source_type: "aws",
+            identity: None,
+        });
     }
     if let Some(executable) = source.get("executable") {
-        return Ok((
-            executable_subject_token(credentials, executable).await?,
-            "executable",
-        ));
+        return Ok(ExternalSubjectToken {
+            token: executable_subject_token(credentials, executable).await?,
+            source_type: "executable",
+            identity: None,
+        });
     }
     if let Some(path) = source.get("file").and_then(Value::as_str) {
         let raw = tokio::fs::read_to_string(path)
             .await
             .map_err(|error| ProtocolError(error.to_string()))?;
-        return Ok((parse_external_subject_token(&raw, source, "file")?, "file"));
+        return Ok(ExternalSubjectToken {
+            token: parse_external_subject_token(&raw, source, "file")?,
+            source_type: "file",
+            identity: None,
+        });
     }
     if let Some(url) = source.get("url").and_then(Value::as_str) {
         let json = source.pointer("/format/type").and_then(Value::as_str) == Some("json");
@@ -904,7 +1093,19 @@ async fn external_subject_token(
             .text()
             .await
             .map_err(|error| ProtocolError(error.to_string()))?;
-        return Ok((parse_external_subject_token(&raw, source, "URL")?, "url"));
+        return Ok(ExternalSubjectToken {
+            token: parse_external_subject_token(&raw, source, "URL")?,
+            source_type: "url",
+            identity: None,
+        });
+    }
+    if let Some(certificate) = source.get("certificate") {
+        let (token, identity) = certificate_subject_token(certificate).await?;
+        return Ok(ExternalSubjectToken {
+            token,
+            source_type: "certificate",
+            identity: Some(identity),
+        });
     }
     Err(ProtocolError(
         "No valid Identity Pool \"credential_source\" provided, must be either file, url, or certificate."
@@ -912,11 +1113,16 @@ async fn external_subject_token(
     ))
 }
 
-async fn external_account_token(credentials: &Value) -> Result<String, ProtocolError> {
+struct AdcAccessToken {
+    token: String,
+    identity: Option<reqwest::Identity>,
+}
+
+async fn external_account_token(credentials: &Value) -> Result<AdcAccessToken, ProtocolError> {
     let audience = credential_field(credentials, "audience")?;
     let subject_token_type = credential_field(credentials, "subject_token_type")?;
     let token_url = credential_field(credentials, "token_url")?;
-    let (subject_token, source_type) = external_subject_token(credentials).await?;
+    let subject = external_subject_token(credentials).await?;
     let body = {
         let mut serializer = url::form_urlencoded::Serializer::new(String::new());
         serializer
@@ -930,7 +1136,7 @@ async fn external_account_token(credentials: &Value) -> Result<String, ProtocolE
                 "requested_token_type",
                 "urn:ietf:params:oauth:token-type:access_token",
             )
-            .append_pair("subject_token", &subject_token)
+            .append_pair("subject_token", &subject.token)
             .append_pair("subject_token_type", subject_token_type);
         serializer.finish()
     };
@@ -940,7 +1146,14 @@ async fn external_account_token(credentials: &Value) -> Result<String, ProtocolE
     let configured_lifetime = credentials
         .pointer("/service_account_impersonation/token_lifetime_seconds")
         .and_then(Value::as_u64);
-    let mut request = reqwest::Client::new()
+    let mut builder = reqwest::Client::builder();
+    if let Some(identity) = subject.identity.clone() {
+        builder = builder.identity(identity);
+    }
+    let client = builder
+        .build()
+        .map_err(|error| ProtocolError(error.to_string()))?;
+    let mut request = client
         .post(token_url)
         .header("accept", "application/json")
         .header(
@@ -950,7 +1163,8 @@ async fn external_account_token(credentials: &Value) -> Result<String, ProtocolE
         .header(
             "x-goog-api-client",
             format!(
-                "gl-node/22.23.1 auth/10.6.2 google-byoid-sdk source/{source_type} sa-impersonation/{} config-lifetime/{}",
+                "gl-node/22.23.1 auth/10.6.2 google-byoid-sdk source/{} sa-impersonation/{} config-lifetime/{}",
+                subject.source_type,
                 impersonation_url.is_some(),
                 configured_lifetime.is_some()
             ),
@@ -974,7 +1188,7 @@ async fn external_account_token(credentials: &Value) -> Result<String, ProtocolE
         })
         .to_string();
         let value = token_response(
-            reqwest::Client::new()
+            client
                 .post(url)
                 .bearer_auth(&token)
                 .header("accept", "application/json")
@@ -995,35 +1209,44 @@ async fn external_account_token(credentials: &Value) -> Result<String, ProtocolE
             .get("cloud_resource_manager_url")
             .and_then(Value::as_str)
             .unwrap_or("https://cloudresourcemanager.googleapis.com/v1/projects/");
-        token_response(
-            reqwest::Client::new()
-                .get(format!("{base}{project_number}"))
-                .bearer_auth(&token)
-                .header("accept", "application/json")
-                .header("x-goog-api-client", "gl-node/22.23.1"),
-        )
-        .await?;
+        let mut request = client
+            .get(format!("{base}{project_number}"))
+            .bearer_auth(&token)
+            .header("accept", "application/json");
+        if subject.identity.is_none() {
+            request = request.header("x-goog-api-client", "gl-node/22.23.1");
+        }
+        token_response(request).await?;
     }
-    Ok(token)
+    Ok(AdcAccessToken {
+        token,
+        identity: subject.identity,
+    })
 }
 
-async fn adc_access_token() -> Result<String, ProtocolError> {
+async fn adc_access_token() -> Result<AdcAccessToken, ProtocolError> {
     let path = credential_path()?;
     let raw = tokio::fs::read_to_string(path)
         .await
         .map_err(|error| ProtocolError(error.to_string()))?;
     let credentials: Value =
         serde_json::from_str(&raw).map_err(|error| ProtocolError(error.to_string()))?;
-    match credential_field(&credentials, "type")? {
+    let token = match credential_field(&credentials, "type")? {
         "authorized_user" | "external_account_authorized_user" => {
-            refresh_user_token(&credentials).await
+            refresh_user_token(&credentials).await?
         }
-        "service_account" => service_account_token(&credentials).await,
-        "external_account" => external_account_token(&credentials).await,
-        kind => Err(ProtocolError(format!(
-            "Unsupported Application Default Credentials type: {kind}"
-        ))),
-    }
+        "service_account" => service_account_token(&credentials).await?,
+        "external_account" => return external_account_token(&credentials).await,
+        kind => {
+            return Err(ProtocolError(format!(
+                "Unsupported Application Default Credentials type: {kind}"
+            )));
+        }
+    };
+    Ok(AdcAccessToken {
+        token,
+        identity: None,
+    })
 }
 
 fn request_headers(
@@ -1083,13 +1306,13 @@ async fn drive(
         return Err(ProtocolError("Request aborted".into()));
     }
     let key = explicit_api_key(options.base.api_key.as_deref());
-    let (project, location, bearer) = if key.is_some() {
+    let (project, location, auth) = if key.is_some() {
         (None, None, None)
     } else {
         let project = resolve_project(options)?;
         let location = resolve_location(options)?;
-        let bearer = adc_access_token().await?;
-        (Some(project), Some(location), Some(bearer))
+        let auth = adc_access_token().await?;
+        (Some(project), Some(location), Some(auth))
     };
     let google_options = GoogleOptions {
         base: options.base.clone(),
@@ -1102,10 +1325,13 @@ async fn drive(
     {
         params = next;
     }
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_millis(
-            options.base.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS),
-        ))
+    let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_millis(
+        options.base.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS),
+    ));
+    if let Some(identity) = auth.as_ref().and_then(|value| value.identity.clone()) {
+        builder = builder.identity(identity);
+    }
+    let client = builder
         .build()
         .map_err(|error| ProtocolError(error.to_string()))?;
     let response = client
@@ -1115,7 +1341,12 @@ async fn drive(
             project.as_deref(),
             location.as_deref(),
         ))
-        .headers(request_headers(model, options, key, bearer.as_deref())?)
+        .headers(request_headers(
+            model,
+            options,
+            key,
+            auth.as_ref().map(|value| value.token.as_str()),
+        )?)
         .body(params.to_string())
         .send()
         .await

@@ -475,6 +475,10 @@ async fn run(case: &Value, models: &Value) -> Value {
         "pi-vertex-executable-output-{}.json",
         std::process::id()
     ));
+    let certificate_config_path = std::env::temp_dir().join(format!(
+        "pi-vertex-certificate-config-{}.json",
+        std::process::id()
+    ));
     let old_credentials = std::env::var_os("GOOGLE_APPLICATION_CREDENTIALS");
     let old_allow_executables = std::env::var_os("GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES");
     let aws_names = [
@@ -497,6 +501,32 @@ async fn run(case: &Value, models: &Value) -> Value {
                 )
                 .unwrap();
                 json!({"type":"service_account","project_id":"p","client_email":"test@p.iam.gserviceaccount.com","private_key":key,"token_uri":format!("http://{address}/oauth-token")})
+            }
+            "workload-certificate" => {
+                let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../tests/google-vertex-parity");
+                std::fs::write(
+                    &certificate_config_path,
+                    json!({
+                        "cert_configs":{"workload":{
+                            "cert_path":fixture.join("certificate.pem"),
+                            "key_path":fixture.join("certificate-key.pem"),
+                        }}
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+                json!({
+                    "type":"external_account",
+                    "audience":"//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
+                    "subject_token_type":"urn:ietf:params:oauth:token-type:mtls",
+                    "token_url":format!("http://{address}/sts"),
+                    "cloud_resource_manager_url":format!("http://{address}/project/"),
+                    "credential_source":{"certificate":{
+                        "certificate_config_location":certificate_config_path,
+                        "trust_chain_path":fixture.join("certificate-chain.pem"),
+                    }},
+                })
             }
             "workload-aws-env" | "workload-aws-metadata" => {
                 let mut source = json!({
@@ -662,6 +692,7 @@ printf '{"version":1,"success":true,"token_type":"urn:ietf:params:oauth:token-ty
         let _ = std::fs::remove_file(subject_path);
         let _ = std::fs::remove_file(executable_path);
         let _ = std::fs::remove_file(executable_output_path);
+        let _ = std::fs::remove_file(certificate_config_path);
     }
     let requests = captured
         .lock()

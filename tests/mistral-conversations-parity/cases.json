@@ -1,0 +1,38 @@
+{
+  "models": {
+    "large": {
+      "id": "mistral-large-latest", "name": "Mistral Large", "api": "mistral-conversations", "provider": "mistral", "baseUrl": "", "reasoning": true,
+      "input": ["text", "image"], "cost": {"input": 2, "output": 6, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 128000, "maxTokens": 32768,
+      "headers": {"x-model-header": "model"}
+    },
+    "small": {
+      "id": "mistral-small-2603", "name": "Mistral Small", "api": "mistral-conversations", "provider": "mistral", "baseUrl": "", "reasoning": true,
+      "input": ["text"], "cost": {"input": 0.1, "output": 0.3, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 128000, "maxTokens": 32768,
+      "thinkingLevelMap": {"off": "none", "minimal": "high", "low": "high", "medium": "high", "high": "high", "xhigh": "high"}
+    }
+  },
+  "cases": [
+    {
+      "name": "request-rich-stream", "model": "large",
+      "context": {
+        "systemPrompt": "Be helpful.",
+        "messages": [
+          {"role":"user","content":[{"type":"text","text":"hello"},{"type":"image","data":"aW1n","mimeType":"image/png"}],"timestamp":1},
+          {"role":"assistant","content":[{"type":"thinking","thinking":"consider"},{"type":"text","text":"using tool"},{"type":"toolCall","id":"call.with-invalid-id","name":"read","arguments":{"path":"x"}}],"api":"mistral-conversations","provider":"mistral","model":"mistral-large-latest","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"toolUse","timestamp":1},
+          {"role":"toolResult","toolCallId":"call.with-invalid-id","toolName":"read","content":[{"type":"text","text":"done"},{"type":"image","data":"aW1n","mimeType":"image/png"}],"isError":false,"timestamp":1}
+        ],
+        "tools":[{"name":"read","description":"Read","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}]
+      },
+      "options": {"apiKey":"key","temperature":0.2,"maxTokens":1234,"toolChoice":"auto","promptMode":"reasoning","sessionId":"session","headers":{"x-extra":"option","x-affinity":"explicit"}},
+      "responses": [{"status":200,"events":[
+        {"id":"resp_m","model":"mistral-large-latest","choices":[{"index":0,"delta":{"content":[{"type":"thinking","thinking":[{"type":"text","text":"Think "}]},{"type":"text","text":"Answer "}]},"finish_reason":null}]},
+        {"id":"resp_m","model":"mistral-large-latest","choices":[{"index":0,"delta":{"content":"more","tool_calls":[{"index":0,"id":"tool12345","type":"function","function":{"name":"read","arguments":"{\"path\":"}}]},"finish_reason":null}]},
+        {"id":"resp_m","model":"mistral-large-latest","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"tool12345","type":"function","function":{"name":"read","arguments":"\"a\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":4,"total_tokens":14}}
+      ]}]
+    },
+    {"name":"simple-reasoning-effort","model":"small","simple":true,"context":{"messages":[{"role":"user","content":"hi","timestamp":1}]},"options":{"apiKey":"key","reasoning":"low","sessionId":"simple-session"},"responses":[{"status":200,"events":[{"id":"resp_s","model":"mistral-small-2603","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}]}]},
+    {"name":"length","model":"large","context":{"messages":[{"role":"user","content":"hi","timestamp":1}]},"options":{"apiKey":"key"},"responses":[{"status":200,"events":[{"id":"resp_l","model":"mistral-large-latest","choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":"model_length"}]}]}]},
+    {"name":"http-error","model":"large","context":{"messages":[{"role":"user","content":"hi","timestamp":1}]},"options":{"apiKey":"key"},"responses":[{"status":400,"json":{"message":"bad request"}}]},
+    {"name":"missing-key","model":"large","context":{"messages":[{"role":"user","content":"hi","timestamp":1}]},"options":{},"responses":[]}
+  ]
+}

@@ -1,0 +1,471 @@
+{
+	"cases": [
+		{
+			"name": "request-rich-stream",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/chat/completions",
+					"headers": {
+						"accept": "text/event-stream",
+						"authorization": "Bearer key",
+						"content-type": "application/json",
+						"cookie": "",
+						"x-affinity": "explicit",
+						"x-extra": "option",
+						"x-model-header": "model"
+					},
+					"body": {
+						"model": "mistral-large-latest",
+						"temperature": 0.2,
+						"max_tokens": 1234,
+						"stream": true,
+						"messages": [
+							{
+								"role": "system",
+								"content": "Be helpful."
+							},
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hello"
+									},
+									{
+										"type": "image_url",
+										"image_url": "data:image/png;base64,aW1n"
+									}
+								]
+							},
+							{
+								"role": "assistant",
+								"content": [
+									{
+										"type": "thinking",
+										"thinking": [
+											{
+												"type": "text",
+												"text": "consider"
+											}
+										]
+									},
+									{
+										"type": "text",
+										"text": "using tool"
+									}
+								],
+								"tool_calls": [
+									{
+										"id": "call.with-invalid-id",
+										"type": "function",
+										"function": {
+											"name": "read",
+											"arguments": "{\"path\":\"x\"}"
+										},
+										"index": 0
+									}
+								],
+								"prefix": false
+							},
+							{
+								"role": "tool",
+								"content": [
+									{
+										"type": "text",
+										"text": "done"
+									},
+									{
+										"type": "image_url",
+										"image_url": "data:image/png;base64,aW1n"
+									}
+								],
+								"tool_call_id": "call.with-invalid-id",
+								"name": "read"
+							}
+						],
+						"tools": [
+							{
+								"type": "function",
+								"function": {
+									"name": "read",
+									"description": "Read",
+									"strict": false,
+									"parameters": {
+										"type": "object",
+										"properties": {
+											"path": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"path"
+										]
+									}
+								}
+							}
+						],
+						"tool_choice": "auto",
+						"prompt_mode": "reasoning"
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "thinking_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "thinking_delta",
+					"contentIndex": 0,
+					"delta": "Think "
+				},
+				{
+					"type": "thinking_end",
+					"contentIndex": 0,
+					"content": "Think "
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 1
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 1,
+					"delta": "Answer "
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 1,
+					"delta": "more"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 1,
+					"content": "Answer more"
+				},
+				{
+					"type": "toolcall_start",
+					"contentIndex": 2
+				},
+				{
+					"type": "toolcall_delta",
+					"contentIndex": 2,
+					"delta": "{\"path\":"
+				},
+				{
+					"type": "toolcall_delta",
+					"contentIndex": 2,
+					"delta": "\"a\"}"
+				},
+				{
+					"type": "toolcall_end",
+					"contentIndex": 2,
+					"toolCall": {
+						"type": "toolCall",
+						"id": "tool12345",
+						"name": "read",
+						"arguments": {
+							"path": "a"
+						}
+					}
+				},
+				{
+					"type": "done",
+					"reason": "toolUse"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "thinking",
+						"thinking": "Think "
+					},
+					{
+						"type": "text",
+						"text": "Answer more"
+					},
+					{
+						"type": "toolCall",
+						"id": "tool12345",
+						"name": "read",
+						"arguments": {
+							"path": "a"
+						}
+					}
+				],
+				"api": "mistral-conversations",
+				"provider": "mistral",
+				"model": "mistral-large-latest",
+				"usage": {
+					"input": 10,
+					"output": 4,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 14,
+					"cost": {
+						"input": 0.000019999999999999998,
+						"output": 0.000024,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.000044
+					}
+				},
+				"stopReason": "toolUse",
+				"timestamp": 0,
+				"responseId": "resp_m"
+			}
+		},
+		{
+			"name": "simple-reasoning-effort",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/chat/completions",
+					"headers": {
+						"accept": "text/event-stream",
+						"authorization": "Bearer key",
+						"content-type": "application/json",
+						"cookie": "",
+						"x-affinity": "simple-session"
+					},
+					"body": {
+						"model": "mistral-small-2603",
+						"stream": true,
+						"messages": [
+							{
+								"role": "user",
+								"content": "hi"
+							}
+						],
+						"reasoning_effort": "high"
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "mistral-conversations",
+				"provider": "mistral",
+				"model": "mistral-small-2603",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "resp_s"
+			}
+		},
+		{
+			"name": "length",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/chat/completions",
+					"headers": {
+						"accept": "text/event-stream",
+						"authorization": "Bearer key",
+						"content-type": "application/json",
+						"cookie": "",
+						"x-model-header": "model"
+					},
+					"body": {
+						"model": "mistral-large-latest",
+						"stream": true,
+						"messages": [
+							{
+								"role": "user",
+								"content": "hi"
+							}
+						]
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "partial"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "partial"
+				},
+				{
+					"type": "done",
+					"reason": "length"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "partial"
+					}
+				],
+				"api": "mistral-conversations",
+				"provider": "mistral",
+				"model": "mistral-large-latest",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "length",
+				"timestamp": 0,
+				"responseId": "resp_l"
+			}
+		},
+		{
+			"name": "http-error",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/v1/chat/completions",
+					"headers": {
+						"accept": "text/event-stream",
+						"authorization": "Bearer key",
+						"content-type": "application/json",
+						"cookie": "",
+						"x-model-header": "model"
+					},
+					"body": {
+						"model": "mistral-large-latest",
+						"stream": true,
+						"messages": [
+							{
+								"role": "user",
+								"content": "hi"
+							}
+						]
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "mistral-conversations",
+				"provider": "mistral",
+				"model": "mistral-large-latest",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "Mistral API error (400): {\"message\":\"bad request\"}"
+			}
+		},
+		{
+			"name": "missing-key",
+			"requests": [],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "mistral-conversations",
+				"provider": "mistral",
+				"model": "mistral-large-latest",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "No API key for provider: mistral"
+			}
+		}
+	]
+}

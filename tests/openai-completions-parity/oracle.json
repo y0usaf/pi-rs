@@ -1,0 +1,802 @@
+{
+	"cases": [
+		{
+			"name": "rich-stream",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/chat/completions",
+					"headers": {
+						"accept": "application/json",
+						"authorization": "Bearer key",
+						"content-type": "application/json",
+						"x-extra": "yes"
+					},
+					"body": {
+						"model": "gpt-5-mini",
+						"messages": [
+							{
+								"role": "developer",
+								"content": "You are helpful."
+							},
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hello"
+									},
+									{
+										"type": "image_url",
+										"image_url": {
+											"url": "data:image/png;base64,aW1n"
+										}
+									}
+								]
+							},
+							{
+								"role": "assistant",
+								"content": "using tool",
+								"reasoning_content": "old thought",
+								"tool_calls": [
+									{
+										"id": "call_1",
+										"type": "function",
+										"function": {
+											"name": "read",
+											"arguments": "{\"path\":\"x\"}"
+										}
+									}
+								]
+							},
+							{
+								"role": "tool",
+								"content": "done",
+								"tool_call_id": "call_1"
+							},
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "Attached image(s) from tool result:"
+									},
+									{
+										"type": "image_url",
+										"image_url": {
+											"url": "data:image/png;base64,aW1n"
+										}
+									}
+								]
+							}
+						],
+						"stream": true,
+						"stream_options": {
+							"include_usage": true
+						},
+						"store": false,
+						"max_completion_tokens": 1234,
+						"temperature": 0.2,
+						"tools": [
+							{
+								"type": "function",
+								"function": {
+									"name": "read",
+									"description": "Read",
+									"parameters": {
+										"type": "object",
+										"properties": {
+											"path": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"path"
+										]
+									},
+									"strict": false
+								}
+							}
+						],
+						"tool_choice": "auto",
+						"reasoning_effort": "high"
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "Answer "
+				},
+				{
+					"type": "thinking_start",
+					"contentIndex": 1
+				},
+				{
+					"type": "thinking_delta",
+					"contentIndex": 1,
+					"delta": "Think "
+				},
+				{
+					"type": "toolcall_start",
+					"contentIndex": 2
+				},
+				{
+					"type": "toolcall_delta",
+					"contentIndex": 2,
+					"delta": "{\"path\":"
+				},
+				{
+					"type": "toolcall_delta",
+					"contentIndex": 2,
+					"delta": "\"a\"}"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "Answer "
+				},
+				{
+					"type": "thinking_end",
+					"contentIndex": 1,
+					"content": "Think "
+				},
+				{
+					"type": "toolcall_end",
+					"contentIndex": 2,
+					"toolCall": {
+						"type": "toolCall",
+						"id": "call_new",
+						"name": "read",
+						"arguments": {
+							"path": "a"
+						},
+						"thoughtSignature": "{\"type\":\"reasoning.encrypted\",\"id\":\"call_new\",\"data\":\"sig\"}"
+					}
+				},
+				{
+					"type": "done",
+					"reason": "toolUse"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "Answer "
+					},
+					{
+						"type": "thinking",
+						"thinking": "Think ",
+						"thinkingSignature": "reasoning_content"
+					},
+					{
+						"type": "toolCall",
+						"id": "call_new",
+						"name": "read",
+						"arguments": {
+							"path": "a"
+						},
+						"thoughtSignature": "{\"type\":\"reasoning.encrypted\",\"id\":\"call_new\",\"data\":\"sig\"}"
+					}
+				],
+				"api": "openai-completions",
+				"provider": "openai",
+				"model": "gpt-5-mini",
+				"usage": {
+					"input": 15,
+					"output": 5,
+					"cacheRead": 4,
+					"cacheWrite": 1,
+					"totalTokens": 25,
+					"cost": {
+						"input": 0.0000037499999999999997,
+						"output": 0.000009999999999999999,
+						"cacheRead": 1.0000000000000001e-7,
+						"cacheWrite": 0,
+						"total": 0.00001385
+					}
+				},
+				"stopReason": "toolUse",
+				"timestamp": 0,
+				"responseId": "chat_1",
+				"responseModel": "different-model"
+			}
+		},
+		{
+			"name": "simple-reasoning",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/chat/completions",
+					"headers": {
+						"accept": "application/json",
+						"authorization": "Bearer key",
+						"content-type": "application/json"
+					},
+					"body": {
+						"model": "gpt-5-mini",
+						"messages": [
+							{
+								"role": "user",
+								"content": "hi"
+							}
+						],
+						"stream": true,
+						"stream_options": {
+							"include_usage": true
+						},
+						"store": false,
+						"reasoning_effort": "high"
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "openai-completions",
+				"provider": "openai",
+				"model": "gpt-5-mini",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "simple"
+			}
+		},
+		{
+			"name": "openrouter-cache",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/chat/completions",
+					"headers": {
+						"accept": "application/json",
+						"authorization": "Bearer key",
+						"content-type": "application/json"
+					},
+					"body": {
+						"model": "anthropic/claude-sonnet-4.5",
+						"messages": [
+							{
+								"role": "developer",
+								"content": [
+									{
+										"type": "text",
+										"text": "Sys",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							},
+							{
+								"role": "user",
+								"content": [
+									{
+										"type": "text",
+										"text": "hi",
+										"cache_control": {
+											"type": "ephemeral"
+										}
+									}
+								]
+							}
+						],
+						"stream": true,
+						"stream_options": {
+							"include_usage": true
+						},
+						"store": false,
+						"tools": [
+							{
+								"type": "function",
+								"function": {
+									"name": "read",
+									"description": "Read",
+									"parameters": {
+										"type": "object",
+										"properties": {},
+										"required": []
+									},
+									"strict": false
+								},
+								"cache_control": {
+									"type": "ephemeral"
+								}
+							}
+						],
+						"reasoning": {
+							"effort": "none"
+						}
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "openai-completions",
+				"provider": "openrouter",
+				"model": "anthropic/claude-sonnet-4.5",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "or"
+			}
+		},
+		{
+			"name": "deepseek-thinking",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/chat/completions",
+					"headers": {
+						"accept": "application/json",
+						"authorization": "Bearer key",
+						"content-type": "application/json"
+					},
+					"body": {
+						"model": "deepseek-reasoner",
+						"messages": [
+							{
+								"role": "user",
+								"content": "hello"
+							},
+							{
+								"role": "assistant",
+								"content": "hi",
+								"reasoning_content": ""
+							},
+							{
+								"role": "user",
+								"content": "more"
+							}
+						],
+						"stream": true,
+						"stream_options": {
+							"include_usage": true
+						},
+						"store": false,
+						"thinking": {
+							"type": "enabled"
+						},
+						"reasoning_effort": "medium"
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "thinking_start",
+					"contentIndex": 1
+				},
+				{
+					"type": "thinking_delta",
+					"contentIndex": 1,
+					"delta": "why"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "thinking_end",
+					"contentIndex": 1,
+					"content": "why"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					},
+					{
+						"type": "thinking",
+						"thinking": "why",
+						"thinkingSignature": "reasoning"
+					}
+				],
+				"api": "openai-completions",
+				"provider": "deepseek",
+				"model": "deepseek-reasoner",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "ds"
+			}
+		},
+		{
+			"name": "moonshot-choice-usage",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/chat/completions",
+					"headers": {
+						"accept": "application/json",
+						"authorization": "Bearer key",
+						"content-type": "application/json"
+					},
+					"body": {
+						"model": "kimi-k2",
+						"messages": [
+							{
+								"role": "user",
+								"content": "hi"
+							}
+						],
+						"stream": true,
+						"stream_options": {
+							"include_usage": true
+						},
+						"max_tokens": 500,
+						"tools": [
+							{
+								"type": "function",
+								"function": {
+									"name": "read",
+									"description": "Read",
+									"parameters": {
+										"type": "object",
+										"properties": {},
+										"required": []
+									}
+								}
+							}
+						]
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "openai-completions",
+				"provider": "moonshotai",
+				"model": "kimi-k2",
+				"usage": {
+					"input": 7,
+					"output": 3,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 10,
+					"cost": {
+						"input": 0.000007,
+						"output": 0.000006,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0.000013000000000000001
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "moon"
+			}
+		},
+		{
+			"name": "no-finish",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/chat/completions",
+					"headers": {
+						"accept": "application/json",
+						"authorization": "Bearer key",
+						"content-type": "application/json"
+					},
+					"body": {
+						"model": "gpt-5-mini",
+						"messages": [
+							{
+								"role": "user",
+								"content": "hi"
+							}
+						],
+						"stream": true,
+						"stream_options": {
+							"include_usage": true
+						},
+						"store": false
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "partial"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "partial"
+				},
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "partial"
+					}
+				],
+				"api": "openai-completions",
+				"provider": "openai",
+				"model": "gpt-5-mini",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"responseId": "bad",
+				"errorMessage": "Stream ended without finish_reason"
+			}
+		},
+		{
+			"name": "http-raw-error",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/chat/completions",
+					"headers": {
+						"accept": "application/json",
+						"authorization": "Bearer key",
+						"content-type": "application/json"
+					},
+					"body": {
+						"model": "gpt-5-mini",
+						"messages": [
+							{
+								"role": "user",
+								"content": "hi"
+							}
+						],
+						"stream": true,
+						"stream_options": {
+							"include_usage": true
+						},
+						"store": false
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "openai-completions",
+				"provider": "openai",
+				"model": "gpt-5-mini",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "400 bad\nprovider detail"
+			}
+		},
+		{
+			"name": "missing-key",
+			"requests": [],
+			"events": [
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [],
+				"api": "openai-completions",
+				"provider": "openai",
+				"model": "gpt-5-mini",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"errorMessage": "No API key for provider: openai"
+			}
+		},
+		{
+			"name": "simple-missing-key",
+			"requests": [],
+			"syncError": "No API key for provider: openai"
+		}
+	]
+}
