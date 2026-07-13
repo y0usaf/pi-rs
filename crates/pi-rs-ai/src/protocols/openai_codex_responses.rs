@@ -892,7 +892,7 @@ async fn drive(
     let account_id = extract_account_id(token)?;
     let mut body = build_request_body(model, context, options);
     if let Some(hook) = &options.base.on_payload
-        && let Some(next) = hook(body.clone(), model)
+        && let Some(next) = hook(body.clone(), model.clone()).await
     {
         body = next;
     }
@@ -998,12 +998,13 @@ async fn drive(
     .map_err(|error| ProtocolError(format_http_error(&error)))?;
     if let Some(hook) = &options.base.on_response {
         hook(
-            &ProviderResponse {
+            ProviderResponse {
                 status: response.status().as_u16(),
                 headers: headers_to_record(response.headers()),
             },
-            model,
-        );
+            model.clone(),
+        )
+        .await;
     }
     stream.push(AssistantMessageEvent::Start {
         partial: output.clone(),

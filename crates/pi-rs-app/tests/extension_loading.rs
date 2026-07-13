@@ -714,3 +714,196 @@ pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:aft
     });
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn complete_event_folds_match_pi_runner_oracle() {
+    let mut expected: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/extension-event-parity/oracle.json"
+    ))
+    .unwrap();
+    let fold_error_count = expected["foldErrorCount"].as_u64().unwrap() as usize;
+    expected.as_object_mut().unwrap().remove("foldErrorCount");
+    expected.as_object_mut().unwrap().remove("productTrace");
+    expected["errors"]
+        .as_array_mut()
+        .unwrap()
+        .truncate(fold_error_count);
+    let host = Host::new(HostConfig::default()).unwrap();
+    let embedded = host.load_embedded(&[pi_rs_agent::PACK, CODING_AGENT_PACK]);
+    assert!(embedded.errors.is_empty(), "{:?}", embedded.errors);
+    host.load(
+        "01-first",
+        include_str!("../../../tests/extension-event-parity/01-first.lua"),
+    )
+    .unwrap();
+    host.load(
+        "02-second",
+        include_str!("../../../tests/extension-event-parity/02-second.lua"),
+    )
+    .unwrap();
+    let actual = host
+        .call_command(
+            "extension-event-fold-parity",
+            r#"{"cwd":"/oracle/project"}"#,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(actual, expected);
+}
+
+fn write_sse_response(stream: &mut TcpStream, body: &str) {
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\nX-Event-Oracle: yes\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream.write_all(response.as_bytes()).unwrap();
+}
+
+#[test]
+fn real_product_seams_follow_pi_generated_event_order() {
+    let expected: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/extension-event-parity/oracle.json"
+    ))
+    .unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("project");
+    let agent_dir = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    // SAFETY: this integration-test process owns its environment.
+    unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&requests);
+    let server = thread::spawn(move || {
+        let tool_body = concat!(
+            "event: message_start\n",
+            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_tool\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
+            "event: content_block_start\n",
+            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"event-call\",\"name\":\"event_tool\",\"input\":{}}}\n\n",
+            "event: content_block_delta\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"value\\\":\\\"x\\\"}\"}}\n\n",
+            "event: content_block_stop\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+            "event: message_delta\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":1}}\n\n",
+            "event: message_stop\n",
+            "data: {\"type\":\"message_stop\"}\n\n"
+        );
+        let text_body = concat!(
+            "event: message_start\n",
+            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_done\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
+            "event: content_block_start\n",
+            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+            "event: content_block_delta\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+            "event: content_block_stop\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+            "event: message_delta\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":1}}\n\n",
+            "event: message_stop\n",
+            "data: {\"type\":\"message_stop\"}\n\n"
+        );
+        for body in [tool_body, text_body] {
+            let (mut stream, _) = listener.accept().unwrap();
+            seen.lock().unwrap().push(read_request(&mut stream));
+            write_sse_response(&mut stream, body);
+        }
+    });
+
+    let host = Host::new(HostConfig {
+        cwd: Some(cwd.to_string_lossy().into_owned()),
+        project_trusted: true,
+        ..HostConfig::default()
+    })
+    .unwrap();
+    let embedded = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
+    assert!(embedded.errors.is_empty(), "{:?}", embedded.errors);
+    host.load(
+        "01-first",
+        include_str!("../../../tests/extension-event-parity/01-first.lua"),
+    )
+    .unwrap();
+    host.load(
+        "02-second",
+        include_str!("../../../tests/extension-event-parity/02-second.lua"),
+    )
+    .unwrap();
+    let model = serde_json::json!({
+        "id":"claude-test", "name":"Claude Test", "api":"anthropic-messages",
+        "provider":"anthropic", "baseUrl":format!("http://{address}"), "reasoning":false,
+        "input":["text"], "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},
+        "contextWindow":100000, "maxTokens":1024
+    });
+    let result = host
+        .call_role(
+            "print",
+            &serde_json::json!({
+                "model":model,"apiKey":"test-key","prompt":"go",
+                "cwd":cwd,"agentDir":agent_dir,"projectTrusted":true,
+                "readmePath":"/pi-rs-pkg/README.md","docsPath":"/pi-rs-pkg/docs",
+                "examplesPath":"/pi-rs-pkg/examples"
+            })
+            .to_string(),
+        )
+        .unwrap()
+        .unwrap();
+
+    server.join().unwrap();
+    assert_eq!(result["text"], "first replacement");
+    let fold_error_count = expected["foldErrorCount"].as_u64().unwrap() as usize;
+    let product_errors = serde_json::Value::Array(
+        expected["errors"].as_array().unwrap()[fold_error_count..].to_vec(),
+    );
+    assert_eq!(result["extensionErrors"], product_errors);
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0]["first"], true);
+    assert_eq!(requests[0]["second"], true);
+    let tool_result = requests[1]["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|message| message["content"].as_array().cloned().unwrap_or_default())
+        .find(|block| block["type"] == "tool_result")
+        .expect("tool_result block");
+    assert_eq!(tool_result["content"], "first result");
+    drop(requests);
+
+    let trace = host.call_command("event-trace", "").unwrap().unwrap();
+    let significant = [
+        "session_start",
+        "resources_discover",
+        "input",
+        "before_agent_start",
+        "agent_start",
+        "turn_start",
+        "message_start",
+        "message_end",
+        "after_provider_response",
+        "tool_execution_start",
+        "tool_call",
+        "tool_result",
+        "tool_execution_end",
+        "turn_end",
+        "agent_end",
+    ];
+    let mut filtered = trace
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| {
+            let kind = entry.as_str().unwrap().split_once(':').unwrap().1;
+            significant.contains(&kind)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let first_input = filtered
+        .iter()
+        .position(|entry| entry == "first:input")
+        .unwrap();
+    filtered.drain(..first_input);
+    assert_eq!(serde_json::Value::Array(filtered), expected["productTrace"]);
+}

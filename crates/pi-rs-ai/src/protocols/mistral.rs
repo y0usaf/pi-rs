@@ -5,9 +5,9 @@ use std::collections::HashMap;
 
 use pi_rs_ai_types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, AssistantRole, Context, Message,
-    Model, ModelThinkingLevel, StopReason, TextContent, ThinkingContent, ThinkingLevel,
-    ThinkingType, ToolCall, ToolCallType, Usage, UserContent, calculate_cost, clamp_thinking_level,
-    now_ms,
+    Model, ModelThinkingLevel, ProviderResponse, StopReason, TextContent, ThinkingContent,
+    ThinkingLevel, ThinkingType, ToolCall, ToolCallType, Usage, UserContent, calculate_cost,
+    clamp_thinking_level, now_ms,
 };
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::{Map, Value, json};
@@ -20,7 +20,7 @@ use crate::transport::{
     AbortSignal, AssistantMessageEventStream, create_assistant_message_event_stream,
     response_sse_reader,
 };
-use crate::util::{parse_streaming_json, sanitize_surrogates};
+use crate::util::{headers_to_record, parse_streaming_json, sanitize_surrogates};
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const TOOL_CALL_ID_LENGTH: usize = 9;
@@ -589,7 +589,7 @@ async fn drive(
         .ok_or_else(|| ProtocolError(format!("No API key for provider: {}", model.provider)))?;
     let mut payload = build_params(model, context, options);
     if let Some(hook) = &options.base.on_payload
-        && let Some(next) = hook(payload.clone(), model)
+        && let Some(next) = hook(payload.clone(), model.clone()).await
     {
         payload = next;
     }
@@ -613,6 +613,16 @@ async fn drive(
         let status = response.status().as_u16();
         let body = response.text().await.unwrap_or_default();
         return Err(ProtocolError(format_http_error(status, &body)));
+    }
+    if let Some(hook) = &options.base.on_response {
+        hook(
+            ProviderResponse {
+                status: response.status().as_u16(),
+                headers: headers_to_record(response.headers()),
+            },
+            model.clone(),
+        )
+        .await;
     }
     stream.push(AssistantMessageEvent::Start {
         partial: output.clone(),
