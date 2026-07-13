@@ -563,6 +563,66 @@ fn roles_resolve_by_explicit_activation_and_priority_not_source_identity() {
 }
 
 #[test]
+fn event_bus_matches_pi_event_emitter_listener_semantics() {
+    let host = host();
+    host.load(
+        "test://event-bus",
+        r#"
+            local pi = ...
+            local seen = {}
+            local off_second
+
+            pi.events.on("shared", function(data)
+                seen[#seen + 1] = "first:" .. data.value
+                data.value = "mutated"
+                if data.add then
+                    pi.events.on("shared", function(later)
+                        seen[#seen + 1] = "late:" .. later.value
+                    end)
+                end
+                if data.remove then off_second() end
+            end)
+            off_second = pi.events.on("shared", function(data)
+                seen[#seen + 1] = "second:" .. data.value
+            end)
+            pi.events.on("shared", function() error("isolated") end)
+            pi.events.on("shared", function(data)
+                seen[#seen + 1] = "final:" .. data.value
+            end)
+
+            pi.register_command("bus-run", { handler = function(args)
+                seen = {}
+                pi.events.emit("shared", {
+                    value = args,
+                    add = args == "one",
+                    remove = args == "one",
+                })
+                return seen
+            end })
+        "#,
+    )
+    .expect("event bus extension loads");
+
+    let first = host
+        .call_command("bus-run", "one")
+        .expect("first emission runs")
+        .expect("first observations");
+    assert_eq!(
+        first,
+        serde_json::json!(["first:one", "second:mutated", "final:mutated"])
+    );
+
+    let second = host
+        .call_command("bus-run", "two")
+        .expect("second emission runs")
+        .expect("second observations");
+    assert_eq!(
+        second,
+        serde_json::json!(["first:two", "final:mutated", "late:mutated"])
+    );
+}
+
+#[test]
 fn equal_priority_role_conflicts_fail_closed() {
     let host = host();
     for (source, id) in [("<one>", "one"), ("/tmp/two.lua", "two")] {
@@ -605,4 +665,65 @@ pi.register_role({{ id = "{role}", role = "{role}", active = true, priority = 0,
             other => panic!("expected role watchdog timeout, got {other:?}"),
         }
     }
+}
+
+#[test]
+fn failed_extension_rolls_back_event_bus_listeners() {
+    let host = host();
+    let failed = host.load(
+        "test://failed-bus-listener",
+        r#"
+            local pi = ...
+            pi.events.on("probe", function()
+                pi.register_tool({
+                    name = "ghost",
+                    execute = function() return {} end,
+                })
+            end)
+            error("factory failed")
+        "#,
+    );
+    assert!(failed.is_err());
+
+    host.load(
+        "test://bus-emitter",
+        r#"
+            local pi = ...
+            pi.register_command("emit-probe", { handler = function()
+                pi.events.emit("probe", {})
+            end })
+        "#,
+    )
+    .expect("emitter loads");
+    host.call_command("emit-probe", "").expect("emission runs");
+    assert!(host.tools().expect("tools mirror").is_empty());
+}
+
+#[test]
+fn event_bus_file_backed_exerciser_runs() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/extensions/event-bus-demo.lua"
+    );
+    let source = std::fs::read_to_string(path).expect("event bus example exists");
+    let host = host();
+    host.load("examples/extensions/event-bus-demo.lua", &source)
+        .expect("event bus example loads");
+
+    let observed = host
+        .call_command("event-bus-demo", "hello")
+        .expect("event bus command runs")
+        .expect("event bus observations");
+    assert_eq!(
+        observed,
+        serde_json::json!({"count":1,"messages":["event-bus-demo: hello"]})
+    );
+
+    host.call_command("event-bus-unsubscribe", "")
+        .expect("unsubscribe runs");
+    let observed = host
+        .call_command("event-bus-demo", "after")
+        .expect("post-unsubscribe command runs")
+        .expect("post-unsubscribe observations");
+    assert_eq!(observed, serde_json::json!({"count":0,"messages":{}}));
 }
