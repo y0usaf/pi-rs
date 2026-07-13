@@ -125,12 +125,17 @@ pub(crate) enum Msg {
 
 /// Spawn the dedicated VM thread. Returns after the VM has initialized
 /// (or failed to).
-pub(crate) fn spawn(config: HostConfig, control: Arc<Control>) -> Result<Sender<Msg>, HostError> {
+pub(crate) fn spawn(
+    config: HostConfig,
+    control: Arc<Control>,
+    effects: crate::effects::EffectHub,
+    effect_runner: crate::effects::EffectRunner,
+) -> Result<Sender<Msg>, HostError> {
     let (tx, rx) = std::sync::mpsc::channel::<Msg>();
     let (init_tx, init_rx) = sync_channel::<Result<(), String>>(1);
     std::thread::Builder::new()
         .name("pi-rs-host-lua".to_owned())
-        .spawn(move || vm_main(config, control, rx, init_tx))
+        .spawn(move || vm_main(config, control, effects, effect_runner, rx, init_tx))
         .map_err(|_| HostError::VmUnavailable)?;
     match init_rx.recv() {
         Ok(Ok(())) => Ok(tx),
@@ -142,6 +147,8 @@ pub(crate) fn spawn(config: HostConfig, control: Arc<Control>) -> Result<Sender<
 fn vm_main(
     config: HostConfig,
     control: Arc<Control>,
+    effects: crate::effects::EffectHub,
+    effect_runner: crate::effects::EffectRunner,
     rx: Receiver<Msg>,
     init_tx: SyncSender<Result<(), String>>,
 ) {
@@ -153,8 +160,14 @@ fn vm_main(
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_else(|_| ".".to_owned())
         });
-        let pi = bindings::build(&lua, &cwd, config.project_trusted, Arc::clone(&control))
-            .map_err(|e| e.to_string())?;
+        let pi = bindings::build(
+            &lua,
+            &cwd,
+            config.project_trusted,
+            Arc::clone(&control),
+            effects.clone(),
+        )
+        .map_err(|e| e.to_string())?;
         // enable_all: the process driver (pi.exec) needs the io/signal
         // drivers in addition to time.
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -173,6 +186,7 @@ fn vm_main(
             return;
         }
     };
+    effect_runner.start(&rt);
 
     while let Ok(msg) = rx.recv() {
         match msg {
@@ -198,17 +212,11 @@ fn vm_main(
                 let _ = reply.send(result);
             }
             Msg::DisposePackage { scope, reply } => {
-                let callbacks =
-                    crate::kernel_api::dispose_callbacks(&lua, &rt, &config, &control, scope);
-                let removal = api::remove_scope(&lua, scope)
-                    .map_err(|error| HostError::Lua(error.to_string()));
-                let _ = reply.send(callbacks.and(removal));
+                let _ = reply.send(dispose_scope(&lua, &rt, &config, &control, &effects, scope));
             }
             Msg::Shutdown { scopes, reply } => {
                 for (scope, _) in scopes {
-                    let _ =
-                        crate::kernel_api::dispose_callbacks(&lua, &rt, &config, &control, scope);
-                    let _ = api::remove_scope(&lua, scope);
+                    let _ = dispose_scope(&lua, &rt, &config, &control, &effects, scope);
                 }
                 let _ = reply.send(());
                 return;
@@ -285,6 +293,32 @@ fn vm_main(
             }
         }
     }
+}
+
+fn dispose_scope(
+    lua: &mlua::Lua,
+    runtime: &tokio::runtime::Runtime,
+    config: &HostConfig,
+    control: &Control,
+    effects: &crate::effects::EffectHub,
+    scope: ScopeId,
+) -> Result<(), HostError> {
+    // The owner scope is already cancelled before this VM message is handled.
+    // Drive every leased task/stream in that scope to completion before
+    // disposers run; the synchronous VM loop otherwise would not poll them
+    // again until an unrelated dispatch.
+    runtime.block_on(effects.settle_scope(scope));
+    // Disposers receive a short-lived mechanism-only scope so cleanup effects
+    // can finish without reviving the package or its cancelled work.
+    let cleanup_source = format!("<cleanup:{}>", scope.get());
+    let (cleanup_scope, _) = control.create_scope(cleanup_source)?;
+    crate::kernel_api::set_scope(lua, Some(cleanup_scope))
+        .map_err(|error| HostError::Lua(error.to_string()))?;
+    let callbacks = crate::kernel_api::dispose_callbacks(lua, runtime, config, control, scope);
+    let removal = api::remove_scope(lua, scope).map_err(|error| HostError::Lua(error.to_string()));
+    let _ = control.dispose(cleanup_scope);
+    let _ = crate::kernel_api::set_scope(lua, None);
+    callbacks.and(removal)
 }
 
 fn tools_mirror(lua: &mlua::Lua) -> Result<Vec<ToolInfo>, HostError> {

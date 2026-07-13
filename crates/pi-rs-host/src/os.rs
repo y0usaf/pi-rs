@@ -20,10 +20,31 @@
 //! - `pi.cwd()` is the host cwd injected at startup (spec: the loader's
 //!   `cwd` parameter).
 
-use std::time::UNIX_EPOCH;
+use crate::effects::{EffectOptions, EffectRequest, EffectResult, FsRequest};
 
-fn io_err(op: &str, path: &str, e: &std::io::Error) -> mlua::Error {
-    mlua::Error::runtime(format!("{op} '{path}': {e}"))
+async fn fs_request(
+    hub: &crate::effects::EffectHub,
+    lua: &mlua::Lua,
+    request: FsRequest,
+) -> mlua::Result<crate::effects::FsResult> {
+    let scope = hub.scope(lua)?;
+    let result = hub
+        .request(
+            scope,
+            EffectRequest::Fs(
+                request,
+                EffectOptions::bounded(std::time::Duration::from_secs(30)),
+            ),
+            crate::effects::cancellation(),
+        )
+        .await
+        .map_err(crate::effects::lua_error)?;
+    match result {
+        EffectResult::Fs(result) => Ok(result),
+        _ => Err(mlua::Error::runtime(
+            "filesystem effect returned the wrong result",
+        )),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -198,174 +219,205 @@ pub(crate) fn relative(from: &str, to: &str, cwd: &str) -> String {
 // install
 // ---------------------------------------------------------------------------
 
-fn install_fs(lua: &mlua::Lua, pi: &mlua::Table) -> mlua::Result<()> {
+fn install_fs(
+    lua: &mlua::Lua,
+    pi: &mlua::Table,
+    hub: crate::effects::EffectHub,
+) -> mlua::Result<()> {
     let fs = lua.create_table()?;
 
+    let read_hub = hub.clone();
     fs.set(
         "read_file",
-        lua.create_async_function(|_, path: String| async move {
-            tokio::fs::read_to_string(&path)
-                .await
-                .map_err(|e| io_err("read_file", &path, &e))
+        lua.create_async_function(move |lua, path: String| {
+            let hub = read_hub.clone();
+            async move {
+                let crate::effects::FsResult::Bytes(bytes) =
+                    fs_request(&hub, &lua, FsRequest::Read { path, bytes: false }).await?
+                else {
+                    return Err(mlua::Error::runtime("invalid read result"));
+                };
+                String::from_utf8(bytes).map_err(mlua::Error::external)
+            }
         })?,
     )?;
 
+    let write_hub = hub.clone();
     fs.set(
         "write_file",
-        lua.create_async_function(|_, (path, contents): (String, mlua::String)| async move {
-            tokio::fs::write(&path, contents.as_bytes())
-                .await
-                .map_err(|e| io_err("write_file", &path, &e))
+        lua.create_async_function(move |lua, (path, contents): (String, mlua::String)| {
+            let hub = write_hub.clone();
+            async move {
+                fs_request(
+                    &hub,
+                    &lua,
+                    FsRequest::Write {
+                        path,
+                        contents: contents.as_bytes().to_vec(),
+                    },
+                )
+                .await?;
+                Ok(())
+            }
         })?,
     )?;
 
+    let append_hub = hub.clone();
     fs.set(
         "append_file",
-        lua.create_function(|_, (path, contents): (String, mlua::String)| {
-            use std::io::Write;
-            let mut file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-                .map_err(|e| io_err("append_file", &path, &e))?;
-            file.write_all(&contents.as_bytes())
-                .map_err(|e| io_err("append_file", &path, &e))
+        lua.create_async_function(move |lua, (path, contents): (String, mlua::String)| {
+            let hub = append_hub.clone();
+            async move {
+                fs_request(
+                    &hub,
+                    &lua,
+                    FsRequest::Append {
+                        path,
+                        contents: contents.as_bytes().to_vec(),
+                    },
+                )
+                .await?;
+                Ok(())
+            }
         })?,
     )?;
 
-    // Secure persisted scratch file for streaming tools. These two bindings
-    // are synchronous because `append_file` is called from pi.exec's onData
-    // callback, where yielding across the callback's C boundary is invalid.
-    // Node `os.tmpdir()` — the paste-image policy joins temp paths in Lua.
     fs.set(
         "tmpdir",
         lua.create_function(|_, ()| Ok(std::env::temp_dir().to_string_lossy().into_owned()))?,
     )?;
 
+    let temp_hub = hub.clone();
     fs.set(
         "create_temp_file",
-        lua.create_function(|_, (prefix, contents): (String, mlua::String)| {
-            use std::io::Write;
-            let safe_prefix: String = prefix
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
-                        c
-                    } else {
-                        '-'
-                    }
-                })
-                .collect();
-            let mut file = tempfile::Builder::new()
-                .prefix(&safe_prefix)
-                .suffix(".log")
-                .tempfile()
-                .map_err(|e| io_err("create_temp_file", &safe_prefix, &e))?;
-            file.write_all(&contents.as_bytes())
-                .map_err(|e| io_err("create_temp_file", &safe_prefix, &e))?;
-            let (_file, path) = file
-                .keep()
-                .map_err(|e| io_err("create_temp_file", &safe_prefix, &e.error))?;
-            Ok(path.to_string_lossy().into_owned())
+        lua.create_async_function(move |lua, (prefix, contents): (String, mlua::String)| {
+            let hub = temp_hub.clone();
+            async move {
+                match fs_request(
+                    &hub,
+                    &lua,
+                    FsRequest::CreateTempFile {
+                        prefix,
+                        contents: contents.as_bytes().to_vec(),
+                    },
+                )
+                .await?
+                {
+                    crate::effects::FsResult::Path(path) => Ok(path),
+                    _ => Err(mlua::Error::runtime("invalid temporary-file result")),
+                }
+            }
         })?,
     )?;
 
+    let bytes_hub = hub.clone();
     fs.set(
         "read_bytes",
-        lua.create_async_function(|lua, path: String| async move {
-            let bytes = tokio::fs::read(&path)
-                .await
-                .map_err(|e| io_err("read_bytes", &path, &e))?;
-            lua.create_string(&bytes)
+        lua.create_async_function(move |lua, path: String| {
+            let hub = bytes_hub.clone();
+            async move {
+                let crate::effects::FsResult::Bytes(bytes) =
+                    fs_request(&hub, &lua, FsRequest::Read { path, bytes: true }).await?
+                else {
+                    return Err(mlua::Error::runtime("invalid read result"));
+                };
+                lua.create_string(&bytes)
+            }
         })?,
     )?;
 
+    let exists_hub = hub.clone();
     fs.set(
         "exists",
-        lua.create_async_function(|_, path: String| async move {
-            Ok(tokio::fs::try_exists(&path).await.unwrap_or(false))
+        lua.create_async_function(move |lua, path: String| {
+            let hub = exists_hub.clone();
+            async move {
+                match fs_request(&hub, &lua, FsRequest::Exists { path }).await? {
+                    crate::effects::FsResult::Bool(value) => Ok(value),
+                    _ => Err(mlua::Error::runtime("invalid exists result")),
+                }
+            }
         })?,
     )?;
 
+    let dir_hub = hub.clone();
     fs.set(
         "read_dir",
-        lua.create_async_function(|lua, path: String| async move {
-            let mut rd = tokio::fs::read_dir(&path)
-                .await
-                .map_err(|e| io_err("read_dir", &path, &e))?;
-            let names = lua.create_table()?;
-            while let Some(entry) = rd
-                .next_entry()
-                .await
-                .map_err(|e| io_err("read_dir", &path, &e))?
-            {
-                names.push(entry.file_name().to_string_lossy().into_owned())?;
+        lua.create_async_function(move |lua, path: String| {
+            let hub = dir_hub.clone();
+            async move {
+                let crate::effects::FsResult::Names(names) =
+                    fs_request(&hub, &lua, FsRequest::ReadDir { path }).await?
+                else {
+                    return Err(mlua::Error::runtime("invalid directory result"));
+                };
+                let result = lua.create_table()?;
+                for name in names {
+                    result.push(name)?;
+                }
+                Ok(result)
             }
-            Ok(names)
         })?,
     )?;
 
+    let stat_hub = hub.clone();
     fs.set(
         "stat",
-        lua.create_async_function(|lua, path: String| async move {
-            let md = tokio::fs::metadata(&path)
-                .await
-                .map_err(|e| io_err("stat", &path, &e))?;
-            let stat = lua.create_table()?;
-            stat.set(
-                "type",
-                if md.is_dir() {
-                    "dir"
-                } else if md.is_file() {
-                    "file"
-                } else {
-                    "other"
-                },
-            )?;
-            stat.set("size", md.len())?;
-            let modified_ms = md
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
-                .unwrap_or(0);
-            stat.set("modified_ms", modified_ms)?;
-            Ok(stat)
+        lua.create_async_function(move |lua, path: String| {
+            let hub = stat_hub.clone();
+            async move {
+                let crate::effects::FsResult::Stat(value) =
+                    fs_request(&hub, &lua, FsRequest::Stat { path }).await?
+                else {
+                    return Err(mlua::Error::runtime("invalid stat result"));
+                };
+                let result = lua.create_table()?;
+                result.set("type", value.kind)?;
+                result.set("size", value.size)?;
+                result.set("modified_ms", value.modified_ms)?;
+                Ok(result)
+            }
         })?,
     )?;
 
+    let mkdir_hub = hub.clone();
     fs.set(
         "mkdir",
-        lua.create_async_function(|_, path: String| async move {
-            // Node's `mkdirSync(p, { recursive: true })` — the form the
-            // spec's examples use.
-            tokio::fs::create_dir_all(&path)
-                .await
-                .map_err(|e| io_err("mkdir", &path, &e))
+        lua.create_async_function(move |lua, path: String| {
+            let hub = mkdir_hub.clone();
+            async move {
+                fs_request(&hub, &lua, FsRequest::Mkdir { path }).await?;
+                Ok(())
+            }
         })?,
     )?;
 
+    let real_hub = hub.clone();
     fs.set(
         "realpath",
-        lua.create_async_function(|_, path: String| async move {
-            let real = tokio::fs::canonicalize(&path)
-                .await
-                .map_err(|e| io_err("realpath", &path, &e))?;
-            Ok(real.to_string_lossy().into_owned())
+        lua.create_async_function(move |lua, path: String| {
+            let hub = real_hub.clone();
+            async move {
+                match fs_request(&hub, &lua, FsRequest::Realpath { path }).await? {
+                    crate::effects::FsResult::Path(path) => Ok(path),
+                    _ => Err(mlua::Error::runtime("invalid realpath result")),
+                }
+            }
         })?,
     )?;
 
     fs.set(
         "remove_file",
-        lua.create_async_function(|_, path: String| async move {
-            tokio::fs::remove_file(&path)
-                .await
-                .map_err(|e| io_err("remove_file", &path, &e))
+        lua.create_async_function(move |lua, path: String| {
+            let hub = hub.clone();
+            async move {
+                fs_request(&hub, &lua, FsRequest::RemoveFile { path }).await?;
+                Ok(())
+            }
         })?,
     )?;
 
-    pi.set("fs", fs)?;
-    Ok(())
+    pi.set("fs", fs)
 }
 
 fn install_path(lua: &mlua::Lua, pi: &mlua::Table, cwd: &str) -> mlua::Result<()> {
@@ -436,8 +488,13 @@ fn install_env(lua: &mlua::Lua, pi: &mlua::Table) -> mlua::Result<()> {
 }
 
 /// Install `pi.fs`, `pi.path`, `pi.env`, and `pi.cwd()` on the API table.
-pub(crate) fn install(lua: &mlua::Lua, pi: &mlua::Table, cwd: &str) -> mlua::Result<()> {
-    install_fs(lua, pi)?;
+pub(crate) fn install(
+    lua: &mlua::Lua,
+    pi: &mlua::Table,
+    cwd: &str,
+    hub: crate::effects::EffectHub,
+) -> mlua::Result<()> {
+    install_fs(lua, pi, hub)?;
     install_path(lua, pi, cwd)?;
     install_env(lua, pi)?;
     let host_cwd = cwd.to_owned();
