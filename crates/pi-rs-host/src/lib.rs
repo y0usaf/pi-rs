@@ -26,6 +26,7 @@ mod clipboard;
 pub mod config;
 mod convert;
 pub mod discover;
+pub mod effects;
 mod error;
 mod exec;
 pub mod hljs;
@@ -197,6 +198,7 @@ pub struct RoleInfo {
 pub struct Host {
     tx: Sender<vm::Msg>,
     control: std::sync::Arc<kernel::Control>,
+    effects: effects::EffectHub,
     owners: std::sync::Arc<()>,
 }
 
@@ -204,10 +206,17 @@ impl Host {
     /// Start the VM thread and install the `pi` API.
     pub fn new(config: HostConfig) -> Result<Self, HostError> {
         let control = kernel::Control::new();
-        let tx = vm::spawn(config, std::sync::Arc::clone(&control))?;
+        let (effects, effect_runner) = effects::EffectHub::new(std::sync::Arc::clone(&control));
+        let tx = vm::spawn(
+            config,
+            std::sync::Arc::clone(&control),
+            effects.clone(),
+            effect_runner,
+        )?;
         Ok(Self {
             tx,
             control,
+            effects,
             owners: std::sync::Arc::new(()),
         })
     }
@@ -368,6 +377,12 @@ impl Host {
         package: &kernel::PackageHandle,
     ) -> Result<kernel::ScopeStats, HostError> {
         self.control.stats(package.scope)
+    }
+
+    /// Inspect bounded effect-queue activity for cleanup evidence.
+    #[must_use]
+    pub fn effect_stats(&self) -> effects::EffectStats {
+        self.effects.stats()
     }
 
     /// Emit an event to every subscribed handler, sequentially in

@@ -33,6 +33,7 @@ pub(crate) fn build(
     cwd: &str,
     project_trusted: bool,
     control: std::sync::Arc<crate::kernel::Control>,
+    effects: crate::effects::EffectHub,
 ) -> mlua::Result<mlua::Table> {
     let registry = lua.create_table()?;
     registry.set("flag_values", lua.create_table()?)?;
@@ -270,6 +271,7 @@ pub(crate) fn build(
     crate::kernel_api::install(lua, &pi, &module_api, control)?;
     crate::compatibility::install(lua, &pi)?;
     crate::runtime_api::install(lua, &pi)?;
+    crate::effects::install(lua, &pi, effects.clone())?;
     crate::tui_api::install(lua, &pi)?;
     // One `AuthStorage` per VM (the spec: one per process), shared by
     // the `pi.auth` bindings, the `pi.ai` registry bridge, and login flows.
@@ -278,14 +280,14 @@ pub(crate) fn build(
     ));
     crate::ai::install(lua, &pi, std::sync::Arc::clone(&storage))?;
     crate::auth::install(lua, &pi, storage)?;
-    crate::exec::install(lua, &pi, cwd)?;
-    crate::http::install(lua, &pi)?;
-    crate::os::install(lua, &pi, cwd)?;
+    crate::exec::install(lua, &pi, cwd, effects.clone())?;
+    crate::http::install(lua, &pi, effects.clone())?;
+    crate::os::install(lua, &pi, cwd, effects.clone())?;
     let settings = crate::settings::install(lua, &pi, cwd, project_trusted)?;
     crate::config::install_runtime(lua, &pi, cwd, project_trusted, settings)?;
     crate::session::install(lua, &pi, cwd)?;
     crate::trust::install(lua, &pi)?;
-    crate::clipboard::install(lua, &pi)?;
+    crate::clipboard::install(lua, &pi, effects)?;
 
     Ok(pi)
 }
