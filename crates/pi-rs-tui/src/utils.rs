@@ -27,7 +27,11 @@ fn ansi_len_at(bytes: &[u8], at: usize) -> Option<usize> {
     }
 }
 
-fn grapheme_width(grapheme: &str) -> usize {
+/// Terminal cell width for one extended grapheme cluster.
+///
+/// Callers should segment text with `unicode-segmentation`; combining marks
+/// joined to a base character remain one cell and wide/emoji clusters use two.
+pub fn grapheme_width(grapheme: &str) -> usize {
     let Some(first) = grapheme.chars().next() else {
         return 0;
     };

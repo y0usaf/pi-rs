@@ -1,5 +1,5 @@
 //! Terminal protocol state, deterministic parsing, and process lifecycle helpers.
-use crate::stdin_buffer::{StdinBuffer, StdinEvent};
+use crate::stdin_buffer::{InputDecodeError, StdinBuffer, StdinEvent};
 use std::io::{self, Write};
 use std::time::Duration;
 
@@ -159,8 +159,12 @@ impl TerminalState {
     }
 
     pub fn feed_input(&mut self, bytes: &[u8]) -> Vec<String> {
-        let events = self.parser.process_bytes(bytes);
-        self.process_events(events)
+        self.try_feed_input(bytes).unwrap_or_default()
+    }
+
+    pub fn try_feed_input(&mut self, bytes: &[u8]) -> Result<Vec<String>, InputDecodeError> {
+        let events = self.parser.try_process_bytes(bytes)?;
+        Ok(self.process_events(events))
     }
 
     fn process_events(&mut self, events: Vec<StdinEvent>) -> Vec<String> {
@@ -201,12 +205,16 @@ impl TerminalState {
     /// Flush the ordinary 10ms stdin parser timeout. A possible protocol
     /// response prefix remains buffered for its separate 150ms deadline.
     pub fn flush_input(&mut self) -> Vec<String> {
+        self.try_flush_input().unwrap_or_default()
+    }
+
+    pub fn try_flush_input(&mut self) -> Result<Vec<String>, InputDecodeError> {
         if self.draining {
-            self.parser.flush();
-            return Vec::new();
+            let _ = self.parser.try_flush();
+            return Ok(Vec::new());
         }
-        let events = self.parser.flush();
-        self.process_events(events)
+        let events = self.parser.try_flush()?;
+        Ok(self.process_events(events))
     }
 
     /// Flush a pending negotiation prefix when the 150ms deadline expires.
