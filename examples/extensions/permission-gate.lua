@@ -1,5 +1,5 @@
--- Translation of Pi's permission-gate.ts. In non-interactive modes dangerous
--- bash calls are blocked; interactive confirmation joins the extension UI rung.
+-- Translation of Pi's permission-gate.ts. Dangerous commands fail closed in
+-- headless modes and use the queued extension UI surface interactively.
 local pi = ...
 
 local function dangerous(command)
@@ -16,8 +16,6 @@ pi.on("tool_call", function(event, ctx)
   if not ctx.hasUI then
     return { block = true, reason = "Dangerous command blocked (no UI for confirmation)" }
   end
-  -- ctx.ui.select is completed in PLAN 9.5. Keeping the no-UI gate executable
-  -- now proves blocking-hook composition without inventing a privileged prompt.
   if not ctx.ui then return { block = true, reason = "Blocked by user" } end
   local choice = ctx.ui.select("⚠️ Dangerous command:\n\n  " .. event.input.command .. "\n\nAllow?", { "Yes", "No" })
   if choice ~= "Yes" then return { block = true, reason = "Blocked by user" } end

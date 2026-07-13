@@ -406,6 +406,17 @@ fn run() -> Result<ExitCode, HarnessError> {
             error.error
         )));
     }
+    if let Some(extensions) = scenario
+        .get("extensions")
+        .and_then(serde_json::Value::as_array)
+    {
+        for path in extensions {
+            let path = path.as_str().ok_or_else(|| {
+                HarnessError::Arguments("scenario extension paths must be strings".to_owned())
+            })?;
+            host.load_file(path)?;
+        }
+    }
     let scenario = serde_json::to_string(&scenario).map_err(|source| HarnessError::Json {
         path: scenario_path.clone(),
         source,

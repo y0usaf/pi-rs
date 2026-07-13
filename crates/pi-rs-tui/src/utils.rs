@@ -31,6 +31,11 @@ fn grapheme_width(grapheme: &str) -> usize {
     let Some(first) = grapheme.chars().next() else {
         return 0;
     };
+    // string-width replaces emoji-regex matches with two spaces before its
+    // code-point pass. Text-default emoji become emoji sequences via VS16.
+    if grapheme.contains('\u{fe0f}') {
+        return 2;
+    }
     if first.is_control() {
         return 0;
     }
@@ -616,6 +621,7 @@ mod tests {
     #[test]
     fn ansi_wide() {
         assert_eq!(visible_width("\x1b[31m界a\x1b[0m"), 3);
+        assert_eq!(visible_width("⚠️"), 2);
         // finalizeTruncatedResult: truncated output ends in full resets.
         assert_eq!(
             truncate_to_width("abcdef", 5, "...", false),

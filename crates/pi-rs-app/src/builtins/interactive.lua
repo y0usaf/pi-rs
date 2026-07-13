@@ -1913,6 +1913,7 @@ local function extension_selector(opts)
   return self
 end
 
+
 -- components/login-dialog.ts. Content children mirror the spec's
 -- contentContainer (Spacer / Text / the Input); the pending input promise
 -- becomes a resolve/reject pair.
@@ -4146,6 +4147,93 @@ local function set_tools_expanded(state, expanded)
   end
 end
 
+-- Extension UI is snapshot-in/actions-out: handlers enqueue plain Lua action
+-- tables and may await their settlement; only the frontend pump mutates state.
+EXTENSION_UI_POLICY = {}
+
+function EXTENSION_UI_POLICY.enqueue(state, action)
+  state.extension_ui_actions[#state.extension_ui_actions + 1] = action
+  if state.extension_ui_trace then
+    local trace = { type = action.kind }
+    if action.kind == "notify" then
+      trace.message, trace.level = action.message, action.level
+    else
+      trace.title, trace.options = action.title, action.options
+    end
+    state.extension_ui_trace[#state.extension_ui_trace + 1] = trace
+  end
+  state.async_render = true
+end
+
+function EXTENSION_UI_POLICY.context(state)
+  local function await_dialog(kind, title, options)
+    local action = { kind = kind, title = title, options = options, settled = false }
+    EXTENSION_UI_POLICY.enqueue(state, action)
+    while not action.settled do pi.sleep(10) end
+    return action.value
+  end
+  return {
+    select = function(title, options)
+      return await_dialog("select", title, options)
+    end,
+    confirm = function(title, message)
+      return await_dialog("confirm", title .. "\n" .. message, { "Yes", "No" }) == "Yes"
+    end,
+    notify = function(message, kind)
+      EXTENSION_UI_POLICY.enqueue(state, { kind = "notify", message = message, level = kind })
+    end,
+  }
+end
+
+function EXTENSION_UI_POLICY.settle(state, action, value)
+  if action.settled then return end
+  action.value = value
+  action.settled = true
+  if state.extension_ui_trace then
+    state.extension_ui_trace[#state.extension_ui_trace + 1] = {
+      type = action.kind .. "_result", value = value,
+    }
+  end
+  state.extension_ui_active = nil
+  state.async_render = true
+end
+
+function EXTENSION_UI_POLICY.pump(state)
+  if state.extension_ui_active then return false end
+  local changed = false
+  while #state.extension_ui_actions > 0 and not state.extension_ui_active do
+    local action = table.remove(state.extension_ui_actions, 1)
+    if action.kind == "notify" then
+      if action.level == "error" then show_error(state, action.message)
+      elseif action.level == "warning" then show_warning(state, action.message)
+      else show_status(state, action.message) end
+      changed = true
+    else
+      state.extension_ui_active = action
+      show_selector(state, function(done)
+        return extension_selector({
+          theme = state.theme,
+          title = action.title,
+          options = action.options,
+          on_toggle_tools_expanded = function()
+            set_tools_expanded(state, not state.tools_expanded)
+          end,
+          on_select = function(value)
+            done()
+            EXTENSION_UI_POLICY.settle(state, action, value)
+          end,
+          on_cancel = function()
+            done()
+            EXTENSION_UI_POLICY.settle(state, action, nil)
+          end,
+        })
+      end)
+      changed = true
+    end
+  end
+  return changed
+end
+
 local function handle_dequeue(state)
   local restored = restore_queued_messages_to_editor(state)
   if restored == 0 then
@@ -4471,14 +4559,20 @@ local function shell_submit_actions(state)
     add_to_history = function(text) state.editor.editor:add_to_history(text) end,
     bash_command = function(command, excluded) handle_bash_command(state, command, excluded) end,
     extension_command = function(text)
-      local handled, err = EXTENSION_POLICY.execute_command(text, {
+      local context = {
         cwd = state.cwd,
         mode = "interactive",
         hasUI = true,
         isProjectTrusted = function() return state.project_trusted == true end,
+        ui = state.extension_ui,
+      }
+      return EXTENSION_POLICY.execute_command(text, context, {
+        background = true,
+        on_error = function(err)
+          EXTENSION_UI_POLICY.enqueue(state,
+            { kind = "notify", message = err, level = "error" })
+        end,
       })
-      if err then show_error(state, err) end
-      return handled
     end,
     prompt = function(prompt)
       -- Queue input during compaction (extension commands join item 9).
@@ -4755,6 +4849,7 @@ local function handle_agent_event(state, event)
         .. (event.finalError or "Unknown error"))
     end
   end
+
 end
 
 
@@ -6045,6 +6140,7 @@ function bind_session_runtime(state, session_manager)
         mode = "interactive",
         hasUI = true,
         isProjectTrusted = function() return state.project_trusted == true end,
+        ui = state.extension_ui,
       })
     end,
   })
@@ -8644,7 +8740,9 @@ local function create_interactive_state(request)
     project_trusted = request.projectTrusted ~= false,
     inherited_process_callbacks = {}, pending_inherited_process = nil,
     pending_suspend = false,
+    extension_ui_actions = {}, extension_ui_active = nil,
   }
+  state.extension_ui = EXTENSION_UI_POLICY.context(state)
   -- Spec: main.ts mirrors --api-key into the auth storage as a runtime
   -- override before the session starts; per-request resolution then
   -- flows through the getApiKey seam below.
@@ -8758,6 +8856,7 @@ local function run_interactive_state(state)
       if state.exit then return { exit = true } end
       local now = pi.monotonic_ms()
       local render = false
+      if EXTENSION_UI_POLICY.pump(state) then render = true end
       if state.async_render then
         state.async_render = false
         render = true
@@ -9415,6 +9514,98 @@ pi.register_command("interactive-scoped-models-parity-sequence", {
     end
     return { frames = frames, scopedModels = scoped_ids, savedModels = pi.settings.enabled_models(),
       currentModel = state.model and (state.model.provider .. "/" .. state.model.id) or nil }
+  end,
+})
+
+
+-- First queued extension-UI slice: real loaded commands/tool hooks drive the
+-- shipped select→confirm→notify policy through the editor slot.
+pi.register_command("interactive-extension-ui-parity-sequence", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local theme = create_theme(dark_json, request.colorMode or "truecolor")
+    local columns, rows = request.columns, request.rows
+    local state = {
+      theme = theme, md_theme = get_markdown_theme(theme), transcript = {},
+      model = nil, thinking_level = "off", tools_expanded = false,
+      header_expanded = false, steering_texts = {}, follow_up_texts = {},
+      double_escape_action = "none", cwd = request.cwd or pi.cwd(),
+      project_trusted = true, usage = {}, exit = false, scoped_models = {},
+      extension_ui_actions = {}, extension_ui_active = nil, extension_ui_trace = {},
+      session = {
+        is_streaming = function() return false end,
+        is_compacting = function() return false end,
+        is_bash_running = function() return false end,
+        clear_queues = function() end, steer = function() end,
+        follow_up = function() end, abort = function() end,
+      },
+    }
+    state.extension_ui = EXTENSION_UI_POLICY.context(state)
+    state.set_editor_focus = function(focused)
+      if state.editor then state.editor.editor:set_focused(focused) end
+    end
+    setup_shell_editor(state)
+    state.editor.editor:set_terminal_rows(rows)
+    local actions = shell_submit_actions(state)
+    state.submit = function(text) handle_submit(text, actions) end
+
+    local terminal = pi.tui.session(columns, rows, true)
+    local frames, permission_result = {}, nil
+    local function lines()
+      local result = transcript_lines(state, columns)
+      if state.selector then append(result, state.selector:render(columns))
+      else sync_editor_border(state); append(result, state.editor.editor:render(columns)) end
+      return result
+    end
+    local function capture(name, force)
+      terminal:request_render(force or false)
+      terminal:render(lines())
+      frames[#frames + 1] = {
+        name = name, columns = columns, rows = rows, ansi = terminal:output(),
+      }
+    end
+    local function settle()
+      pi.sleep(12)
+      EXTENSION_UI_POLICY.pump(state)
+    end
+    local function feed(data)
+      if state.selector then state.selector:handle_input(data)
+      else
+        local effect = state.editor:handle_input(data)
+        if effect.kind == "submit" then state.submit(effect.text or effect.value or "") end
+      end
+      settle()
+    end
+
+    terminal:start()
+    for _, step in ipairs(request.steps or {}) do
+      if step.submit then
+        feed("\27[200~" .. step.submit .. "\27[201~")
+        feed("\r")
+      end
+      if step.permission then
+        pi.spawn(function()
+          permission_result = EXTENSION_POLICY.emit_tool_call({
+            toolCall = { id = "permission", name = "bash" },
+            args = { command = step.permission },
+          }, {
+            cwd = state.cwd, mode = "interactive", hasUI = true,
+            isProjectTrusted = function() return true end,
+            ui = state.extension_ui,
+          })
+        end)
+        settle()
+      end
+      for _, input in ipairs(step.input or {}) do feed(input) end
+      if step.resize then
+        columns, rows = step.resize.columns, step.resize.rows
+        state.editor.editor:set_terminal_rows(rows)
+        terminal:resize(columns, rows)
+      end
+      capture(step.name, step.name == "startup" or step.resize ~= nil)
+    end
+    return { frames = frames, permissionResult = permission_result,
+      actions = state.extension_ui_trace }
   end,
 })
 
