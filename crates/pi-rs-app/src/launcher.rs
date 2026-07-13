@@ -11,25 +11,13 @@ use pi_rs_host::kernel::{DispatchBatch, DispatchRequest, RootKind};
 use pi_rs_host::{Host, HostConfig, PackageSource};
 use serde::Serialize;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct Options {
     pub package_root: Option<PathBuf>,
     pub packages: Vec<PathBuf>,
     pub arguments: Vec<String>,
     pub help: bool,
     pub version: bool,
-}
-
-impl Default for Options {
-    fn default() -> Self {
-        Self {
-            package_root: None,
-            packages: Vec::new(),
-            arguments: Vec::new(),
-            help: false,
-            version: false,
-        }
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
