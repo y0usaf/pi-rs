@@ -186,7 +186,7 @@ generic mechanisms.
   remained within every budget; workspace Cargo/Nix and release-package checks
   passed.
 
-- [ ] **0.3 — Remove faithful-port scaffolding** (**serial after 0.2**).
+- [x] **0.3 — Remove faithful-port scaffolding** (**serial after 0.2**).
 
   Delete exhaustive parity snapshots, external-extension fixtures, generated
   construction/final audits, oracle wrappers, stale parity documents, and
@@ -200,6 +200,11 @@ generic mechanisms.
   **Accept:** tracked size drops substantially; every remaining suite states its
   unique owner; `rg` finds no active whole-product parity promise; the flake is
   green from a clean tree.
+
+  **Landed:** `5d79950` removes 219.9 MB (96.55%) of legacy evidence, records
+  retained-suite ownership, and reconciles the flake. Integrated workspace tests
+  and clean-tree `nix flake check` pass.
+
 
 ## 1 — Cut the bare mechanism kernel
 
