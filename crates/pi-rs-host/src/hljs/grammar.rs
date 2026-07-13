@@ -479,19 +479,6 @@ impl JsRegex {
         Ok(JsRegex { regex })
     }
 
-    /// A JS `RegExp` without the `m` flag (the session selector's
-    /// `new RegExp(pattern, "i")`): `^`/`$` anchor the whole input.
-    pub(crate) fn without_multiline(
-        source: &str,
-        case_insensitive: bool,
-    ) -> Result<JsRegex, HljsError> {
-        let translated = translate(source)?;
-        let flags = if case_insensitive { "(?i)" } else { "" };
-        let regex = fancy_regex::Regex::new(&format!("{flags}{translated}"))
-            .map_err(|e| HljsError::Regex(format!("{source:?}: {e}")))?;
-        Ok(JsRegex { regex })
-    }
-
     /// `RegExp.escape`-style literal (core.js `escape`, used by
     /// `endSameAsBegin`) — compiled with only the `m` flag, like the original.
     pub(crate) fn literal(lexeme: &str) -> Result<JsRegex, HljsError> {

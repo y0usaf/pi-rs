@@ -1,32 +1,239 @@
 use mlua::{UserData, UserDataMethods};
+use pi_rs_tui::display::{
+    CellStyle, Color, CursorMetadata, CursorShape, DisplayBatch, DisplayLimits, DisplayNode,
+    DisplayNodeContent, IdentityDelta, NodeId, Rect, RetainedDisplay, SubmitResult, TextRun,
+    Viewport, WrapMode,
+};
 
-pub(crate) fn loader_indicator(
-    table: Option<mlua::Table>,
-) -> mlua::Result<Option<pi_rs_tui::loader::Indicator>> {
-    table
-        .map(|table| {
-            let frames = table
-                .get::<Option<mlua::Table>>("frames")?
-                .map(|frames| {
-                    frames
-                        .sequence_values()
-                        .collect::<mlua::Result<Vec<String>>>()
-                })
-                .transpose()?
-                .unwrap_or_else(|| {
-                    pi_rs_tui::loader::DEFAULT_FRAMES
-                        .iter()
-                        .map(|frame| (*frame).to_owned())
-                        .collect()
-                });
-            Ok(pi_rs_tui::loader::Indicator {
-                frames,
-                interval_ms: table
-                    .get::<Option<u64>>("interval_ms")?
-                    .unwrap_or(pi_rs_tui::loader::DEFAULT_INTERVAL_MS),
+fn parse_color(value: mlua::Value) -> mlua::Result<Color> {
+    match value {
+        mlua::Value::Nil => Ok(Color::Default),
+        mlua::Value::String(value) if value.to_str()?.as_ref() == "default" => Ok(Color::Default),
+        mlua::Value::Table(value) => {
+            if let Some(indexed) = value.get::<Option<u8>>("indexed")? {
+                return Ok(Color::Indexed(indexed));
+            }
+            Ok(Color::Rgb {
+                red: value.get("red")?,
+                green: value.get("green")?,
+                blue: value.get("blue")?,
+            })
+        }
+        _ => Err(mlua::Error::runtime(
+            "display color must be 'default' or an indexed/RGB table",
+        )),
+    }
+}
+
+fn parse_style(table: Option<mlua::Table>) -> mlua::Result<CellStyle> {
+    let Some(table) = table else {
+        return Ok(CellStyle::default());
+    };
+    Ok(CellStyle {
+        foreground: parse_color(table.get::<mlua::Value>("foreground")?)?,
+        background: parse_color(table.get::<mlua::Value>("background")?)?,
+        bold: table.get::<Option<bool>>("bold")?.unwrap_or(false),
+        dim: table.get::<Option<bool>>("dim")?.unwrap_or(false),
+        italic: table.get::<Option<bool>>("italic")?.unwrap_or(false),
+        underline: table.get::<Option<bool>>("underline")?.unwrap_or(false),
+        reverse: table.get::<Option<bool>>("reverse")?.unwrap_or(false),
+    })
+}
+
+fn parse_rect(table: mlua::Table) -> mlua::Result<Rect> {
+    Ok(Rect {
+        x: table.get("x")?,
+        y: table.get("y")?,
+        width: table.get("width")?,
+        height: table.get("height")?,
+    })
+}
+
+fn parse_node(table: mlua::Table) -> mlua::Result<DisplayNode> {
+    let content: mlua::Table = table.get("content")?;
+    let content = match content.get::<String>("kind")?.as_str() {
+        "group" => DisplayNodeContent::Group,
+        "text" => {
+            let mut runs = Vec::new();
+            if let Some(values) = content.get::<Option<mlua::Table>>("runs")? {
+                for value in values.sequence_values::<mlua::Table>() {
+                    let value = value?;
+                    runs.push(TextRun {
+                        text: value.get("text")?,
+                        style: parse_style(value.get("style")?)?,
+                    });
+                }
+            }
+            let wrap = match content
+                .get::<Option<String>>("wrap")?
+                .as_deref()
+                .unwrap_or("grapheme")
+            {
+                "grapheme" => WrapMode::Grapheme,
+                "clip" => WrapMode::Clip,
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "display text wrap must be grapheme or clip",
+                    ));
+                }
+            };
+            DisplayNodeContent::Text {
+                runs,
+                wrap,
+                tab_width: content.get::<Option<u8>>("tab_width")?.unwrap_or(4),
+            }
+        }
+        _ => {
+            return Err(mlua::Error::runtime(
+                "display node content kind must be group or text",
+            ));
+        }
+    };
+    let children = table
+        .get::<Option<mlua::Table>>("children")?
+        .map(|children| {
+            children
+                .sequence_values::<u64>()
+                .map(|id| id.map(NodeId))
+                .collect()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    Ok(DisplayNode {
+        id: NodeId(table.get("id")?),
+        rect: parse_rect(table.get("rect")?)?,
+        clip_children: table.get::<Option<bool>>("clip_children")?.unwrap_or(false),
+        focusable: table.get::<Option<bool>>("focusable")?.unwrap_or(false),
+        content,
+        children,
+    })
+}
+
+pub(crate) fn parse_display_batch(table: mlua::Table) -> mlua::Result<DisplayBatch> {
+    let viewport: mlua::Table = table.get("viewport")?;
+    let mut nodes = Vec::new();
+    for node in table.get::<mlua::Table>("nodes")?.sequence_values() {
+        nodes.push(parse_node(node?)?);
+    }
+    let cursor = table
+        .get::<Option<mlua::Table>>("cursor")?
+        .map(|cursor| {
+            let shape = match cursor
+                .get::<Option<String>>("shape")?
+                .as_deref()
+                .unwrap_or("block")
+            {
+                "block" => CursorShape::Block,
+                "bar" => CursorShape::Bar,
+                "underline" => CursorShape::Underline,
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "display cursor shape must be block, bar, or underline",
+                    ));
+                }
+            };
+            Ok(CursorMetadata {
+                node: NodeId(cursor.get("node")?),
+                row: cursor.get("row")?,
+                column: cursor.get("column")?,
+                shape,
+                visible: cursor.get::<Option<bool>>("visible")?.unwrap_or(true),
             })
         })
-        .transpose()
+        .transpose()?;
+    Ok(DisplayBatch {
+        version: table.get("version")?,
+        viewport: Viewport {
+            columns: viewport.get("columns")?,
+            rows: viewport.get("rows")?,
+        },
+        root: NodeId(table.get("root")?),
+        nodes,
+        focused: table.get::<Option<u64>>("focused")?.map(NodeId),
+        cursor,
+    })
+}
+
+fn node_ids(lua: &mlua::Lua, ids: Vec<NodeId>) -> mlua::Result<mlua::Table> {
+    let result = lua.create_table()?;
+    for id in ids {
+        result.push(id.0)?;
+    }
+    Ok(result)
+}
+
+fn identity_delta(lua: &mlua::Lua, value: IdentityDelta) -> mlua::Result<mlua::Table> {
+    let result = lua.create_table()?;
+    result.set("added", node_ids(lua, value.added)?)?;
+    result.set("changed", node_ids(lua, value.changed)?)?;
+    result.set("retained", node_ids(lua, value.retained)?)?;
+    result.set("removed", node_ids(lua, value.removed)?)?;
+    Ok(result)
+}
+
+fn submit_result(lua: &mlua::Lua, value: SubmitResult) -> mlua::Result<mlua::Table> {
+    let result = lua.create_table()?;
+    result.set("revision", value.revision)?;
+    result.set("ansi", lua.create_string(value.ansi)?)?;
+    result.set("identities", identity_delta(lua, value.identities)?)?;
+    result.set("visited_nodes", value.visited_nodes)?;
+    result.set("painted_cells", value.painted_cells)?;
+    result.set("changed_cells", value.changed_cells)?;
+    result.set("full_redraw", value.full_redraw)?;
+    Ok(result)
+}
+
+fn parse_limits(table: Option<mlua::Table>) -> mlua::Result<DisplayLimits> {
+    let defaults = DisplayLimits::default();
+    let Some(table) = table else {
+        return Ok(defaults);
+    };
+    Ok(DisplayLimits {
+        max_nodes: table
+            .get::<Option<usize>>("max_nodes")?
+            .unwrap_or(defaults.max_nodes),
+        max_depth: table
+            .get::<Option<usize>>("max_depth")?
+            .unwrap_or(defaults.max_depth),
+        max_children_per_node: table
+            .get::<Option<usize>>("max_children_per_node")?
+            .unwrap_or(defaults.max_children_per_node),
+        max_text_runs: table
+            .get::<Option<usize>>("max_text_runs")?
+            .unwrap_or(defaults.max_text_runs),
+        max_text_bytes: table
+            .get::<Option<usize>>("max_text_bytes")?
+            .unwrap_or(defaults.max_text_bytes),
+        max_cells: table
+            .get::<Option<usize>>("max_cells")?
+            .unwrap_or(defaults.max_cells),
+    })
+}
+
+pub(crate) struct LuaRetainedDisplay(RetainedDisplay);
+
+impl LuaRetainedDisplay {
+    pub(crate) fn new(limits: Option<mlua::Table>) -> mlua::Result<Self> {
+        Ok(Self(RetainedDisplay::new(parse_limits(limits)?)))
+    }
+}
+
+impl UserData for LuaRetainedDisplay {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method_mut("submit", |lua, this, batch: mlua::Table| {
+            submit_result(
+                lua,
+                this.0
+                    .submit(parse_display_batch(batch)?)
+                    .map_err(mlua::Error::external)?,
+            )
+        });
+        methods.add_method("revision", |_, this, ()| Ok(this.0.revision()));
+        methods.add_method_mut("reset_presentation", |_, this, ()| {
+            this.0.reset_presentation();
+            Ok(())
+        });
+    }
 }
 
 fn stdin_events(
@@ -55,9 +262,16 @@ pub(crate) struct LuaStdinBuffer(pub(crate) pi_rs_tui::stdin_buffer::StdinBuffer
 impl UserData for LuaStdinBuffer {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method_mut("feed", |lua, this, data: mlua::String| {
-            stdin_events(lua, this.0.process_bytes(&data.as_bytes()))
+            stdin_events(
+                lua,
+                this.0
+                    .try_process_bytes(&data.as_bytes())
+                    .map_err(mlua::Error::external)?,
+            )
         });
-        methods.add_method_mut("flush", |lua, this, ()| stdin_events(lua, this.0.flush()));
+        methods.add_method_mut("flush", |lua, this, ()| {
+            stdin_events(lua, this.0.try_flush().map_err(mlua::Error::external)?)
+        });
         methods.add_method_mut("clear", |_, this, ()| {
             this.0.clear();
             Ok(())
@@ -76,25 +290,21 @@ impl UserData for LuaTerminal {
             Ok(())
         });
         methods.add_method_mut("feed", |lua, this, data: mlua::String| {
-            let result = lua.create_table()?;
-            for event in this.0.feed_input(&data.as_bytes()) {
-                result.push(event)?;
-            }
-            Ok(result)
-        });
-        // Preserve the existing deterministic Lua seam: `flush` represents
-        // advancing both the stdin parser and negotiation deadlines.
-        methods.add_method_mut("flush", |lua, this, ()| {
-            let result = lua.create_table()?;
-            for event in this
+            let events = this
                 .0
-                .flush_input()
+                .try_feed_input(&data.as_bytes())
+                .map_err(mlua::Error::external)?;
+            crate::bindings::rendered_lines(lua, events)
+        });
+        methods.add_method_mut("flush", |lua, this, ()| {
+            let events = this
+                .0
+                .try_flush_input()
+                .map_err(mlua::Error::external)?
                 .into_iter()
                 .chain(this.0.flush_keyboard_negotiation())
-            {
-                result.push(event)?;
-            }
-            Ok(result)
+                .collect();
+            crate::bindings::rendered_lines(lua, events)
         });
         methods.add_method_mut("drain", |_, this, ()| {
             this.0.begin_drain();
@@ -118,6 +328,10 @@ impl UserData for LuaTerminal {
             result.set("kitty", this.0.kitty_protocol_active())?;
             result.set("modify_other_keys", this.0.modify_other_keys_active())?;
             Ok(result)
+        });
+        methods.add_method_mut("resize", |_, this, (columns, rows)| {
+            this.0.resize(columns, rows);
+            Ok(())
         });
         methods.add_method_mut("write", |_, this, data: String| {
             this.0.write(&data);
@@ -163,9 +377,7 @@ impl UserData for LuaTerminal {
     }
 }
 
-/// Handle for a `pi.spawn` background coroutine. `join()` awaits the
-/// task and returns its value (or re-raises its error); `done()` reports
-/// completion without blocking.
+/// Handle for a `pi.spawn` background coroutine.
 pub(crate) struct LuaSpawnHandle(
     pub(crate) std::cell::RefCell<Option<tokio::task::JoinHandle<mlua::Result<mlua::Value>>>>,
 );
@@ -194,9 +406,9 @@ impl UserData for LuaSpawnHandle {
     }
 }
 
-pub(crate) struct LuaProcessTui(pub(crate) pi_rs_tui::process::ProcessTui);
+pub(crate) struct LuaDisplayProcess(pub(crate) pi_rs_tui::process::DisplayProcess);
 
-impl UserData for LuaProcessTui {
+impl UserData for LuaDisplayProcess {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("dimensions", |lua, this, ()| {
             let (columns, rows) = this.0.dimensions();
@@ -251,12 +463,12 @@ impl UserData for LuaProcessTui {
                                 let Some(control) = control else {
                                     return Ok(pi_rs_tui::process::ProcessControl::default());
                                 };
-                                let lines = control
-                                    .get::<Option<mlua::Table>>("lines")?
-                                    .map(|lines| lines.sequence_values().collect())
+                                let display = control
+                                    .get::<Option<mlua::Table>>("display")?
+                                    .map(parse_display_batch)
                                     .transpose()?;
                                 let inherited_process = control
-                                    .get::<Option<mlua::Table>>("inheritedProcess")?
+                                    .get::<Option<mlua::Table>>("inherited_process")?
                                     .map(|action| {
                                         let args = action
                                             .get::<Option<mlua::Table>>("args")?
@@ -277,13 +489,10 @@ impl UserData for LuaProcessTui {
                                     })
                                     .transpose()?;
                                 Ok(pi_rs_tui::process::ProcessControl {
-                                    lines,
-                                    force: control.get::<Option<bool>>("force")?.unwrap_or(false),
+                                    display,
                                     exit: control.get::<Option<bool>>("exit")?.unwrap_or(false),
                                     title: control.get("title")?,
                                     progress: control.get("progress")?,
-                                    show_hardware_cursor: control.get("showHardwareCursor")?,
-                                    clear_on_shrink: control.get("clearOnShrink")?,
                                     inherited_process,
                                     suspend: control
                                         .get::<Option<bool>>("suspend")?
@@ -304,147 +513,5 @@ impl UserData for LuaProcessTui {
                 }
             },
         );
-    }
-}
-
-pub(crate) struct LuaTui(pub(crate) pi_rs_tui::tui::Tui);
-impl UserData for LuaTui {
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method_mut("start", |_, this, ()| {
-            this.0.start();
-            Ok(())
-        });
-        methods.add_method_mut("request_render", |_, this, force: Option<bool>| {
-            this.0.request_render(force.unwrap_or(false));
-            Ok(())
-        });
-        methods.add_method_mut("feed", |lua, this, data: mlua::String| {
-            let result = lua.create_table()?;
-            for event in this.0.feed_input(&data.as_bytes()) {
-                result.push(event)?;
-            }
-            Ok(result)
-        });
-        methods.add_method_mut("flush", |lua, this, ()| {
-            let result = lua.create_table()?;
-            for event in this.0.flush_input() {
-                result.push(event)?;
-            }
-            Ok(result)
-        });
-        methods.add_method_mut(
-            "resize",
-            |_, this, (columns, rows): (Option<u16>, Option<u16>)| {
-                this.0.resize(columns, rows);
-                Ok(())
-            },
-        );
-        methods.add_method_mut("render", |_, this, lines: mlua::Table| {
-            let lines = lines
-                .sequence_values()
-                .collect::<mlua::Result<Vec<String>>>()?;
-            this.0
-                .render_if_requested(lines)
-                .map_err(mlua::Error::external)
-        });
-        methods.add_method_mut("stop", |_, this, ()| {
-            this.0.stop();
-            Ok(())
-        });
-        methods.add_method_mut("output", |lua, this, ()| {
-            lua.create_string(this.0.take_output())
-        });
-        methods.add_method("full_redraws", |_, this, ()| Ok(this.0.full_redraws()));
-    }
-}
-
-pub(crate) struct LuaLoader(pub(crate) pi_rs_tui::loader::Loader);
-impl UserData for LuaLoader {
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method_mut("start", |_, this, ()| {
-            this.0.start();
-            Ok(())
-        });
-        methods.add_method_mut("stop", |_, this, ()| {
-            this.0.stop();
-            Ok(())
-        });
-        methods.add_method_mut("advance", |_, this, elapsed_ms: u64| {
-            Ok(this.0.advance(elapsed_ms))
-        });
-        methods.add_method_mut("set_message", |_, this, message: String| {
-            this.0.set_message(message);
-            Ok(())
-        });
-        methods.add_method("frame", |_, this, ()| Ok(this.0.frame().to_owned()));
-        methods.add_method("running", |_, this, ()| Ok(this.0.running()));
-        methods.add_method("render", |lua, this, width: usize| {
-            let result = lua.create_table()?;
-            for line in pi_rs_tui::component::Component::render(&this.0, width) {
-                result.push(line)?;
-            }
-            Ok(result)
-        });
-    }
-}
-
-pub(crate) struct LuaCancellableLoader(pub(crate) pi_rs_tui::loader::CancellableLoader);
-impl UserData for LuaCancellableLoader {
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method_mut("advance", |_, this, elapsed_ms: u64| {
-            Ok(this.0.loader_mut().advance(elapsed_ms))
-        });
-        methods.add_method_mut("input", |_, this, data: String| {
-            Ok(this.0.handle_input(&data))
-        });
-        methods.add_method_mut("dispose", |_, this, ()| {
-            this.0.dispose();
-            Ok(())
-        });
-        methods.add_method("aborted", |_, this, ()| Ok(this.0.aborted()));
-        methods.add_method("frame", |_, this, ()| {
-            Ok(this.0.loader().frame().to_owned())
-        });
-        methods.add_method("render", |lua, this, width: usize| {
-            let result = lua.create_table()?;
-            for line in pi_rs_tui::component::Component::render(&this.0, width) {
-                result.push(line)?;
-            }
-            Ok(result)
-        });
-    }
-}
-
-pub(crate) struct LuaSelectList(pub(crate) pi_rs_tui::select_list::SelectList);
-impl UserData for LuaSelectList {
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method_mut("filter", |_, this, filter: String| {
-            this.0.set_filter(&filter);
-            Ok(())
-        });
-        methods.add_method("selected", |lua, this, ()| {
-            this.0
-                .selected()
-                .map(|item| {
-                    let table = lua.create_table()?;
-                    table.set("value", item.value.clone())?;
-                    table.set("label", item.label.clone())?;
-                    table.set("description", item.description.clone())?;
-                    Ok(table)
-                })
-                .transpose()
-        });
-        methods.add_method_mut("set_selected_index", |_, this, index: usize| {
-            this.0.set_selected_index(index);
-            Ok(())
-        });
-        methods.add_method("render", |lua, this, width: usize| {
-            let result = lua.create_table()?;
-            for line in this.0.render(width) {
-                result.push(line)?;
-            }
-            Ok(result)
-        });
-        methods.add_method_mut("input", |_, this, data: String| Ok(this.0.handle(&data)))
     }
 }

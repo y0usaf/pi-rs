@@ -5,7 +5,10 @@
 //! Validation, iterative layout, clipping, rasterization, and presentation all
 //! happen inside one host call; a rejected batch leaves retained state intact.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
@@ -269,7 +272,7 @@ pub struct DisplayBatch {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Cell {
     /// `None` is a blank cell. A wide grapheme is stored only in its lead cell.
-    pub grapheme: Option<String>,
+    pub grapheme: Option<Arc<str>>,
     pub style: CellStyle,
     pub continuation: bool,
 }
@@ -354,7 +357,7 @@ impl Frame {
             return;
         };
         self.cells[lead] = Cell {
-            grapheme: Some(grapheme.to_owned()),
+            grapheme: Some(Arc::from(grapheme)),
             style,
             continuation: false,
         };
@@ -457,7 +460,11 @@ struct PresentResult {
 }
 
 impl AnsiPresenter {
-    fn present(&mut self, frame: &Frame) -> PresentResult {
+    fn reset(&mut self) {
+        self.previous = None;
+    }
+
+    fn present(&mut self, frame: &Frame, damage: Option<&[Rect]>) -> PresentResult {
         let full_redraw = self
             .previous
             .as_ref()
@@ -467,6 +474,18 @@ impl AnsiPresenter {
         let columns = usize::from(frame.viewport.columns);
 
         for row in 0..usize::from(frame.viewport.rows) {
+            if !full_redraw
+                && damage.is_some_and(|rects| {
+                    rects.iter().all(|rect| {
+                        let Ok(row) = i32::try_from(row) else {
+                            return true;
+                        };
+                        row < rect.y || row >= rect.y + i32::from(rect.height)
+                    })
+                })
+            {
+                continue;
+            }
             let current = &frame.cells[row * columns..(row + 1) * columns];
             let previous = self.previous.as_ref().and_then(|previous| {
                 (!full_redraw).then(|| &previous.cells[row * columns..(row + 1) * columns])
@@ -495,14 +514,21 @@ impl AnsiPresenter {
             .previous
             .as_ref()
             .is_none_or(|previous| previous.cursor != frame.cursor);
-        if cursor_changed || full_redraw {
+        // Cell writes move the hardware cursor, so restore unchanged cursor
+        // metadata after every non-empty differential update as well.
+        if cursor_changed || full_redraw || !output.is_empty() {
             if output.is_empty() {
                 output.push_str(SYNC_START);
             }
             match frame.cursor.filter(|cursor| cursor.visible) {
                 Some(cursor) => {
+                    let shape = match cursor.shape {
+                        CursorShape::Block => 2,
+                        CursorShape::Bar => 6,
+                        CursorShape::Underline => 4,
+                    };
                     output.push_str(&format!(
-                        "\x1b[{};{}H\x1b[?25h",
+                        "\x1b[{};{}H\x1b[{shape} q\x1b[?25h",
                         usize::from(cursor.row) + 1,
                         usize::from(cursor.column) + 1
                     ));
@@ -574,6 +600,9 @@ pub struct RetainedDisplay {
     limits: DisplayLimits,
     revision: u64,
     nodes: BTreeMap<NodeId, DisplayNode>,
+    root: Option<NodeId>,
+    focused: Option<NodeId>,
+    cursor: Option<CursorMetadata>,
     frame: Option<Frame>,
     presenter: AnsiPresenter,
 }
@@ -590,6 +619,9 @@ impl RetainedDisplay {
             limits,
             revision: 0,
             nodes: BTreeMap::new(),
+            root: None,
+            focused: None,
+            cursor: None,
             frame: None,
             presenter: AnsiPresenter::default(),
         }
@@ -603,6 +635,13 @@ impl RetainedDisplay {
         self.frame.as_ref()
     }
 
+    /// Forget presentation state while retaining the accepted tree and frame.
+    /// The next submission is a full redraw, for example after another process
+    /// temporarily owned the terminal.
+    pub fn reset_presentation(&mut self) {
+        self.presenter.reset();
+    }
+
     /// Validate and submit one complete retained-tree batch transactionally.
     pub fn submit(&mut self, batch: DisplayBatch) -> Result<SubmitResult, DisplayError> {
         let validated = validate_batch(&batch, self.limits)?;
@@ -610,7 +649,6 @@ impl RetainedDisplay {
             .revision
             .checked_add(1)
             .ok_or(DisplayError::RevisionExhausted)?;
-        let raster = rasterize(&batch, &validated)?;
         let next_nodes: BTreeMap<_, _> = batch
             .nodes
             .iter()
@@ -618,9 +656,50 @@ impl RetainedDisplay {
             .map(|node| (node.id, node))
             .collect();
         let identities = identity_delta(&self.nodes, &next_nodes);
-        let presented = self.presenter.present(&raster.frame);
+        let metadata_unchanged = self.root == Some(batch.root)
+            && self.focused == batch.focused
+            && self.cursor == batch.cursor
+            && self
+                .frame
+                .as_ref()
+                .is_some_and(|frame| frame.viewport == batch.viewport);
+        if metadata_unchanged && self.nodes == next_nodes && self.presenter.previous.is_some() {
+            self.revision = next_revision;
+            return Ok(SubmitResult {
+                revision: next_revision,
+                ansi: String::new(),
+                identities,
+                visited_nodes: batch.nodes.len(),
+                painted_cells: 0,
+                changed_cells: 0,
+                full_redraw: false,
+            });
+        }
+
+        let incremental = if self.presenter.previous.is_some() {
+            match self
+                .frame
+                .as_ref()
+                .filter(|frame| frame.viewport == batch.viewport)
+            {
+                Some(frame) => incremental_rasterize(&batch, &validated, &self.nodes, frame)?,
+                None => None,
+            }
+        } else {
+            None
+        };
+        let raster = match incremental {
+            Some(raster) => raster,
+            None => rasterize(&batch, &validated)?,
+        };
+        let presented = self
+            .presenter
+            .present(&raster.frame, raster.damage.as_deref());
 
         self.nodes = next_nodes;
+        self.root = Some(batch.root);
+        self.focused = batch.focused;
+        self.cursor = batch.cursor;
         self.frame = Some(raster.frame);
         self.revision = next_revision;
         Ok(SubmitResult {
@@ -796,11 +875,170 @@ struct Rasterized {
     frame: Frame,
     visited_nodes: usize,
     painted_cells: usize,
+    damage: Option<Vec<Rect>>,
 }
 
+#[derive(Clone, Copy)]
 struct LayoutEntry {
     rect: Rect,
     clip: Option<Rect>,
+}
+
+fn layout_entries(
+    batch: &DisplayBatch,
+    validated: &ValidatedBatch,
+) -> Result<BTreeMap<NodeId, LayoutEntry>, DisplayError> {
+    let viewport_rect = batch.viewport.rect();
+    let mut layouts = BTreeMap::new();
+    let mut stack = vec![(batch.root, 0i32, 0i32, Some(viewport_rect))];
+    while let Some((id, parent_x, parent_y, inherited_clip)) = stack.pop() {
+        let node = &batch.nodes[validated.index[&id]];
+        let rect = node
+            .rect
+            .translated(parent_x, parent_y)
+            .ok_or(DisplayError::LayoutOverflow(id))?;
+        let content_clip = inherited_clip.and_then(|clip| clip.intersection(rect));
+        layouts.insert(
+            id,
+            LayoutEntry {
+                rect,
+                clip: content_clip,
+            },
+        );
+        let child_clip = if node.clip_children {
+            content_clip
+        } else {
+            inherited_clip
+        };
+        for child in node.children.iter().rev() {
+            stack.push((*child, rect.x, rect.y, child_clip));
+        }
+    }
+    Ok(layouts)
+}
+
+fn apply_metadata(
+    frame: &mut Frame,
+    batch: &DisplayBatch,
+    layouts: &BTreeMap<NodeId, LayoutEntry>,
+) -> Result<(), DisplayError> {
+    frame.focus = batch.focused.and_then(|focused| {
+        layouts[&focused].clip.map(|rect| FrameFocus {
+            node: focused,
+            rect,
+        })
+    });
+    frame.cursor = None;
+    if let Some(cursor) = batch.cursor {
+        let layout = &layouts[&cursor.node];
+        let column = layout
+            .rect
+            .x
+            .checked_add(i32::from(cursor.column))
+            .ok_or(DisplayError::LayoutOverflow(cursor.node))?;
+        let row = layout
+            .rect
+            .y
+            .checked_add(i32::from(cursor.row))
+            .ok_or(DisplayError::LayoutOverflow(cursor.node))?;
+        let visible = cursor.visible
+            && layout.clip.is_some_and(|clip| clip.contains(column, row))
+            && batch.viewport.rect().contains(column, row);
+        if let (Ok(row), Ok(column)) = (u16::try_from(row), u16::try_from(column)) {
+            frame.cursor = Some(FrameCursor {
+                node: cursor.node,
+                row,
+                column,
+                shape: cursor.shape,
+                visible,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn incremental_rasterize(
+    batch: &DisplayBatch,
+    validated: &ValidatedBatch,
+    previous_nodes: &BTreeMap<NodeId, DisplayNode>,
+    previous_frame: &Frame,
+) -> Result<Option<Rasterized>, DisplayError> {
+    if previous_nodes.len() != batch.nodes.len() {
+        return Ok(None);
+    }
+    let mut changed = Vec::new();
+    for node in &batch.nodes {
+        let Some(previous) = previous_nodes.get(&node.id) else {
+            return Ok(None);
+        };
+        if previous == node {
+            continue;
+        }
+        let structure_unchanged = previous.rect == node.rect
+            && previous.clip_children == node.clip_children
+            && previous.focusable == node.focusable
+            && previous.children == node.children;
+        if !structure_unchanged
+            || !previous.children.is_empty()
+            || !matches!(previous.content, DisplayNodeContent::Text { .. })
+            || !matches!(node.content, DisplayNodeContent::Text { .. })
+        {
+            return Ok(None);
+        }
+        changed.push(node.id);
+    }
+
+    let layouts = layout_entries(batch, validated)?;
+    for id in &changed {
+        let Some(dirty) = layouts[id].clip else {
+            continue;
+        };
+        for other in &batch.nodes {
+            if other.id == *id || !matches!(other.content, DisplayNodeContent::Text { .. }) {
+                continue;
+            }
+            if layouts[&other.id]
+                .clip
+                .is_some_and(|clip| clip.intersection(dirty).is_some())
+            {
+                return Ok(None);
+            }
+        }
+    }
+
+    let mut frame = previous_frame.clone();
+    let mut painted_cells = 0;
+    let mut damage = Vec::new();
+    for id in changed {
+        let Some(clip) = layouts[&id].clip else {
+            continue;
+        };
+        damage.push(clip);
+        for row in clip.y..clip.y + i32::from(clip.height) {
+            for column in clip.x..clip.x + i32::from(clip.width) {
+                if let (Ok(row), Ok(column)) = (u16::try_from(row), u16::try_from(column)) {
+                    frame.clear_footprint(row, column);
+                }
+            }
+        }
+        let node = &batch.nodes[validated.index[&id]];
+        if let DisplayNodeContent::Text {
+            runs,
+            wrap,
+            tab_width,
+        } = &node.content
+        {
+            painted_cells +=
+                paint_text(&mut frame, layouts[&id].rect, clip, runs, *wrap, *tab_width);
+        }
+    }
+    apply_metadata(&mut frame, batch, &layouts)?;
+    Ok(Some(Rasterized {
+        frame,
+        visited_nodes: batch.nodes.len(),
+        painted_cells,
+        damage: Some(damage),
+    }))
 }
 
 fn rasterize(batch: &DisplayBatch, validated: &ValidatedBatch) -> Result<Rasterized, DisplayError> {
@@ -886,6 +1124,7 @@ fn rasterize(batch: &DisplayBatch, validated: &ValidatedBatch) -> Result<Rasteri
         frame,
         visited_nodes,
         painted_cells,
+        damage: None,
     })
 }
 
@@ -1215,7 +1454,44 @@ mod tests {
         assert_eq!(frame.focus.unwrap().node, NodeId(2));
         assert_eq!(frame.cursor.unwrap().column, 4);
         assert_eq!(frame.cursor.unwrap().row, 1);
-        assert!(result.ansi.contains("\x1b[2;5H\x1b[?25h"));
+        assert!(result.ansi.contains("\x1b[2;5H\x1b[6 q\x1b[?25h"));
+
+        let mut hidden = batch(
+            8,
+            3,
+            vec![
+                group(
+                    1,
+                    Rect {
+                        x: 0,
+                        y: 0,
+                        width: 8,
+                        height: 3,
+                    },
+                    vec![NodeId(2)],
+                ),
+                text(
+                    2,
+                    Rect {
+                        x: 2,
+                        y: 1,
+                        width: 3,
+                        height: 1,
+                    },
+                    "abc",
+                ),
+            ],
+        );
+        hidden.cursor = Some(CursorMetadata {
+            node: NodeId(2),
+            row: 0,
+            column: 1,
+            shape: CursorShape::Underline,
+            visible: false,
+        });
+        let hidden = display.submit(hidden).unwrap();
+        assert!(hidden.ansi.contains("\x1b[?25l"));
+        assert!(!hidden.ansi.contains("\x1b[4 q"));
     }
 
     #[test]
@@ -1300,6 +1576,11 @@ mod tests {
         assert!(changed.ansi.contains('X'));
         assert!(!changed.ansi.contains("abc"));
         assert!(!changed.full_redraw);
+
+        display.reset_presentation();
+        let redrawn = display.submit(make("abcXef")).unwrap();
+        assert!(redrawn.full_redraw);
+        assert_eq!(redrawn.identities.retained, [NodeId(1), NodeId(2)]);
     }
 
     #[test]

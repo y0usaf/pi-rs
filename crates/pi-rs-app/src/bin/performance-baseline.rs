@@ -7,8 +7,11 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
 
 use pi_rs_host::{Host, HostConfig};
+use pi_rs_tui::display::{
+    CursorMetadata, CursorShape, DISPLAY_SCHEMA_VERSION, DisplayBatch, DisplayNode,
+    DisplayNodeContent, NodeId, Rect, RetainedDisplay, TextRun, Viewport, WrapMode,
+};
 use pi_rs_tui::terminal::TerminalState;
-use pi_rs_tui::tui::Tui;
 use serde::{Deserialize, Serialize};
 
 const SCHEMA: &str = "pi-rs-performance-v1";
@@ -137,8 +140,8 @@ enum Error {
     Probe(String),
     #[error("host failed: {0}")]
     Host(#[from] pi_rs_host::HostError),
-    #[error("TUI failed: {0}")]
-    Tui(#[from] pi_rs_tui::tui::TuiError),
+    #[error("display failed: {0}")]
+    Display(#[from] pi_rs_tui::display::DisplayError),
 }
 
 struct Probe {
@@ -254,16 +257,77 @@ impl Probe {
     }
 }
 
+fn display_batch(
+    columns: u16,
+    rows: u16,
+    lines: Vec<String>,
+    cursor: Option<(u16, u16)>,
+) -> DisplayBatch {
+    let content_height = u16::try_from(lines.len()).unwrap_or(u16::MAX).max(1);
+    let content_y = i32::from(rows) - i32::from(content_height);
+    let children: Vec<_> = (0..lines.len())
+        .map(|index| NodeId(u64::try_from(index).unwrap_or(u64::MAX) + 2))
+        .collect();
+    let mut nodes = Vec::with_capacity(lines.len() + 1);
+    nodes.push(DisplayNode {
+        id: NodeId(1),
+        rect: Rect {
+            x: 0,
+            y: 0,
+            width: columns,
+            height: rows,
+        },
+        clip_children: true,
+        focusable: false,
+        content: DisplayNodeContent::Group,
+        children,
+    });
+    for (index, line) in lines.into_iter().enumerate() {
+        nodes.push(DisplayNode {
+            id: NodeId(u64::try_from(index).unwrap_or(u64::MAX) + 2),
+            rect: Rect {
+                x: 0,
+                y: content_y + i32::try_from(index).unwrap_or(i32::MAX),
+                width: columns,
+                height: 1,
+            },
+            clip_children: true,
+            focusable: cursor.is_some_and(|(row, _)| usize::from(row) == index),
+            content: DisplayNodeContent::Text {
+                runs: vec![TextRun {
+                    text: line,
+                    style: Default::default(),
+                }],
+                wrap: WrapMode::Clip,
+                tab_width: 4,
+            },
+            children: Vec::new(),
+        });
+    }
+    let cursor_node = cursor.map(|(row, _)| NodeId(u64::from(row) + 2));
+    DisplayBatch {
+        version: DISPLAY_SCHEMA_VERSION,
+        viewport: Viewport { columns, rows },
+        root: NodeId(1),
+        nodes,
+        focused: cursor_node,
+        cursor: cursor.map(|(_, column)| CursorMetadata {
+            node: cursor_node.unwrap_or(NodeId(1)),
+            row: 0,
+            column,
+            shape: CursorShape::Bar,
+            visible: true,
+        }),
+    }
+}
+
 fn probe_main() -> Result<(), Error> {
     let host = Host::new(HostConfig::default())?;
     host.load("<performance-probe>", LUA_BENCH)?;
-    let mut tui = Tui::new(TerminalState::new(Some(100), Some(30)), true);
-    tui.start();
-    let _ = tui.render_if_requested(vec![
-        "pi-rs performance probe".to_owned(),
-        format!("input:0{}", pi_rs_tui::tui::CURSOR_MARKER),
-    ])?;
-    let _ = tui.take_output();
+    let mut terminal = TerminalState::new(Some(100), Some(30));
+    let mut display = RetainedDisplay::default();
+    let initial = vec!["pi-rs performance probe".to_owned(), "input:0".to_owned()];
+    let _ = display.submit(display_batch(100, 30, initial, Some((1, 7))))?;
     println!("READY");
     std::io::stdout().flush().map_err(|source| Error::Io {
         path: PathBuf::from("<stdout>"),
@@ -283,13 +347,15 @@ fn probe_main() -> Result<(), Error> {
             .strip_prefix("INPUT ")
             .and_then(|value| value.parse::<usize>().ok())
             .ok_or_else(|| Error::Probe(format!("invalid probe command {line:?}")))?;
-        let _ = tui.feed_input(b"x");
-        tui.request_render(false);
-        let _ = tui.render_if_requested(vec![
-            "pi-rs performance probe".to_owned(),
-            format!("input:{sequence}{}", pi_rs_tui::tui::CURSOR_MARKER),
-        ])?;
-        let _ = tui.take_output();
+        let _ = terminal.try_feed_input(b"x");
+        let input = format!("input:{sequence}");
+        let column = u16::try_from(input.len()).unwrap_or(u16::MAX);
+        let _ = display.submit(display_batch(
+            100,
+            30,
+            vec!["pi-rs performance probe".to_owned(), input],
+            Some((1, column)),
+        ))?;
         println!("FRAME {sequence}");
         std::io::stdout().flush().map_err(|source| Error::Io {
             path: PathBuf::from("<stdout>"),
@@ -368,32 +434,28 @@ fn millis(duration: Duration) -> f64 {
 }
 
 fn benchmark_render(samples: usize) -> Result<(Distribution, Distribution, Scalar), Error> {
-    let mut tui = Tui::new(TerminalState::new(Some(120), Some(40)), false);
-    let base: Vec<String> = (0..80)
+    let mut display = RetainedDisplay::default();
+    let base_lines: Vec<String> = (0..80)
         .map(|row| format!("retained row {row:02} {}", "x".repeat(80)))
         .collect();
-    tui.start();
-    let _ = tui.render_if_requested(base.clone())?;
-    let _ = tui.take_output();
+    let base = display_batch(120, 40, base_lines.clone(), None);
+    let _ = display.submit(base.clone())?;
 
     let mut unchanged = Vec::with_capacity(samples);
     for _ in 0..samples {
-        tui.request_render(false);
         let started = Instant::now();
-        let _ = tui.render_if_requested(base.clone())?;
-        let _ = tui.take_output();
+        let _ = display.submit(base.clone())?;
         unchanged.push(micros(started.elapsed()));
     }
 
     let mut changed = Vec::with_capacity(samples);
     let throughput_started = Instant::now();
     for iteration in 0..samples {
-        let mut frame = base.clone();
-        frame[40] = format!("retained changed frame {iteration:08}");
-        tui.request_render(false);
+        let mut lines = base_lines.clone();
+        lines[40] = format!("retained changed frame {iteration:08}");
+        let frame = display_batch(120, 40, lines, None);
         let started = Instant::now();
-        let _ = tui.render_if_requested(frame)?;
-        let _ = tui.take_output();
+        let _ = display.submit(frame)?;
         changed.push(micros(started.elapsed()));
     }
     let elapsed = throughput_started.elapsed().as_secs_f64();
