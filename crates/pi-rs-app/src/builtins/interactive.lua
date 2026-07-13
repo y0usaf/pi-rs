@@ -1100,133 +1100,177 @@ function earendil_lines(width, theme)
   return lines
 end
 
+
+-- Ordered transcript middleware. Row/context snapshots are read-only proxies;
+-- mutation enters through invalidate/actions, and errors fall through to next.
+function readonly_snapshot(value, cache)
+  if type(value) ~= "table" then return value end
+  cache = cache or {}
+  if cache[value] then return cache[value] end
+  local proxy = {}
+  cache[value] = proxy
+  setmetatable(proxy, {
+    __index = function(_, key) return readonly_snapshot(value[key], cache) end,
+    __newindex = function() error("render snapshots are read-only", 2) end,
+    __len = function() return #value end,
+    __pairs = function()
+      local key
+      return function()
+        key = next(value, key)
+        if key ~= nil then return key, readonly_snapshot(value[key], cache) end
+      end
+    end,
+    __metatable = false,
+  })
+  return proxy
+end
+
+function default_transcript_row(state, item, width, has_prior)
+  local lines = {}
+  local tool_opts = { cwd = state.cwd, expanded = state.tools_expanded or false, now_ms = state.now_ms }
+  if item.kind == "armin" then append(lines, armin_lines(item, width, state.theme))
+  elseif item.kind == "daxnuts" then append(lines, daxnuts_lines(item, width, state.theme))
+  elseif item.kind == "earendil" then append(lines, earendil_lines(width, state.theme))
+  elseif item.kind == "user" then
+    if has_prior then lines[#lines + 1] = "" end
+    append(lines, user_message_lines(item.text, width, state.theme, state.md_theme))
+  elseif item.kind == "assistant" then
+    append(lines, assistant_message_lines(item.message, width, state.theme, state.md_theme, {
+      hide_thinking = state.hide_thinking_block or false,
+      hidden_thinking_label = state.hidden_thinking_label,
+    }))
+  elseif item.kind == "tool" then append(lines, tool_execution_lines(item, width, state.theme, tool_opts))
+  elseif item.kind == "bash" then append(lines, bash_execution_lines(item, width, state.theme))
+  elseif item.kind == "custom" then
+    lines[#lines + 1] = ""
+    local message = item.message or item
+    local label = message.customType and ("[" .. message.customType .. "]") or "[custom]"
+    local content = type(message.content) == "string" and message.content or pi.json.encode(message.content or {})
+    local child = pi.tui.text_render(state.theme:fg("customMessageLabel", state.theme:bold(label))
+      .. "\n\n" .. state.theme:fg("customMessageText", content), math.max(1, width - 2), 0, 0)
+    append(lines, box_lines(child, width, function(text) return state.theme:bg("customMessageBg", text) end))
+  elseif item.kind == "branch_summary" then
+    lines[#lines + 1] = ""
+    append(lines, branch_summary_message_lines(item.message, width, state.theme, state.md_theme,
+      state.tools_expanded or false))
+  elseif item.kind == "compaction_summary" then
+    lines[#lines + 1] = ""
+    append(lines, compaction_summary_message_lines(item.message, width, state.theme, state.md_theme,
+      state.tools_expanded or false))
+  elseif item.kind == "spacer" then lines[#lines + 1] = ""
+  elseif item.kind == "status" then
+    lines[#lines + 1] = ""
+    append(lines, pi.tui.text_render(state.theme:fg("dim", item.text), width, 1, 0))
+  elseif item.kind == "info_block" then
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = state.theme:fg("border", string.rep("─", math.max(1, width)))
+    append(lines, pi.tui.text_render(state.theme:bold(state.theme:fg("accent", item.title)), width, 1, 0))
+    lines[#lines + 1] = ""
+    append(lines, pi.tui.markdown_render(item.markdown, width, 1, 1, { theme = state.md_theme }))
+    lines[#lines + 1] = state.theme:fg("border", string.rep("─", math.max(1, width)))
+  elseif item.kind == "startup_changelog" then
+    lines[#lines + 1] = state.theme:fg("border", string.rep("─", math.max(1, width)))
+    if item.collapsed then
+      append(lines, pi.tui.text_render("Updated to v" .. item.latest_version .. ". Use "
+        .. state.theme:bold("/changelog") .. " to view full changelog.", width, 1, 0))
+    else
+      append(lines, pi.tui.text_render(state.theme:bold(state.theme:fg("accent", "What's New")), width, 1, 0))
+      lines[#lines + 1] = ""
+      append(lines, pi.tui.markdown_render(item.markdown, width, 1, 0, { theme = state.md_theme }))
+      lines[#lines + 1] = ""
+    end
+    lines[#lines + 1] = state.theme:fg("border", string.rep("─", math.max(1, width)))
+  elseif item.kind == "update_available" then
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = state.theme:fg("warning", string.rep("─", math.max(1, width)))
+    local heading = state.theme:bold(state.theme:fg("warning", "Update Available"))
+    local instruction = state.theme:fg("muted", "New version " .. item.version
+      .. " is available. Run ") .. state.theme:fg("accent", state.app_name .. " update")
+    append(lines, pi.tui.text_render(heading .. "\n" .. instruction, width, 1, 0))
+    if item.note and trim(item.note) ~= "" then
+      lines[#lines + 1] = ""
+      append(lines, pi.tui.markdown_render(trim(item.note), width, 1, 0, { theme = state.md_theme,
+        color = function(text) return state.theme:fg("muted", text) end }))
+      lines[#lines + 1] = ""
+    end
+    local url = "https://pi.dev/changelog"
+    local link = pi.tui.terminal_capabilities().hyperlinks
+      and pi.tui.hyperlink(state.theme:fg("accent", "open changelog"), url)
+      or state.theme:fg("accent", url)
+    append(lines, pi.tui.text_render(state.theme:fg("muted", "Changelog: ") .. link, width, 1, 0))
+    lines[#lines + 1] = state.theme:fg("warning", string.rep("─", math.max(1, width)))
+  elseif item.kind == "text" then
+    lines[#lines + 1] = ""
+    append(lines, pi.tui.text_render(item.text, width, 1, item.padding_y or 0))
+  elseif item.kind == "error" then
+    lines[#lines + 1] = ""
+    append(lines, pi.tui.text_render(state.theme:fg("error", item.text), width, 1, 0))
+    lines[#lines + 1] = ""
+  elseif item.kind == "error_text" then
+    lines[#lines + 1] = ""
+    append(lines, pi.tui.text_render(state.theme:fg("error", item.text), width, 1, 0))
+  elseif item.kind == "warning" then
+    lines[#lines + 1] = ""
+    append(lines, pi.tui.text_render(state.theme:fg("warning", item.text), width, 1, 0))
+  elseif item.kind == "warning_raw" then
+    append(lines, pi.tui.text_render(state.theme:fg("warning", item.text), width, 1, 0))
+  end
+  return lines
+end
+
+DEFAULT_TRANSCRIPT_KINDS = {
+  "armin", "daxnuts", "earendil", "user", "assistant", "tool", "bash", "custom",
+  "branch_summary", "compaction_summary", "spacer", "status", "info_block",
+  "startup_changelog", "update_available", "text", "error", "error_text",
+  "warning", "warning_raw",
+}
+for _, kind in ipairs(DEFAULT_TRANSCRIPT_KINDS) do
+  pi.register_render_middleware(kind, {
+    name = "default-" .. kind, order = 10000,
+    render = function(_row, context) return context.default() end,
+  })
+end
+
+function render_transcript_row(state, item, width, has_prior)
+  local middleware = pi.registered_render_middlewares(item.kind)
+  local function run(index, current)
+    local entry = middleware[index]
+    if not entry then return default_transcript_row(state, current, width, has_prior) end
+    local advanced, cached = false, nil
+    local function next_render(replacement)
+      if not advanced then
+        advanced = true
+        cached = run(index + 1, replacement or current)
+      end
+      return cached
+    end
+    local row_state = item.render_middleware_state or {}
+    item.render_middleware_state = row_state
+    row_state[entry.source .. "\0" .. entry.name] = row_state[entry.source .. "\0" .. entry.name] or {}
+    local context = readonly_snapshot({
+      width = width, expanded = state.tools_expanded or false, streaming = item.streaming == true,
+      cwd = state.cwd, theme = state.theme, state = row_state[entry.source .. "\0" .. entry.name],
+    })
+    -- Actions stay explicit even though render snapshots are immutable.
+    local live_context = {
+      width = context.width, expanded = context.expanded, streaming = context.streaming,
+      cwd = context.cwd, theme = state.theme, state = row_state[entry.source .. "\0" .. entry.name],
+      invalidate = function() state.async_render = true end,
+      default = function() return default_transcript_row(state, current, width, has_prior) end,
+    }
+    local ok, result = pcall(entry.render, readonly_snapshot(current), live_context, next_render)
+    if not ok or result == nil then return next_render() end
+    return extension_component_lines and extension_component_lines(result, width) or result
+  end
+  return run(1, item)
+end
+
 local function transcript_lines(state, width)
   local lines = {}
-
-  local tool_opts = {
-    cwd = state.cwd,
-    expanded = state.tools_expanded or false,
-    now_ms = state.now_ms,
-  }
-  for _, item in ipairs(state.transcript) do
-    if item.kind == "armin" then
-      append(lines, armin_lines(item, width, state.theme))
-    elseif item.kind == "daxnuts" then
-      append(lines, daxnuts_lines(item, width, state.theme))
-    elseif item.kind == "earendil" then
-      append(lines, earendil_lines(width, state.theme))
-    elseif item.kind == "user" then
-      -- interactive-mode.ts addMessageToChat "user": Spacer(1) before the
-      -- message whenever the chat container already has content.
-      if #lines > 0 then lines[#lines + 1] = "" end
-      append(lines, user_message_lines(item.text, width, state.theme, state.md_theme))
-    elseif item.kind == "assistant" then
-      append(lines, assistant_message_lines(item.message, width, state.theme, state.md_theme,
-        { hide_thinking = state.hide_thinking_block or false }))
-    elseif item.kind == "tool" then
-      append(lines, tool_execution_lines(item, width, state.theme, tool_opts))
-    elseif item.kind == "bash" then
-      -- interactive-mode.ts addMessageToChat "bashExecution" /
-      -- handleBashCommand: the component frames itself (leading Spacer).
-      append(lines, bash_execution_lines(item, width, state.theme))
-    elseif item.kind == "branch_summary" then
-      -- interactive-mode.ts "branchSummary": Spacer(1) + the component
-      -- (expanded follows the shared toolOutputExpanded toggle).
-      lines[#lines + 1] = ""
-      append(lines, branch_summary_message_lines(
-        item.message, width, state.theme, state.md_theme, state.tools_expanded or false))
-    elseif item.kind == "compaction_summary" then
-      -- interactive-mode.ts "compactionSummary": Spacer(1) + the component.
-      lines[#lines + 1] = ""
-      append(lines, compaction_summary_message_lines(
-        item.message, width, state.theme, state.md_theme, state.tools_expanded or false))
-    elseif item.kind == "spacer" then
-      -- chatContainer.addChild(new Spacer(1)) rows mounted directly
-      -- (the summarize-branch flow).
-      lines[#lines + 1] = ""
-    elseif item.kind == "status" then
-      -- showStatus: Spacer(1) + Text(dim message, 1, 0)
-      lines[#lines + 1] = ""
-      append(lines, pi.tui.text_render(state.theme:fg("dim", item.text), width, 1, 0))
-    elseif item.kind == "info_block" then
-      -- /changelog and /hotkeys: Spacer + DynamicBorder + title + Spacer +
-      -- Markdown(1,1) + DynamicBorder.
-      lines[#lines + 1] = ""
-      lines[#lines + 1] = state.theme:fg("border", string.rep("─", math.max(1, width)))
-      append(lines, pi.tui.text_render(
-        state.theme:bold(state.theme:fg("accent", item.title)), width, 1, 0))
-      lines[#lines + 1] = ""
-      append(lines, pi.tui.markdown_render(item.markdown, width, 1, 1, { theme = state.md_theme }))
-      lines[#lines + 1] = state.theme:fg("border", string.rep("─", math.max(1, width)))
-    elseif item.kind == "startup_changelog" then
-      -- showStartupNoticesIfNeeded: DynamicBorder + condensed Text or the
-      -- What's New title/Spacer/Markdown/Spacer + DynamicBorder.
-      lines[#lines + 1] = state.theme:fg("border", string.rep("─", math.max(1, width)))
-      if item.collapsed then
-        append(lines, pi.tui.text_render("Updated to v" .. item.latest_version .. ". Use "
-          .. state.theme:bold("/changelog") .. " to view full changelog.", width, 1, 0))
-      else
-        append(lines, pi.tui.text_render(
-          state.theme:bold(state.theme:fg("accent", "What's New")), width, 1, 0))
-        lines[#lines + 1] = ""
-        append(lines, pi.tui.markdown_render(item.markdown, width, 1, 0, { theme = state.md_theme }))
-        lines[#lines + 1] = ""
-      end
-      lines[#lines + 1] = state.theme:fg("border", string.rep("─", math.max(1, width)))
-    elseif item.kind == "update_available" then
-      -- showNewVersionNotification: Spacer + warning border/title/action,
-      -- optional muted Markdown note, changelog line, warning border.
-      lines[#lines + 1] = ""
-      lines[#lines + 1] = state.theme:fg("warning", string.rep("─", math.max(1, width)))
-      local action = state.theme:fg("accent", state.app_name .. " update")
-      local heading = state.theme:bold(state.theme:fg("warning", "Update Available"))
-      local instruction = state.theme:fg("muted", "New version " .. item.version
-        .. " is available. Run ") .. action
-      append(lines, pi.tui.text_render(heading .. "\n" .. instruction, width, 1, 0))
-      if item.note and trim(item.note) ~= "" then
-        lines[#lines + 1] = ""
-        append(lines, pi.tui.markdown_render(trim(item.note), width, 1, 0, {
-          theme = state.md_theme,
-          color = function(text) return state.theme:fg("muted", text) end,
-        }))
-        lines[#lines + 1] = ""
-      end
-      local changelog_url = "https://pi.dev/changelog"
-      local changelog_link = state.theme:fg("accent", changelog_url)
-      if pi.tui.terminal_capabilities().hyperlinks then
-        changelog_link = pi.tui.hyperlink(state.theme:fg("accent", "open changelog"), changelog_url)
-      end
-      append(lines, pi.tui.text_render(
-        state.theme:fg("muted", "Changelog: ") .. changelog_link, width, 1, 0))
-      lines[#lines + 1] = state.theme:fg("warning", string.rep("─", math.max(1, width)))
-    elseif item.kind == "text" then
-      -- Pre-styled chat rows (interactive-mode.ts chatContainer.addChild
-      -- of Spacer(1) + Text(content, 1, paddingY)): /name, /session, and
-      -- the /new confirmation.
-      lines[#lines + 1] = ""
-      append(lines, pi.tui.text_render(item.text, width, 1, item.padding_y or 0))
-    elseif item.kind == "error" then
-      -- showError: Spacer(1) + Text(error "Error: ...", 1, 0) + Spacer(1)
-      lines[#lines + 1] = ""
-      append(lines, pi.tui.text_render(state.theme:fg("error", item.text), width, 1, 0))
-      lines[#lines + 1] = ""
-    elseif item.kind == "error_text" then
-      -- Raw error rows (auto-compaction failures): Spacer(1) +
-      -- Text(error message, 1, 0) — no "Error: " prefix, no trailing
-      -- spacer (interactive-mode.ts compaction_end).
-      lines[#lines + 1] = ""
-      append(lines, pi.tui.text_render(state.theme:fg("error", item.text), width, 1, 0))
-    elseif item.kind == "warning" then
-      -- showWarning: Spacer(1) + Text(warning "Warning: ...", 1, 0)
-      lines[#lines + 1] = ""
-      append(lines, pi.tui.text_render(state.theme:fg("warning", item.text), width, 1, 0))
-    elseif item.kind == "warning_raw" then
-      append(lines, pi.tui.text_render(state.theme:fg("warning", item.text), width, 1, 0))
-    end
-  end
+  for _, item in ipairs(state.transcript) do append(lines, render_transcript_row(state, item, width, #lines > 0)) end
   if state.streaming_message then
-    append(lines, assistant_message_lines(state.streaming_message, width, state.theme, state.md_theme,
-      { hide_thinking = state.hide_thinking_block or false }))
+    append(lines, render_transcript_row(state, { kind = "assistant", message = state.streaming_message, streaming = true },
+      width, #lines > 0))
   end
   return lines
 end
@@ -1898,8 +1942,10 @@ local function extension_selector(opts)
   end
   function self:render(width)
     local border = dynamic_border_line(theme, width)
+    local title = opts.title
+    if opts.remaining then title = title .. " (" .. opts.remaining() .. "s)" end
     local lines = { border, "" }
-    append(lines, pi.tui.text_render(theme:fg("accent", theme:bold(opts.title)), width, 1, 0))
+    append(lines, pi.tui.text_render(theme:fg("accent", theme:bold(title)), width, 1, 0))
     lines[#lines + 1] = ""
     for index, option in ipairs(opts.options) do
       local text
@@ -4176,9 +4222,65 @@ local function set_tools_expanded(state, expanded)
   end
 end
 
+local setup_shell_editor
+
 -- Extension UI is snapshot-in/actions-out: handlers enqueue plain Lua action
--- tables and may await their settlement; only the frontend pump mutates state.
+-- tables and may await settlement; only the frontend pump mutates state.
 EXTENSION_UI_POLICY = {}
+
+extension_component_lines = function(component, width)
+  if component == nil then return {} end
+  if type(component) == "function" then return component(width) or {} end
+  if type(component) == "table" and component.render then return component:render(width) or {} end
+  return type(component) == "table" and component or {}
+end
+
+function dispose_extension_component(component)
+  if component and type(component) == "table" and component.dispose then pcall(component.dispose, component) end
+end
+
+function extension_tui_facade(state)
+  return {
+    requestRender = function(_, force) state.async_render = true; state.force_render = force == true end,
+    request_render = function(_, force) state.async_render = true; state.force_render = force == true end,
+    new_editor = function(_, value)
+      return custom_editor({ value = value or "", theme = state.theme, keys = DEFAULT_KEYS })
+    end,
+  }
+end
+
+function extension_keybindings()
+  return {
+    matches = function(_, data, action) return binding_matches(data, DEFAULT_KEYS[action] or action) end,
+    get = function(_, action) return DEFAULT_KEYS[action] end,
+  }
+end
+
+function extension_input(opts)
+  local input = pi.tui.input()
+  local self = { focused = false }
+  function self:set_focused(focused) self.focused = focused; input:set_focused(focused) end
+  function self:handle_input(data)
+    if binding_matches(data, SELECT_KEYS.confirm) or data == "\n" then opts.on_submit(input:value())
+    elseif binding_matches(data, SELECT_KEYS.cancel) then opts.on_cancel()
+    else input:input(data) end
+  end
+  function self:render(width)
+    local title = opts.title
+    if opts.remaining then title = title .. " (" .. opts.remaining() .. "s)" end
+    local lines = { dynamic_border_line(opts.theme, width), "" }
+    append(lines, pi.tui.text_render(opts.theme:fg("accent", title), width, 1, 0))
+    lines[#lines + 1] = ""
+    append(lines, input:render(width))
+    lines[#lines + 1] = ""
+    append(lines, pi.tui.text_render(select_key_hint(opts.theme, "confirm", "submit") .. "  "
+      .. select_key_hint(opts.theme, "cancel", "cancel"), width, 1, 0))
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = dynamic_border_line(opts.theme, width)
+    return lines
+  end
+  return self
+end
 
 function EXTENSION_UI_POLICY.enqueue(state, action)
   state.extension_ui_actions[#state.extension_ui_actions + 1] = action
@@ -4186,8 +4288,8 @@ function EXTENSION_UI_POLICY.enqueue(state, action)
     local trace = { type = action.kind }
     if action.kind == "notify" then
       trace.message, trace.level = action.message, action.level
-    else
-      trace.title, trace.options = action.title, action.options
+    elseif action.title then
+      trace.title, trace.options = action.title, action.choices
     end
     state.extension_ui_trace[#state.extension_ui_trace + 1] = trace
   end
@@ -4195,23 +4297,113 @@ function EXTENSION_UI_POLICY.enqueue(state, action)
 end
 
 function EXTENSION_UI_POLICY.context(state)
-  local function await_dialog(kind, title, options)
-    local action = { kind = kind, title = title, options = options, settled = false }
+  state.extension_input_listeners = state.extension_input_listeners or {}
+  state.extension_statuses = state.extension_statuses or {}
+  state.extension_status_order = state.extension_status_order or {}
+  state.extension_widgets_above = state.extension_widgets_above or {}
+  state.extension_widgets_below = state.extension_widgets_below or {}
+  state.extension_widget_order = state.extension_widget_order or {}
+  if state.working_visible == nil then state.working_visible = true end
+  state.hidden_thinking_label = state.hidden_thinking_label or "Thinking..."
+  local function await_action(action)
+    action.settled = false
     EXTENSION_UI_POLICY.enqueue(state, action)
     while not action.settled do pi.sleep(10) end
     return action.value
   end
-  return {
-    select = function(title, options)
-      return await_dialog("select", title, options)
-    end,
-    confirm = function(title, message)
-      return await_dialog("confirm", title .. "\n" .. message, { "Yes", "No" }) == "Yes"
-    end,
-    notify = function(message, kind)
-      EXTENSION_UI_POLICY.enqueue(state, { kind = "notify", message = message, level = kind })
-    end,
-  }
+  local context = {}
+  context.select = function(title, choices, opts)
+    return await_action({ kind = "select", title = title, choices = choices or {}, opts = opts })
+  end
+  context.confirm = function(title, message, opts)
+    return await_action({ kind = "confirm", title = title .. "\n" .. message,
+      choices = { "Yes", "No" }, opts = opts }) == "Yes"
+  end
+  context.input = function(title, placeholder, opts)
+    return await_action({ kind = "input", title = title, placeholder = placeholder, opts = opts })
+  end
+  context.editor = function(title, prefill)
+    return await_action({ kind = "editor", title = title, prefill = prefill })
+  end
+  context.custom = function(factory, opts)
+    return await_action({ kind = "custom", factory = factory, opts = opts or {} })
+  end
+  context.notify = function(message, level)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "notify", message = message, level = level })
+  end
+  context.onTerminalInput = function(handler)
+    local listener = { handler = handler, active = true }
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "add_input_listener", listener = listener })
+    return function()
+      if listener.active then
+        listener.active = false
+        EXTENSION_UI_POLICY.enqueue(state, { kind = "remove_input_listener", listener = listener })
+      end
+    end
+  end
+  context.setStatus = function(key, text)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "set_status", key = key, text = text })
+  end
+  context.setWorkingMessage = function(message)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "set_working_message", message = message })
+  end
+  context.setWorkingVisible = function(visible)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "set_working_visible", visible = visible == true })
+  end
+  context.setWorkingIndicator = function(options)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "set_working_indicator", options = options })
+  end
+  context.setHiddenThinkingLabel = function(label)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "set_hidden_thinking_label", label = label })
+  end
+  context.setWidget = function(key, content, options)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "set_widget", key = key, content = content, options = options })
+  end
+  context.setFooter = function(factory)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "set_footer", factory = factory })
+  end
+  context.setHeader = function(factory)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "set_header", factory = factory })
+  end
+  context.setTitle = function(title)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "set_title", title = title })
+  end
+  context.pasteToEditor = function(text)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "paste_editor", text = text })
+  end
+  context.setEditorText = function(text)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "set_editor_text", text = text })
+  end
+  context.getEditorText = function()
+    return state.editor and state.editor.editor:get_expanded_text() or ""
+  end
+  context.addAutocompleteProvider = function(factory)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "add_autocomplete", factory = factory })
+  end
+  context.setEditorComponent = function(factory)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "set_editor_component", factory = factory })
+  end
+  context.getEditorComponent = function() return state.extension_editor_factory end
+  context.getAllThemes = function() return { { name = "dark" }, { name = "light" } } end
+  context.getTheme = function(name)
+    if name == "dark" then return create_theme(dark_json, state.theme.mode or "truecolor") end
+    if name == "light" then return create_theme(light_json, state.theme.mode or "truecolor") end
+    return nil
+  end
+  context.setTheme = function(value)
+    local name = type(value) == "table" and value.name or value
+    if type(value) ~= "table" and name ~= "dark" and name ~= "light" then
+      return { success = false, error = "Theme not found: " .. tostring(name) }
+    end
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "set_theme", theme = value })
+    return { success = true }
+  end
+  context.getToolsExpanded = function() return state.tools_expanded == true end
+  context.setToolsExpanded = function(expanded)
+    EXTENSION_UI_POLICY.enqueue(state, { kind = "set_tools_expanded", expanded = expanded == true })
+  end
+  setmetatable(context, { __index = function(_, key) if key == "theme" then return state.theme end end })
+  return context
 end
 
 function EXTENSION_UI_POLICY.settle(state, action, value)
@@ -4223,44 +4415,331 @@ function EXTENSION_UI_POLICY.settle(state, action, value)
       type = action.kind .. "_result", value = value,
     }
   end
-  state.extension_ui_active = nil
+  if state.extension_ui_active == action then state.extension_ui_active = nil end
   state.async_render = true
 end
 
+function extension_dialog_remaining(state, action)
+  if not action.deadline then return nil end
+  return math.max(0, math.ceil((action.deadline - pi.monotonic_ms()) / 1000))
+end
+
+function extension_dialog_cancel(state, action)
+  if state.selector == action.component then restore_editor(state) end
+  if state.overlay_component == action.component then
+    state.overlay_component, state.overlay_options = nil, nil
+    state.overlay_hidden, state.overlay_focused = false, false
+    state.set_editor_focus(true)
+  end
+  dispose_extension_component(action.component)
+  EXTENSION_UI_POLICY.settle(state, action, nil)
+end
+
+function extension_footer_data(state)
+  return {
+    getGitBranch = function() return state.branch end,
+    getExtensionStatuses = function()
+      local values = {}
+      for _, key in ipairs(state.extension_status_order or {}) do
+        local value = state.extension_statuses[key]
+        if value ~= nil then values[#values + 1] = value end
+      end
+      return values
+    end,
+    onBranchChange = function() return function() end end,
+  }
+end
+
+local function remove_ordered_key(order, key)
+  for index = #order, 1, -1 do
+    if order[index] == key then table.remove(order, index) end
+  end
+end
+function apply_extension_ui_action(state, action)
+  local kind = action.kind
+  if kind == "notify" then
+    if action.level == "error" then show_error(state, action.message)
+    elseif action.level == "warning" then show_warning(state, action.message)
+    else show_status(state, action.message) end
+  elseif kind == "add_input_listener" then
+    state.extension_input_listeners[#state.extension_input_listeners + 1] = action.listener
+  elseif kind == "remove_input_listener" then
+    local kept = {}
+    for _, listener in ipairs(state.extension_input_listeners) do
+      if listener ~= action.listener and listener.active then kept[#kept + 1] = listener end
+    end
+    state.extension_input_listeners = kept
+  elseif kind == "set_status" then
+    if action.text == nil then
+      state.extension_statuses[action.key] = nil
+      remove_ordered_key(state.extension_status_order, action.key)
+    else
+      if state.extension_statuses[action.key] == nil then
+        state.extension_status_order[#state.extension_status_order + 1] = action.key
+      end
+      state.extension_statuses[action.key] = action.text
+    end
+  elseif kind == "set_working_message" then
+    state.working_message = action.message
+    if state.loader and state.loader.kind ~= "retry" then
+      state.loader.message = action.message or "Working..."
+      state.loader.loader:set_message(state.loader.message)
+    end
+  elseif kind == "set_working_visible" then
+    state.working_visible = action.visible
+    if not action.visible and state.loader and state.loader.kind ~= "retry" then
+      state.loader = nil
+    elseif action.visible and state.session and state.session.is_streaming
+        and state.session.is_streaming() and not state.loader then
+      start_working_loader(state)
+    end
+  elseif kind == "set_working_indicator" then
+    state.working_indicator = action.options
+    if state.loader and state.loader.kind ~= "retry" then start_working_loader(state) end
+  elseif kind == "set_hidden_thinking_label" then action.label = action.label or "Thinking..."; state.hidden_thinking_label = action.label
+  elseif kind == "set_title" then state.terminal_title = action.title
+  elseif kind == "set_tools_expanded" then
+    set_tools_expanded(state, action.expanded)
+    if state.custom_header then
+      local expand = state.custom_header.set_expanded or state.custom_header.setExpanded
+      if expand then expand(state.custom_header, action.expanded) end
+    end
+  elseif kind == "set_editor_text" and state.editor then state.editor.editor:set_text(action.text or "")
+  elseif kind == "paste_editor" and state.editor then state.editor:handle_input("\27[200~" .. (action.text or "") .. "\27[201~")
+  elseif kind == "add_autocomplete" then
+    state.autocomplete_provider = action.factory(state.autocomplete_provider) or state.autocomplete_provider
+    if state.editor and state.autocomplete_provider then
+      local triggers = type(state.autocomplete_provider) == "table"
+        and (state.autocomplete_provider.triggerCharacters or state.autocomplete_provider.trigger_characters) or {}
+      state.editor.editor:set_autocomplete_triggers(triggers or {})
+    end
+  elseif kind == "set_theme" then
+    if type(action.theme) == "table" then state.theme = action.theme
+    else
+      state.theme_data = action.theme == "light" and light_json or dark_json
+      state.theme = create_theme(state.theme_data, state.theme.mode or "truecolor")
+    end
+    state.md_theme = get_markdown_theme(state.theme)
+  elseif kind == "set_widget" then
+    local placement = action.options and action.options.placement or "aboveEditor"
+    local above, below = state.extension_widgets_above, state.extension_widgets_below
+    local target = placement == "belowEditor" and below or above
+    local other = placement == "belowEditor" and above or below
+    local existed = target[action.key] ~= nil or other[action.key] ~= nil
+    dispose_extension_component(target[action.key])
+    dispose_extension_component(other[action.key])
+    target[action.key], other[action.key] = nil, nil
+    if action.content == nil then
+      remove_ordered_key(state.extension_widget_order, action.key)
+    else
+      if not existed then state.extension_widget_order[#state.extension_widget_order + 1] = action.key end
+      if type(action.content) == "function" then
+        target[action.key] = action.content(extension_tui_facade(state), state.theme)
+      else
+        local content = action.content
+        target[action.key] = { render = function(_, width)
+          local lines = {}
+          for index, line in ipairs(content) do
+            if index > 10 then break end
+            append(lines, pi.tui.text_render(line, width, 1, 0))
+          end
+          if #content > 10 then append(lines, pi.tui.text_render(state.theme:fg("muted", "... (widget truncated)"), width, 1, 0)) end
+          return lines
+        end }
+      end
+    end
+  elseif kind == "set_header" then
+    dispose_extension_component(state.custom_header); state.custom_header = nil
+    if action.factory then state.custom_header = action.factory(extension_tui_facade(state), state.theme) end
+  elseif kind == "set_footer" then
+    dispose_extension_component(state.custom_footer); state.custom_footer = nil
+    if action.factory then state.custom_footer = action.factory(
+      extension_tui_facade(state), state.theme, extension_footer_data(state)) end
+  elseif kind == "set_editor_component" then
+    local text = state.editor and state.editor.editor:get_text() or ""
+    dispose_extension_component(state.extension_editor_component)
+    state.extension_editor_factory = action.factory
+    if action.factory then
+      local component = action.factory(extension_tui_facade(state), {
+        borderColor = state.theme.fg_codes.borderMuted, selectList = get_select_list_theme(state.theme),
+      }, extension_keybindings())
+      if component.editor == nil then component = { editor = component, handle_input = function(self, data)
+        return self.editor:input_effect(data) end } end
+      state.extension_editor_component = component
+      state.editor = component
+      state.editor.editor:set_text(text)
+      state.editor.editor:set_focused(true)
+    else
+      setup_shell_editor(state)
+      state.editor.editor:set_text(text)
+    end
+  else
+    return false
+  end
+  return true
+end
+
+function mount_extension_dialog(state, action)
+  local opts = action.opts or {}
+  if opts.signal and opts.signal:is_aborted() then EXTENSION_UI_POLICY.settle(state, action, nil); return end
+  if opts.timeout and opts.timeout > 0 then action.deadline = pi.monotonic_ms() + opts.timeout end
+  state.extension_ui_active = action
+  local function done(value)
+    if state.selector == action.component then restore_editor(state) end
+    if state.overlay_component == action.component then
+      state.overlay_component, state.overlay_options = nil, nil
+      state.overlay_hidden, state.overlay_focused = false, false
+      state.set_editor_focus(true)
+    end
+    dispose_extension_component(action.component)
+    EXTENSION_UI_POLICY.settle(state, action, value)
+  end
+  if action.kind == "editor" then
+    action.component = extension_editor({ theme = state.theme, title = action.title, prefill = action.prefill,
+      on_submit = done, on_cancel = function() done(nil) end,
+      open_external_editor = function(editor)
+        open_external_editor(state, editor, "pi-extension-editor-", ".md", false, false)
+      end })
+  elseif action.kind == "input" then
+    action.component = extension_input({ theme = state.theme, title = action.title,
+      remaining = action.deadline and function() return extension_dialog_remaining(state, action) end or nil,
+      on_submit = done, on_cancel = function() done(nil) end })
+  elseif action.kind == "custom" then
+    local closed = false
+    local function finish(value) if not closed then closed = true; done(value) end end
+    local ok, component = pcall(action.factory, extension_tui_facade(state), state.theme,
+      extension_keybindings(), finish)
+    if not ok then EXTENSION_UI_POLICY.settle(state, action, nil); show_error(state, tostring(component)); return end
+    action.component = component
+    if action.settled then dispose_extension_component(component); return end
+    if action.opts.overlay then
+      state.overlay_component = component
+      state.overlay_options = action.opts.overlayOptions
+      state.overlay_hidden = false
+      local current_options = state.overlay_options
+      if type(current_options) == "function" then current_options = current_options() end
+      state.overlay_focused = not (current_options and current_options.nonCapturing == true)
+      state.set_editor_focus(not state.overlay_focused)
+      local permanently_hidden = false
+      local handle = {
+        hide = function()
+          if permanently_hidden then return end
+          permanently_hidden = true
+          if state.overlay_component == component then
+            state.overlay_component, state.overlay_options = nil, nil
+            state.overlay_hidden, state.overlay_focused = false, false
+            state.set_editor_focus(true)
+            state.async_render = true
+          end
+        end,
+        setHidden = function(_, hidden)
+          if permanently_hidden then return end
+          state.overlay_hidden = hidden == true
+          state.overlay_focused = not state.overlay_hidden
+            and not (current_options and current_options.nonCapturing == true)
+          state.set_editor_focus(not state.overlay_focused)
+          state.async_render = true
+        end,
+        isHidden = function() return permanently_hidden or state.overlay_hidden == true end,
+        focus = function()
+          if not permanently_hidden and not state.overlay_hidden then
+            state.overlay_focused = true; state.set_editor_focus(false); state.async_render = true
+          end
+        end,
+        unfocus = function()
+          state.overlay_focused = false; state.set_editor_focus(true); state.async_render = true
+        end,
+        isFocused = function() return not permanently_hidden and state.overlay_focused == true end,
+      }
+      if action.opts.onHandle then action.opts.onHandle(handle) end
+      return
+    end
+
+  else
+    action.component = extension_selector({ theme = state.theme, title = action.title,
+      options = action.choices,
+      remaining = action.deadline and function() return extension_dialog_remaining(state, action) end or nil,
+      on_toggle_tools_expanded = function() set_tools_expanded(state, not state.tools_expanded) end,
+      on_select = done, on_cancel = function() done(nil) end })
+  end
+  state.set_editor_focus(false)
+  if action.component.set_focused then action.component:set_focused(true) end
+  state.selector = action.component
+end
+
+function EXTENSION_UI_POLICY.tick(state)
+  local action = state.extension_ui_active
+  if not action then return false end
+  local opts = action.opts or {}
+  if (opts.signal and opts.signal:is_aborted()) or (action.deadline and pi.monotonic_ms() >= action.deadline) then
+    extension_dialog_cancel(state, action)
+    return true
+  end
+  return action.deadline ~= nil
+end
+
 function EXTENSION_UI_POLICY.pump(state)
-  if state.extension_ui_active then return false end
-  local changed = false
+  local changed = EXTENSION_UI_POLICY.tick(state)
+  if state.extension_ui_active then return changed end
   while #state.extension_ui_actions > 0 and not state.extension_ui_active do
     local action = table.remove(state.extension_ui_actions, 1)
-    if action.kind == "notify" then
-      if action.level == "error" then show_error(state, action.message)
-      elseif action.level == "warning" then show_warning(state, action.message)
-      else show_status(state, action.message) end
-      changed = true
-    else
-      state.extension_ui_active = action
-      show_selector(state, function(done)
-        return extension_selector({
-          theme = state.theme,
-          title = action.title,
-          options = action.options,
-          on_toggle_tools_expanded = function()
-            set_tools_expanded(state, not state.tools_expanded)
-          end,
-          on_select = function(value)
-            done()
-            EXTENSION_UI_POLICY.settle(state, action, value)
-          end,
-          on_cancel = function()
-            done()
-            EXTENSION_UI_POLICY.settle(state, action, nil)
-          end,
-        })
-      end)
-      changed = true
+    local ok, applied = pcall(apply_extension_ui_action, state, action)
+    if ok and not applied then
+      ok, applied = pcall(mount_extension_dialog, state, action)
     end
+    if not ok then
+      if action.settled == false then EXTENSION_UI_POLICY.settle(state, action, nil) end
+      show_error(state, tostring(applied))
+    end
+    changed = true
   end
   return changed
+end
+
+function EXTENSION_UI_POLICY.handle_raw_input(state, data)
+  local current = data
+  for _, listener in ipairs(state.extension_input_listeners or {}) do
+    if listener.active then
+      local ok, result = pcall(listener.handler, current)
+      if ok and result then
+        if result.consume then return nil end
+        if result.data ~= nil then current = result.data end
+      end
+    end
+  end
+  return current ~= "" and current or nil
+end
+
+function EXTENSION_UI_POLICY.reset(state)
+  if state.extension_ui_active then extension_dialog_cancel(state, state.extension_ui_active) end
+  for _, action in ipairs(state.extension_ui_actions or {}) do
+    if action.settled == false then EXTENSION_UI_POLICY.settle(state, action, nil) end
+  end
+  for _, target in ipairs({ state.custom_header, state.custom_footer, state.overlay_component,
+      state.extension_editor_component }) do dispose_extension_component(target) end
+  for _, widgets in ipairs({ state.extension_widgets_above or {}, state.extension_widgets_below or {} }) do
+    for _, widget in pairs(widgets) do dispose_extension_component(widget) end
+  end
+  if state.extension_editor_factory and state.editor then
+    local text = state.editor.editor:get_text()
+    setup_shell_editor(state)
+    state.editor.editor:set_text(text)
+  end
+  if state.autocomplete_provider then
+    local ok, provider = pcall(create_base_autocomplete_provider, state)
+    if ok then state.autocomplete_provider = provider end
+    if state.editor then state.editor.editor:set_autocomplete_triggers({}) end
+  end
+  state.extension_ui_actions, state.extension_ui_active = {}, nil
+  state.extension_input_listeners, state.extension_statuses, state.extension_status_order = {}, {}, {}
+  state.extension_widgets_above, state.extension_widgets_below, state.extension_widget_order = {}, {}, {}
+  state.custom_header, state.custom_footer = nil, nil
+  state.overlay_component, state.overlay_options = nil, nil
+  state.overlay_hidden, state.overlay_focused = false, false
+  state.extension_editor_factory, state.extension_editor_component = nil, nil
+  state.working_message, state.working_visible, state.working_indicator = nil, true, nil
+  state.hidden_thinking_label, state.terminal_title = "Thinking...", nil
+  if state.set_editor_focus then state.set_editor_focus(true) end
 end
 
 
@@ -4454,6 +4933,7 @@ local function pending_messages_lines(state, width)
     append(lines, bash_execution_lines(row, width, state.theme))
   end
   local steering, follow_up = all_queued_messages(state)
+
   if #steering == 0 and #follow_up == 0 then return lines end
   local theme = state.theme
   lines[#lines + 1] = "" -- Spacer(1)
@@ -4493,10 +4973,15 @@ function clear_retry_ui(state)
   if state.loader and state.loader.kind == "retry" then state.loader = nil end
 end
 
-local function start_working_loader(state)
+start_working_loader = function(state)
   clear_retry_ui(state)
+  if state.working_visible == false then state.loader = nil; return end
   local message = state.working_message or "Working..."
-  state.loader = { loader = pi.tui.loader(message), message = message,
+  local indicator
+  if state.working_indicator then
+    indicator = { frames = state.working_indicator.frames, interval_ms = state.working_indicator.intervalMs }
+  end
+  state.loader = { loader = pi.tui.loader(message, indicator), message = message,
     last_ms = pi.monotonic_ms() }
 end
 
@@ -4525,7 +5010,7 @@ function take_suspend(state)
   return suspend
 end
 
-local function setup_shell_editor(state)
+setup_shell_editor = function(state)
   local shortcuts = pi.registered_shortcuts()
   state.editor = custom_editor({
     theme = state.theme,
@@ -4625,57 +5110,176 @@ local function shell_submit_actions(state)
   }
 end
 
-local function frontend_frame(state, width)
-  width = math.max(20, width or 80)
-  local lines = {}
-  -- headerContainer: Spacer(1) + ExpandableText(logo/hints, 1, 0) + Spacer(1).
-  lines[#lines + 1] = ""
-  append(lines, pi.tui.text_render(header({ app_name = state.app_name,
-    version = state.version, expanded = state.header_expanded }, state.theme), width, 1, 0))
-  lines[#lines + 1] = ""
-  -- chatContainer.
-  append(lines, transcript_lines(state, width))
-  -- pendingMessagesContainer.
-  append(lines, pending_messages_lines(state, width))
-  -- statusContainer (working loader).
-  append(lines, status_container_lines(state, width))
-  -- widgetContainerAbove: renderWidgets' spacer-when-empty default.
-  lines[#lines + 1] = ""
-  -- editorContainer: the editor, or the selector/dialog/reload box swapped into it.
-  if state.reload_box then
-    append(lines, state.reload_box:render(width))
-  elseif state.selector then
-    append(lines, state.selector:render(width))
+function default_header_slot(state, width)
+  local lines = { "" }
+  if state.custom_header then
+    append(lines, extension_component_lines(state.custom_header, width))
   else
-    -- updateEditorBorderColor (bash mode / thinking level), observable
-    -- only at render time.
-    sync_editor_border(state)
-    for _, line in ipairs(state.editor.editor:render(width)) do lines[#lines + 1] = line end
+    append(lines, pi.tui.text_render(header({ app_name = state.app_name, version = state.version,
+      expanded = state.header_expanded }, state.theme), width, 1, 0))
   end
-  -- widgetContainerBelow renders nothing by default.
-  -- FooterComponent.render(): with a live agent, usage totals, the latest
-  -- cache hit rate, and the context estimate come from the real message
-  -- list; scripted states keep their stubbed values.
-  local usage, cache_hit_rate, context_percent =
-    state.usage, nil, state.context_percent
+  lines[#lines + 1] = ""
+  return lines
+end
+
+function default_status_slot(state, width) return status_container_lines(state, width) end
+
+function default_widget_slot(state, width, placement)
+  local widgets = (placement == "belowEditor" and state.extension_widgets_below or state.extension_widgets_above) or {}
+  local lines = {}
+  if placement == "aboveEditor" then lines[#lines + 1] = "" end
+  for _, key in ipairs(state.extension_widget_order or {}) do
+    local widget = widgets[key]
+    if widget then append(lines, extension_component_lines(widget, width)) end
+  end
+  return lines
+end
+
+function default_editor_slot(state, width)
+  if state.reload_box then return state.reload_box:render(width) end
+  if state.selector then return state.selector:render(width) end
+  sync_editor_border(state)
+  return state.editor.editor:render(width)
+end
+
+function default_footer_slot(state, width)
+  if state.custom_footer then return extension_component_lines(state.custom_footer, width) end
+  local usage, cache_hit_rate, context_percent = state.usage, nil, state.context_percent
   if state.agent then
     usage, cache_hit_rate, context_percent = footer_agent_data(state)
     if cache_hit_rate == nil then cache_hit_rate = false end
   end
-  local footer_lines = footer({
+  return footer({
     width = width, cwd = state.cwd, home = state.home, branch = state.branch,
-    -- footer.ts: "• sessionName" when the session has a display name.
     session_name = state.session_manager and state.session_manager:get_session_name() or "",
     usage = usage, cache_hit_rate = cache_hit_rate, context_percent = context_percent,
-    context_window = state.model.contextWindow or 0,
-    auto_compact = true, model_id = state.model.id, provider = state.model.provider,
-    provider_count = state.provider_count or 1, reasoning = state.model.reasoning,
-    thinking_level = state.thinking_level,
-    subscription = state.registry and state.registry.is_using_oauth
+    context_window = state.model and state.model.contextWindow or 0,
+    auto_compact = true, model_id = state.model and state.model.id or "no-model",
+    provider = state.model and state.model.provider, provider_count = state.provider_count or 1,
+    reasoning = state.model and state.model.reasoning, thinking_level = state.thinking_level,
+    subscription = state.model and state.registry and state.registry.is_using_oauth
       and state.registry.is_using_oauth(state.model) or false,
+    statuses = (function()
+      local statuses = {}
+      for _, key in ipairs(state.extension_status_order or {}) do
+        local text = state.extension_statuses[key]
+        if text ~= nil then statuses[#statuses + 1] = { key = key, text = text } end
+      end
+      return statuses
+    end)(),
   }, state.theme)
-  for _, line in ipairs(footer_lines) do lines[#lines + 1] = line end
+end
+
+DEFAULT_UI_SLOTS = {
+  header = default_header_slot, status = default_status_slot,
+  widget_above = function(state, width) return default_widget_slot(state, width, "aboveEditor") end,
+  editor = default_editor_slot,
+  widget_below = function(state, width) return default_widget_slot(state, width, "belowEditor") end,
+  footer = default_footer_slot,
+}
+for slot in pairs(DEFAULT_UI_SLOTS) do
+  pi.register_ui_slot(slot, { name = "default-" .. slot, order = 10000,
+    render = function(_snapshot, context) return context.default() end })
+end
+
+function render_ui_slot(state, slot, width)
+  local entries = pi.registered_ui_slots(slot)
+  local function run(index)
+    local entry = entries[index]
+    if not entry then return DEFAULT_UI_SLOTS[slot](state, width) end
+    local advanced, cached = false, nil
+    local function next_slot()
+      if not advanced then advanced = true; cached = run(index + 1) end
+      return cached
+    end
+    local snapshot = readonly_snapshot({ slot = slot, width = width, expanded = state.tools_expanded,
+      streaming = state.session and state.session.is_streaming and state.session.is_streaming() or false,
+      cwd = state.cwd, model = state.model })
+    local context = { width = width, theme = state.theme, invalidate = function() state.async_render = true end,
+      default = function() return DEFAULT_UI_SLOTS[slot](state, width) end }
+    local ok, result = pcall(entry.render, snapshot, context, next_slot)
+    if not ok or result == nil then return next_slot() end
+    return extension_component_lines(result, width)
+  end
+  return run(1)
+end
+
+function parse_overlay_size(value, total)
+  if type(value) == "number" then return math.floor(value) end
+  if type(value) == "string" then
+    local percent = tonumber(value:match("^(%d+%.?%d*)%%$"))
+    if percent then return math.floor(total * percent / 100) end
+  end
+  return nil
+end
+
+function composite_overlay(state, lines, width)
+  if not state.overlay_component or state.overlay_hidden then return lines end
+  local height = state.rows or 24
+  local opts = state.overlay_options
+  if type(opts) == "function" then opts = opts() end
+  opts = opts or {}
+  if opts.visible and not opts.visible(width, height) then return lines end
+  local margin = type(opts.margin) == "number" and { top = opts.margin, right = opts.margin,
+    bottom = opts.margin, left = opts.margin } or (opts.margin or {})
+  local mt, mr = math.max(0, margin.top or 0), math.max(0, margin.right or 0)
+  local mb, ml = math.max(0, margin.bottom or 0), math.max(0, margin.left or 0)
+  local aw, ah = math.max(1, width - ml - mr), math.max(1, height - mt - mb)
+  local overlay_width = parse_overlay_size(opts.width, width) or math.min(80, aw)
+  if opts.minWidth then overlay_width = math.max(overlay_width, opts.minWidth) end
+  overlay_width = math.max(1, math.min(overlay_width, aw))
+  local overlay = extension_component_lines(state.overlay_component, overlay_width)
+  local max_height = parse_overlay_size(opts.maxHeight, height)
+  if max_height then
+    max_height = math.max(1, math.min(max_height, ah))
+    while #overlay > max_height do table.remove(overlay) end
+  end
+  local oh = #overlay
+  local anchor = opts.anchor or "center"
+  local row = parse_overlay_size(opts.row, math.max(0, ah - oh))
+  local col = parse_overlay_size(opts.col, math.max(0, aw - overlay_width))
+  if row == nil then
+    if anchor:find("top", 1, true) then row = mt
+    elseif anchor:find("bottom", 1, true) then row = mt + ah - oh
+    else row = mt + math.floor((ah - oh) / 2) end
+  elseif type(opts.row) == "string" then row = mt + row end
+  if col == nil then
+    if anchor:find("left", 1, true) then col = ml
+    elseif anchor:find("right", 1, true) then col = ml + aw - overlay_width
+    else col = ml + math.floor((aw - overlay_width) / 2) end
+  elseif type(opts.col) == "string" then col = ml + col end
+  row = math.max(mt, math.min(row + (opts.offsetY or 0), height - mb - oh))
+  col = math.max(ml, math.min(col + (opts.offsetX or 0), width - mr - overlay_width))
+  local needed = math.max(#lines, height, row + oh)
+  while #lines < needed do lines[#lines + 1] = "" end
+  local viewport = math.max(0, needed - height)
+  local reset = "\27[0m\27]8;;\7"
+  for index, overlay_line in ipairs(overlay) do
+    local target = viewport + row + index
+    local base = lines[target] or ""
+    local before = pi.tui.slice_by_column(base, 0, col)
+    local after = pi.tui.slice_by_column(base, col + overlay_width, math.max(0, width - col - overlay_width))
+    local middle = pi.tui.truncate(overlay_line, overlay_width, "", true)
+    middle = middle .. string.rep(" ", math.max(0, overlay_width - pi.tui.visible_width(middle)))
+    lines[target] = before .. string.rep(" ", math.max(0, col - pi.tui.visible_width(before)))
+      .. reset .. middle .. reset .. after
+    lines[target] = pi.tui.truncate(lines[target], width, "", true)
+  end
   return lines
+end
+
+local function frontend_frame(state, width)
+  width = math.max(20, width or 80)
+  local lines = {}
+  append(lines, render_ui_slot(state, "header", width))
+  append(lines, transcript_lines(state, width))
+  append(lines, pending_messages_lines(state, width))
+  append(lines, render_ui_slot(state, "status", width))
+  append(lines, render_ui_slot(state, "widget_above", width))
+  append(lines, render_ui_slot(state, "editor", width))
+  append(lines, render_ui_slot(state, "widget_below", width))
+  append(lines, render_ui_slot(state, "footer", width))
+  return composite_overlay(state, lines, width)
 end
 
 -- interactive-mode.ts handleEvent — the agent-event policy over transcript
@@ -6144,6 +6748,9 @@ end
 
 function bind_session_runtime(state, session_manager)
   local request = state.request
+  if (state.extension_context_generation or 0) > 0 and state.extension_ui then
+    EXTENSION_UI_POLICY.reset(state)
+  end
   state.extension_context_generation = (state.extension_context_generation or 0) + 1
   state.extension_errors = state.extension_errors or {}
   EXTENSION_POLICY.on_error = function(error)
@@ -8997,6 +9604,9 @@ local function create_interactive_state(request)
     inherited_process_callbacks = {}, pending_inherited_process = nil,
     pending_suspend = false,
     extension_ui_actions = {}, extension_ui_active = nil,
+    extension_input_listeners = {}, extension_statuses = {}, extension_status_order = {},
+    extension_widgets_above = {}, extension_widgets_below = {}, extension_widget_order = {},
+    working_visible = true, hidden_thinking_label = "Thinking...",
     extension_actions = {}, extension_context_generation = 0, shutdown_requested = false,
     extension_mode = "tui", extension_has_ui = true,
   }
@@ -9081,40 +9691,37 @@ local function run_interactive_state(state)
       state.columns = event.columns
       state.rows = event.rows
       state.editor.editor:set_terminal_rows(event.rows)
-      return { lines = frontend_frame(state, event.columns), force = true, title = "pi",
+      return { lines = frontend_frame(state, event.columns), force = true,
+        title = state.terminal_title or "pi",
         progress = pi.settings.show_terminal_progress() and state.session.is_streaming(),
         showHardwareCursor = pi.settings.show_hardware_cursor(),
         clearOnShrink = pi.settings.clear_on_shrink() }
     end
     if event.type == "input" then
-      if state.selector then
-        state.selector:handle_input(event.data)
-        pump_login(state, 0)
-        return { lines = frontend_frame(state, state.columns or 80), exit = state.exit,
-          progress = pi.settings.show_terminal_progress() and state.session.is_streaming(),
-          showHardwareCursor = pi.settings.show_hardware_cursor(),
-          clearOnShrink = pi.settings.clear_on_shrink(),
-          inheritedProcess = take_inherited_process(state),
-          suspend = take_suspend(state) }
-      end
-      local effect = state.editor:handle_input(event.data)
-      if effect.kind == "submit" then
-        state.submit(effect.text or effect.value or "")
+      local data = EXTENSION_UI_POLICY.handle_raw_input(state, event.data)
+      if data and state.overlay_component and state.overlay_focused and state.overlay_component.handle_input then
+        state.overlay_component:handle_input(data)
+      elseif data and state.selector then
+        state.selector:handle_input(data)
+      elseif data then
+        local effect = state.editor:handle_input(data)
+        if effect and effect.kind == "submit" then state.submit(effect.text or effect.value or "") end
       end
       pump_login(state, 0)
-      pump_editor_autocomplete(state, pi.monotonic_ms())
+      if not state.selector then pump_editor_autocomplete(state, pi.monotonic_ms()) end
       return { lines = frontend_frame(state, state.columns or 80), exit = state.exit,
+        title = state.terminal_title,
         progress = pi.settings.show_terminal_progress() and state.session.is_streaming(),
         showHardwareCursor = pi.settings.show_hardware_cursor(),
         clearOnShrink = pi.settings.clear_on_shrink(),
-        inheritedProcess = take_inherited_process(state),
-        suspend = take_suspend(state) }
+        inheritedProcess = take_inherited_process(state), suspend = take_suspend(state) }
     end
     if event.type == "inherited_process_result" then
       local callback = state.inherited_process_callbacks[event.id]
       state.inherited_process_callbacks[event.id] = nil
       if callback then callback(event.status) end
       return { lines = frontend_frame(state, state.columns or 80), force = true,
+        title = state.terminal_title,
         progress = pi.settings.show_terminal_progress() and state.session.is_streaming(),
         showHardwareCursor = pi.settings.show_hardware_cursor(),
         clearOnShrink = pi.settings.clear_on_shrink() }
@@ -9175,7 +9782,10 @@ local function run_interactive_state(state)
       end
       if state.session.is_streaming() then render = true end
       if render then
-        return { lines = frontend_frame(state, state.columns or 80), exit = state.exit,
+        local force = state.force_render == true
+        state.force_render = false
+        return { lines = frontend_frame(state, state.columns or 80), exit = state.exit, force = force,
+          title = state.terminal_title,
           progress = pi.settings.show_terminal_progress() and state.session.is_streaming(),
           showHardwareCursor = pi.settings.show_hardware_cursor(),
           clearOnShrink = pi.settings.clear_on_shrink() }
@@ -9200,6 +9810,7 @@ pi.register_role({
     local request = pi.json.decode(args)
     local state = create_interactive_state(request)
     local result = run_interactive_state(state)
+    EXTENSION_UI_POLICY.reset(state)
     print_resume_command(state)
     -- handleFatalRuntimeError exits with status 1 (main.rs maps it).
     return { result = result, exitCode = state.exit_code or 0 }
@@ -10083,6 +10694,7 @@ pi.register_command("interactive-extension-ui-parity-sequence", {
     local columns, rows = request.columns, request.rows
     local state = {
       theme = theme, md_theme = get_markdown_theme(theme), transcript = {},
+      app_name = "pi", version = "0.79.0", rows = rows,
       model = nil, thinking_level = "off", tools_expanded = false,
       header_expanded = false, steering_texts = {}, follow_up_texts = {},
       double_escape_action = "none", cwd = request.cwd or pi.cwd(),
@@ -10108,6 +10720,7 @@ pi.register_command("interactive-extension-ui-parity-sequence", {
     local terminal = pi.tui.session(columns, rows, true)
     local frames, permission_result = {}, nil
     local function lines()
+      if request.fullFrame then return frontend_frame(state, columns) end
       local result = transcript_lines(state, columns)
       if state.selector then append(result, state.selector:render(columns))
       else sync_editor_border(state); append(result, state.editor.editor:render(columns)) end
@@ -10155,13 +10768,21 @@ pi.register_command("interactive-extension-ui-parity-sequence", {
       for _, input in ipairs(step.input or {}) do feed(input) end
       if step.resize then
         columns, rows = step.resize.columns, step.resize.rows
+        state.rows = rows
         state.editor.editor:set_terminal_rows(rows)
         terminal:resize(columns, rows)
       end
       capture(step.name, step.name == "startup" or step.resize ~= nil)
     end
-    return { frames = frames, permissionResult = permission_result,
-      actions = state.extension_ui_trace }
+    return { frames = frames, permissionResult = permission_result, actions = state.extension_ui_trace,
+      uiState = {
+        editorText = state.editor.editor:get_expanded_text(), toolsExpanded = state.tools_expanded,
+        title = state.terminal_title, customHeader = state.custom_header ~= nil,
+        customFooter = state.custom_footer ~= nil,
+        aboveWidget = state.extension_widgets_above["showcase-above"] ~= nil,
+        belowWidget = state.extension_widgets_below["showcase-below"] ~= nil,
+        status = state.extension_statuses.showcase, active = state.extension_ui_active ~= nil,
+      } }
   end,
 })
 

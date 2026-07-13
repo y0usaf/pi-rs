@@ -1185,6 +1185,10 @@ fn ext_entry(lua: &mlua::Lua, source: &str) -> mlua::Result<mlua::Table> {
     let package = lua.create_table()?;
     package.set("command_visibility", "public")?;
     entry.set("package", package)?;
+    entry.set("render_middleware", lua.create_table()?)?;
+    entry.set("render_middleware_order", lua.create_table()?)?;
+    entry.set("ui_slots", lua.create_table()?)?;
+    entry.set("ui_slot_order", lua.create_table()?)?;
     exts.set(source, &entry)?;
     let ext_order: mlua::Table = registry.get("ext_order")?;
     ext_order.push(source)?;
@@ -1978,6 +1982,168 @@ pub(crate) fn build(
         })?,
     )?;
 
+    // Additive pi-rs composition surface: transcript renderers and shell slots
+    // use one ordered declaration mechanism for embedded and file-backed Lua.
+    // Definitions remain Lua functions; wrappers restore source attribution.
+    let register_render_middleware =
+        lua.create_function(|lua, (kind, options): (String, mlua::Table)| {
+            if kind.trim().is_empty() {
+                return Err(mlua::Error::runtime(
+                    "register_render_middleware: kind must be a non-empty string",
+                ));
+            }
+            if options.get::<Option<mlua::Function>>("render")?.is_none() {
+                return Err(mlua::Error::runtime(
+                    "register_render_middleware: options.render must be a function",
+                ));
+            }
+            let name = options
+                .get::<Option<String>>("name")?
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or_else(|| kind.clone());
+            let key = format!("{kind}\u{0}{name}");
+            let source = current_source(lua);
+            let ext = ext_entry(lua, &source)?;
+            let entries: mlua::Table = ext.get("render_middleware")?;
+            if entries.get::<Option<mlua::Value>>(key.as_str())?.is_none() {
+                let order: mlua::Table = ext.get("render_middleware_order")?;
+                order.push(key.as_str())?;
+            }
+            let entry = lua.create_table()?;
+            entry.set("kind", kind)?;
+            entry.set("name", name)?;
+            entry.set("order", options.get::<Option<i64>>("order")?.unwrap_or(0))?;
+            entry.set("render", options.get::<mlua::Function>("render")?)?;
+            entries.set(key, entry)?;
+            Ok(())
+        })?;
+    pi.set("register_render_middleware", register_render_middleware)?;
+    pi.set(
+        "registered_render_middlewares",
+        lua.create_function(|lua, kind: Option<String>| {
+            let mut entries = registrations(lua, "render_middleware", "render_middleware_order")?
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, (source, _, entry))| {
+                    let entry_kind = entry.get::<String>("kind").ok()?;
+                    if kind
+                        .as_ref()
+                        .is_some_and(|kind| kind != &entry_kind && entry_kind != "*")
+                    {
+                        return None;
+                    }
+                    let order = entry
+                        .get::<Option<i64>>("order")
+                        .ok()
+                        .flatten()
+                        .unwrap_or(0);
+                    Some((order, index, source, entry))
+                })
+                .collect::<Vec<_>>();
+            entries.sort_by_key(|(order, index, _, _)| (*order, *index));
+            let result = lua.create_table()?;
+            for (order, _, source, entry) in entries {
+                let value = lua.create_table()?;
+                value.set("source", source.as_str())?;
+                value.set("kind", entry.get::<String>("kind")?)?;
+                value.set("name", entry.get::<String>("name")?)?;
+                value.set("order", order)?;
+                let render = entry.get::<mlua::Function>("render")?;
+                value.set(
+                    "render",
+                    lua.create_function(move |lua, args: mlua::MultiValue| {
+                        let previous = current_source(lua);
+                        set_current_source(lua, &source);
+                        let outcome = render.call::<mlua::Value>(args);
+                        set_current_source(lua, &previous);
+                        outcome
+                    })?,
+                )?;
+                result.push(value)?;
+            }
+            Ok(result)
+        })?,
+    )?;
+
+    let register_ui_slot = lua.create_function(|lua, (slot, options): (String, mlua::Table)| {
+        if slot.trim().is_empty() {
+            return Err(mlua::Error::runtime(
+                "register_ui_slot: slot must be a non-empty string",
+            ));
+        }
+        if options.get::<Option<mlua::Function>>("render")?.is_none() {
+            return Err(mlua::Error::runtime(
+                "register_ui_slot: options.render must be a function",
+            ));
+        }
+        let name = options
+            .get::<Option<String>>("name")?
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| slot.clone());
+        let key = format!("{slot}\u{0}{name}");
+        let source = current_source(lua);
+        let ext = ext_entry(lua, &source)?;
+        let entries: mlua::Table = ext.get("ui_slots")?;
+        if entries.get::<Option<mlua::Value>>(key.as_str())?.is_none() {
+            let order: mlua::Table = ext.get("ui_slot_order")?;
+            order.push(key.as_str())?;
+        }
+        let entry = lua.create_table()?;
+        entry.set("slot", slot)?;
+        entry.set("name", name)?;
+        entry.set("order", options.get::<Option<i64>>("order")?.unwrap_or(0))?;
+        entry.set("render", options.get::<mlua::Function>("render")?)?;
+        entries.set(key, entry)?;
+        Ok(())
+    })?;
+    pi.set("register_ui_slot", register_ui_slot)?;
+    pi.set(
+        "registered_ui_slots",
+        lua.create_function(|lua, slot: Option<String>| {
+            let mut entries = registrations(lua, "ui_slots", "ui_slot_order")?
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, (source, _, entry))| {
+                    let entry_slot = entry.get::<String>("slot").ok()?;
+                    if slot
+                        .as_ref()
+                        .is_some_and(|slot| slot != &entry_slot && entry_slot != "*")
+                    {
+                        return None;
+                    }
+                    let order = entry
+                        .get::<Option<i64>>("order")
+                        .ok()
+                        .flatten()
+                        .unwrap_or(0);
+                    Some((order, index, source, entry))
+                })
+                .collect::<Vec<_>>();
+            entries.sort_by_key(|(order, index, _, _)| (*order, *index));
+            let result = lua.create_table()?;
+            for (order, _, source, entry) in entries {
+                let value = lua.create_table()?;
+                value.set("source", source.as_str())?;
+                value.set("slot", entry.get::<String>("slot")?)?;
+                value.set("name", entry.get::<String>("name")?)?;
+                value.set("order", order)?;
+                let render = entry.get::<mlua::Function>("render")?;
+                value.set(
+                    "render",
+                    lua.create_function(move |lua, args: mlua::MultiValue| {
+                        let previous = current_source(lua);
+                        set_current_source(lua, &source);
+                        let outcome = render.call::<mlua::Value>(args);
+                        set_current_source(lua, &previous);
+                        outcome
+                    })?,
+                )?;
+                result.push(value)?;
+            }
+            Ok(result)
+        })?,
+    )?;
+
     // Spec `registerFlag`/`getFlag`: definitions stay per extension while
     // parsed/default values live in one shared runtime map. Defaults are
     // first-wins, matching `runtime.flagValues.has(name)`.
@@ -2420,6 +2586,12 @@ pub(crate) fn build(
                 ))
             },
         )?,
+    )?;
+    tui.set(
+        "slice_by_column",
+        lua.create_function(|_, (text, start, width): (String, usize, usize)| {
+            Ok(pi_rs_tui::utils::slice_by_column(&text, start, width, true))
+        })?,
     )?;
     tui.set(
         "fuzzy_filter",

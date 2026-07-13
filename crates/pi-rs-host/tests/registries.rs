@@ -500,6 +500,7 @@ fn flag_registry_defaults_values_and_exerciser_match_pi() {
 }
 
 #[test]
+
 fn roles_resolve_by_explicit_activation_and_priority_not_source_identity() {
     let host = host();
     host.load(
@@ -726,4 +727,63 @@ fn event_bus_file_backed_exerciser_runs() {
         .expect("post-unsubscribe command runs")
         .expect("post-unsubscribe observations");
     assert_eq!(observed, serde_json::json!({"count":0,"messages":{}}));
+}
+
+#[test]
+fn render_and_slot_declarations_are_ordered_attributed_and_rolled_back() {
+    let host = host();
+    host.load(
+        "test://first-ui",
+        r#"
+            local pi = ...
+            pi.register_render_middleware("user", { name="late", order=20, render=function() return "late" end })
+            pi.register_render_middleware("user", { name="early", order=-10, render=function() return "early" end })
+            pi.register_ui_slot("footer", { name="first-footer", order=5, render=function() return "footer" end })
+            pi.register_command("ui-registry-probe", { handler=function()
+                local out = { render = {}, slots = {} }
+                for _, item in ipairs(pi.registered_render_middlewares("user")) do
+                    out.render[#out.render + 1] = { item.name, item.source, item.render() }
+                end
+                for _, item in ipairs(pi.registered_ui_slots("footer")) do
+                    out.slots[#out.slots + 1] = { item.name, item.source, item.render() }
+                end
+                return out
+            end })
+        "#,
+    )
+    .unwrap();
+    assert!(
+        host.load(
+            "test://failed-ui",
+            r#"
+                local pi = ...
+                pi.register_render_middleware("user", { name="ghost", order=-100, render=function() return "ghost" end })
+                pi.register_ui_slot("footer", { name="ghost", order=-100, render=function() return "ghost" end })
+                error("rollback")
+            "#,
+        )
+        .is_err()
+    );
+    host.load(
+        "test://second-ui",
+        r#"
+            local pi = ...
+            pi.register_render_middleware("user", { name="peer", order=-10, render=function() return "peer" end })
+        "#,
+    )
+    .unwrap();
+
+    let result = host.call_command("ui-registry-probe", "").unwrap().unwrap();
+    assert_eq!(
+        result["render"],
+        serde_json::json!([
+            ["early", "test://first-ui", "early"],
+            ["peer", "test://second-ui", "peer"],
+            ["late", "test://first-ui", "late"]
+        ])
+    );
+    assert_eq!(
+        result["slots"],
+        serde_json::json!([["first-footer", "test://first-ui", "footer"]])
+    );
 }
