@@ -286,7 +286,7 @@ public mechanism contracts already present on the base; they may not invent Lua
 product policy. Root manifests and central binding indexes are reconciled by the
 integrator after the wave.
 
-- [ ] **2.1 — Terminal/display mechanism** (**Wave M**, path owner:
+- [x] **2.1 — Terminal/display mechanism** (**Wave M**, path owner:
   `crates/pi-rs-tui/**`; depends on 1.3).
 
   Retain input decoding, Unicode cells, width/wrapping primitives, clipping,
@@ -297,12 +297,13 @@ integrator after the wave.
   **Accept:** mechanism tests cover Unicode/wide cells, resize, cursor, clipping,
   minimal diffs, and malformed input; benchmark budgets from 0.2 pass.
 
-  **Landed slice:** `a2e32b4` adds a versioned bounded retained display tree,
+  **Landed:** `a2e32b4` adds the versioned bounded retained display tree,
   transactional validation, iterative layout/clipping, Unicode cells, stable
   identities, focus/cursor metadata, minimal ANSI diffs, and bounded raw-input
-  decoding. Focused tests and the unchanged input/render budgets pass. Remaining:
-  migrate host/app/example consumers and delete inherited Pi-specific editor,
-  markdown, selector, settings, loader, component, and TUI policy modules.
+  decoding. `bc43cc4` and `5c0db47` migrate the narrow host/performance seams and
+  delete inherited Pi-specific editor, markdown, selector, settings, loader,
+  component, TUI policy, parity tests, and stale examples. Integrated focused,
+  workspace, release performance, and Nix checks pass.
 
 - [x] **2.2 — Async OS/effect mechanism** (**Wave M**, path owner:
   `crates/pi-rs-host/src/effects/**` plus focused new tests; depends on 1.3).
