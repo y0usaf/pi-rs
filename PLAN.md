@@ -1,355 +1,534 @@
 # pi-rs — execution plan
 
-`DESIGN.md` defines the target: a Rust port of Pi v0.79.0's coding agent with
-an exhaustive, closed difference list. `ref/pi` @ `c5582102` is the frozen
-product specification outside those differences. This plan covers the coding
-agent and only its required AI/auth, agent, session, TUI, and extension
-mechanisms. Product-specific work belongs in downstream forks.
+`main` builds **pi-rs**: a minimal, high-performance Rust coding harness whose
+shipped product looks and feels like Pi but is authored entirely through its
+public Lua surface. The former faithful port is preserved on
+`pi-rust-rewrite`; it is a source of proven mechanisms and focused reference
+observations, not the product specification for `main`.
 
-The first unchecked item is next. Completed implementation diaries remain in
-Git; this file keeps only the current contract, concise completed ledger, and
-actionable work.
+The first unchecked dependency-ready item is next. Items marked **serial** own
+shared contracts or hot files and must land before a dependent wave starts.
+Items sharing a **wave** may be assigned by `/orchestrate` only when their exact
+paths are disjoint on the integration base. `PLAN.md` is updated by the
+integrator, never by parallel workers unless explicitly assigned.
 
-## Execution axioms
+## Product contract
 
-These combine `DESIGN.md`, the applicable project doctrines, and the Rust/Lua
-closure goal:
+### What pi-rs preserves
 
-1. **The pinned Pi release is the oracle.** Outside DESIGN's closed exception
-   list, observable behavior is exact—not approximate, improved, or redefined by
-   a pi-rs-only test.
-2. **The product boundary is closed.** Port only the coding agent and mechanisms
-   it actually exercises. Unrelated framework breadth and product experiments
-   stay downstream.
-3. **Maintained executable source converges to Rust + Lua.** Rust owns mechanism;
-   Lua owns product policy, configuration, builtins, and extensions. First-party
-   tests, generators, and maintenance tools also converge to Rust or Lua.
-   Nix/TOML manifests and inert data, docs, markup, styles, certificates, and
-   protocol fixtures are not executable-language exceptions. Upstream Pi and
-   external-extension source are pinned oracle inputs, not maintained copies.
-   Browser-target JavaScript required by Pi-compatible standalone HTML export is
-   the sole target-runtime exception: keep it minimal, provenance-marked, and
-   incapable of becoming a host extension/tooling runtime. At closure there is
-   no maintained host-side TypeScript, JavaScript, Python, or shell source.
-4. **Extension-first has no privileged path.** Every replaceable first-party
-   behavior is an independently ablatable Lua builtin declared through the same
-   public surface as an ordinary file-backed extension. Synthetic source identity
-   is provenance only.
-5. **Snapshots enter; actions leave.** Lua reads immutable event/context
-   snapshots and returns or queues actions. It never borrows mutable host state;
-   every dispatch is watchdog-bounded and every owned resource has explicit
-   cancellation/disposal.
-6. **One kind, one declaration mechanism.** Applications, tools, commands,
-   renderers, slots, resources, settings, and other repeated units have one
-   public declaration path. Rust selects generic roles and applies actions; it
-   does not name product policy.
-7. **The bare core is real and continuously proven.** Zero packs/config/
-   extensions still provide the documented minimal raw completion/login/model
-   behavior. Per-package ablation and ordinary file-backed replacement prove the
-   mechanism/policy line.
-8. **Evidence must earn its carrying cost.** Keep the smallest deterministic
-   test that distinguishes the contract. Unit tests, differential oracles,
-   snapshots, exercisers, inventories, and audits coexist only when each catches
-   a distinct failure. Generated evidence is canonical and compact; migration
-   scaffolding expires when its gate closes; Git is the attic.
-9. **Nix is the source of truth.** Build and verification claims use `nix build`
-   and `nix flake check`. Native commands are iteration aids only; `cargo fmt`
-   and `cargo clippy` remain sanctioned direct exceptions.
+Pi is the experience reference for a deliberately bounded set of canonical
+interactive states:
 
-## Completed baseline
+- transcript rhythm, spacing, color, wrapping, and tool presentation;
+- editor behavior, completion, keybindings, paste, and external-editor flow;
+- streaming/thinking presentation and cancellation;
+- steering and follow-up queues;
+- selectors, dialogs, notifications, status, header, and footer;
+- the restrained default coding workflow.
 
-Implementation inventory, not a claim that open parity gates are complete:
+Canonical terminal grids and input traces may be cell-exact. Behavior outside
+that checked experience set belongs to pi-rs and need not reproduce Pi.
 
-- [x] Rust workspace, crane flake, bare host, Lua runtime/registries/watchdogs,
-      terminal cell renderer/input/components, AI/auth transport, agent loop,
-      session persistence, and thin generic role launcher.
-- [x] **1–3: interactive foundation.** Pi-derived differential terminal harness;
-      exact transcript, editor, autocomplete, shell, selectors, `/login`, `/logout`,
-      and `/model`; jsdiff, tool renderers, syntax highlighting, marked edge cases,
-      and ordered JSON behavior.
-- [x] **4–5: coding-agent loop.** Anthropic/provider UI differential; system
-      prompt/context, coding-tool semantics, images, and agent event ordering.
-- [x] **6: sessions.** Persistence, resume/reconstruction, session UI, tree/
-      branching, and compaction through the shipped product.
-- [x] **7: interactive surface.** Bash mode, thinking, settings/scoped models,
-      catalog updates, trust, subscription auth breadth, transfer/info commands,
-      retry presentation, and remaining shell actions.
-- [x] **9.1: product-loaded extensions.** Ordinary Lua extensions load through
-      CLI/project/global/configured sources with trust, rollback, conflicts,
-      watchdogs, active tools/commands/flags, autocomplete, and queued select/
-      confirm/notify actions. Pi-generated runtime/context/UI observations and
-      translated examples established the vertical slice.
-- [x] **9.1a: closed construction and dogfood inventories.** Fail-closed manifests
-      classify first-party assembly and the capabilities of 15 pinned external
-      extensions; `LUA_SURFACE.md` defines compatible, additive-mechanism, and
-      packaged-module tiers.
-- [x] **9.1b: generic public assembly.** `pi.register_role`, one declarative
-      builtins manifest, zero-pack boot, per-package suppression, and ordinary
-      file-backed role/tool/policy replacements removed privileged product launch
-      paths. This is the last completed plan step before the ablation milestone.
+### What pi-rs is
 
-## Immediate milestone — evidence ablation and Rust/Lua closure
+- Installed executable: `pi`.
+- Configuration and product policy: Lua 5.4.
+- Rust: generic mechanisms only.
+- Shipped defaults: ordinary Lua packages loaded through the same API as
+  file-backed user packages.
+- Configuration root: `${XDG_CONFIG_HOME:-~/.config}/pi`.
+- Data root: `${XDG_DATA_HOME:-~/.local/share}/pi`.
+- State root: `${XDG_STATE_HOME:-~/.local/state}/pi`.
+- Cache root: `${XDG_CACHE_HOME:-~/.cache}/pi`.
+- Legacy `~/.pi/agent` resources are read-only fallbacks when the corresponding
+  XDG resource is absent. pi-rs never writes, deletes, or silently migrates
+  legacy files.
+- Provider/auth scope is intentionally broad: retain full pinned-Pi parity for
+  supported provider protocols, model catalog behavior, API-key resolution,
+  and subscription OAuth flows. This is a subsystem compatibility promise, not
+  whole-product parity.
 
-The parity push accumulated useful but excessively duplicated migration
-scaffolding: 206 MiB of per-cell UI JSON, bespoke TypeScript oracle drivers,
-checked copies of external TypeScript extensions, Python inventory generators,
-and shell wrappers. Preserve the contracts, not their current representation.
-Complete these rungs before growing the extension surface further.
+### Mechanism/policy boundary
 
-- [ ] **A.1 Compact exact UI evidence without reducing coverage.** Replace the
-      one-object-per-cell `tests/ui-parity/*.pi.json` format with one versioned,
-      reviewable canonical format using a shared style palette, text/style runs,
-      and frame deltas or an equally compact representation. Decode to the same
-      complete cell grid and cursor state before comparison; retain color,
-      attributes, wide cells, trailing blanks, geometry, ordering, input, and
-      first-mismatch diagnostics. Delete old snapshots and conversion-only code.
+Rust owns:
 
-      **Accept:** every retained Pi/pi-rs checkpoint compares identically before
-      and after conversion; negative controls still identify the first mismatched
-      cell; regeneration is byte-idempotent; tracked UI oracle bytes fall by at
-      least 95%; and no compressed opaque blobs are committed.
+- the Lua VM, package/module loading, watchdogs, and source-neutral capability
+  checks;
+- immutable snapshot creation, action validation/application, async effect
+  execution, cancellation, and scoped resource disposal;
+- terminal byte decoding, cell/display primitives, layout/clipping primitives,
+  and differential ANSI presentation;
+- HTTP/SSE/WebSocket, process, filesystem, timer, crypto, and image primitives;
+- provider wire protocols and authentication engines;
+- a generic durable append-only record store and atomic filesystem mechanics.
 
-- [ ] **A.2 Deduplicate the permanent test contract.** Classify retained evidence
-      by the distinct failure it owns: Rust mechanism invariant, Pi differential,
-      public Lua exerciser, construction/ablation proof, or external dogfood
-      contract. Delete overlapping expectations, copied setup, stale milestone
-      audits, and generated review output without an open owner. Factor terminal,
-      HTTP/SSE, process, normalization, and fixture machinery once. Prefer
-      black-box product boundaries over copied upstream private wiring; retain
-      component/unit tests only when they localize a distinct failure.
+Lua owns the complete product:
 
-      Active fail-closed inventories may remain while they drive open 9.x rows,
-      then retire or collapse to minimal permanent manifests. Scenario count is
-      not a success metric; unique observable contracts and mutation-resistant
-      failure signals are.
+- application, agent, frontend, and session state machines;
+- tool-loop, retry, queue, compaction, and context policy;
+- editor behavior, keymaps, TUI composition, transcript rendering, and every
+  visible default;
+- tools, commands, themes, configuration, provider selection, resource
+  discovery, and session semantics.
 
-      **Accept:** every retained suite states its unique contract and why a
-      cheaper layer cannot own it; shared harnesses have one implementation;
-      default checks contain no migration-only final audit; and the retained
-      suite passes through the flake.
+Lua receives immutable snapshots/read-only handles and returns or queues typed
+actions. It never receives mutable host state. Rust may batch, lay out, clip,
+and diff Lua-authored display structures; it may not decide product appearance
+or workflow.
 
-- [ ] **A.3 Close maintained executable source to Rust/Lua.** Port repository-
-      owned TypeScript, Python, and shell generators/tools to Rust or Lua and
-      delete their predecessors. Replace checked external-extension TypeScript
-      trees with a hash-locked Nix oracle input plus compact checked provenance/
-      capability manifests. Drive upstream Pi through shared Rust/Lua black-box
-      harnesses where possible; any irreducible adapter belongs to the pinned
-      external oracle input, not first-party product/test source. Separate opt-in
-      oracle regeneration from normal offline verification: normal checks consume
-      canonical outputs and execute no repository-owned Node/Bun/Python/shell
-      program.
+### Extension model
 
-      Keep only explicitly allowlisted browser-export JavaScript and its
-      provenance-marked third-party libraries. It executes only in generated
-      standalone pages and cannot become an extension, package, generator, test
-      harness, or host dependency. Add a Nix source-language check over tracked
-      executable files and shebangs.
+Extensibility is broad capability through a small number of stable seams, not a
+registry for every helper:
 
-      **Accept:** the gate rejects new first-party `.ts`, `.py`, `.sh`, Python/
-      shell shebangs, and `.js` outside the browser-export allowlist; model-catalog,
-      inventory, audit, and oracle workflows have Rust/Lua owners; normal
-      `nix flake check` needs no repository-owned foreign-language runtime;
-      opt-in regeneration remains deterministic against hash-pinned sources; and
-      shipped extension/config/package execution is Lua-only.
+- coarse replaceable roots: application, agent, frontend, session;
+- composable declarations: tools, commands, providers, events, renderers, UI
+  slots, themes, and keymaps;
+- ordinary versioned Lua modules for private and shared helpers;
+- one declaration mechanism per kind;
+- no capability, lifecycle, priority, or module available only to embedded
+  builtins.
 
-## Extension/configuration closure
+A root or declaration is independently replaceable. Private implementation
+functions and inert package resources need not become ceremonial units.
 
-- [ ] **9.2 Extension contexts + lifecycle actions.** Complete live
-      `ExtensionContext`/`ExtensionCommandContext` snapshots and queued actions:
-      UI, mode/hasUI/cwd/trust, read-only session/model registry, model/signal,
-      idle/abort/pending/shutdown, context usage, compaction, system prompt, and
-      command-only wait/new/fork/tree/switch/reload operations. Rebind contexts
-      across reload/session replacement so stale handles fail without exposing
-      mutable Rust state.
+### Session model
 
-      Already landed: TUI/one-shot context snapshots, read-only facades,
-      generation-based stale rejection, queued abort/compact/shutdown/wait, and
-      command lifecycle actions including session replacement/reload.
+Persistent sessions are optional Lua policy over a generic Rust record store.
+The shipped session package defines creation, naming, branch/tree semantics,
+context reconstruction, compaction records, selection, and retention. It uses
+public snapshots/actions only and can be disabled or replaced by a file-backed
+package; without it, the application remains useful with an ephemeral
+conversation. Rust guarantees durable append, atomicity, locking, iteration,
+and cancellation, but knows no Pi session workflow.
 
-      **Remaining/accept:** carry contexts through JSON/RPC delivery; cover
-      signal-driven cancellation of queued/in-flight waits; and pin context,
-      replacement, cancellation, stale-handle, and lifecycle/event ordering
-      against Pi. Event emission itself closes in 9.3.
+### Explicit non-goals
 
-- [ ] **9.3 Complete event pipeline and fold semantics.** Emit the pinned event
-      vocabulary at real product seams: project/resources; session start/switch/
-      fork/compact/tree/shutdown; context/provider request/response; agent/turn/
-      message/tool lifecycles; model/thinking selection; `tool_call`,
-      `tool_result`, `user_bash`, and `input`. Port exact ordering, replacement vs
-      mutation, middleware chaining, cancellation/fail-safe rules, error
-      isolation, and result merges. No product-only callback path.
+- whole-product behavioral or data compatibility with Pi;
+- compatibility with Pi's TypeScript extension API or npm package runtime;
+- exact Pi errors, CLI breadth, request ordering outside provider/auth, or
+  historical edge cases;
+- reproducing every Pi mode, export path, package-manager behavior, easter egg,
+  or external extension;
+- making every Lua helper independently registered;
+- claiming performance from implementation language alone.
 
-      **Accept:** one Pi differential covers successful/tool-using, blocked,
-      transformed-input, bash, compact/tree/session-switch, provider-failure,
-      abort, and reload paths; Lua sees equivalent snapshots and produces
-      equivalent requests, final state, and transcript.
+JSON/RPC modes, HTML export, package registries, and other omitted features may
+return only after an independent use case and must be ordinary Lua packages or
+generic mechanisms.
 
-- [ ] **9.4 Complete non-UI ExtensionAPI actions and registries.** Finish dynamic
-      tools/active-tool changes, async argument completion, shortcut conflicts,
-      CLI flags, custom messages/render/persistence, session name/labels,
-      command/tool inventories, model/thinking mutation, shared event bus, and
-      provider register/unregister with custom stream/OAuth callbacks. Registered
-      tools participate in prompt rebuilds, validation, parallel execution,
-      renderer fallback, sessions, export, and reload exactly like builtins.
+## Execution rules
 
-      **Accept:** translated dynamic-tools, tool-override, message-renderer,
-      event-bus, preset, provider, and stateful-tool examples run unprivileged;
-      focused differential contracts pin immediate effects and reload recovery.
+1. **Contract before parallelism.** Do not launch a wave against an unsettled
+   root API, action vocabulary, display schema, or storage contract.
+2. **Small waves.** Prefer 2–4 path-disjoint deliverables. A shared hot file
+   makes the frontier serial.
+3. **No speculative compatibility.** `ref/pi` and `pi-rust-rewrite` may answer a
+   focused visual/provider question; they do not authorize porting adjacent
+   behavior.
+4. **Evidence earns its cost.** Each permanent test names one distinct contract:
+   mechanism invariant, public Lua capability, canonical experience, provider/
+   auth parity, or performance budget.
+5. **Performance is measured.** Track release startup, idle RSS, input-to-frame
+   latency, sustained render cost, Lua dispatch/effect overhead, and binary
+   size. Avoid per-cell/per-byte Lua crossings and unbounded snapshot copies.
+6. **Bare core boots.** With no builtins, config, or extensions, `pi` can load a
+   file-backed Lua application, accept input, render, run an effect, and exit
+   cleanly. A missing/broken product package produces a useful diagnostic.
+7. **Nix is authoritative.** Completion claims use `nix build`/`nix flake
+   check`; direct Cargo is an iteration aid except for sanctioned fmt/clippy.
+8. **Git is the attic.** Delete superseded code and evidence from `main`; recover
+   history from `pi-rust-rewrite` rather than retaining migration layers.
 
-- [ ] **9.5 Complete composable extension UI/rendering.** Expose Pi-equivalent
-      select/confirm/input/editor dialogs, notifications, status/widgets,
-      working message, header/footer, title, editor text/paste, tool expansion,
-      theme access/switching, raw input, custom editor, and temporary custom
-      component/overlay composition. Complete custom tool/message rendering,
-      invalidation, focus, resize, cancellation, cleanup, and no-UI outcomes.
+## 0 — Reset the contract and coordination tools
 
-      Add ordered public rendering middleware for every transcript row kind plus
-      declared header/footer/editor/status/widget slots. Middleware receives
-      immutable snapshots and returns components/actions; errors fall through and
-      dispatch remains watchdog-bounded.
+- [ ] **0.1 — Replace the legacy parity contract** (**serial**).
 
-      **Accept:** representative translated UI examples match Pi frames/input;
-      one file-backed compact-rendering package reproduces `pi-compact` behavior
-      without private classes; default middleware preserves retained UI parity.
+  Rewrite `DESIGN.md` around this product contract, including a doctrine table,
+  explicit hot-path/mechanism decisions, the XDG/legacy policy, provider/auth
+  subsystem parity, configurable sessions, and measurable performance goals.
+  Update `README.md` so it no longer promises a faithful port. Rewrite
+  `.pi/skills/{next,parallel-plan,orchestrate}/SKILL.md` to use this plan,
+  preserve path/base locking, and stop treating all of Pi as the oracle.
 
-- [ ] **9.6 Canonical `config.lua` declaration + mutation pipeline.** Provide one
-      Lua declaration mechanism per kind: settings, keybindings, models/providers,
-      themes, extensions, skills/prompts/resources, and selectors. Load global,
-      then trusted project declarations with Pi-equivalent effective precedence
-      and CLI overrides. Interactive mutation updates a deterministic managed Lua
-      block idempotently; `/reload` publishes the whole next graph atomically.
-      Pi JSON configuration inputs remain intentionally ignored.
+  **Own:** `DESIGN.md`, `README.md`, `.pi/skills/**` only.
 
-      **Accept:** compact matrices cover precedence, trust, CLI overrides,
-      failed/partial declarations, rollback, and repeated mutation round-trips;
-      equivalent Lua declarations produce Pi-equivalent behavior and frames.
+  **Accept:** the documents agree; the first-open-item and wave semantics are
+  unambiguous; workers are directed to Pi only for named experience or
+  provider/auth evidence; no implementation work begins under the old
+  contract.
 
-- [ ] **9.7 Resources, public Lua modules, and package transport.** Complete
-      resource discovery/provenance/precedence/dedupe/toggles/reload for Lua
-      extensions/config/themes and Pi-compatible skill/prompt content. Implement
-      DESIGN's npm-registry, Git URL/ref, and local-path transports while package
-      contents remain Lua/modules/data and JavaScript stays inert.
+- [ ] **0.2 — Establish compact experience and performance baselines**
+  (**serial after 0.1**).
 
-      Finish deterministic public modules for reusable policy—truncation,
-      mutation queues, shell/tool/session/compaction/render/theme helpers—and
-      remove undeclared chunk-local/cross-pack globals. Embedded and file-backed
-      packages use the same dependency mechanism.
+  Select a small canonical set covering startup, prompt editing, streaming,
+  thinking, one tool call/result, queueing, cancellation, selector/dialog, and
+  session resume. Convert only those observations into a compact versioned
+  grid/input format. Add a reproducible release-mode benchmark harness for
+  startup, idle RSS, input-to-frame latency, render throughput, Lua dispatch,
+  and effect round trips. Record explicit initial budgets in `DESIGN.md` from
+  measured data rather than aspiration.
 
-      **Accept:** resource/package fixtures cover precedence, trust, collisions,
-      install/remove/list/update/config, toggles, offline cache, load order,
-      cycles, and attribution; a file-backed package imports the same helpers as
-      builtins without hidden native modules or a JS runtime.
+  **Own:** new `tests/experience/**`, new `tests/performance/**`, focused harness
+  code, and the budget section of `DESIGN.md` as an explicit shared exception.
 
-- [ ] **9.8 Translation matrix + Pi extension gate.** Translate every in-boundary
-      pinned first-party TypeScript extension example to executable Lua. Group
-      truly equivalent examples, but never skip one because the bridge lacks a
-      capability. Generate/check concise Lua API docs from the same minimal
-      manifest.
+  **Accept:** fixtures are reviewable and byte-idempotent; negative controls
+  identify the first cell/input mismatch; benchmarks emit stable machine-
+  readable results; normal checks do not execute Node/TypeScript Pi.
 
-      **Accept:** every pinned API member/event and configuration capability maps
-      to differential evidence, executable Lua, or an explicit DESIGN exception;
-      all in-scope examples run through the shipped public surface.
+- [ ] **0.3 — Remove faithful-port scaffolding** (**serial after 0.2**).
 
-- [ ] **9.9 Inventory-driven Lua mechanism supersurface.** Implement only the
-      low-level capabilities owned by construction/dogfood rows: abort-aware HTTP
-      streaming, managed subprocess pipes/process-tree cancellation, TCP framed
-      clients, filesystem watch/atomic/symlink/metadata operations, reviewed
-      hashes/crypto, scoped tasks/timers/resources, reusable tool operations, and
-      per-file mutation queues. Use Lua-native APIs, not Node emulation.
+  Delete exhaustive parity snapshots, external-extension fixtures, generated
+  construction/final audits, oracle wrappers, stale parity documents, and
+  checks whose contracts are not retained by 0.2 or provider/auth parity.
+  Reconcile the flake and source filters once. Keep focused Rust mechanism tests
+  and provider/auth wire fixtures.
 
-      Opaque handles may own external resources but never mutable product state.
-      Product mutation remains queued; embedded/file-backed capabilities are
-      identical; each operation has cancellation, timeout, reload, shutdown, and
-      leak contracts.
+  **Own:** legacy `tests/**`, `scripts/**`, parity inventory documents,
+  `flake.nix`, and generated-check wiring. Preserve the new 0.2 paths.
 
-      **Accept:** file-backed examples exercise every mechanism; no process/task/
-      socket/watcher survives disposal; Gecko, RLM, Pomodoro, Hashline, Morph,
-      and Webfetch need no missing-primitive shell workaround; default Pi
-      behavior remains unchanged.
+  **Accept:** tracked size drops substantially; every remaining suite states its
+  unique owner; `rg` finds no active whole-product parity promise; the flake is
+  green from a clean tree.
 
-- [ ] **9.10 Close first-party decomposition, ablation, and replacement.** Resolve
-      every construction row as an independently disableable public Lua builtin
-      or an irreducible Rust mechanism recorded in DESIGN. Split replaceable
-      frontend/agent/tool units; consume public event/render/slot/command/resource/
-      lifecycle registries; remove product callbacks, local registries, hardcoded
-      precedence, and private globals. Do not force singular mechanisms into
-      ceremonial registries.
+## 1 — Cut the bare mechanism kernel
 
-      **Accept:** zero-pack boot; per-package ablation; ordinary file-backed
-      replacements for application role, agent policy, each tool kind, compaction,
-      command routing, every render/slot kind, theme, and resources; deleting the
-      builtins tree leaves the documented bare core; no open construction row.
+- [ ] **1.1 — Define the kernel transaction and source-neutral package model**
+  (**serial**; depends on 0.3).
 
-- [ ] **9.11 Translate external dogfood and close the strict-superset gate.**
-      Translate the 15 pinned packages—codex-fast, Gecko websearch, RTK, compact,
-      context janitor, Morph, tool management, Webfetch, Hashline, minimal editor,
-      working indicator, Pomodoro, RLM, review, and VCC—to ordinary Lua packages.
-      Preserve behavior with the smallest deterministic provider, browser/socket,
-      subprocess, timer, filesystem, compaction, session, and terminal contracts.
-      Pi 0.80.6 is only the extension-behavior oracle, not the product spec.
+  Replace compatibility-shaped host APIs with one bounded dispatch transaction:
+  immutable event/context snapshot in, validated action/effect batch out. Define
+  generation-safe read handles, cancellation, watchdog behavior, scoped
+  resources, errors, and deterministic action ordering. Define versioned Lua
+  modules plus coarse root and composable declaration registries. Embedded and
+  file-backed packages must enter the identical loader transaction.
 
-      **Accept:** direct/configured/bundled loading composes identically; long-lived
-      resources clean up; stateful packages survive branch/compact/reload/session
-      replacement; `pi-compact` uses public middleware; no translation has a
-      privileged escape hatch; compact inventories close; default Pi parity stays
-      green.
+  Split central host code into ownership-friendly modules before adding more
+  bindings; `api.rs` must not remain the universal hot file.
 
-## Remaining AI/auth and modes
+  **Own:** `crates/pi-rs-host/src/**`, host tests, and host crate manifest.
 
-- [ ] **8. Complete coding-agent AI/auth compatibility.** Keep one shared
-      transport/conversion pipeline per protocol family rather than provider
-      clones. Already landed: Anthropic, OpenAI Completions baseline, OpenAI
-      Responses, Codex Responses SSE/WebSocket/fallback, Azure Responses, Google
-      Generative AI, and Google Vertex including authorized-user, service-account,
-      workload file/URL/executable/AWS ADC paths. Catalog dispatch currently
-      covers those families and subscription auth breadth is complete.
+  **Accept:** file-backed tests prove equal capability and lifecycle; stale
+  handles fail; busy loops time out; actions apply only after dispatch; failed
+  package loads publish nothing; root/declaration conflicts are deterministic.
 
-      **Remaining:** certificate external-account ADC; deterministic Pi
-      differentials and dispatch for `mistral-conversations` and
-      `bedrock-converse-stream`; replace the old OpenAI Completions fixtures with
-      one Pi differential; run catalog/auth acceptance and delete superseded
-      provider fixtures/harnesses under A.2.
+- [ ] **1.2 — Make `pi` a thin generic launcher with zero builtins**
+  (**serial**; depends on 1.1).
 
-      **Accept:** supported model inventory matches Pi's coding agent; every
-      advertised API has a focused deterministic replay; three subscription
-      providers retain auth-state/request coverage; shared machinery has one
-      implementation.
+  Reduce `pi-rs-app` to CLI parsing, XDG/legacy root discovery, host creation,
+  package graph loading, and generic application-root selection. Remove product-
+  named Rust branches. Builtins are optional input, not linked assumptions.
 
-- [ ] **10. Match non-interactive modes.** Port print, JSON, RPC, export, and other
-      pinned coding-agent modes through generic registered roles and the same Lua
-      policy/actions as interactive mode.
+  **Own:** `crates/pi-rs-app/src/**` excluding future builtin assets, app tests,
+  and app crate manifest. Root workspace/flake edits are integrator-owned.
 
-      **Accept:** argument, stdout/stderr, exit status, serialization, extension
-      context/action delivery, cancellation, and no-UI outcomes match Pi.
+  **Accept:** zero-pack `pi` loads and runs an ordinary file-backed application;
+  missing/broken packages diagnose cleanly; no Rust identifier names a shipped
+  command, screen, tool, or session workflow.
 
-- [ ] **11. Final parity and ablation audit.** Diff the complete reachable
-      coding-agent surface and required AI/agent/TUI behavior. Resolve every
-      difference outside DESIGN; verify each listed exception is no broader than
-      stated. This is a product contract check, not a new permanent audit layer.
+- [ ] **1.3 — Implement deterministic XDG roots and read-only legacy fallback**
+  (**serial**; depends on 1.2).
 
-      **Accept:** retained automated contracts and side-by-side scripted sessions
-      are indistinguishable under equivalent Lua configuration; inventories have
-      closed and collapsed to minimal permanent manifests; zero/per-pack ablation
-      and ordinary replacement are green; maintained executable source satisfies
-      the Rust/Lua gate; no migration-only audit remains. Tag the baseline.
+  Expose canonical config/data/state/cache paths as immutable startup data.
+  Resolve `~/.pi/agent` per resource only when its XDG counterpart is absent.
+  Writes always target XDG; fallback files never merge ambiguously and are never
+  modified. Cover environment overrides, missing HOME/XDG values, permissions,
+  symlinks, and explicit import diagnostics.
 
-## Post-parity maintenance
+  **Own:** focused app/host path modules and tests. Do not add product resource
+  loading policy in Rust.
 
-Maintain the frozen compatibility contract and deliberately port selected
-upstream changes. Checked contracts stay small and Rust/Lua-driven; foreign
-upstream source is realized only as a hash-pinned input for deliberate oracle
-regeneration. Delete adapters, snapshots, manifests, and audits whenever a
-smaller permanent contract supersedes them. Product-specific defaults and
-experiments remain downstream.
+  **Accept:** a compact matrix proves precedence and no-write behavior for
+  config, credentials, sessions, packages, and cache resources.
 
-## Execution mechanics
+## 2 — Harden reusable Rust mechanisms
 
-- The first unchecked item is next; close its checkbox and acceptance evidence in
-  the same change.
-- No temporary UI, approximate component, knowingly different default, or
-  pi-rs-specific label satisfies a milestone.
-- A public authoring capability needs one outside-the-builtins consumer: a
-  file-backed example, translated pinned example, or maintained dogfood package.
-  Add another layer only for a distinct failure mode.
-- Use focused native tests while iterating. Completion claims cite relevant Nix
-  checks; releases run the complete flake verification.
+After 1.3, `/orchestrate` may run **Wave M**. Workers may improve internals and
+public mechanism contracts already present on the base; they may not invent Lua
+product policy. Root manifests and central binding indexes are reconciled by the
+integrator after the wave.
+
+- [ ] **2.1 — Terminal/display mechanism** (**Wave M**, path owner:
+  `crates/pi-rs-tui/**`; depends on 1.3).
+
+  Retain input decoding, Unicode cells, width/wrapping primitives, clipping,
+  focus primitives, image capability, and differential ANSI presentation.
+  Remove Pi-specific component policy. Define a batched retained display tree or
+  display-list boundary suitable for Lua-authored UI without per-cell callbacks.
+
+  **Accept:** mechanism tests cover Unicode/wide cells, resize, cursor, clipping,
+  minimal diffs, and malformed input; benchmark budgets from 0.2 pass.
+
+- [ ] **2.2 — Async OS/effect mechanism** (**Wave M**, path owner:
+  `crates/pi-rs-host/src/effects/**` plus focused new tests; depends on 1.3).
+
+  Consolidate abort-aware filesystem, process-tree, HTTP streaming, timer,
+  clipboard, and crypto effects behind typed queued requests. Every resource has
+  timeout, cancellation, reload, and shutdown behavior. No effect retains mutable
+  product state.
+
+  **Accept:** file-backed Lua exercisers cover each effect; leak tests prove no
+  process/task/socket survives disposal; backpressure is bounded.
+
+- [ ] **2.3 — Generic durable record store** (**Wave M**, path owner:
+  `crates/pi-rs-session/**`; depends on 1.3).
+
+  Replace Pi-session semantics with a generic versioned append-only JSON-value
+  log: create/open/list, atomic append, read cursors, branch/file copy primitive,
+  locking, corruption diagnostics, and cancellation. It stores policy records
+  without interpreting conversation roles, compaction, names, or tree meaning.
+
+  **Accept:** crash/partial-write, concurrent-open, lock, corruption, iteration,
+  copy, and XDG-path tests pass; a file-backed Lua package uses it without private
+  methods.
+
+- [ ] **2.4 — Provider transport and auth mechanism preservation** (**Wave M**,
+  path owners: `crates/pi-rs-ai{,-types,-auth}/**`; depends on 1.3).
+
+  Preserve and simplify shared transport, protocol conversion, streaming,
+  cancellation, model catalog, credential storage, PKCE, and device-code engines.
+  Remove dependencies on the old product host while retaining pinned provider/
+  auth parity fixtures.
+
+  **Accept:** focused wire replays remain deterministic; secrets are redacted;
+  credential writes use XDG only while legacy credentials are fallback-readable;
+  shared transport/retry/SSE machinery has one implementation.
+
+## 3 — Expose the complete public Lua kernel
+
+- [ ] **3.1 — Bind mechanisms through one modular public API** (**serial**;
+  depends on all Wave M items).
+
+  Expose package modules, root/declaration registries, display structures, async
+  effects, provider/auth operations, and record-store operations through modular
+  bindings. Calls use immutable snapshots/read handles and queued actions. Keep
+  schemas compact and versioned; avoid Pi/Node naming where no compatibility is
+  promised.
+
+  **Own:** `crates/pi-rs-host/src/bindings/**`, binding tests, generated concise
+  API docs. Shared module indexes/manifests have one owner.
+
+  **Accept:** ordinary file-backed Lua applications can implement an agent loop,
+  draw a multi-component screen, execute/cancel effects, stream a model, and
+  persist arbitrary records. Embedded sources have no additional API.
+
+- [ ] **3.2 — Prove whole-root replacement and composition** (**serial**;
+  depends on 3.1).
+
+  Add minimal external packages that independently replace application, agent,
+  frontend, and session roots, plus two extensions that compose event/render
+  middleware. Prove deterministic priority/conflict handling, module versioning,
+  lifecycle cleanup, reload rollback, and watchdog isolation.
+
+  **Own:** `examples/**`, focused public-surface tests.
+
+  **Accept:** deleting all builtin assets leaves these examples runnable; no
+  example imports a private Rust module or synthetic-source capability.
+
+## 4 — Build the shipped product as ordinary Lua packages
+
+Create a dedicated builtins layer with one directory/module graph per package;
+do not recreate concatenated mega-chunks. After 3.2, `/orchestrate` may run
+**Wave P1**. Each worker owns one package tree; the declarative default manifest
+is integrated afterward by one owner.
+
+- [ ] **4.1 — Agent package** (**Wave P1**, depends on 3.2).
+
+  Implement the configurable agent reducer/state machine: prompts, provider
+  stream consumption, parallel tool settlement, steering/follow-up queues,
+  cancellation, retries, and context actions. It depends only on public modules
+  and does not require persistent sessions.
+
+  **Accept:** deterministic stream/tool fixtures cover success, tool use,
+  steering, follow-up, cancellation, retry, and malformed provider events; a
+  file-backed replacement changes transition policy.
+
+- [ ] **4.2 — Frontend package skeleton** (**Wave P1**, depends on 3.2).
+
+  Implement the Lua-authored application/frontend root, retained component tree,
+  focus/input routing, screen invalidation, and generic slots. Rust receives only
+  display/effect actions. Keep editor, transcript rows, footer, and dialogs as
+  separate Lua modules behind intentional seams.
+
+  **Accept:** a file-backed frontend can replace it; an extension can wrap a slot
+  or renderer; resize/input/render cycles meet the initial budget.
+
+- [ ] **4.3 — Core tool package** (**Wave P1**, depends on 3.2).
+
+  Ship minimal `read`, `write`, `edit`, and `bash` tools as Lua policy over public
+  filesystem/process/diff primitives. Tool definitions, execution, truncation,
+  mutation serialization, and render declarations use the same API as user
+  tools. Additional search/list tools are optional modules, not kernel
+  requirements.
+
+  **Accept:** each tool is individually replaceable; concurrent file mutation is
+  safe; cancellation and bounded output are covered from file-backed packages.
+
+- [ ] **4.4 — Config/resource package** (**Wave P1**, depends on 3.2).
+
+  Implement `config.lua` declarations, package/module selection, themes,
+  keymaps, providers/models, tools, resource paths, and root selection. Load XDG
+  first and legacy config only as fallback; project configuration has an explicit
+  trust policy. Publish reload atomically.
+
+  **Accept:** precedence/trust/rollback/idempotence matrices pass; all effective
+  configuration is inspectable; Rust contains no product default.
+
+- [ ] **4.5 — Configurable session package** (**Wave P1**, depends on 3.2).
+
+  Implement optional persistent conversation policy over the public record store:
+  record schema, reconstruction reducer, names, branch/tree behavior, selection,
+  compaction records, retention, and ephemeral fallback. Session actions are
+  queued; stale runtime handles fail across switch/reload.
+
+  **Accept:** suppressing the package yields a useful ephemeral app; a small
+  file-backed replacement persists a different schema; branch, compact, resume,
+  corruption, cancellation, and legacy-read/XDG-write paths are covered.
+
+- [ ] **4.6 — Assemble the default package graph** (**serial after Wave P1**).
+
+  Add one declarative manifest selecting the shipped Lua packages and generic
+  roots. Embed packages without concatenation or hidden modules. Resolve package
+  dependencies/version conflicts deterministically.
+
+  **Accept:** each package can be suppressed; embedded packages copied to disk
+  reproduce the same product; zero-pack boot remains green.
+
+## 5 — Close the Pi-feeling interactive experience
+
+After 4.6, `/orchestrate` may run **Wave P2** by separate Lua module trees and
+fixture paths. One worker owns the frontend root integration points per wave;
+other workers contribute modules through interfaces already merged.
+
+- [ ] **5.1 — Transcript and streaming presentation** (**Wave P2**; depends on
+  4.6).
+
+  Implement user, assistant, thinking, tool, warning, error, retry, compaction,
+  and custom rows with Pi's defining spacing/color/wrapping behavior. Streaming
+  updates retain stable component identity and bounded invalidation.
+
+  **Accept:** canonical transcript/tool/stream grids from 0.2 match; long
+  transcripts remain within render and memory budgets; renderers are replaceable.
+
+- [ ] **5.2 — Editor, completion, and keymaps** (**Wave P2**; depends on 4.6).
+
+  Implement Lua editor policy over terminal/text primitives: multiline edits,
+  undo, history, paste collapse, file/path completion, command completion,
+  external editor, and configurable keymaps.
+
+  **Accept:** canonical input traces match; Unicode and large-paste cases pass;
+  a file-backed editor/keymap replacement uses no private API.
+
+- [ ] **5.3 — Dialogs, selectors, status, and chrome** (**Wave P2**; depends on
+  4.6).
+
+  Implement model/session selectors, generic select/confirm/input/editor dialogs,
+  notifications, working indicator, header, footer, status, widgets, and overlays
+  as Lua modules and public slots.
+
+  **Accept:** canonical selector/dialog/footer grids and input traces match;
+  every slot composes or replaces from a file-backed extension.
+
+- [ ] **5.4 — Queueing, cancellation, and session UX integration** (**serial
+  after 5.1–5.3**).
+
+  Wire frontend actions to agent and optional session roots for steering,
+  follow-ups, abort/restore, resume/new/fork/tree/compact, model changes, and
+  graceful shutdown. Keep cross-root communication snapshot/action based.
+
+  **Accept:** complete canonical interaction journeys pass without hidden mutable
+  coupling; replacing or removing the session root requires no frontend fork.
+
+## 6 — Complete provider and authentication parity
+
+Provider/auth parity is intentionally exhaustive within the pinned supported
+catalog. It may use Pi as a subsystem oracle. `/orchestrate` may split **Wave A**
+by protocol/auth family only when implementation and fixture paths are disjoint.
+
+- [ ] **6.1 — Protocol and model-catalog closure** (**Wave A**; depends on 5.4).
+
+  Verify every advertised model dispatches to an implemented protocol family and
+  every family has deterministic request/stream/error/cancellation replays.
+  Preserve data-driven providers; do not clone transports per brand.
+
+  **Accept:** catalog diff has no unexplained provider/model/API gaps; Anthropic,
+  OpenAI Completions/Responses/Codex, Google/Vertex, Mistral, Bedrock, and other
+  pinned advertised protocols pass focused parity fixtures.
+
+- [ ] **6.2 — API-key and credential closure** (**Wave A**; depends on 5.4).
+
+  Complete environment, config, command-backed, and stored credential resolution
+  with deterministic precedence, redaction, refresh, and XDG/legacy behavior.
+
+  **Accept:** every catalog provider has a tested auth path; no secret appears in
+  logs/snapshots; legacy credentials are never modified.
+
+- [ ] **6.3 — Subscription OAuth closure** (**Wave A**; depends on 5.4).
+
+  Complete Anthropic, GitHub Copilot, and OpenAI/Codex subscription login,
+  callback/device flows, refresh, logout, expiry, cancellation, and headless
+  outcomes through generic auth mechanisms and Lua UI policy.
+
+  **Accept:** deterministic flow fixtures and focused live-manual instructions
+  cover every subscription provider; frontend login/logout is replaceable Lua.
+
+- [ ] **6.4 — Provider configuration and selection UX** (**serial after Wave A**).
+
+  Expose provider/model declarations and selection entirely through Lua config
+  and product packages while retaining the full mechanism catalog.
+
+  **Accept:** custom endpoints/models, model switching, thinking capability,
+  missing-auth diagnostics, and reload all work without Rust product defaults.
+
+## 7 — Performance, ablation, and release closure
+
+- [ ] **7.1 — Meet measured performance budgets** (**serial measurement,
+  path-owned optimization waves allowed**; depends on 6.4).
+
+  Run the 0.2 release harness, profile failures, and optimize only measured hot
+  paths. Batch snapshot/action conversion, retain display structures, bound
+  history views, and remove unnecessary dependencies/features.
+
+  **Accept:** startup, RSS, input-to-frame, sustained render, dispatch/effect,
+  binary-size, and leak budgets in `DESIGN.md` pass through Nix on the reference
+  environment. Results compare against the recorded baseline and explain
+  variance.
+
+- [ ] **7.2 — Final public-surface and ablation proof** (**serial**; depends on
+  7.1).
+
+  Delete every builtin package and run the bare/file-backed exercisers. Suppress
+  and replace each shipped root/package and representative composable declaration.
+  Audit Rust for product names, hardcoded policy, privileged embedded branches,
+  mutable Lua host access, and duplicate declaration paths.
+
+  **Accept:** zero-pack, per-package suppression, whole-root replacement,
+  file-backed reproduction, stale-handle, watchdog, cancellation, and cleanup
+  checks pass; no private capability remains.
+
+- [ ] **7.3 — Release `pi`** (**serial**; depends on 7.2).
+
+  Collapse migration notes and temporary manifests, generate concise Lua API and
+  configuration documentation, verify XDG/legacy behavior, and build the release
+  artifact through the flake.
+
+  **Accept:** `nix flake check`, release `nix build`, and `nix run` pass from a
+  clean checkout; the repository contains no stale faithful-port promise;
+  `pi-rust-rewrite` is referenced only as historical provenance; tag the first
+  pi-rs baseline.
+
+## Permanent acceptance matrix
+
+The final repository keeps only the smallest suites that independently protect:
+
+1. Rust mechanism invariants and resource cleanup;
+2. public file-backed Lua capability and source neutrality;
+3. canonical Pi-feeling terminal grids/input journeys;
+4. full provider protocol/model/auth subsystem parity;
+5. XDG writes plus read-only legacy fallback;
+6. optional/replaceable Lua session policy over the generic store;
+7. zero-pack/per-package/root ablation;
+8. measured release performance budgets.
+
+Anything not serving one of these contracts is temporary scaffolding and is
+removed when its milestone closes.
