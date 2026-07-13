@@ -288,6 +288,24 @@
             touch $out
           '';
 
+      # Offline maintained-extension fixture/provenance gate. The behavioral
+      # source revision is checked into the contract; no sibling pi-flake checkout
+      # is consulted by normal builds.
+      mkDogfoodFixtureTest =
+        system:
+        let
+          pkgs = mkPkgs system;
+        in
+        pkgs.runCommand "dogfood-fixture-test"
+          {
+            nativeBuildInputs = [ pkgs.python3 ];
+          }
+          ''
+            python3 ${self}/tests/dogfood-suite/test_contract.py
+            python3 ${self}/scripts/dogfood-oracle --check
+            touch $out
+          '';
+
       mkModelCatalogUpdater =
         system:
         let
@@ -346,6 +364,7 @@
         construction-inventory = mkConstructionInventoryTest system;
         external-extension-inventory = mkExternalExtensionInventoryTest system;
         extension-parity = mkExtensionParity system;
+        dogfood-fixtures = mkDogfoodFixtureTest system;
       });
 
       packages = forAllSystems (system: rec {
