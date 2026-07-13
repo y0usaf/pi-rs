@@ -251,6 +251,7 @@ pi.register_command("trace",{description="trace",handler=function() return __ext
 pi.register_flag("plan",{description="Plan mode",type="boolean",default=false})
 pi.register_flag("profile",{description="Profile name",type="string",default="safe"})
 pi.register_command("flag-values",{handler=function() return {plan=pi.get_flag("plan"),profile=pi.get_flag("profile"),missing=pi.get_flag("missing")} end})
+pi.register_command("catalog",{description="catalog",get_argument_completions=function(prefix) local values={} for _,source in ipairs({"extension","prompt","skill"}) do if source:sub(1,#prefix)==prefix then values[#values+1]={value=source,label=source} end end return values end,handler=function() return pi.get_commands() end})
 pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:first" return {tag="first"} end)"#,
         ),
         (
@@ -423,6 +424,28 @@ pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:aft
         .unwrap();
     let trace = host.call_command("trace", "").unwrap().unwrap();
     let flag_values = host.call_command("flag-values", "").unwrap().unwrap();
+    let mut command_catalog = host.call_command("catalog", "").unwrap().unwrap();
+    for command in command_catalog.as_array_mut().unwrap() {
+        let source_info = command["sourceInfo"].as_object_mut().unwrap();
+        let path = source_info["path"].as_str().unwrap().to_owned();
+        source_info.insert("path".to_owned(), stable_source(&path).into());
+        let source = source_info["source"].as_str().unwrap().to_owned();
+        source_info.insert("source".to_owned(), stable_source(&source).into());
+        if !command.as_object().unwrap().contains_key("description") {
+            command
+                .as_object_mut()
+                .unwrap()
+                .insert("description".to_owned(), serde_json::Value::Null);
+        }
+    }
+    let argument_completions = host
+        .call_command(
+            "extension-vertical-slice",
+            r#"{"commandCompletion":{"name":"catalog","prefix":"pr"}}"#,
+        )
+        .unwrap()
+        .unwrap()["completions"]
+        .clone();
     let request = &requests.lock().unwrap()[0];
     let extension_tools = request["tools"]
         .as_array()
@@ -443,7 +466,8 @@ pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:aft
     let actual = serde_json::json!({
         "loaded":report.loaded.iter().map(|path| stable_source(path)).collect::<Vec<_>>(),
         "errors":errors,"tools":tools,"commands":commands,"flags":flags,
-        "commandResults":command_results,"flagValues":flag_values,
+        "commandResults":command_results,"commandCatalog":command_catalog,
+        "argumentCompletions":argument_completions,"flagValues":flag_values,
         "helloResult":hello_result,"hookResult":hook["hookResult"],"trace":trace,
         "capturedRequests":captured_requests
     });

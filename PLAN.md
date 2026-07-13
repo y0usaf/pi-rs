@@ -1715,13 +1715,35 @@ before it landed:
       --workspace`, and `nix build .#checks.x86_64-linux.workspace-test
       --print-build-logs` are green.
 
-      **Remaining in 9.1:** complete the `commands.ts` translation (`getCommands`,
-      argument completion, and select/confirm/notify require the first 9.4/9.5
-      slices) and permission-gate's interactive confirmation branch, then rerun
-      the workspace + Nix gates and close the checkbox. Extension CLI flag value
-      parsing/help stays in 9.4; 9.1's registration/conflict requirement is closed.
-      The loader/runtime differential itself is complete; do not replace its
-      Pi-generated evidence with local expectations.
+      **Fifth landed slice (2026-07-12): command discovery + argument
+      completion.** `pi.get_commands` now exposes the resolved extension-command
+      catalog (numbered invocation names, descriptions, and source snapshots), and
+      `registered_extension_commands` carries each synchronous
+      `get_argument_completions` callback through the real interactive autocomplete
+      provider with source attribution restored around the call. The complete
+      `examples/extensions/commands.lua` translation is checked in and executable
+      through registration/completion; its select/confirm/notify handler awaits the
+      9.5 UI-action slice. The Pi-generated runtime oracle now calls real
+      `pi.getCommands()` from a loaded command and invokes its registered completion
+      callback, comparing catalog order/shapes and results. Prompt/skill catalog rows
+      + full source provenance remain resource work in 9.7; promise-returning
+      completion callbacks remain 9.4.
+
+      **Fifth-slice evidence:** `cargo test -p pi-rs-host --test registries`
+      (14 passed), `cargo test -p pi-rs-app --test extension_loading` (3 passed),
+      byte-idempotent `scripts/extension-runtime-oracle`,
+      `scripts/extension-inventory --check`, `cargo fmt --check`, `cargo test
+      --workspace`, `scripts/ui-diff` (all 25 suites), and `nix build
+      .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
+
+      **Remaining in 9.1:** land the first queued UI-action slice from 9.5 so the
+      translated `commands.lua` select→confirm→notify flow and permission-gate's
+      interactive select run through the real frontend; add Pi-derived frame/action
+      evidence for both, then rerun workspace + Nix gates and close the checkbox.
+      Extension CLI flag parsing/help and async command completions stay in 9.4;
+      prompt/skill command rows and complete resource provenance stay in 9.7. The
+      loader/runtime differential itself is complete; do not replace its Pi-generated
+      evidence with local expectations.
 
 - [ ] **9.2 Extension contexts + lifecycle actions.** Build the live
       `ExtensionContext`/`ExtensionCommandContext` as Lua snapshots and queued

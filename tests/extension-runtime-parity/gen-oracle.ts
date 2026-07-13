@@ -29,6 +29,7 @@ const sources: Array<[string, string]> = [
       pi.registerFlag("plan", { description: "Plan mode", type: "boolean", default: false });
       pi.registerFlag("profile", { description: "Profile name", type: "string", default: "safe" });
       pi.registerCommand("flag-values", { handler: async () => ({plan:pi.getFlag("plan"),profile:pi.getFlag("profile"),missing:pi.getFlag("missing")}) });
+      pi.registerCommand("catalog", { description: "catalog", getArgumentCompletions: (prefix: string) => ["extension", "prompt", "skill"].filter((source) => source.startsWith(prefix)).map((source) => ({value:source,label:source})), handler: async () => pi.getCommands() });
       pi.on("tool_call", async () => { (globalThis as any).__extensionTrace.push("hook:first"); return {tag:"first"}; });
     }
   `],
@@ -113,6 +114,14 @@ async function main(): Promise<void> {
     const hookResult = await runner.emitToolCall({type:"tool_call", toolCallId:"call-2", toolName:"bash", input:{command:"sudo true"}});
     const trace = await runner.getCommand("trace")!.handler("", runner.createCommandContext());
     const flagValues = await runner.getCommand("flag-values")!.handler("", runner.createCommandContext());
+    const catalogCommand = runner.getCommand("catalog")!;
+    const commandCatalog = (await catalogCommand.handler("", runner.createCommandContext())).map((command: Json) => ({
+      name: command.name,
+      description: command.description ?? null,
+      source: command.source,
+      sourceInfo: {...command.sourceInfo, path: stablePath(command.sourceInfo.path), source: stablePath(command.sourceInfo.source)},
+    }));
+    const argumentCompletions = await catalogCommand.getArgumentCompletions!("pr");
 
     const output = {
       loaded: loaded.extensions.map((extension: Json) => stablePath(extension.path)),
@@ -121,6 +130,8 @@ async function main(): Promise<void> {
       commands: runner.getRegisteredCommands().map((command: Json) => ({name: command.name, invocationName: command.invocationName, source: stablePath(command.sourceInfo.path), description: command.description ?? null})),
       flags: Array.from(runner.getFlags().values()).map((flag: Json) => ({name: flag.name, source: stablePath(flag.extensionPath), description: flag.description ?? null, type: flag.type, default: flag.default ?? null})),
       commandResults,
+      commandCatalog,
+      argumentCompletions,
       flagValues,
       helloResult,
       hookResult,

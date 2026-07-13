@@ -18,6 +18,8 @@
 //!   per-extension map, re-registration replaces in place.
 //! - `pi.register_command(name, opts)` — spec `registerCommand`
 //!   (`loader.ts`): `{ name, ...opts }` into the per-extension map.
+//! - `pi.get_commands()` — spec `getCommands`: resolved extension-command
+//!   snapshots; prompt/skill resource rows join with their Lua registries.
 //! - `pi.register_provider(name, config)` / `pi.unregister_provider(name)`
 //!   — spec `registerProvider`/`unregisterProvider`: registrations are
 //!   queued host-side (the spec's initial-load behavior — the runner
@@ -1456,6 +1458,25 @@ pub(crate) fn build(
                 entry.set("invocation_name", command.invocation_name)?;
                 entry.set("source", command.source.as_str())?;
                 entry.set("description", command.description)?;
+                let source_info = lua.create_table()?;
+                source_info.set("path", command.source.as_str())?;
+                source_info.set("source", "cli")?;
+                source_info.set("scope", "temporary")?;
+                source_info.set("origin", "top-level")?;
+                entry.set("source_info", source_info)?;
+                if let Some(completions) = command.get_argument_completions {
+                    let source = command.source.clone();
+                    entry.set(
+                        "get_argument_completions",
+                        lua.create_function(move |lua, prefix: String| {
+                            let previous = current_source(lua);
+                            set_current_source(lua, &source);
+                            let outcome: mlua::Result<mlua::Value> = completions.call(prefix);
+                            set_current_source(lua, &previous);
+                            outcome
+                        })?,
+                    )?;
+                }
                 let source = command.source;
                 let handler = command.handler;
                 entry.set(
@@ -1473,6 +1494,32 @@ pub(crate) fn build(
                         }
                     })?,
                 )?;
+                result.push(entry)?;
+            }
+            Ok(result)
+        })?,
+    )?;
+    // ExtensionAPI.getCommands. Prompt-template and skill rows join when their
+    // Lua resource registries land; extension commands use the same resolved
+    // invocation names and source snapshots as the product router.
+    pi.set(
+        "get_commands",
+        lua.create_function(|lua, ()| {
+            let result = lua.create_table()?;
+            for command in resolved_commands(lua)? {
+                if command.source.starts_with('<') {
+                    continue;
+                }
+                let entry = lua.create_table()?;
+                entry.set("name", command.invocation_name)?;
+                entry.set("description", command.description)?;
+                entry.set("source", "extension")?;
+                let source_info = lua.create_table()?;
+                source_info.set("path", command.source.as_str())?;
+                source_info.set("source", "cli")?;
+                source_info.set("scope", "temporary")?;
+                source_info.set("origin", "top-level")?;
+                entry.set("sourceInfo", source_info)?;
                 result.push(entry)?;
             }
             Ok(result)
@@ -2828,6 +2875,7 @@ pub(crate) struct ResolvedCommand {
     pub(crate) name: String,
     pub(crate) invocation_name: String,
     pub(crate) description: Option<String>,
+    pub(crate) get_argument_completions: Option<mlua::Function>,
     pub(crate) handler: mlua::Function,
 }
 
@@ -2863,12 +2911,15 @@ pub(crate) fn resolved_commands(lua: &mlua::Lua) -> mlua::Result<Vec<ResolvedCom
         }
         taken.insert(invocation_name.clone());
         let description = entry.get::<Option<String>>("description")?;
+        let get_argument_completions =
+            entry.get::<Option<mlua::Function>>("get_argument_completions")?;
         let handler: mlua::Function = entry.get("handler")?;
         out.push(ResolvedCommand {
             source,
             name,
             invocation_name,
             description,
+            get_argument_completions,
             handler,
         });
     }
