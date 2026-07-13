@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$0")/.."
-if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
-  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
-fi
-env -u MISTRAL_API_KEY nix shell nixpkgs#nodejs_22 --command ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json tests/mistral-conversations-parity/gen-oracle.ts tests/mistral-conversations-parity/cases.json > tests/mistral-conversations-parity/oracle.json
-echo "wrote tests/mistral-conversations-parity/oracle.json"

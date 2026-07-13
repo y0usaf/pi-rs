@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$0")/.."
-if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
-  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
-fi
-env -u OPENAI_API_KEY -u OPENROUTER_API_KEY -u DEEPSEEK_API_KEY -u MOONSHOT_API_KEY nix shell nixpkgs#nodejs_22 --command ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json tests/openai-completions-parity/gen-oracle.ts tests/openai-completions-parity/cases.json > tests/openai-completions-parity/oracle.json
-echo "wrote tests/openai-completions-parity/oracle.json"
