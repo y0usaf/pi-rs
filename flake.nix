@@ -98,9 +98,8 @@
           meta.mainProgram = "pi";
         };
 
-      # Installed-launcher smoke test: the packaged binary starts, diagnoses
-      # missing credentials, and exposes the retained provider catalog. Actual
-      # zero-pack/source-neutral boot is owned by app/tests/assembly.rs.
+      # Installed-launcher smoke test: the packaged binary has no embedded
+      # product policy and runs an ordinary file-backed application root.
       mkLauncherSmoke =
         system:
         let
@@ -117,35 +116,41 @@
           ''
             export HOME=$TMPDIR
 
-            # --version prints the version and exits 0.
             version=$(pi --version)
             test -n "$version"
 
-            # --help prints usage. Capture before grep: Rust's stdout panics
-            # when a successful `grep -q` closes a pipe early.
             pi --help > help.txt
-            grep -q -- '--list-models' help.txt
+            grep -q 'generic Lua application launcher' help.txt
+            grep -q -- '--package FILE' help.txt
 
-            # No credentials: --list-models reports guidance, exit 0.
-            pi --list-models > no-models.txt
-            grep -q 'No models available.' no-models.txt
-
-            # No credentials: a prompt fails with the guidance, exit 1.
-            if pi "hi" 2>err.txt; then
-              echo 'expected `pi "hi"` to fail without credentials' >&2
+            if pi > zero-pack.out 2> zero-pack.err; then
+              echo 'expected zero-pack launch to report the absent application root' >&2
               exit 1
             fi
-            grep -q 'No models available.' err.txt
+            test ! -s zero-pack.out
+            grep -q "no active kernel root for 'application'" zero-pack.err
 
-            # With an anthropic key: --list-models lists exactly the
-            # anthropic rows of pi's catalog (WS2 acceptance).
-            export ANTHROPIC_API_KEY=dummy
-            pi --list-models > list.txt
-            head -1 list.txt | grep -q '^provider'
-            grep -q 'claude-opus-4-8' list.txt
-            rows=$(($(wc -l < list.txt) - 1))
-            expected=$(jq -r '.[] | select(.provider=="anthropic") | .models | length' ${./crates/pi-rs-ai/data/models.json})
-            test "$rows" -eq "$expected"
+            cat > application.lua <<'LUA'
+            local k = (...).kernel.v1
+            k.root({
+              kind = "application",
+              id = "launcher-smoke",
+              dispatch = function(snapshot)
+                k.action("launched", {
+                  argument = snapshot.event.arguments[1],
+                  root = snapshot.context.root,
+                })
+              end,
+            })
+            LUA
+
+            pi --root "$TMPDIR" --package application.lua -- accepted > result.json
+            jq -e '
+              .version == 1 and
+              .actions[0].kind == "launched" and
+              .actions[0].payload.argument == "accepted" and
+              (.source | endswith("/application.lua"))
+            ' result.json >/dev/null
 
             touch $out
           '';
