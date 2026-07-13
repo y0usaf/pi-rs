@@ -36,11 +36,11 @@ This is the complete exception list:
    Lua builtin packages declared through the same public API as user code. A
    feature does not satisfy this rule merely by living inside a large embedded
    Lua chunk; Rust provides mechanism and generic role selection only.
-6. **Authoring surface:** pi-rs exposes a Lua-native capability superset of Pi's
-   extension API. Builtins and file-backed user extensions receive the same
-   mechanisms, including the lifecycle, rendering, process, network, filesystem,
-   agent, and session capabilities required by the maintained extension dogfood
-   suite. Additive authoring APIs may not alter shipped Pi-compatible behavior.
+6. **Authoring surface:** pi-rs's public Lua surface has three tiers: the
+   Pi-compatible API, additive mechanism API, and packaged Lua modules.
+   Builtins and file-backed user packages receive the same surface; embedding
+   grants no private tier. Additive authoring capability may not alter shipped
+   Pi-compatible behavior.
 
 **Everything else is guaranteed to be exactly Pi-compatible.** Given the same
 terminal, credentials, model, input, provider/tool responses, and equivalent
@@ -53,6 +53,13 @@ count as an exception.
 the ordered parity and extension-first ladder. Product experiments belong in
 downstream forks, while the general authoring mechanisms and replacement seams
 needed to build them belong here.
+
+## Public Lua surface
+
+[`LUA_SURFACE.md`](LUA_SURFACE.md) defines the three public tiers and their
+inventory boundaries. Synthetic source identity records provenance only: an
+embedded builtin cannot receive capabilities, modules, lifecycle treatment, or
+declaration paths unavailable to an ordinary file-backed package.
 
 Build and test:
 
