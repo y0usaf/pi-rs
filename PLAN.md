@@ -1610,7 +1610,7 @@ Split into independently landable rungs. Each rung adds Pi-derived differential
 fixtures and translates at least one reference example that was impossible
 before it landed:
 
-- [ ] **9.1 Product-loaded extension vertical slice + closed inventory.** Generate
+- [x] **9.1 Product-loaded extension vertical slice + closed inventory.** Generate
       a checked-in inventory from pinned `core/extensions/types.ts`, loader,
       runner, resource-loader, and `examples/extensions/`: every event, context
       field/action, registration, UI operation, discovery rule, and example →
@@ -1722,8 +1722,8 @@ before it landed:
       `get_argument_completions` callback through the real interactive autocomplete
       provider with source attribution restored around the call. The complete
       `examples/extensions/commands.lua` translation is checked in and executable
-      through registration/completion; its select/confirm/notify handler awaits the
-      9.5 UI-action slice. The Pi-generated runtime oracle now calls real
+      through registration/completion (its UI handler closes in the next slice). The
+      Pi-generated runtime oracle now calls real
       `pi.getCommands()` from a loaded command and invokes its registered completion
       callback, comparing catalog order/shapes and results. Prompt/skill catalog rows
       + full source provenance remain resource work in 9.7; promise-returning
@@ -1736,14 +1736,34 @@ before it landed:
       --workspace`, `scripts/ui-diff` (all 25 suites), and `nix build
       .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
-      **Remaining in 9.1:** land the first queued UI-action slice from 9.5 so the
-      translated `commands.lua` select→confirm→notify flow and permission-gate's
-      interactive select run through the real frontend; add Pi-derived frame/action
-      evidence for both, then rerun workspace + Nix gates and close the checkbox.
-      Extension CLI flag parsing/help and async command completions stay in 9.4;
-      prompt/skill command rows and complete resource provenance stay in 9.7. The
-      loader/runtime differential itself is complete; do not replace its Pi-generated
-      evidence with local expectations.
+      **Closure (2026-07-12): queued select/confirm/notify UI actions.** Interactive
+      command and `tool_call` contexts now receive one Lua-authored UI surface:
+      handlers enqueue plain action tables and await settlement without borrowing
+      frontend state; the process loop alone applies actions, mounts Pi's existing
+      ExtensionSelector policy, restores focus, and renders notifications. Extension
+      commands run in background coroutines so a dialog cannot deadlock terminal
+      input. The translated `commands.lua` now completes select → source-path confirm
+      → notify through the real submit route, and `permission-gate.lua` interactively
+      allows/blocks dangerous bash through the real tool preflight. Full UI breadth,
+      timeout/signal cancellation, and no-UI/RPC outcomes remain 9.5; this closes only
+      the three primitives required by 9.1.
+
+      `extension-ui-turn` runs Pi's actual `commands.ts`, `permission-gate.ts`, and
+      `ExtensionSelectorComponent` against the loaded Lua translations and matches 7
+      terminal checkpoints (command selector, confirm, notification, permission
+      selector/block, restore, resize). `scripts/extension-ui-oracle` separately pins
+      every queued request/result and the final blocking outcome; the product replay
+      in `extension_loading.rs` compares it without local expectations. The fixture
+      exposed string-width's VS16 emoji rule; the shared TUI mechanism now matches
+      Pi's `emoji-regex` replacement for text-default emoji presentation. No new host
+      hook landed—the translated examples exercise the Lua action surface. Extension
+      CLI flag parsing/help + async completions remain 9.4; prompt/skill rows and full
+      resource provenance remain 9.7.
+
+      **Closure evidence:** Pi oracle regeneration is byte-idempotent;
+      `scripts/extension-inventory --check`, `cargo fmt --check`, focused app/TUI
+      tests, `scripts/ui-diff` (all 26 suites), `cargo test --workspace`, and `nix
+      build .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
 
 - [ ] **9.2 Extension contexts + lifecycle actions.** Build the live
       `ExtensionContext`/`ExtensionCommandContext` as Lua snapshots and queued

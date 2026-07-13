@@ -166,6 +166,40 @@ fn product_loader_runs_tool_and_blocking_hook_with_isolated_failures() {
 }
 
 #[test]
+fn queued_extension_ui_actions_match_pi_examples() {
+    let root = tempfile::tempdir().unwrap();
+    let agent_dir = root.path().join("agent");
+    // SAFETY: this integration-test process owns its environment.
+    unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
+    let host = Host::new(HostConfig::default()).unwrap();
+    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    host.load(
+        "examples/extensions/commands.lua",
+        include_str!("../../../examples/extensions/commands.lua"),
+    )
+    .unwrap();
+    host.load(
+        "examples/extensions/permission-gate.lua",
+        include_str!("../../../examples/extensions/permission-gate.lua"),
+    )
+    .unwrap();
+
+    let scenario = include_str!("../../../tests/ui-parity/extension-ui-turn.json");
+    let result = host
+        .call_command("interactive-extension-ui-parity-sequence", scenario)
+        .unwrap()
+        .unwrap();
+    let expected: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/extension-ui-parity/oracle.json"
+    ))
+    .unwrap();
+    assert_eq!(result["actions"], expected["actions"]);
+    assert_eq!(result["permissionResult"], expected["permissionResult"]);
+    assert_eq!(result["frames"].as_array().unwrap().len(), 7);
+}
+
+#[test]
 fn no_extensions_and_untrusted_project_keep_only_explicit_cli_sources() {
     let root = tempfile::tempdir().unwrap();
     let cwd = root.path().join("project");

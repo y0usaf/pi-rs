@@ -1,0 +1,49 @@
+{
+  "permissionResult": {
+    "block": true,
+    "reason": "Blocked by user"
+  },
+  "actions": [
+    {
+      "type": "select",
+      "title": "Available Commands",
+      "options": [
+        "--- Extensions ---",
+        "/commands - List available slash commands"
+      ]
+    },
+    {
+      "type": "select_result",
+      "value": "/commands - List available slash commands"
+    },
+    {
+      "type": "confirm",
+      "title": "commands\nView source path?\nexamples/extensions/commands.lua",
+      "options": [
+        "Yes",
+        "No"
+      ]
+    },
+    {
+      "type": "confirm_result",
+      "value": "Yes"
+    },
+    {
+      "type": "notify",
+      "message": "examples/extensions/commands.lua",
+      "level": "info"
+    },
+    {
+      "type": "select",
+      "title": "⚠️ Dangerous command:\n\n  sudo true\n\nAllow?",
+      "options": [
+        "Yes",
+        "No"
+      ]
+    },
+    {
+      "type": "select_result",
+      "value": "No"
+    }
+  ]
+}
