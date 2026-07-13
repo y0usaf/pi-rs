@@ -109,6 +109,63 @@ pub(crate) fn json_to_lua(lua: &mlua::Lua, val: &serde_json::Value) -> mlua::Res
     }
 }
 
+/// Convert JSON to recursively read-only Lua proxy tables. The backing tables
+/// are captured only by metatables, so neither replacement of existing keys nor
+/// insertion of new keys can mutate a dispatch snapshot.
+pub(crate) fn immutable_json_to_lua(
+    lua: &mlua::Lua,
+    value: &serde_json::Value,
+) -> mlua::Result<mlua::Value> {
+    match value {
+        serde_json::Value::Object(map) => {
+            let backing = lua.create_table()?;
+            for (key, value) in map {
+                backing.raw_set(key.as_str(), immutable_json_to_lua(lua, value)?)?;
+            }
+            readonly_proxy(lua, backing)
+        }
+        serde_json::Value::Array(values) => {
+            let backing = lua.create_table()?;
+            for (index, value) in values.iter().enumerate() {
+                backing.raw_set(index + 1, immutable_json_to_lua(lua, value)?)?;
+            }
+            readonly_proxy(lua, backing)
+        }
+        _ => json_to_lua(lua, value),
+    }
+}
+
+fn readonly_proxy(lua: &mlua::Lua, backing: mlua::Table) -> mlua::Result<mlua::Value> {
+    let proxy = lua.create_table()?;
+    let metatable = lua.create_table()?;
+    metatable.set("__index", backing.clone())?;
+    metatable.set(
+        "__len",
+        lua.create_function({
+            let backing = backing.clone();
+            move |_, ()| Ok(backing.raw_len())
+        })?,
+    )?;
+    metatable.set(
+        "__pairs",
+        lua.create_function(move |lua, ()| {
+            let next: mlua::Function = lua.globals().get("next")?;
+            Ok((next, backing.clone(), mlua::Nil))
+        })?,
+    )?;
+    metatable.set(
+        "__newindex",
+        lua.create_function(
+            |_, (_table, _key, _value): (mlua::Value, mlua::Value, mlua::Value)| {
+                Err::<(), _>(mlua::Error::runtime("dispatch snapshot is immutable"))
+            },
+        )?,
+    )?;
+    metatable.set("__metatable", "locked")?;
+    proxy.set_metatable(Some(metatable))?;
+    Ok(mlua::Value::Table(proxy))
+}
+
 /// A table with sequential integer keys 1..=len becomes a JSON array;
 /// everything else becomes an object. An empty table is an object
 /// unless it carries the decoded-array metatable flag.
@@ -130,6 +187,43 @@ fn is_array_table(t: &mlua::Table) -> mlua::Result<bool> {
         }
     }
     Ok(count == len)
+}
+
+pub(crate) fn lua_to_json_strict(val: mlua::Value) -> mlua::Result<serde_json::Value> {
+    validate_kernel_value(&val, &mut std::collections::HashSet::new())?;
+    lua_to_json(val)
+}
+
+fn validate_kernel_value(
+    value: &mlua::Value,
+    ancestors: &mut std::collections::HashSet<usize>,
+) -> mlua::Result<()> {
+    match value {
+        mlua::Value::Function(_)
+        | mlua::Value::Thread(_)
+        | mlua::Value::UserData(_)
+        | mlua::Value::LightUserData(_)
+        | mlua::Value::Error(_)
+        | mlua::Value::Other(_) => Err(mlua::Error::runtime(
+            "functions, threads, userdata, and errors cannot cross the kernel boundary",
+        )),
+        mlua::Value::Table(table) => {
+            let pointer = table.to_pointer() as usize;
+            if !ancestors.insert(pointer) {
+                return Err(mlua::Error::runtime(
+                    "cyclic tables cannot cross the kernel boundary",
+                ));
+            }
+            for pair in table.clone().pairs::<mlua::Value, mlua::Value>() {
+                let (key, value) = pair?;
+                validate_kernel_value(&key, ancestors)?;
+                validate_kernel_value(&value, ancestors)?;
+            }
+            ancestors.remove(&pointer);
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }
 
 pub(crate) fn lua_to_json(val: mlua::Value) -> mlua::Result<serde_json::Value> {

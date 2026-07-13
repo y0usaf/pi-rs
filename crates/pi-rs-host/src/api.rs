@@ -40,6 +40,8 @@
 //! - `pi.http.get(url, options?)` — awaitable HTTP GET mechanism for Lua policy;
 //!   endpoint choice and response interpretation remain in extensions.
 
+use crate::runtime_registry::REGISTRY_KEY;
+pub(crate) use crate::runtime_registry::{current_source, registry_table, set_current_source};
 use mlua::{AnyUserData, UserData, UserDataMethods};
 use std::{
     collections::{HashMap, HashSet},
@@ -1139,29 +1141,6 @@ impl UserData for LuaBox {
     }
 }
 
-/// Key of the registration table in the Lua named registry.
-pub(crate) const REGISTRY_KEY: &str = "pi-rs-host";
-
-/// The registration table:
-/// `{ events = {}, exts = {}, ext_order = {}, source = "<host>" }`.
-pub(crate) fn registry_table(lua: &mlua::Lua) -> mlua::Result<mlua::Table> {
-    lua.named_registry_value::<mlua::Table>(REGISTRY_KEY)
-}
-
-/// Source key of the extension currently being loaded or dispatched (set
-/// by the load/dispatch paths so registrations are attributable).
-pub(crate) fn current_source(lua: &mlua::Lua) -> String {
-    registry_table(lua)
-        .and_then(|t| t.get::<String>("source"))
-        .unwrap_or_else(|_| "<unknown>".to_owned())
-}
-
-pub(crate) fn set_current_source(lua: &mlua::Lua, source: &str) {
-    if let Ok(registry) = registry_table(lua) {
-        let _ = registry.set("source", source);
-    }
-}
-
 /// Get-or-create the per-extension registration entry (spec: the
 /// `Extension` object in `types.ts` — per-extension maps of tools and
 /// commands). `*_order` arrays make JS `Map` insertion order explicit,
@@ -1304,6 +1283,7 @@ pub(crate) fn build(
     lua: &mlua::Lua,
     cwd: &str,
     project_trusted: bool,
+    control: std::sync::Arc<crate::kernel::Control>,
 ) -> mlua::Result<mlua::Table> {
     let registry = lua.create_table()?;
     registry.set("events", lua.create_table()?)?;
@@ -1628,7 +1608,8 @@ pub(crate) fn build(
             Ok(result)
         })?,
     )?;
-    pi.set("module", module_api)?;
+    pi.set("module", module_api.clone())?;
+    crate::kernel_api::install(lua, &pi, &module_api, control)?;
 
     // Mechanisms used by the Lua-authored agent loop. Definitions stay in
     // Lua (including execute/prepare functions); this returns the resolved
@@ -1906,7 +1887,7 @@ pub(crate) fn build(
     // budget (see vm.rs). The optional signal ports Pi's sleep(ms, signal)
     // cancellation seam used by AgentSession retry backoff.
     let sleep = lua.create_async_function(
-        |_lua, (ms, signal): (u64, Option<AnyUserData>)| async move {
+        |lua, (ms, signal): (u64, Option<AnyUserData>)| async move {
             let signal = signal
                 .map(|signal| {
                     signal
@@ -1914,14 +1895,25 @@ pub(crate) fn build(
                         .map(|signal| signal.0.clone())
                 })
                 .transpose()?;
-            if let Some(signal) = signal {
-                tokio::select! {
+            let scope = crate::kernel_api::current_cancellation(&lua)?;
+            match (signal, scope) {
+                (Some(signal), Some(scope)) => tokio::select! {
                     () = tokio::time::sleep(std::time::Duration::from_millis(ms)) => Ok(()),
                     () = signal.aborted() => Err(mlua::Error::runtime("sleep aborted")),
+                    () = scope.cancelled() => Err(mlua::Error::runtime(crate::error::CANCEL_MARKER)),
+                },
+                (Some(signal), None) => tokio::select! {
+                    () = tokio::time::sleep(std::time::Duration::from_millis(ms)) => Ok(()),
+                    () = signal.aborted() => Err(mlua::Error::runtime("sleep aborted")),
+                },
+                (None, Some(scope)) => tokio::select! {
+                    () = tokio::time::sleep(std::time::Duration::from_millis(ms)) => Ok(()),
+                    () = scope.cancelled() => Err(mlua::Error::runtime(crate::error::CANCEL_MARKER)),
+                },
+                (None, None) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+                    Ok(())
                 }
-            } else {
-                tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-                Ok(())
             }
         },
     )?;
@@ -3170,6 +3162,7 @@ pub(crate) fn event_handlers(
 /// failed. Pi constructs an extension off-registry and publishes it only after
 /// its async factory resolves; this gives direct Lua chunks the same atomicity.
 pub(crate) fn remove_source(lua: &mlua::Lua, source: &str) -> mlua::Result<()> {
+    crate::kernel_api::remove_source(lua, source)?;
     let registry = registry_table(lua)?;
     let exts: mlua::Table = registry.get("exts")?;
     exts.set(source, mlua::Nil)?;
