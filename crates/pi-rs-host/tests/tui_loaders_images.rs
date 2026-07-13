@@ -1,38 +1,22 @@
-//! WS6.7 public Lua seam exercisers for loaders and terminal images.
+//! Public Lua exerciser for generic terminal image mechanisms.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use pi_rs_host::{Host, HostConfig};
 
-fn run(name: &str) -> serde_json::Value {
-    let host = Host::new(HostConfig::default()).expect("host");
-    let path = format!(
-        "{}/../../examples/extensions/{name}.lua",
-        env!("CARGO_MANIFEST_DIR")
-    );
-    let source = std::fs::read_to_string(path).expect("example exists");
-    host.load(&format!("examples/extensions/{name}.lua"), &source)
-        .expect("example loads");
-    host.call_command(name, "")
-        .expect("command")
-        .expect("result")
-}
-
-#[test]
-fn loader_example_advances_and_cancels() {
-    let result = run("tui-loader-demo");
-    assert_eq!(
-        result["before"],
-        serde_json::json!(["", " a Working...   "])
-    );
-    assert_eq!(result["after"], serde_json::json!(["", " b Working...   "]));
-    assert_eq!(result["aborted"], true);
-    assert_eq!(result["running"], true);
-}
-
 #[test]
 fn image_example_renders_deterministic_protocol_snapshot() {
-    let result = run("tui-image-demo");
+    let host = Host::new(HostConfig::default()).expect("host");
+    let path = format!(
+        "{}/../../examples/extensions/tui-image-demo.lua",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    host.load_file(&path).expect("example loads");
+    let result = host
+        .call_command("tui-image-demo", "")
+        .expect("command")
+        .expect("result");
+
     assert_eq!(result["rows"], 1);
     assert_eq!(result["image"], true);
     assert_eq!(result["fallback"], "[Image: demo.png [image/png] 20x20]");

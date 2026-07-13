@@ -44,16 +44,6 @@ pub struct Highlighted {
     pub language: Option<String>,
 }
 
-/// Compile a JS regex source through the engine's JS→fancy-regex
-/// translation (shared mechanism: the session selector's `re:` search
-/// mode needs `new RegExp(pattern, "i")` semantics).
-pub(crate) fn js_regex(
-    source: &str,
-    case_insensitive: bool,
-) -> Result<grammar::JsRegex, HljsError> {
-    grammar::JsRegex::without_multiline(source, case_insensitive)
-}
-
 /// `hljs.getLanguage(name) !== undefined` (used by Pi's `supportsLanguage`).
 pub fn supports_language(name: &str) -> bool {
     Registry::global()

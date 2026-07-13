@@ -1,13 +1,15 @@
-//! Live process ownership around the deterministic [`Tui`] lifecycle.
+//! Live process ownership around retained display and terminal mechanisms.
 //!
 //! The driver owns stdin/stdout, raw mode, resize and termination signals,
-//! render pacing, protocol timeouts, input draining, and teardown.  Its callback
-//! is deliberately policy-free: Lua decides what to render and when to exit.
+//! render pacing, protocol timeouts, input draining, and teardown. Its callback
+//! receives generic process events and submits complete versioned display
+//! batches; product interaction and appearance remain outside this crate.
 
+use crate::display::{DisplayBatch, DisplayError, RetainedDisplay};
+use crate::stdin_buffer::InputDecodeError;
 use crate::terminal::{
-    KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT, ProcessRawModeGuard, TerminalError,
+    KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT, ProcessRawModeGuard, TerminalError, TerminalState,
 };
-use crate::tui::{Tui, TuiError};
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
@@ -42,13 +44,10 @@ pub enum ProcessEvent {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProcessControl {
-    pub lines: Option<Vec<String>>,
-    pub force: bool,
+    pub display: Option<DisplayBatch>,
     pub exit: bool,
     pub title: Option<String>,
     pub progress: Option<bool>,
-    pub show_hardware_cursor: Option<bool>,
-    pub clear_on_shrink: Option<bool>,
     pub inherited_process: Option<InheritedProcessAction>,
     pub suspend: bool,
 }
@@ -64,57 +63,56 @@ pub enum ProcessError {
     #[error(transparent)]
     Terminal(#[from] TerminalError),
     #[error(transparent)]
-    Render(#[from] TuiError),
-    #[error("process TUI callback failed: {0}")]
+    Input(#[from] InputDecodeError),
+    #[error(transparent)]
+    Display(#[from] DisplayError),
+    #[error("process display callback failed: {0}")]
     Callback(String),
-    #[error("live process TUI is unsupported on this platform")]
+    #[error("live display process is unsupported on this platform")]
     Unsupported,
 }
 
 /// Live process driver. Constructing it has no process side effects; `run`
 /// acquires and restores the terminal for exactly one session.
-pub struct ProcessTui {
-    tui: Tui,
-    pending_lines: Option<Vec<String>>,
+pub struct DisplayProcess {
+    terminal: TerminalState,
+    display: RetainedDisplay,
+    pending_display: Option<DisplayBatch>,
+    current_display: Option<DisplayBatch>,
     last_render: Option<Instant>,
 }
 
-impl ProcessTui {
-    pub fn new(show_hardware_cursor: bool) -> Self {
+impl Default for DisplayProcess {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DisplayProcess {
+    pub fn new() -> Self {
         let (columns, rows) = crossterm::terminal::size().unwrap_or((80, 24));
         Self {
-            tui: Tui::new(
-                crate::terminal::TerminalState::new(Some(columns), Some(rows)),
-                show_hardware_cursor,
-            ),
-            pending_lines: None,
+            terminal: TerminalState::new(Some(columns), Some(rows)),
+            display: RetainedDisplay::default(),
+            pending_display: None,
+            current_display: None,
             last_render: None,
         }
     }
 
     pub fn dimensions(&self) -> (u16, u16) {
-        self.tui.dimensions()
+        (self.terminal.columns(), self.terminal.rows())
     }
 
     fn apply_control(&mut self, control: ProcessControl) {
-        if control.force {
-            self.tui.request_render(true);
-        }
         if let Some(title) = control.title {
-            self.tui.set_title(&title);
+            self.terminal.set_title(&title);
         }
         if let Some(active) = control.progress {
-            self.tui.set_progress(active);
+            self.terminal.set_progress(active);
         }
-        if let Some(enabled) = control.show_hardware_cursor {
-            self.tui.set_show_hardware_cursor(enabled);
-        }
-        if let Some(enabled) = control.clear_on_shrink {
-            self.tui.set_clear_on_shrink(enabled);
-        }
-        if let Some(lines) = control.lines {
-            self.pending_lines = Some(lines);
-            self.tui.request_render(control.force);
+        if let Some(batch) = control.display {
+            self.pending_display = Some(batch);
         }
     }
 
@@ -123,20 +121,26 @@ impl ProcessTui {
             || self
                 .last_render
                 .is_none_or(|last| now.duration_since(last) >= MIN_RENDER_INTERVAL);
-        if !due {
-            return Ok(());
-        }
-        if let Some(lines) = self.pending_lines.take()
-            && self.tui.render_if_requested(lines)?
-        {
+        if due && let Some(batch) = self.pending_display.take() {
+            let submitted = self.display.submit(batch.clone())?;
+            self.terminal.write(&submitted.ansi);
+            self.current_display = Some(batch);
             self.last_render = Some(now);
         }
         self.flush_output()?;
         Ok(())
     }
 
+    fn queue_full_redraw(&mut self) {
+        self.display.reset_presentation();
+        if let Some(batch) = self.current_display.clone() {
+            self.pending_display = Some(batch);
+        }
+        self.last_render = None;
+    }
+
     fn flush_output(&mut self) -> Result<(), ProcessError> {
-        let bytes = self.tui.take_output();
+        let bytes = self.terminal.take_output();
         if bytes.is_empty() {
             return Ok(());
         }
@@ -146,13 +150,18 @@ impl ProcessTui {
         Ok(())
     }
 
+    fn stop_terminal(&mut self) {
+        self.terminal.show_cursor();
+        self.terminal.stop();
+    }
+
     #[cfg(unix)]
     async fn run_inherited_process(
         &mut self,
         raw: &mut ProcessRawModeGuard,
         action: InheritedProcessAction,
     ) -> Result<InheritedProcessResult, ProcessError> {
-        self.tui.stop();
+        self.stop_terminal();
         self.flush_output()?;
         raw.restore()?;
 
@@ -187,9 +196,9 @@ impl ProcessTui {
         };
 
         *raw = ProcessRawModeGuard::start_raw_only()?;
-        self.tui.start();
-        self.tui.request_render(true);
-        self.flush_output()?;
+        self.terminal.start();
+        self.queue_full_redraw();
+        self.render_due(Instant::now(), true)?;
         Ok(InheritedProcessResult {
             id: action.id,
             status,
@@ -198,16 +207,11 @@ impl ProcessTui {
 
     #[cfg(unix)]
     fn suspend_process_group(&mut self, raw: &mut ProcessRawModeGuard) -> Result<(), ProcessError> {
-        self.tui.stop();
+        self.stop_terminal();
         self.flush_output()?;
         raw.restore()?;
 
-        // Register SIGCONT before stopping so this call does not race ahead of
-        // actual signal delivery. The flag is process-wide (unlike a blocked
-        // thread mask), which matters when host mechanisms own worker threads.
         let continued = ContinueSignal::install(libc::SIGCONT)?;
-        // Pi ignores SIGINT while stopped: an explicit Ctrl+C/kill must not
-        // become a delayed termination event after the shell resumes us.
         let ignored_sigint = IgnoredSignal::install(libc::SIGINT)?;
         let stopped = unsafe { libc::kill(0, libc::SIGTSTP) };
         let suspend_result = if stopped == -1 {
@@ -221,12 +225,10 @@ impl ProcessTui {
         drop(ignored_sigint);
         drop(continued);
 
-        // Reacquire the terminal after SIGCONT even when waiting failed so the
-        // caller never inherits a half-torn-down TUI.
         *raw = ProcessRawModeGuard::start_raw_only()?;
-        self.tui.start();
-        self.tui.request_render(true);
-        self.flush_output()?;
+        self.terminal.start();
+        self.queue_full_redraw();
+        self.render_due(Instant::now(), true)?;
         suspend_result?;
         Ok(())
     }
@@ -248,11 +250,7 @@ impl ProcessTui {
     }
 
     /// Run the terminal session while allowing event handlers to suspend.
-    ///
-    /// Handler futures are polled concurrently on the same local executor. This
-    /// is deliberate: a handler awaiting a provider stream must not prevent a
-    /// later input or tick handler from running, but all Lua state remains on
-    /// the single VM thread.
+    /// Handler futures are polled concurrently on the same local executor.
     #[cfg(unix)]
     pub async fn run<F, Fut>(&mut self, mut callback: F) -> Result<ProcessExit, ProcessError>
     where
@@ -265,7 +263,7 @@ impl ProcessTui {
         use std::os::fd::AsRawFd;
 
         let mut raw = ProcessRawModeGuard::start_raw_only()?;
-        self.tui.start();
+        self.terminal.start();
         self.flush_output()?;
 
         let result = async {
@@ -304,21 +302,26 @@ impl ProcessTui {
                     };
                     if count > 0 {
                         events.extend(
-                            self.tui
-                                .feed_input(&bytes[..count as usize])
+                            self.terminal
+                                .try_feed_input(&bytes[..count as usize])?
                                 .into_iter()
                                 .map(ProcessEvent::Input),
                         );
                     }
                 } else {
-                    events.extend(self.tui.flush_input().into_iter().map(ProcessEvent::Input));
+                    events.extend(
+                        self.terminal
+                            .try_flush_input()?
+                            .into_iter()
+                            .map(ProcessEvent::Input),
+                    );
                 }
 
-                if self.tui.keyboard_negotiation_pending() {
+                if self.terminal.keyboard_negotiation_pending() {
                     let since = negotiation_since.get_or_insert_with(Instant::now);
                     if since.elapsed() >= KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT {
                         events.extend(
-                            self.tui
+                            self.terminal
                                 .flush_keyboard_negotiation()
                                 .into_iter()
                                 .map(ProcessEvent::Input),
@@ -333,7 +336,7 @@ impl ProcessTui {
                     if signal == SIGWINCH {
                         let (columns, rows) =
                             crossterm::terminal::size().unwrap_or(self.dimensions());
-                        self.tui.resize(Some(columns), Some(rows));
+                        self.terminal.resize(Some(columns), Some(rows));
                         events.push(ProcessEvent::Resize { columns, rows });
                     } else {
                         events.push(ProcessEvent::Signal(signal));
@@ -351,9 +354,6 @@ impl ProcessTui {
                     pending.push(callback(event));
                 }
 
-                // Poll every ready handler result without waiting for suspended
-                // handlers. A prompt and later Escape/tick handlers therefore
-                // make progress as independent Lua coroutines.
                 for control in Self::take_ready(&mut pending) {
                     let mut control = control?;
                     let action = control.inherited_process.take();
@@ -378,11 +378,10 @@ impl ProcessTui {
         }
         .await;
 
-        // Teardown must run for callback/render/I/O failures as well as normal exit.
-        self.tui.begin_drain();
+        self.terminal.begin_drain();
         let _ = self.flush_output();
         drain_stdin(INPUT_DRAIN_MAX, INPUT_DRAIN_IDLE);
-        self.tui.stop();
+        self.stop_terminal();
         let stop_result = self.flush_output();
         let raw_result = raw.restore().map_err(ProcessError::from);
         match result {
@@ -501,19 +500,45 @@ fn drain_stdin(max: Duration, idle: Duration) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::display::{
+        DISPLAY_SCHEMA_VERSION, DisplayNode, DisplayNodeContent, NodeId, Rect, Viewport,
+    };
+
+    fn empty_batch() -> DisplayBatch {
+        DisplayBatch {
+            version: DISPLAY_SCHEMA_VERSION,
+            viewport: Viewport {
+                columns: 20,
+                rows: 4,
+            },
+            root: NodeId(1),
+            nodes: vec![DisplayNode {
+                id: NodeId(1),
+                rect: Rect {
+                    x: 0,
+                    y: 0,
+                    width: 20,
+                    height: 4,
+                },
+                clip_children: true,
+                focusable: false,
+                content: DisplayNodeContent::Group,
+                children: Vec::new(),
+            }],
+            focused: None,
+            cursor: None,
+        }
+    }
 
     #[test]
     fn control_defaults_leave_policy_to_the_callback() {
         assert_eq!(
             ProcessControl::default(),
             ProcessControl {
-                lines: None,
-                force: false,
+                display: None,
                 exit: false,
                 title: None,
                 progress: None,
-                show_hardware_cursor: None,
-                clear_on_shrink: None,
                 inherited_process: None,
                 suspend: false,
             }
@@ -553,36 +578,34 @@ mod tests {
             }));
 
             let mut pending = pending;
-            assert_eq!(ProcessTui::take_ready(&mut pending), vec!["escape"]);
+            assert_eq!(DisplayProcess::take_ready(&mut pending), vec!["escape"]);
             tokio::task::yield_now().await;
-            assert_eq!(ProcessTui::take_ready(&mut pending), vec!["prompt"]);
+            assert_eq!(DisplayProcess::take_ready(&mut pending), vec!["prompt"]);
         });
     }
 
     #[test]
-    fn applying_control_coalesces_latest_frame_and_terminal_policy_bytes() {
-        let mut process = ProcessTui {
-            tui: Tui::new(
-                crate::terminal::TerminalState::new(Some(20), Some(4)),
-                false,
-            ),
-            pending_lines: None,
+    fn applying_control_coalesces_latest_batch_and_terminal_primitives() {
+        let mut process = DisplayProcess {
+            terminal: TerminalState::new(Some(20), Some(4)),
+            display: RetainedDisplay::default(),
+            pending_display: None,
+            current_display: None,
             last_render: None,
         };
-        process.tui.start();
+        process.terminal.start();
         process.apply_control(ProcessControl {
-            lines: Some(vec!["first".into()]),
+            display: Some(empty_batch()),
             title: Some("pi-rs".into()),
             progress: Some(true),
             ..ProcessControl::default()
         });
         process.apply_control(ProcessControl {
-            lines: Some(vec!["latest".into()]),
+            display: Some(empty_batch()),
             ..ProcessControl::default()
         });
-        let lines = process.pending_lines.take();
-        assert_eq!(lines, Some(vec!["latest".into()]));
-        let output = String::from_utf8_lossy(&process.tui.take_output()).into_owned();
+        assert!(process.pending_display.is_some());
+        let output = String::from_utf8_lossy(&process.terminal.take_output()).into_owned();
         assert!(output.contains("\x1b]0;pi-rs\x07"));
         assert!(output.contains(crate::terminal::PROGRESS_ACTIVE_SEQUENCE));
     }

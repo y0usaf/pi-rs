@@ -1,4 +1,4 @@
--- Translation of Pi v0.79.0 examples/extensions/structured-output.ts.
+-- Structured tool result example; presentation is frontend policy.
 local pi = ...
 
 pi.register_tool({
@@ -33,22 +33,5 @@ pi.register_tool({
       },
       terminate = true,
     }
-  end,
-  renderResult = function(result, _options, theme)
-    local details = result.details
-    if not details then
-      local text = result.content[1]
-      return pi.tui.text(text and text.type == "text" and text.text or "", 0, 0)
-    end
-
-    local lines = {
-      theme:fg("toolTitle", theme:bold(details.headline)),
-      theme:fg("text", details.summary),
-      "",
-    }
-    for index, item in ipairs(details.actionItems) do
-      lines[#lines + 1] = theme:fg("muted", index .. ". " .. item)
-    end
-    return pi.tui.text(table.concat(lines, "\n"), 0, 0)
   end,
 })

@@ -1,4 +1,4 @@
-//! WS6.9 public Lua seam exercisers for stdin buffering and terminal state.
+//! Public file-backed exercisers for bounded terminal/display mechanisms.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -9,7 +9,7 @@ fn host_with_examples() -> Host {
     for name in [
         "tui-stdin-buffer-demo",
         "tui-terminal-demo",
-        "tui-process-loop-demo",
+        "tui-render-demo",
     ] {
         let path = format!(
             "{}/../../examples/extensions/{name}.lua",
@@ -87,32 +87,68 @@ fn terminal_example_pins_state_and_all_output_bytes() {
 }
 
 #[test]
-fn tui_session_example_pins_lifecycle_input_render_resize_and_stop() {
+fn retained_display_example_is_versioned_transactional_and_minimal() {
     let host = host_with_examples();
     let result = host
-        .call_command("tui-process-loop-demo", "")
+        .call_command("tui-render-demo", "")
         .expect("command")
         .expect("result");
-    assert_eq!(result["input"], serde_json::json!(["x"]));
-    assert_eq!(result["coalesced"], true);
-    assert_eq!(result["idle"], false);
-    assert_eq!(result["resized"], true);
-    assert_eq!(result["fullRedraws"], 2);
-    let output = result["output"].as_str().expect("output string");
-    assert!(output.starts_with("\u{1b}[?2004h\u{1b}[>7u\u{1b}[?u\u{1b}[c\u{1b}[?25l"));
-    assert!(!output.contains(pi_rs_tui::tui::CURSOR_MARKER));
-    assert!(output.ends_with("\r\n\u{1b}[?25h\u{1b}[?2004l\u{1b}[<u"));
+
+    assert_eq!(result["schema_version"], 1);
+    assert_eq!(result["first"]["revision"], 1);
+    assert_eq!(result["first"]["visited_nodes"], 2);
+    assert_eq!(result["first"]["painted_cells"], 3);
+    assert_eq!(
+        result["first"]["identities"]["added"],
+        serde_json::json!([1, 2])
+    );
+    assert!(
+        result["first"]["ansi"]
+            .as_str()
+            .is_some_and(|ansi| ansi.contains("\u{1b}[6 q\u{1b}[?25h"))
+    );
+
+    assert_eq!(result["unchanged"]["ansi"], "");
+    assert_eq!(
+        result["unchanged"]["identities"]["retained"],
+        serde_json::json!([1, 2])
+    );
+    assert_eq!(result["changed"]["changed_cells"], 1);
+    assert_eq!(
+        result["changed"]["identities"]["retained"],
+        serde_json::json!([1])
+    );
+    assert_eq!(
+        result["changed"]["identities"]["changed"],
+        serde_json::json!([2])
+    );
+
+    assert_eq!(result["malformed_ok"], false);
+    assert!(
+        result["malformed_error"]
+            .as_str()
+            .is_some_and(|error| error.contains("terminal control data"))
+    );
+    assert_eq!(result["revision_before_error"], 3);
+    assert_eq!(result["revision_after_error"], 3);
+    assert_eq!(result["redrawn"]["revision"], 4);
+    assert_eq!(result["redrawn"]["full_redraw"], true);
+    assert!(
+        result["redrawn"]["ansi"]
+            .as_str()
+            .is_some_and(|ansi| ansi.contains("\u{1b}[?25l"))
+    );
 }
 
 #[test]
-fn live_process_constructor_is_public_without_acquiring_the_terminal() {
+fn live_display_process_constructor_has_no_terminal_side_effect() {
     let host = Host::new(HostConfig::default()).expect("host");
     host.load(
-        "<live-process-constructor>",
+        "<live-display-constructor>",
         r#"local pi = ...
-pi.register_command("live-process-constructor", {
+pi.register_command("live-display-constructor", {
   handler = function()
-    local process = pi.tui.process_session(false)
+    local process = pi.tui.display_process()
     local dimensions = process:dimensions()
     return { columns = dimensions.columns, rows = dimensions.rows }
   end,
@@ -120,7 +156,7 @@ pi.register_command("live-process-constructor", {
     )
     .expect("extension loads");
     let result = host
-        .call_command("live-process-constructor", "")
+        .call_command("live-display-constructor", "")
         .expect("command")
         .expect("result");
     assert!(result["columns"].as_u64().is_some_and(|value| value > 0));
