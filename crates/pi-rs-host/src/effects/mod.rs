@@ -36,12 +36,10 @@ pub enum EffectTimeout {
 }
 
 impl EffectTimeout {
-    fn wait(self) -> impl Future<Output = ()> {
-        async move {
-            match self {
-                Self::After(duration) => tokio::time::sleep(duration).await,
-                Self::Disabled => std::future::pending().await,
-            }
+    async fn wait(self) {
+        match self {
+            Self::After(duration) => tokio::time::sleep(duration).await,
+            Self::Disabled => std::future::pending().await,
         }
     }
 }
