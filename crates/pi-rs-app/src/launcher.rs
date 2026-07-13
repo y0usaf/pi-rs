@@ -11,6 +11,8 @@ use pi_rs_host::kernel::{DispatchBatch, DispatchRequest, RootKind};
 use pi_rs_host::{Host, HostConfig, PackageSource};
 use serde::Serialize;
 
+use crate::startup::StartupContext;
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Options {
     pub package_root: Option<PathBuf>,
@@ -24,6 +26,8 @@ pub struct Options {
 pub enum LauncherError {
     #[error("{0}")]
     Arguments(String),
+    #[error("cannot derive application startup paths: {0}")]
+    Startup(#[from] crate::startup::StartupPathError),
     #[error("cannot discover the package root: {0}")]
     CurrentDirectory(std::io::Error),
     #[error("package root '{path}' is unavailable: {source}")]
@@ -178,6 +182,7 @@ fn package_paths(root: &Path, selected: &[PathBuf]) -> Result<Vec<PathBuf>, Laun
 }
 
 fn dispatch(options: &Options) -> Result<DispatchBatch, LauncherError> {
+    let startup = StartupContext::discover()?;
     let root = canonical_root(options.package_root.as_deref())?;
     let packages = package_paths(&root, &options.packages)?;
     let host = Host::new(HostConfig {
@@ -212,6 +217,7 @@ fn dispatch(options: &Options) -> Result<DispatchBatch, LauncherError> {
             .iter()
             .map(|path| path.to_string_lossy())
             .collect::<Vec<_>>(),
+        "storage": startup,
     });
     host.dispatch(DispatchRequest::new(RootKind::Application, event, context))
         .map_err(LauncherError::Dispatch)
