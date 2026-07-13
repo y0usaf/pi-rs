@@ -62,6 +62,7 @@ end
 
 pi.register_tool({
   name = "find",
+  active_by_default = false,
   label = "find",
   description = "Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to 1000 results or 50KB (whichever is hit first).",
   promptSnippet = "Find files by glob pattern (respects .gitignore)",

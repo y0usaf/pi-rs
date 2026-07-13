@@ -68,13 +68,9 @@ fn load_host_with_trust(cwd: &str, project_trusted: bool) -> Result<pi_rs_host::
         ..Default::default()
     })
     .map_err(|error| format!("Error starting Lua host: {error}"))?;
-    let packs = [
-        pi_rs_agent::PACK,
-        pi_rs_app::builtins::TOOLS_PACK,
-        pi_rs_app::builtins::CODING_AGENT_PACK,
-        pi_rs_app::builtins::INTERACTIVE_PACK,
-    ];
-    let report = host.load_embedded(&packs);
+    let report = pi_rs_app::builtins::manifest::DEFAULT_MANIFEST
+        .load(&host, &[])
+        .map_err(|error| format!("Error selecting builtin packages: {error}"))?;
     if let Some(error) = report.errors.first() {
         return Err(format!("Error loading {}: {}", error.path, error.error));
     }
@@ -213,7 +209,7 @@ async fn run(args: Args) -> ExitCode {
             "home": std::env::var("HOME").ok(),
             "theme": settings_manager.get_theme(),
         });
-        let picked = match host.call_command("pi-rs-resume-picker", &request.to_string()) {
+        let picked = match host.call_role("resume-picker", &request.to_string()) {
             Ok(Some(result)) => result
                 .get("path")
                 .and_then(serde_json::Value::as_str)
@@ -313,7 +309,7 @@ async fn run(args: Args) -> ExitCode {
                 "options": ["Continue", "Cancel"],
                 "theme": settings_manager.get_theme(),
             });
-            let selected = match host.call_command("pi-rs-startup-selector", &request.to_string()) {
+            let selected = match host.call_role("startup-selector", &request.to_string()) {
                 Ok(Some(result)) => result
                     .get("value")
                     .and_then(serde_json::Value::as_str)
@@ -370,18 +366,17 @@ async fn run(args: Args) -> ExitCode {
                         "options": options.iter().map(|option| option.label.clone()).collect::<Vec<_>>(),
                         "theme": settings_manager.get_theme(),
                     });
-                    let selected =
-                        match host.call_command("pi-rs-startup-selector", &request.to_string()) {
-                            Ok(Some(result)) => result
-                                .get("value")
-                                .and_then(serde_json::Value::as_str)
-                                .map(str::to_owned),
-                            Ok(None) => None,
-                            Err(error) => {
-                                error_line(&format!("Error: {error}"));
-                                return ExitCode::FAILURE;
-                            }
-                        };
+                    let selected = match host.call_role("startup-selector", &request.to_string()) {
+                        Ok(Some(result)) => result
+                            .get("value")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_owned),
+                        Ok(None) => None,
+                        Err(error) => {
+                            error_line(&format!("Error: {error}"));
+                            return ExitCode::FAILURE;
+                        }
+                    };
                     let selected = selected
                         .and_then(|label| options.into_iter().find(|option| option.label == label));
                     if let Some(option) = selected {
@@ -531,12 +526,8 @@ async fn run(args: Args) -> ExitCode {
         "thinkingFromCli": args.thinking.is_some(),
         "projectTrusted": project_trusted,
     });
-    let command = if interactive {
-        "pi-rs-interactive"
-    } else {
-        "pi-rs-run"
-    };
-    match host.call_command(command, &request.to_string()) {
+    let role = if interactive { "interactive" } else { "print" };
+    match host.call_role(role, &request.to_string()) {
         Ok(Some(result)) => {
             if interactive {
                 // handleFatalRuntimeError → process.exit(1).

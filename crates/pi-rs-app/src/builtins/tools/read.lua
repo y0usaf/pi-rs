@@ -120,6 +120,7 @@ end
 
 pi.register_tool({
   name = "read",
+  active_by_default = true,
   label = "read",
   description = (
     "Read the contents of a file. Supports text files and images (jpg, png, gif, webp)."

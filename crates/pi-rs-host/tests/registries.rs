@@ -498,3 +498,111 @@ fn flag_registry_defaults_values_and_exerciser_match_pi() {
         serde_json::json!({"enabled":true,"label":"chosen"})
     );
 }
+
+#[test]
+fn roles_resolve_by_explicit_activation_and_priority_not_source_identity() {
+    let host = host();
+    host.load(
+        "<synthetic-public>",
+        r#"
+            local pi = ...
+            pi.declare_package({ command_visibility = "public" })
+            pi.register_role({
+                id = "embedded", role = "print", active = true, priority = 0,
+                handler = function(_, ctx) return { owner = "embedded", cwd = ctx.cwd } end,
+            })
+            pi.register_command("synthetic-visible", { handler = function() end })
+        "#,
+    )
+    .expect("synthetic declaration loads");
+    host.load(
+        "/tmp/file-replacement.lua",
+        r#"
+            local pi = ...
+            pi.declare_package({ command_visibility = "internal" })
+            pi.register_role({
+                id = "file", role = "print", active = true, priority = 10,
+                handler = function(_, ctx) return { owner = "file", cwd = ctx.cwd } end,
+            })
+            pi.register_command("file-hidden", { handler = function() end })
+        "#,
+    )
+    .expect("file declaration loads");
+    host.load(
+        "test://catalog",
+        r#"
+            local pi = ...
+            pi.register_command("public-catalog", { handler = function()
+                local names = {}
+                for _, command in ipairs(pi.registered_extension_commands()) do
+                    names[#names + 1] = command.name
+                end
+                return names
+            end })
+        "#,
+    )
+    .expect("catalog loads");
+
+    let roles = host.roles().expect("role mirror");
+    assert_eq!(roles.len(), 2);
+    assert_eq!(roles[0].source, "<synthetic-public>");
+    assert_eq!(roles[1].source, "/tmp/file-replacement.lua");
+    let result = host
+        .call_role("print", "{}")
+        .expect("role runs")
+        .expect("role result");
+    assert_eq!(result["owner"], "file");
+    let catalog = host
+        .call_command("public-catalog", "")
+        .expect("catalog runs")
+        .expect("catalog result");
+    assert_eq!(
+        catalog,
+        serde_json::json!(["synthetic-visible", "public-catalog"])
+    );
+}
+
+#[test]
+fn equal_priority_role_conflicts_fail_closed() {
+    let host = host();
+    for (source, id) in [("<one>", "one"), ("/tmp/two.lua", "two")] {
+        host.load(
+            source,
+            &format!(
+                r#"local pi = ...
+pi.register_role({{ id = "{id}", role = "interactive", active = true, priority = 0, handler = function() end }})"#
+            ),
+        )
+        .expect("role loads");
+    }
+    let error = host
+        .call_role("interactive", "")
+        .expect_err("equal priority is ambiguous");
+    assert!(
+        error
+            .to_string()
+            .contains("conflicting active declarations")
+    );
+}
+
+#[test]
+fn embedded_and_file_roles_share_the_watchdog_path() {
+    let host = host_with_budget(10);
+    for (source, role) in [
+        ("<embedded-hang>", "embedded"),
+        ("/tmp/file-hang.lua", "file"),
+    ] {
+        host.load(
+            source,
+            &format!(
+                r#"local pi = ...
+pi.register_role({{ id = "{role}", role = "{role}", active = true, priority = 0, handler = function() while true do end end }})"#
+            ),
+        )
+        .expect("role loads");
+        match host.call_role(role, "") {
+            Err(HostError::Timeout(_)) => {}
+            other => panic!("expected role watchdog timeout, got {other:?}"),
+        }
+    }
+}

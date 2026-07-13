@@ -187,8 +187,8 @@ fn resume_replays_context_exactly_once_and_appends_only_new_entries() {
 
     let (base_url, requests) = spawn_stub();
     let result = host(&cwd)
-        .call_command(
-            "pi-rs-run",
+        .call_role(
+            "print",
             &serde_json::json!({
                 "model": stub_model(&base_url), "apiKey": "test-key", "prompt": "again",
                 "cwd": cwd, "agentDir": agent_dir.to_string_lossy(),
@@ -309,8 +309,8 @@ fn model_restore_prefers_saved_model_and_falls_back_with_warning() {
     );
     let (base_url, requests) = spawn_stub();
     let result = host(&cwd)
-        .call_command(
-            "pi-rs-run",
+        .call_role(
+            "print",
             &serde_json::json!({
                 "model": stub_model(&base_url), "apiKey": "sk-a", "prompt": "again",
                 "cwd": cwd, "agentDir": agent_dir.to_string_lossy(),

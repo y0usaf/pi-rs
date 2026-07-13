@@ -20,6 +20,10 @@
 //!   (`loader.ts`): `{ name, ...opts }` into the per-extension map.
 //! - `pi.get_commands()` — spec `getCommands`: resolved extension-command
 //!   snapshots; prompt/skill resource rows join with their Lua registries.
+//! - `pi.register_role(def)` / `pi.registered_roles(role?)` — additive public
+//!   application/frontend declarations with explicit activation + priority.
+//! - `pi.declare_package(opts)` — source-neutral declaration defaults used by
+//!   embedded and file-backed packages alike.
 //! - `pi.register_provider(name, config)` / `pi.unregister_provider(name)`
 //!   — spec `registerProvider`/`unregisterProvider`: registrations are
 //!   queued host-side (the spec's initial-load behavior — the runner
@@ -1176,6 +1180,11 @@ fn ext_entry(lua: &mlua::Lua, source: &str) -> mlua::Result<mlua::Table> {
     entry.set("shortcut_order", lua.create_table()?)?;
     entry.set("flags", lua.create_table()?)?;
     entry.set("flag_order", lua.create_table()?)?;
+    entry.set("roles", lua.create_table()?)?;
+    entry.set("role_order", lua.create_table()?)?;
+    let package = lua.create_table()?;
+    package.set("command_visibility", "public")?;
+    entry.set("package", package)?;
     exts.set(source, &entry)?;
     let ext_order: mlua::Table = registry.get("ext_order")?;
     ext_order.push(source)?;
@@ -1433,24 +1442,32 @@ pub(crate) fn build(
             Ok(result)
         })?,
     )?;
-    pi.set(
-        "registered_extension_tools",
-        lua.create_function(|lua, ()| {
-            let result = lua.create_table()?;
-            for (source, _, def) in all_tools(lua)? {
-                if !source.starts_with('<') {
-                    result.push(def)?;
-                }
+    // Product activation is declaration data on each tool, never inferred
+    // from whether its source key happens to be synthetic. Ordinary tools
+    // default active for Pi compatibility; shipped tools state the field
+    // explicitly in their package.
+    let registered_active_tools = lua.create_function(|lua, ()| {
+        let result = lua.create_table()?;
+        for (_, _, def) in all_tools(lua)? {
+            if def
+                .get::<Option<bool>>("active_by_default")?
+                .unwrap_or(true)
+            {
+                result.push(def)?;
             }
-            Ok(result)
-        })?,
-    )?;
+        }
+        Ok(result)
+    })?;
+    pi.set("registered_active_tools", registered_active_tools.clone())?;
+    // Compatibility alias for the first product-loading slice. Its behavior
+    // is now declaration-driven and source-identity-neutral.
+    pi.set("registered_extension_tools", registered_active_tools)?;
     pi.set(
         "registered_extension_commands",
         lua.create_function(|lua, ()| {
             let result = lua.create_table()?;
             for command in resolved_commands(lua)? {
-                if command.source.starts_with('<') {
+                if !command_is_public(lua, &command.source, &command.entry)? {
                     continue;
                 }
                 let entry = lua.create_table()?;
@@ -1507,7 +1524,7 @@ pub(crate) fn build(
         lua.create_function(|lua, ()| {
             let result = lua.create_table()?;
             for command in resolved_commands(lua)? {
-                if command.source.starts_with('<') {
+                if !command_is_public(lua, &command.source, &command.entry)? {
                     continue;
                 }
                 let entry = lua.create_table()?;
@@ -1578,6 +1595,28 @@ pub(crate) fn build(
             use std::io::Write as _;
             print!("{text}");
             std::io::stdout().flush().map_err(mlua::Error::external)
+        })?,
+    )?;
+
+    // Package-level declaration defaults. Embedded and file-backed chunks
+    // call the same function; source keys remain attribution only.
+    pi.set(
+        "declare_package",
+        lua.create_function(|lua, options: mlua::Table| {
+            let visibility = options
+                .get::<Option<String>>("command_visibility")?
+                .unwrap_or_else(|| "public".to_owned());
+            if visibility != "public" && visibility != "internal" {
+                return Err(mlua::Error::runtime(
+                    "declare_package: command_visibility must be 'public' or 'internal'",
+                ));
+            }
+            let source = current_source(lua);
+            let ext = ext_entry(lua, &source)?;
+            let package = lua.create_table()?;
+            package.set("command_visibility", visibility)?;
+            ext.set("package", package)?;
+            Ok(())
         })?,
     )?;
 
@@ -1756,6 +1795,76 @@ pub(crate) fn build(
         Ok(())
     })?;
     pi.set("register_command", register_command)?;
+
+    // Public application/frontend declarations. Selection is by generic role
+    // plus explicit active/priority data; extension load order and source-key
+    // syntax never affect the winner.
+    pi.set(
+        "register_role",
+        lua.create_function(|lua, definition: mlua::Table| {
+            let id = definition
+                .get::<Option<String>>("id")?
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    mlua::Error::runtime("register_role: id must be a non-empty string")
+                })?;
+            let role = definition
+                .get::<Option<String>>("role")?
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    mlua::Error::runtime("register_role: role must be a non-empty string")
+                })?;
+            if definition.get::<Option<bool>>("active")?.is_none() {
+                return Err(mlua::Error::runtime(
+                    "register_role: active must be declared explicitly",
+                ));
+            }
+            if definition.get::<Option<i64>>("priority")?.is_none() {
+                return Err(mlua::Error::runtime(
+                    "register_role: priority must be declared explicitly",
+                ));
+            }
+            if definition
+                .get::<Option<mlua::Function>>("handler")?
+                .is_none()
+            {
+                return Err(mlua::Error::runtime(
+                    "register_role: handler must be a function",
+                ));
+            }
+            let source = current_source(lua);
+            let ext = ext_entry(lua, &source)?;
+            let roles: mlua::Table = ext.get("roles")?;
+            if roles.get::<Option<mlua::Value>>(id.as_str())?.is_none() {
+                let order: mlua::Table = ext.get("role_order")?;
+                order.push(id.as_str())?;
+            }
+            let entry = lua.create_table()?;
+            for pair in definition.pairs::<mlua::Value, mlua::Value>() {
+                let (key, value) = pair?;
+                entry.set(key, value)?;
+            }
+            entry.set("id", id.as_str())?;
+            entry.set("role", role)?;
+            roles.set(id, entry)?;
+            Ok(())
+        })?,
+    )?;
+    pi.set(
+        "registered_roles",
+        lua.create_function(|lua, role: Option<String>| {
+            let result = lua.create_table()?;
+            for (_, _, declaration) in all_roles(lua)? {
+                if role
+                    .as_ref()
+                    .is_none_or(|role| declaration.get::<String>("role").is_ok_and(|v| &v == role))
+                {
+                    result.push(declaration)?;
+                }
+            }
+            Ok(result)
+        })?,
+    )?;
 
     // Spec `registerShortcut` (loader.ts): `{ shortcut, ...options }` into
     // the per-extension map, keyed by the lowercased key id. Conflict policy
@@ -2715,9 +2824,7 @@ pub(crate) fn extension_conflicts(lua: &mlua::Lua) -> mlua::Result<Vec<(String, 
     let mut conflicts = Vec::new();
     for source in ext_order.sequence_values::<String>() {
         let source = source?;
-        if source.starts_with('<') {
-            continue;
-        }
+
         let Some(ext) = exts.get::<Option<mlua::Table>>(source.as_str())? else {
             continue;
         };
@@ -2877,6 +2984,7 @@ pub(crate) struct ResolvedCommand {
     pub(crate) description: Option<String>,
     pub(crate) get_argument_completions: Option<mlua::Function>,
     pub(crate) handler: mlua::Function,
+    pub(crate) entry: mlua::Table,
 }
 
 /// Spec `runner.resolveRegisteredCommands()`: flatten in extension order;
@@ -2921,7 +3029,59 @@ pub(crate) fn resolved_commands(lua: &mlua::Lua) -> mlua::Result<Vec<ResolvedCom
             description,
             get_argument_completions,
             handler,
+            entry,
         });
     }
     Ok(out)
+}
+
+fn command_is_public(lua: &mlua::Lua, source: &str, command: &mlua::Table) -> mlua::Result<bool> {
+    if let Some(visibility) = command.get::<Option<String>>("visibility")? {
+        return Ok(visibility != "internal");
+    }
+    let registry = registry_table(lua)?;
+    let exts: mlua::Table = registry.get("exts")?;
+    let Some(ext) = exts.get::<Option<mlua::Table>>(source)? else {
+        return Ok(true);
+    };
+    let package: mlua::Table = ext.get("package")?;
+    Ok(package.get::<String>("command_visibility")? != "internal")
+}
+
+pub(crate) fn all_roles(lua: &mlua::Lua) -> mlua::Result<Vec<(String, String, mlua::Table)>> {
+    registrations(lua, "roles", "role_order")
+}
+
+pub(crate) struct ResolvedRole {
+    pub(crate) source: String,
+    pub(crate) handler: mlua::Function,
+}
+
+pub(crate) fn resolve_role(lua: &mlua::Lua, requested: &str) -> mlua::Result<Option<ResolvedRole>> {
+    let mut candidates = Vec::new();
+    for (source, _, declaration) in all_roles(lua)? {
+        if declaration.get::<String>("role")? == requested && declaration.get::<bool>("active")? {
+            let priority = declaration.get::<i64>("priority")?;
+            let id = declaration.get::<String>("id")?;
+            candidates.push((priority, source, id, declaration));
+        }
+    }
+    let Some(max_priority) = candidates.iter().map(|candidate| candidate.0).max() else {
+        return Ok(None);
+    };
+    let mut selected = candidates
+        .into_iter()
+        .filter(|candidate| candidate.0 == max_priority);
+    let Some((_, source, id, declaration)) = selected.next() else {
+        return Ok(None);
+    };
+    if let Some((_, other_source, other_id, _)) = selected.next() {
+        return Err(mlua::Error::runtime(format!(
+            "role {requested:?} has conflicting active declarations at priority {max_priority}: {id:?} ({source}) and {other_id:?} ({other_source})"
+        )));
+    }
+    Ok(Some(ResolvedRole {
+        source,
+        handler: declaration.get("handler")?,
+    }))
 }

@@ -111,6 +111,7 @@ end
 
 pi.register_tool({
   name = "bash",
+  active_by_default = true,
   label = "bash",
   description = "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
   promptSnippet = "Execute bash commands (ls, grep, find, etc.)",

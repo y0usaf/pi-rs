@@ -94,6 +94,7 @@ end
 
 pi.register_tool({
   name = "edit", label = "edit",
+  active_by_default = true,
   description = "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.",
   promptSnippet = "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
   promptGuidelines = {

@@ -440,8 +440,8 @@ pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:aft
         "input": ["text"], "cost": {"input":0,"output":0,"cacheRead":0,"cacheWrite":0},
         "contextWindow": 100000, "maxTokens": 1024
     });
-    host.call_command(
-        "pi-rs-run",
+    host.call_role(
+        "print",
         &serde_json::json!({
             "model": model, "apiKey": "test-key", "prompt": "hello",
             "cwd": cwd, "agentDir": agent_dir,

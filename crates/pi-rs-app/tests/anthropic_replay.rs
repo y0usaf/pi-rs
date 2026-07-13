@@ -77,8 +77,8 @@ fn anthropic_replay_runs_lua_agent_tool_round_trip_and_persists_messages() {
     let temp = tempfile::tempdir().unwrap();
     let cwd = temp.path().to_string_lossy().into_owned();
     let agent_dir = temp.path().join("agent");
-    // Deterministic auth: the VM's `pi.auth` storage (pi-rs-run's per-request
-    // getApiKey seam) must not see ambient developer credentials.
+    // Deterministic auth: the print role's per-request getApiKey seam must
+    // not see ambient developer credentials.
     // SAFETY: single-threaded at this point; this binary owns the env.
     unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
     let model = serde_json::json!({
@@ -97,8 +97,8 @@ fn anthropic_replay_runs_lua_agent_tool_round_trip_and_persists_messages() {
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     let agent_dir_string = agent_dir.to_string_lossy().into_owned();
     let result = host
-        .call_command(
-            "pi-rs-run",
+        .call_role(
+            "print",
             &serde_json::json!({
                 "model": model, "apiKey": "test-key", "prompt": "read the file", "cwd": cwd,
                 "agentDir": agent_dir_string,
