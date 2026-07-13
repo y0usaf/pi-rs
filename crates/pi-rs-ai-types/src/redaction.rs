@@ -14,14 +14,7 @@ pub const REDACTED: &str = "[REDACTED]";
 /// errors, diagnostics, or debug snapshots.
 #[must_use]
 pub fn redact_sensitive(input: &str, secrets: &[&str]) -> String {
-    let mut output = input.to_owned();
-    let mut changed = false;
-    for secret in secrets {
-        if secret.len() >= 4 && output.contains(secret) {
-            output = output.replace(secret, REDACTED);
-            changed = true;
-        }
-    }
+    let (mut output, mut changed) = redact_known_values(input, secrets);
 
     changed |= redact_embedded_json_strings(&mut output);
     if let Ok(mut value) = serde_json::from_str::<Value>(&output)
@@ -31,6 +24,36 @@ pub fn redact_sensitive(input: &str, secrets: &[&str]) -> String {
     }
 
     if changed { output } else { input.to_owned() }
+}
+
+fn redact_known_values(input: &str, secrets: &[&str]) -> (String, bool) {
+    let secrets: Vec<&str> = secrets
+        .iter()
+        .copied()
+        .filter(|secret| !secret.is_empty())
+        .collect();
+    if secrets.is_empty() {
+        return (input.to_owned(), false);
+    }
+
+    let mut output = String::with_capacity(input.len());
+    let mut remaining = input;
+    let mut changed = false;
+    while !remaining.is_empty() {
+        if let Some(secret) = secrets
+            .iter()
+            .filter(|secret| remaining.starts_with(**secret))
+            .max_by_key(|secret| secret.len())
+        {
+            output.push_str(REDACTED);
+            remaining = &remaining[secret.len()..];
+            changed = true;
+        } else if let Some(character) = remaining.chars().next() {
+            output.push(character);
+            remaining = &remaining[character.len_utf8()..];
+        }
+    }
+    (output, changed)
 }
 
 fn redact_embedded_json_strings(input: &mut String) -> bool {
@@ -154,6 +177,22 @@ mod tests {
         assert_eq!(
             redact_sensitive("echo super-secret-value", &["super-secret-value"]),
             format!("echo {REDACTED}")
+        );
+        for secret in ["x", "yz", "q9z"] {
+            assert_eq!(
+                redact_sensitive(&format!("provider denied <{secret}> safely"), &[secret]),
+                format!("provider denied <{REDACTED}> safely")
+            );
+        }
+        assert_eq!(
+            redact_sensitive("safe error", &[""]),
+            "safe error",
+            "an empty supplied value is not a secret"
+        );
+        assert_eq!(
+            redact_sensitive("A then AB", &["A", "AB"]),
+            format!("{REDACTED} then {REDACTED}"),
+            "longest matches win and generated markers are never reprocessed"
         );
         assert_eq!(
             redact_sensitive(

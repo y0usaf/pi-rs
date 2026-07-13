@@ -402,25 +402,28 @@ async fn refresh_success_and_body() {
 }
 
 #[tokio::test]
-async fn refresh_errors_never_expose_request_or_response_tokens() {
-    let request_secret = "old-refresh-secret";
-    let response_secret = "response-access-secret";
-    let body = serde_json::json!({
-        "message": format!("echo {request_secret}"),
-        "access_token": response_secret
-    })
-    .to_string();
-    let (token_addr, _bodies) = token_server(vec![(401, body)]);
-    let flow = test_flow(free_port(), token_addr);
+async fn refresh_errors_redact_every_non_empty_short_request_token() {
+    for request_secret in ["x", "yz", "q9z"] {
+        let response_secret = "response-access-secret";
+        let body = serde_json::json!({
+            "message": format!("provider denied <{request_secret}> safely"),
+            "access_token": response_secret
+        })
+        .to_string();
+        let (token_addr, _bodies) = token_server(vec![(401, body)]);
+        let flow = test_flow(free_port(), token_addr);
 
-    let error = refresh_pkce(&flow, request_secret).await.unwrap_err();
-    let display = error.to_string();
-    let debug = format!("{error:?}");
-    for secret in [request_secret, response_secret] {
-        assert!(!display.contains(secret));
-        assert!(!debug.contains(secret));
+        let error = refresh_pkce(&flow, request_secret).await.unwrap_err();
+        let display = error.to_string();
+        let debug = format!("{error:?}");
+        let echoed = format!("<{request_secret}>");
+        assert!(!display.contains(&echoed));
+        assert!(!debug.contains(&echoed));
+        assert!(!display.contains(response_secret));
+        assert!(!debug.contains(response_secret));
+        assert!(display.contains("provider denied <[REDACTED]> safely"));
+        assert!(debug.contains("provider denied <[REDACTED]> safely"));
     }
-    assert!(display.contains("[REDACTED]"));
 }
 
 #[tokio::test]
