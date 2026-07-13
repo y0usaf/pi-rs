@@ -1,126 +1,96 @@
 # pi-rs
 
-[Pi](https://github.com/badlogic/pi-mono)'s coding agent, ported to Rust.
-The installed executable is `pi` and it uses Pi's runtime identity, including
-`~/.pi/agent`, project-local `.pi/`, and `PI_CODING_AGENT_*` overrides.
+pi-rs is a minimal, high-performance Rust coding harness with a Lua-authored
+product. The installed executable is `pi`. Rust supplies generic terminal, OS,
+provider/auth, and persistence mechanisms; ordinary Lua 5.4 packages define the
+application, agent, frontend, tools, configuration, and optional sessions.
 
 <p align="center">
   <img src="demo/pi-rs.gif" alt="pi-rs terminal demo" width="900">
 </p>
 
-The spec is Pi **v0.79.0**, with the development oracle kept in the ignored
-`ref/pi` checkout at commit `c5582102`. The compatibility target is strict
-visual and behavioral parity, subject only to the exhaustive differences
-below. The port is still in progress; the guarantee applies to the parity
-release, not unfinished milestones.
+`main` is being rebuilt around this contract. It is not yet a release claim.
+The former faithful port is preserved on `pi-rust-rewrite` as historical
+provenance, not as the specification for current work.
 
-## Differences from Pi
+## Product boundary
 
-This is the complete exception list:
+The shipped defaults aim for Pi's restrained coding experience in a compact,
+checked set of terminal states: editing, streaming/thinking, tool presentation,
+queueing/cancellation, representative dialogs/selectors, and session resume.
+Those named grids and input journeys may be exact. Behavior outside that set is
+pi-rs behavior.
 
-1. **Implementation:** Rust instead of TypeScript. This alone may not change
-   observable behavior.
-2. **Configuration:** Lua is the only configuration language. Global
-   `~/.pi/agent/config.lua` and project `.pi/config.lua` replace Pi's JSON
-   configuration files. Settings, keybindings, models/providers, themes,
-   resource selection, and extension declarations all pass through this Lua
-   configuration surface. Data formats that are not configuration—such as
-   sessions, credentials, project instructions, skills, and prompt-template
-   content—remain Pi-compatible.
-3. **Extensions:** Lua 5.4 instead of TypeScript/JavaScript. Pi extension
-   examples are translated to Lua and must retain the same result.
-4. **Packages:** packages distribute Lua configuration/extensions rather than
-   npm TypeScript/JavaScript. The package transport is still to be finalized.
-5. **First-party construction:** tools, agent policy, commands, compaction,
-   rendering, the interactive frontend, and themes are independently replaceable
-   Lua builtin packages declared through the same public API as user code. A
-   feature does not satisfy this rule merely by living inside a large embedded
-   Lua chunk; Rust provides mechanism and generic role selection only.
-6. **Authoring surface:** pi-rs's public Lua surface has three tiers: the
-   Pi-compatible API, additive mechanism API, and packaged Lua modules.
-   Builtins and file-backed user packages receive the same surface; embedding
-   grants no private tier. Additive authoring capability may not alter shipped
-   Pi-compatible behavior.
+One compatibility boundary is deliberately exhaustive: provider and
+authentication mechanisms retain pinned Pi v0.79.0 parity for the supported
+model catalog, provider wire protocols, API-key resolution, and Anthropic,
+GitHub Copilot, and OpenAI/Codex subscription OAuth. This does **not** imply
+whole-product, CLI, session, configuration, package, or TypeScript-extension
+compatibility.
 
-**Everything else is guaranteed to be exactly Pi-compatible.** Given the same
-terminal, credentials, model, input, provider/tool responses, and equivalent
-Lua configuration, the parity release must match Pi's rendering, interaction,
-requests, errors, CLI behavior, persistence, and session behavior. A new
-exception requires updating this list before release; incomplete work does not
-count as an exception.
+See [`DESIGN.md`](DESIGN.md) for the normative boundary and
+[`PLAN.md`](PLAN.md) for the ordered implementation gates.
 
-`DESIGN.md` is the normative divergence/architecture contract; `PLAN.md` is
-the ordered parity and extension-first ladder. Product experiments belong in
-downstream forks, while the general authoring mechanisms and replacement seams
-needed to build them belong here.
+## Architecture
 
-## Public Lua surface
+- **Rust = mechanism:** Lua runtime/package loading, watchdogs, immutable
+  snapshots, validated action/effect execution, terminal/display primitives,
+  async OS operations, provider/auth engines, and a generic durable record
+  store.
+- **Lua = product policy:** application/agent/frontend/session state machines,
+  tools, commands, editor and transcript behavior, themes, keymaps,
+  configuration, provider selection, and resource discovery.
+- **No privileged builtins:** embedded defaults use the same public modules,
+  declarations, capabilities, lifecycle, and watchdogs as file-backed packages.
+- **Snapshots in, actions out:** Lua never borrows mutable host state. Rust may
+  batch, lay out, clip, and diff Lua-authored display structures, but does not
+  choose product appearance or workflow.
+- **Bare core boots:** with shipped policy removed, `pi` can still load an
+  ordinary file-backed Lua application, accept input, render, run an effect,
+  and exit cleanly.
 
-[`LUA_SURFACE.md`](LUA_SURFACE.md) defines the three public tiers and their
-inventory boundaries. Synthetic source identity records provenance only: an
-embedded builtin cannot receive capabilities, modules, lifecycle treatment, or
-declaration paths unavailable to an ordinary file-backed package.
+Persistent conversation sessions are optional Lua policy over arbitrary
+versioned records. The default session package can be disabled or replaced; an
+ephemeral application remains useful without it.
 
-## Lua configuration
+## Storage
 
-Both canonical files receive `pi` as their Lua vararg. Global declarations load
-first; trusted project declarations override them:
+pi-rs writes only to XDG roots:
 
-```lua
-local pi = ...
-
-pi.config.settings({
-  theme = "dark",
-  defaultProvider = "anthropic",
-  retry = { enabled = true, maxRetries = 3 },
-})
-pi.config.keybinding("app.model.next", "ctrl+n")
-pi.config.provider("local", { api = "openai-completions", baseUrl = "http://localhost:8080" })
-pi.config.model("local", { id = "my-model" })
-pi.config.theme("paper", { dark = false, colors = {} })
-pi.config.active_theme("paper")
-pi.config.enable("extensions", { "~/my-extension.lua" })
+```text
+${XDG_CONFIG_HOME:-$HOME/.config}/pi
+${XDG_DATA_HOME:-$HOME/.local/share}/pi
+${XDG_STATE_HOME:-$HOME/.local/state}/pi
+${XDG_CACHE_HOME:-$HOME/.cache}/pi
 ```
 
-Interactive changes update a deterministic managed block in global `config.lua`;
-user code outside that block is preserved. Repeating a mutation is byte-idempotent.
-`/reload` evaluates the complete next global/project declaration graph before
-publishing it, so errors keep the previous live state. `settings.json`,
-`keybindings.json`, user `models.json`, and JSON theme files are ignored.
+A resource under `~/.pi/agent` may be read only when its corresponding XDG
+resource is absent. Canonical and legacy copies are never merged. Every write
+targets XDG; pi-rs never rewrites, deletes, or silently migrates a legacy file.
 
-Build and test:
+## Performance
+
+Release claims are benchmarked rather than inferred from Rust. The checked
+release harness measures startup to an input-ready frame, idle RSS,
+input-to-frame latency, retained render cost, Lua dispatch/copy overhead, effect
+round trips, release size, and resource cleanup. Numeric budgets are recorded
+from the reproducible baseline in PLAN 0.2 and enforced through Nix.
+
+## Build and verify
+
+Nix is the source of truth:
 
 ```sh
-cargo test --workspace
+nix build
 nix flake check
+nix run
 ```
 
-## Updating the built-in model catalog
+`cargo fmt` and `cargo clippy` are sanctioned direct iteration tools. Focused
+native tests may aid development, but completion and release claims use the
+flake.
 
-The runtime reads only the reviewed snapshot in
-`crates/pi-rs-ai/data/models.json`; it never fetches model metadata. Refresh it
-from upstream with:
-
-```sh
-nix run .#update-model-catalog
-```
-
-For reproducible review or offline regeneration, pin an upstream revision or
-use a local checkout:
-
-```sh
-nix run .#update-model-catalog -- --revision <git-revision>
-nix run .#update-model-catalog -- --source ref/pi --revision c5582102f51b143fadc05180e0f8aed050e923b3
-```
-
-The command also updates `models.provenance.json` with the exact revision,
-catalog/output hashes, API inventory, and provider/model counts. Reviewed
-upstream metadata corrections belong in `scripts/model-catalog-overrides.json`
-and require a reason; runtime code must not special-case catalog rows.
-
-Generation rejects unknown model fields, duplicate IDs, and API protocols
-outside the reviewed vocabulary. A new protocol is promoted deliberately:
-implement and replay-test its transport first, add it to the updater's accepted
-API set, then regenerate and pass `nix flake check`. The scheduled
-`model-catalog-update.yml` workflow follows the same path and opens a generated
-PR only when the reviewed snapshot changes.
+The pinned Pi checkout at `ref/pi` commit
+`c5582102f51b143fadc05180e0f8aed050e923b3` is needed only to regenerate or
+review the named canonical-experience and provider/auth fixtures. It is not a
+whole-product oracle.

@@ -1,260 +1,256 @@
-# pi-rs — Pi's coding agent in Rust
+# pi-rs design
 
-pi-rs is a faithful Rust port of [Pi](https://github.com/badlogic/pi-mono)'s
-coding agent. The vendored Pi v0.79.0 snapshot at `ref/pi` (commit `c5582102`)
-is the product specification for everything the coding agent does. Where this
-document and the spec disagree, the spec wins unless the difference appears in
-the exhaustive list below. A locked-decision row alone cannot authorize a
-product-visible difference.
+pi-rs is a minimal, high-performance Rust coding harness whose installed
+executable is `pi`. Its shipped coding product is ordinary Lua 5.4 policy over
+a small Rust mechanism kernel. The default experience deliberately resembles
+Pi in a bounded set of interactions; pi-rs is not a faithful port of Pi.
 
-Three commitments:
+`DESIGN.md` is the product and architecture contract. `PLAN.md` is the ordered
+implementation plan. If they disagree, stop and reconcile them before changing
+implementation. The former port remains on `pi-rust-rewrite`; it is historical
+provenance and a source of already-proven mechanism ideas, not the specification
+for `main`.
 
-1. **Parity outside the exception list.** Given the same terminal,
-   credentials, model, input, provider/tool responses, and equivalent Lua
-   configuration, a user must not be able to distinguish the parity release
-   from Pi's coding agent: rendering, input behavior, commands, errors,
-   requests, persistence, and session behavior all match.
-2. **Compatibility maintenance.** pi-rs remains the faithful port. Custom
-   products and behavior start as downstream forks after the parity gate rather
-   than turning this repository into a dialect.
-3. **Extension-first supersurface.** The shipped product is assembled from
-   independently replaceable Lua units using only public capabilities available
-   to user extensions. The authoring surface is a strict capability superset of
-   Pi's pinned extension surface, proven both by the shipped product and by a
-   maintained external-extension dogfood suite. Additive authoring capability
-   may exceed Pi; default product behavior may not.
+## Product contract
 
-Rust is the implementation language. A different implementation is not a
-license to invent a different product. The port is still in progress; parity
-is a release gate, not a claim that unfinished milestones already conform.
+pi-rs provides:
 
-## Exhaustive differences from Pi
+- a fast terminal coding harness with a restrained default workflow;
+- application, agent, frontend, and optional session policy authored in Lua;
+- shipped defaults loaded through the same public package/module/declaration
+  paths as file-backed user code;
+- immutable snapshots and read handles into Lua, with typed actions and effects
+  returned or queued out;
+- generic terminal, OS, provider/auth, and durable-record mechanisms in Rust;
+- useful zero-builtin operation through an ordinary file-backed Lua application.
 
-Everything not listed here must look, feel, and behave **1:1 with Pi's coding
-agent**. This is a closed exception list, not examples of permitted drift.
+Embedding is distribution, not privilege. An embedded package receives the
+same capabilities, watchdog, lifecycle, conflict rules, and declaration paths
+as the same package loaded from disk. Synthetic source identity records only
+provenance.
 
-1. **Rust implementation.** Pi is TypeScript; pi-rs is Rust. Implementation
-   details are allowed to differ, but this item authorizes no observable
-   difference.
-2. **Lua-only configuration.** Global `~/.pi/agent/config.lua` and project
-   `.pi/config.lua` are the sole user configuration entry points. They replace
-   Pi's JSON configuration files. Settings, keybindings, models/providers,
-   themes, resource selection, and extension declarations all go through Lua.
-   Pi's configuration UI and commands must produce the same effective outcome,
-   persisted as Lua. Formats that carry user data/content rather than
-   configuration—sessions, credentials, project instructions, skills, and
-   prompt-template content—remain Pi-compatible.
-3. **Lua extensions.** Extensions use Lua (mlua, vendored 5.4), not
-   TypeScript/JavaScript. Pi's extension examples arrive as translations, not
-   copy-paste—and each translation is a conformance test of the bridge. A Pi
-   coding-agent example that cannot translate is a bridge bug, not an example
-   we skip.
-4. **Lua package contents.** Packages distribute Lua configuration/extensions,
-   modules, and data rather than TypeScript/JavaScript. Transport and package
-   command behavior remain Pi-compatible: npm registry archives, Git URLs/refs,
-   and local paths. `package.json` is inert distribution/manifest metadata, not
-   a configuration entry point or executable extension source.
-5. **Everything first-party is independently replaceable Lua on the public
-   extension surface—no Rust or monolithic-Lua shortcutting.** Rust is mechanism
-   only. If a piece has product behavior a user could plausibly want to change—
-   including tools, agent policy, commands, compaction, transcript renderers,
-   status areas, and the interactive frontend—it is a declared unit in the
-   builtins layer, registered through the same API user extensions use, and can
-   be disabled and replaced without changing Rust. Merely placing a feature in
-   a large embedded Lua chunk does not satisfy this rule when the feature can be
-   an extension of its own. The Rust substrate provides what a Lua table cannot
-   express: runtime, OS and terminal bindings, provider transport, and
-   persistence. Placement calls are recorded in the locked-decisions table;
-   the default is a public Lua declaration.
-6. **The public Lua mechanism surface exceeds Pi's implementation API.** Rust
-   bindings must expose, to builtins and user extensions alike, the low-level
-   capabilities needed to author the product and the maintained extension
-   dogfood suite. This is capability equivalence, not Node API emulation: Lua-
-   native HTTP, process, lifecycle, filesystem, network, crypto, rendering,
-   agent, and session mechanisms may use different names and shapes. Additive
-   authoring capability may not alter shipped Pi-compatible behavior. Product
-   experiments still belong in a downstream fork.
+### Bounded Pi experience reference
 
-Any consequence of these differences is permitted only where unavoidable. A
-new exception requires an explicit addition here, a concrete necessity, and a
-test before release. Convenience, incomplete implementation, and taste are not
-exceptions.
+Pi v0.79.0 at `ref/pi` commit
+`c5582102f51b143fadc05180e0f8aed050e923b3` is a focused observation source for
+the checked canonical experience set only:
 
-## Product boundary
+- transcript rhythm, spacing, color, wrapping, and tool presentation;
+- prompt editing, completion, keybindings, paste, and external-editor flow;
+- streaming/thinking presentation and cancellation;
+- steering and follow-up queues;
+- representative selectors, dialogs, notifications, status, header, and footer;
+- the restrained default coding journey joining those states.
 
-pi-rs ports Pi's coding-agent product plus the bounded public extension
-platform used to construct and independently replace it:
+The compact grid/input fixtures selected by PLAN 0.2 define this set. A named
+canonical frame may be cell-exact and a named input trace may be transition-
+exact. Unrecorded Pi behavior does not become a requirement by adjacency. Pi is
+not an oracle for pi-rs CLI breadth, errors, tools, sessions, configuration,
+package management, extension APIs, internal state machines, or historical edge
+cases.
 
-- **AI and auth:** model types, provider protocols, streaming, credentials,
-  OAuth, model discovery, and the provider behavior the coding agent exposes;
-- **agent runtime:** the message/tool loop, steering, follow-ups, cancellation,
-  usage, and state required by the coding agent;
-- **coding agent:** CLI modes, interactive terminal UI, tools, sessions,
-  settings, prompts, themes, commands, extensions, and other user-visible
-  behavior;
-- **terminal UI:** the rendering and input machinery required to make the
-  coding agent visually and interactively identical to Pi;
-- **extension platform:** the complete pinned Pi extension contract, the public
-  mechanisms used to assemble every first-party policy unit, and the bounded
-  capability superset exercised by the maintained extension dogfood suite.
+### Exhaustive provider/auth compatibility subsystem
 
-Explicitly out of scope:
+Provider and authentication behavior is the sole exhaustive Pi compatibility
+promise. Against the same pinned revision, pi-rs preserves every provider/model
+row and advertised API family in the supported catalog, including:
 
-- Pi products other than the coding agent — the Discord bot and any unrelated
-  application, integration, or demo;
-- a general-purpose agent framework whose abstractions are exercised by
-  neither the shipped builtins, pinned Pi examples, nor the maintained dogfood
-  suite and would delay parity;
-- pi-rs-specific UI, branding, chrome, commands, defaults, or workflows;
-- downstream product behavior;
-- module-for-module source translation where behavioral equivalence is better
-  expressed idiomatically in Rust.
+- Anthropic Messages, OpenAI Completions, OpenAI Responses, Azure OpenAI
+  Responses, OpenAI Codex Responses, Google Generative AI, Google Vertex,
+  Mistral Conversations, and Bedrock Converse Stream;
+- request conversion, required headers, streaming event conversion, usage/cost
+  accounting, provider-visible errors, cancellation, and protocol-specific
+  options;
+- catalog lookup, provider/model identity, capability metadata, and dispatch to
+  the advertised protocol family;
+- API-key resolution from runtime, stored, environment, configuration, and
+  command-backed sources with deterministic precedence, refresh, locking, and
+  redaction;
+- Anthropic Claude Pro/Max, GitHub Copilot, and OpenAI/Codex subscription OAuth,
+  including browser/PKCE or device-code login as applicable, callback/headless
+  outcomes, refresh, expiry, cancellation, and logout.
 
-Out-of-scope code need not be ported, and existing code or docs outside this
-boundary may be deleted when doing so simplifies the port. Git is the attic;
-the pre-port trees are preserved on `main` (`fd373e0`) and `rebuild`
-(`e8cb418`).
+Closure requires a fail-closed catalog/API inventory and deterministic wire/auth
+fixtures: no unexplained supported row, protocol, credential source, or
+subscription flow may remain. Shared HTTP, retry, SSE, PKCE, and device-code
+machinery is implemented once; brands are data unless a wire protocol truly
+differs.
 
-## Parity contract
+This promise ends at the subsystem boundary. Provider selection, configuration
+presentation, login UI, commands, and surrounding agent workflow are replaceable
+Lua product policy. Their appearance and sequencing need not match Pi unless a
+specific state is also in the canonical experience set.
 
-`ref/pi/packages/coding-agent` is the product-level specification; its required
-implementation dependencies are `ref/pi/packages/ai`, `agent`, and `tui`. When
-documentation, tests, or pi-rs's current behavior disagree with the reference,
-the reference wins unless the difference is in the exhaustive list above.
+### Explicit non-goals
 
-Parity has four inseparable dimensions outside the exhaustive exception list:
+pi-rs does not promise:
 
-1. **Visual:** identical terminal cells for stable frames—text, whitespace,
-   borders, color, attributes, cursor, wrapping, clipping, and ordering.
-2. **Interactive:** identical key handling, editor behavior, focus, dialogs,
-   command flow, cancellation, and resize behavior.
-3. **Behavioral:** identical requests, tool semantics, streaming transitions,
-   errors, effective settings, sessions, and observable CLI behavior.
-4. **Data compatibility:** the same relevant credentials, session data,
-   project instructions, skills, and prompt-template content. Configuration
-   source files and extension/package source code are the explicit Lua
-   exceptions above; equivalent Lua configuration must produce Pi's outcome.
+- whole-product behavioral or data compatibility with Pi;
+- Pi's TypeScript extension API, Node runtime, npm execution model, complete CLI,
+  package manager, JSON/RPC mode, HTML export, or every external extension;
+- exact Pi errors, sessions, settings formats, request ordering outside the
+  provider/auth subsystem, or undocumented edge cases;
+- a public registry for every private Lua helper;
+- performance merely because the kernel is written in Rust.
 
-"Usable," "similar," and "inspired by Pi" are not acceptance criteria.
-Temporary labels or placeholder components—such as `you:` and `assistant:`
-transcript prefixes that Pi does not render—are bugs, even if a pi-rs-only test
-expects them. Tests are corrected to the reference, never the reverse.
+An omitted product feature returns only for an independent pi-rs use case. It
+must then be Lua policy through an existing public seam or a generic mechanism
+that justifies a new seam.
+
+## Mechanism and policy boundary
+
+Rust owns mechanism; Lua owns product decisions. The following placements are
+locked until this table is deliberately amended.
+
+| Area | Rust mechanism | Lua policy | Hot-path guard |
+|---|---|---|---|
+| Runtime and packages | Lua VM, versioned module loader, source-neutral capabilities, transaction publication, watchdogs, generation-safe handles, scoped disposal | package graph, root selection, product composition | One bounded host entry per dispatch/resume; no mutable host borrow crosses it. |
+| State changes | immutable snapshot construction, action/effect validation, deterministic apply queue, cancellation | application/agent/frontend/session reducers and action choice | Snapshots are bounded views or read handles; action batches cross once per transition. |
+| Terminal/display | byte decoding, Unicode cells, width/wrap/layout/clipping primitives, image primitives, differential ANSI output | component tree, editor behavior, transcript/chrome appearance, focus/keymaps | Lua submits retained trees/display lists in batches; never one callback per byte, cell, escape, or style run. |
+| Async OS effects | filesystem, process trees, HTTP/SSE/WebSocket, timers, clipboard, crypto, timeouts, backpressure | tools, retries, truncation choices, workflow, user messaging | Streams cross as bounded chunks/events; every task/resource is cancellable and scope-owned. |
+| Provider/auth | wire protocols, shared transport, stream conversion, credential storage mechanics, PKCE/device-code engines | provider/model declarations and selection, custom endpoints, login UI | Protocol parsing stays native and incremental; no Lua callback per transport byte. |
+| Persistence | generic versioned append-only JSON-value records, atomic append/copy, cursors, locks, corruption reporting | record schema, conversation reconstruction, naming, branching, compaction, retention | Reads use cursors/bounded windows; no full-history copy on each dispatch. |
+| Product behavior | generic root/declaration registries only | all application, agent, frontend, tool, command, theme, config, resource, and session behavior | Native acceleration may execute Lua-authored structures but may not choose visible or workflow policy. |
+
+Cross-cutting mechanisms—transport, retry primitives, cancellation, atomic file
+replacement, text/display diffing, and resource cleanup—have one implementation.
+A native hot path is not an extension-first exception: Lua still authors the
+state and policy, while Rust performs a generic batched operation. Any proposal
+that moves a product choice into Rust requires a new locked decision, evidence
+that batching cannot solve the measured problem, and an ablation-safe public
+boundary.
+
+Every uninterrupted Lua dispatch is watchdog-bounded. Awaiting a host future
+holds no mutable host state; a resumed coroutine receives a fresh bounded entry.
+Failed package loads publish nothing. Stale handles fail after root/session
+replacement or reload. Shutdown and reload cancel all work owned by the disposed
+scope.
+
+## Public Lua product model
+
+The public surface favors a few stable, broad seams:
+
+- independently replaceable application, agent, frontend, and session roots;
+- composable declarations for tools, commands, providers, events, renderers, UI
+  slots, themes, and keymaps;
+- ordinary versioned Lua modules for reusable and private helpers;
+- one declaration mechanism for every repeated kind.
+
+Shipped policy lives in a dedicated builtins package graph, not concatenated
+mega-chunks and not Rust branches. A unit is public when it is a replaceable root
+or composable declaration; private helper functions and inert package data do
+not need ceremonial registration.
+
+Lua reads immutable snapshots/read handles and returns or queues typed actions.
+It never receives `&mut` host state. Actions publish only after a successful
+bounded dispatch, through one validation/application path.
+
+## Session model
+
+Persistent sessions are optional, configurable Lua policy over the generic Rust
+record store. The shipped session package owns:
+
+- its versioned record schema and context-reconstruction reducer;
+- creation, naming, selection, branch/tree meaning, and retention;
+- compaction records and the decision of what enters model context;
+- legacy session parsing, when supported, and all user-facing diagnostics.
+
+The Rust store knows none of those concepts. It guarantees atomic durable
+append, locking, iteration/cursors, copy primitives, cancellation, and
+corruption errors for arbitrary JSON values.
+
+Suppressing the session package leaves a useful ephemeral conversation. A
+file-backed replacement may persist a different schema without private APIs or
+frontend forks. Session switches and reloads are snapshot/action transactions;
+stale runtime handles cannot mutate the replacement session.
+
+## Storage contract
+
+Canonical user roots follow XDG:
+
+| Class | Root | Typical contents |
+|---|---|---|
+| Configuration | `${XDG_CONFIG_HOME:-$HOME/.config}/pi` | `config.lua`, declarative product/package selection |
+| Data | `${XDG_DATA_HOME:-$HOME/.local/share}/pi` | installed Lua packages and user-authored resources |
+| State | `${XDG_STATE_HOME:-$HOME/.local/state}/pi` | credentials, session records, trust and other durable mutable state |
+| Cache | `${XDG_CACHE_HOME:-$HOME/.cache}/pi` | safely regenerable downloads and derived data |
+
+An explicit XDG variable wins for its class. If it is absent, the documented
+`$HOME` default is used. A missing/invalid required root is a diagnostic, never
+an implicit current-directory path.
+
+`~/.pi/agent` is a read-only compatibility fallback, resolved **per resource**:
+
+1. Use the canonical XDG resource when it exists.
+2. Only when that individual resource is absent, try its documented legacy
+   counterpart.
+3. Never merge canonical and legacy copies, and never fall through because a
+   present canonical file is malformed or unreadable.
+4. Every create/update/delete targets XDG. A mutation after a legacy read creates
+   or updates the canonical resource and leaves the legacy source byte-unchanged.
+5. Never rename, delete, rewrite, or silently migrate a legacy resource. Any
+   import is explicit, reports source and destination, and remains safe to rerun.
+
+This fallback is a storage/provenance rule, not whole-data-format compatibility.
+For example, provider credentials are exhaustively supported at this boundary,
+while any legacy session interpretation belongs to the selected Lua session
+package.
+
+## Performance contract
+
+Performance claims come only from the reproducible release-mode harness created
+by PLAN 0.2. It records the reference machine/environment, fixture revision,
+sample count, warm/cold conditions, and machine-readable results. Numeric
+baselines and budgets are measured there before being written into this section;
+0.1 does not invent aspirational thresholds.
+
+| Metric | Required measurement | Goal |
+|---|---|---|
+| Startup | offline warm-cache process start → first input-ready frame, p50/p95 in ms | At or below the checked release budget. |
+| Idle memory | RSS after a fixed settle period with the canonical empty session, MiB | At or below the checked release budget; no upward drift while idle. |
+| Input latency | injected key/input timestamp → corresponding flushed frame, p50/p95 in ms | At or below the checked interactive budget. |
+| Render cost | unchanged and canonical changed retained-tree frames, p50/p95 µs plus frames/s | At or below cost / at or above throughput budgets. |
+| Lua dispatch | snapshot → no-op/action-batch completion, p50/p95 µs and bytes copied | At or below dispatch and copy budgets. |
+| Effect round trip | queued local deterministic effect → completion action, p50/p95 µs | At or below the checked effect budget. |
+| Release size | stripped closure/binary bytes, reported separately | At or below the checked size budget. |
+| Cleanup | live tasks/processes/sockets and RSS growth after repeated cancel/reload/shutdown | Zero leaked resources; bounded growth within the checked tolerance. |
+
+A result without the prescribed harness and environment is diagnostic, not
+acceptance. Optimization follows profiles: batch crossings, retain display
+structures, bound history/snapshots, and remove unused dependencies. Visual or
+provider/auth correctness is never traded for an unmeasured speed claim.
 
 ## Doctrine conformance
 
-| Doctrine | Status | Notes |
+| Doctrine | Status | Local decision |
 |---|---|---|
-| 01 extension-first core | follows (strengthened) | Difference 5 is The Rule with both escape hatches removed: first-party behavior may shortcut through neither Rust nor an indivisible embedded-Lua monolith. Every replaceable unit lives in the builtins layer, uses the public surface, and has ablation/replacement evidence. |
-| 02 snapshot in, actions out | follows | Events in as tables, results out as tables; per-dispatch watchdog bounding *continuous* Lua execution (every host await resets the window — long-lived loops accumulate unbounded total time, busy loops still die). Async seam: handlers are coroutines that may await host futures (locked below), and `pi.spawn` starts background coroutines scoped to their dispatch — still no live `&mut` host references. |
-| 03 daemon + thin client | deferred | Applies to downstream products, not the compatibility port. |
-| 04 declarative front, idempotent executor | n/a | No system-config surface. |
-| 05 one declaration mechanism | follows | Every unit of a kind—including applications/frontends, render middleware, lifecycle resources, commands, tools, and shipped defaults—is declared through one public mechanism; source names and hardcoded launcher branches are not declaration mechanisms. |
-| 06 bare core must boot | follows | Bare = substrate with zero packs: `pi --login`, `pi --list-models`, `pi "prompt"` streaming a raw completion. CI also ablates each builtin pack and replaces representative policy units with ordinary file-backed extensions. |
-| 07 nix source of truth | follows | crane flake; `cargo fmt`/`clippy` sanctioned exceptions. |
+| 01 extension-first core | follows | Every shipped product feature is an ordinary Lua builtin package using the public surface. Rust contains only mechanisms; zero-pack and replacement tests enforce the split. |
+| 02 snapshot in, actions out | follows | Lua receives immutable snapshots/generation-safe read handles and emits validated queued actions. Every dispatch is watchdog-bounded; async resources are scoped and cancellable. |
+| 03 state-owning daemon, thin client | deferred | The current product is single-process and no live state must outlive its viewer; durable data lives in files. Detachable/multi-viewer sessions would trigger a separate daemon + versioned-wire design, not hidden coupling now. |
+| 04 declarative front, idempotent executor | not applicable | pi-rs is not an activation-time system configuration executor. Lua product declarations and atomic reload are runtime extension concerns, not a Nix-to-manifest appliance. |
+| 05 one declaration mechanism | follows | Builtins and users declare each repeated kind through one registry/path; no hand-wired product exception. Singular mechanisms are not forced into registries. |
+| 06 bare core must boot | follows | With no builtins/config/extensions, the kernel can load a file-backed Lua application, accept input, render, run an effect, and exit; missing/broken product packages diagnose usefully. |
+| 07 Nix as source of truth | follows | The flake owns builds and acceptance. `cargo fmt`/`cargo clippy` are sanctioned direct exceptions; other Cargo commands are iteration aids only. |
 
-## Locked decisions
+## Acceptance and evidence
 
-| Decision | Choice | Rationale |
-|---|---|---|
-| Spec | Pi v0.79.0, `ref/pi` @ `c5582102`, frozen | Port a snapshot, then deliberately adopt upstream changes with recorded parity evidence. |
-| Runtime identity | Binary `pi`; app name `pi`; global root `~/.pi/agent`; project root `.pi/`; `PI_CODING_AGENT_*` overrides | Product identity stays drop-in. Compatible data remains shared; config source differs explicitly: `config.lua`, not Pi's JSON configuration files. Repository and Rust crate names remain `pi-rs*` so implementation identity does not leak into product behavior. |
-| Configuration language | Lua only: `~/.pi/agent/config.lua` + `.pi/config.lua` | Restores Phi's one-language configuration model. All configurable declarations pass through the public Lua surface; interactive mutations persist as Lua. No `settings.json`, `keybindings.json`, `models.json`, or theme JSON compatibility promise. Final. |
-| Extension language | Lua (difference 3) | JS runtime considered for verbatim example reuse; rejected—embed weight, and translation-as-conformance is judged worth the cost. Final. |
-| Mechanism/policy line | Rust substrate = Lua runtime (registries, event bus, watchdog), provider transport (HTTP/SSE/OAuth/streaming), terminal mechanism (raw mode, differential cell renderer, input decoding, components) exposed as bindings, OS bindings, and persistence. Lua = configuration, tools, agent loop orchestration, slash commands, frontend/chrome, compaction policy, resource discovery/registration, themes, and session naming—everything with product behavior. Skill and prompt-template content retains Pi's formats. | Differences 2 and 5 made mechanical. A placement that puts behavior in Rust needs a row here. |
-| Async seam | Lua handlers run as coroutines and may await host futures (LLM streams, subprocesses, timers); dispatch-scoped work and runtime/session-scoped resources are distinct public lifetimes | Required for the loop, frontend, and long-lived user extensions to be Lua-authored without leaked tasks. Runtime/session resources have explicit cancellation and disposal, never implicit access to mutable frontend state. |
-| Workspace layout | `pi-rs-ai{,-types,-auth}` ← `packages/ai`; `pi-rs-agent` ← `packages/agent`; `pi-rs-tui` ← `packages/tui`; `pi-rs-app` ← `packages/coding-agent`; `pi-rs-host` ← `core/extensions`; `pi-rs-session` ← `core/session-manager` | Crate granularity may differ from package granularity; parity is judged by behavior (fixtures and frames), not module diffs. |
-| `pi-rs-ai` structure | Layered compression, not Pi-mirrored: `types → auth → transport (written once) → protocols (wire mapping only) → registry`. ~5 wire protocols as trait impls; everything else is a catalog data row, zero Rust. Model catalog is data (`data/models.json`), never hand code. OAuth = PKCE engine + device-code engine + flows-as-data; irreducibly weird flows stay code sharing the machinery. | Pi's per-provider file sprawl is the thing being compressed. Parity contract: catalog diff vs Pi's registry + recorded-fixture replay. |
-| Provider/auth scope | Catalog and provider surface match Pi's coding agent. Interactive `/login` OAuth includes every pinned subscription provider: Claude Pro/Max (Anthropic), GitHub Copilot, and ChatGPT Plus/Pro (Codex); API keys everywhere else. | One PKCE engine + one RFC 8628 device-code engine are shared; Codex and Copilot retain only their irreducibly distinct exchanges/model setup. |
-| Diff algorithm | jsdiff 8.0.4 ported 1:1 as a Rust mechanism binding (`pi.diff.lines/words/unified_patch`), pinned by an oracle generated from the vendored library | Pi consumes jsdiff as a third-party library; the algorithm is cross-cutting mechanism (written once), while what to diff and how to present it stays Lua (`edit-diff.lua`, diff rendering). |
-| Image processing | photon 0.3.4 (pi's `@silvia-odwyer/photon-node` WASM build) ported as a Rust mechanism binding on the jsdiff split: the slice pi uses — `resizeImageInProcess`, `convertToPng`, EXIF orientation — over the exact dependency stack the WASM was compiled with (`image` =0.24.9, `png` 0.17.14, `flate2` 1.0.34, `miniz_oxide` 0.8.0, jpeg-decoder 0.3.1 `platform_independent`), pinned byte-for-byte by a vendored-library oracle (`tests/image-parity`). What to read/note/attach stays Lua (`read.lua`, `messages.lua`, `interactive.lua`). | Same split as jsdiff/hljs: the library is third-party mechanism; presentation and wiring are Lua. Encoded image bytes reach provider requests, so "equivalent requests" requires encoder-level parity. |
-| Syntax highlighting | highlight.js 10.7.3 ported as a Rust mechanism binding (`pi.hljs.*`): the parse engine interprets grammar *data* compiled by the vendored library itself (`scripts/hljs-grammars` → `crates/pi-rs-host/data/hljs-grammars.json`), pinned by a vendored-library oracle. Pi's own layer—`renderHighlightedHtml`, theme mapping, `highlightCode` policy—stays Lua. Current milestone scope is the `getLanguageFromPath` targets + Pi-pinned fence tags, closed over sublanguages (41 languages); the final parity audit must widen this to Pi's full reachable behavior. The current fallback difference is unfinished work, not a release exception. | Same split as jsdiff: the library is third-party mechanism, grammars are catalog data (never hand code), presentation is Lua. |
-| Code standard | Typed errors per layer (`thiserror`); no `unwrap`/`expect`/`panic!` in library crates (clippy `deny`); cross-cutting mechanisms (retry, SSE decode, truncation, cancellation, rendering) written exactly once; behavior pinned by golden fixtures before refactors touch it. | "Clean" must be checkable in CI or it erodes. |
-| Exerciser rule | Every new public authoring capability lands with a file-backed user-extension exerciser unless it is covered by a translated pinned example or dogfood extension; any exception is recorded in the commit and inventory | The surface must be proven from outside the builtins layer, not only by code loaded from synthetic sources. |
-| First-party assembly | A declarative builtins manifest selects independently disableable Lua packages and generic application roles; Rust launches a role from the public registry and never names a product command such as `pi-rs-interactive` | Loading policy is bootstrap mechanism; the identity, composition, and behavior of the default product remain replaceable Lua policy. Source identity is provenance only and grants no semantic privilege. |
-| Extension capability target | Strict superset of pinned Pi v0.79.0 plus a checked capability manifest derived initially from `pi-flake` commit `94694da7321ce74aa7b82c13db7e60e28c0caba6` (15 extensions, hosted there by Pi 0.80.6) | The dogfood revision is an authoring-surface oracle, not a promotion of the product behavior spec. Required additive mechanisms may land now; newer product-visible behavior requires a deliberate Pi spec promotion. CI consumes checked manifests, Lua translations, and deterministic fixtures, never an ambient sibling checkout. |
-| Shipped defaults | Embedded Lua packages via `include_str!`, declared in the builtins manifest and loaded through the public package/registration API | Difference 5. The flake source filter must include every embedded asset type. Each package is independently ablatable and replaceable; concatenation for embedding may not hide a private composition API. |
-| Sandboxing / permissions | Pi's stance: none in core, full user permissions; trust gates extension loading only | Written down so plain-Lua `os`/`io` access is a choice, not an accident. |
-| Extension distribution | Pi-compatible npm (`npm:` registry archives), Git URL/ref, and local-path transport; package contents are Lua configuration/extensions/modules/data. The existing `package.json` `pi` manifest remains inert package metadata and points at Lua resources. Package policy may invoke npm/git through public process/filesystem mechanisms, but pi-rs never evaluates package JavaScript or exposes Node module resolution; pure-Lua dependencies are packaged or vendored. | This preserves the pinned `package-manager.ts` source grammar, project/user install roots, identity/dedupe, offline cache behavior, and install/remove/list/update/config outcomes while satisfying differences 2–4. npm is retained as an archive registry and lifecycle transport, not as the extension runtime. Git/local alone would make existing `npm:` package commands observably incompatible and require a broader exhaustive exception. |
-| Ablation | Code, docs, tests, and fixtures outside the product boundary or superseded by a port may be deleted freely | Git is the attic. Carrying dead weight costs more than resurrection. |
+Permanent evidence is intentionally small and separately owned:
 
-The exhaustive list above is the sole authority for product-visible differences.
+1. Rust mechanism invariants, cancellation, bounds, and cleanup;
+2. file-backed Lua capability, source neutrality, replacement, and ablation;
+3. compact canonical Pi-derived terminal grids/input journeys;
+4. exhaustive pinned provider protocol/model/auth differential fixtures;
+5. XDG precedence and read-only legacy fallback matrices;
+6. optional/replaced Lua session policy over arbitrary records;
+7. release performance budgets and leak checks.
 
-## Architecture
+Use Pi only for evidence categories 3 and 4, and only for the question named by
+the PLAN item. Generic mechanisms are tested against their own contracts;
+public capability is proven by ordinary file-backed consumers. Evidence that no
+longer protects one unique contract is deleted. Normal checks consume reviewed,
+checked fixtures and do not require an ambient sibling repository.
 
-```text
-crates/
-  pi-rs-ai-types   shared model/message/content/usage/stream-event types  (mechanism)
-  pi-rs-ai-auth    credential storage, PKCE + device-code OAuth engines   (mechanism)
-  pi-rs-ai         transport, wire protocols, streaming, model registry   (mechanism)
-  pi-rs-agent      agent-loop primitives and event/state vocabulary       (mechanism)
-  pi-rs-session    JSONL session persistence and reconstruction           (mechanism)
-  pi-rs-tui        cells, differential renderer, input decoding, editor,
-                 components — exposed as Lua bindings                   (mechanism)
-  pi-rs-host       Lua runtime, registries, event bus, watchdog, trust,
-                 OS bindings                                            (mechanism)
-  pi-rs-app        thin binary: cli args, generic role selection            (mechanism)
-    src/builtins/       declarative manifest + independently replaceable
-                        Lua packages: tools, agent, frontend, commands,
-                        render policy, themes, compaction, skills           (policy)
-examples/        file-backed public-surface exercisers — conformance suite
-```
-
-Dependencies point toward mechanisms: AI and agent crates must not depend on
-the application or terminal frontend. Shared transport, cancellation, retry,
-SSE decoding, and rendering mechanisms each have exactly one implementation.
-
-## Acceptance
-
-The standing product test is Pi and pi-rs in equivalent adjacent terminals,
-driven with the same inputs and deterministic provider/tool fixtures. Stable
-frames must match cell-for-cell, and the sequence of observable states and
-accepted inputs must match.
-
-Automated acceptance includes:
-
-- differential terminal-frame snapshots derived from Pi, including cursor
-  state (`scripts/ui-diff`);
-- replay of the same provider streams and tool outcomes through Pi and pi-rs;
-- key/input scripts covering editing, dialogs, commands, streaming, abort, and
-  resize;
-- compatibility fixtures for auth, model selection, settings, and sessions;
-- a generated first-party construction inventory mapping every policy unit to
-  its public declaration, owning builtin package, disable path, and replacement
-  test;
-- bare-core, per-package ablation, and file-backed replacement tests proving
-  that synthetic source identity grants no capability;
-- a checked external-extension capability manifest and executable Lua
-  translations of the maintained dogfood suite, including its long-lived
-  process/network and global-render-composition cases;
-- focused protocol fixtures plus `cargo test --workspace` and the Nix checks.
-
-A parity work item is complete only when its exposed product behavior is
-compared with Pi. An additive authoring-surface item is complete only when a
-file-backed consumer exercises its public contract and the unchanged default
-product still passes the Pi differential suites. A pi-rs-only unit test can
-protect implementation details but establishes neither parity nor public
-availability.
-
-## Delivery order
-
-The shortest non-throwaway path to an indistinguishable interactive coding
-agent:
-
-1. differential frame/input harness against the pinned Pi snapshot;
-2. exact transcript/editor layout on the final Lua frontend;
-3. one provider and auth path end-to-end through the exact agent loop;
-4. every interactive state reachable in normal coding-agent use;
-5. close coding-agent CLI, session, settings, extension, and provider gaps;
-6. replace hardwired first-party assembly with a declarative builtins layer and
-   close the construction, ablation, and replacement inventories;
-7. close the additive mechanism supersurface against the maintained dogfood
-   suite without changing default Pi behavior;
-8. final parity and authoring-surface audits;
-9. maintain parity and deliberately port selected upstream Pi changes.
-
-Product-specific work begins from a parity tag as a separate downstream fork.
-The extension-first and Lua-policy boundaries remain useful there, but its
-roadmap does not live in this repository.
-
-Provider breadth can proceed after one provider exercises the complete
-product, but visual and interaction parity are never deferred as polish.
+The release gate is `nix flake check` plus release `nix build`/`nix run` on a
+clean checkout. The implementation must also pass zero-pack, per-package,
+whole-root replacement, stale-handle, watchdog, cancellation, cleanup, XDG,
+focused experience, provider/auth, and measured-budget checks described above.
