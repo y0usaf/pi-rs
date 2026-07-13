@@ -227,6 +227,13 @@ generic mechanisms.
   handles fail; busy loops time out; actions apply only after dispatch; failed
   package loads publish nothing; root/declaration conflicts are deterministic.
 
+  **Landed slice:** `7ce1736` establishes the versioned bounded transaction,
+  source-neutral package scopes, stale-handle/watchdog/cancellation/disposal
+  behavior, deterministic roots/declarations/modules, and 13 focused invariant
+  tests. Remaining before closure: remove the inherited `api.rs` hotspot,
+  migrate retained compatibility declarations onto the canonical registry and
+  transaction path, and prove failed-load rollback for those side effects.
+
 - [ ] **1.2 — Make `pi` a thin generic launcher with zero builtins**
   (**serial**; depends on 1.1).
 
