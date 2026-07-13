@@ -1,0 +1,835 @@
+{
+  "schema": 1,
+  "oracle": "Pi v0.79.0 c5582102",
+  "reference_sha256": "42fc29bc931406b23f5ef6315c0a21ecab2e908e037e9721b15a5db0ed42035e",
+  "differences": [
+    {
+      "number": 1,
+      "status": "bounded",
+      "owner": "DESIGN difference 1",
+      "finding": "Rust/module-layout differences authorize no observable drift; all behavior rows remain parity, open, or out of scope rather than being waived as implementation detail.",
+      "evidence": [
+        {
+          "path": "DESIGN.md",
+          "contains": "this item authorizes no observable"
+        }
+      ]
+    },
+    {
+      "number": 2,
+      "status": "open",
+      "owner": "PLAN 9.6",
+      "finding": "Lua-only configuration authorizes source-format replacement, not the current temporary JSON path or different effective outcomes; the complete declaration/mutation pipeline remains open.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "Canonical `config.lua` declaration"
+        }
+      ]
+    },
+    {
+      "number": 3,
+      "status": "open",
+      "owner": "PLAN 9.8",
+      "finding": "Lua replaces TypeScript as the extension language only; every in-scope pinned example still requires an executable translated equivalent.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "Translation matrix + extension parity gate"
+        }
+      ]
+    },
+    {
+      "number": 4,
+      "status": "open",
+      "owner": "PLAN 9.7",
+      "finding": "Lua package contents do not authorize different package command/resource outcomes; transport and lifecycle compatibility remain undecided and open.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "package transport"
+        }
+      ]
+    },
+    {
+      "number": 5,
+      "status": "open",
+      "owner": "PLAN 9.10",
+      "finding": "Lua placement alone is insufficient: independently disableable declarations, ablation, and ordinary file-backed replacement remain mandatory.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "Close first-party decomposition"
+        }
+      ]
+    },
+    {
+      "number": 6,
+      "status": "open",
+      "owner": "PLAN 9.9",
+      "finding": "Additive Lua-native mechanisms may exceed Pi without changing default product behavior; the inventory-driven bounded supersurface and dogfood proof remain open.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "inventory-driven Lua mechanism supersurface"
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "ai.images",
+      "status": "out-of-scope",
+      "owner": "DESIGN product boundary",
+      "rationale": "Image-generation APIs are a separate Pi product surface; coding-agent image attachments remain covered by the coding image oracle.",
+      "evidence": [
+        {
+          "path": "DESIGN.md",
+          "contains": "Explicitly out of scope:"
+        }
+      ],
+      "refs": [
+        "packages/ai/src/image-models.generated.ts",
+        "packages/ai/src/image-models.ts",
+        "packages/ai/src/images-api-registry.ts",
+        "packages/ai/src/images.ts",
+        "packages/ai/src/providers/images/openrouter.ts",
+        "packages/ai/src/providers/images/register-builtins.ts"
+      ]
+    },
+    {
+      "id": "ai.cli",
+      "status": "out-of-scope",
+      "owner": "DESIGN product boundary",
+      "rationale": "The standalone pi-ai CLI is not required by the coding-agent product.",
+      "evidence": [
+        {
+          "path": "DESIGN.md",
+          "contains": "Pi products other than the coding agent"
+        }
+      ],
+      "refs": [
+        "packages/ai/src/cli.ts"
+      ]
+    },
+    {
+      "id": "ai.protocol-tail",
+      "status": "open",
+      "owner": "PLAN 8",
+      "rationale": "Bedrock, Mistral, the differential OpenAI Completions gate, and Vertex certificate ADC remain explicitly open prerequisites.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "Remaining:** close google-auth"
+        }
+      ],
+      "refs": [
+        "packages/ai/src/bedrock-provider.ts",
+        "packages/ai/src/index.ts",
+        "packages/ai/src/providers/amazon-bedrock.ts",
+        "packages/ai/src/providers/google-vertex.ts",
+        "packages/ai/src/providers/mistral.ts",
+        "packages/ai/src/providers/openai-completions.ts",
+        "packages/ai/src/providers/register-builtins.ts",
+        "packages/coding-agent/src/bun/register-bedrock.ts"
+      ]
+    },
+    {
+      "id": "ai.custom-provider",
+      "status": "open",
+      "owner": "PLAN 9.4",
+      "rationale": "Faux/custom-provider registration is part of the still-open immediate provider registration and custom-stream contract.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "immediate provider register/unregister"
+        }
+      ],
+      "refs": [
+        "packages/ai/src/api-registry.ts",
+        "packages/ai/src/providers/faux.ts"
+      ]
+    },
+    {
+      "id": "ai.protocols-proven",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "Pi-derived request/event/final-message oracles cover the landed Anthropic, Responses, Codex, Azure, and Google protocol pipelines.",
+      "evidence": [
+        {
+          "path": "tests/anthropic-parity/oracle.json"
+        },
+        {
+          "path": "tests/openai-responses-parity/oracle.json"
+        },
+        {
+          "path": "tests/openai-codex-websocket-parity/oracle.json"
+        },
+        {
+          "path": "tests/azure-openai-responses-parity/oracle.json"
+        },
+        {
+          "path": "tests/google-generative-ai-parity/oracle.json"
+        }
+      ],
+      "refs": [
+        "packages/ai/src/providers/anthropic.ts",
+        "packages/ai/src/providers/azure-openai-responses.ts",
+        "packages/ai/src/providers/cloudflare.ts",
+        "packages/ai/src/providers/github-copilot-headers.ts",
+        "packages/ai/src/providers/google-shared.ts",
+        "packages/ai/src/providers/google.ts",
+        "packages/ai/src/providers/openai-codex-responses.ts",
+        "packages/ai/src/providers/openai-prompt-cache.ts",
+        "packages/ai/src/providers/openai-responses-shared.ts",
+        "packages/ai/src/providers/openai-responses.ts",
+        "packages/ai/src/providers/simple-options.ts",
+        "packages/ai/src/providers/transform-messages.ts"
+      ]
+    },
+    {
+      "id": "ai.auth",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "Credential lookup and all three coding-agent subscription OAuth paths have deterministic public/auth fixtures.",
+      "evidence": [
+        {
+          "path": "crates/pi-rs-ai-auth/tests/subscription_providers.rs"
+        },
+        {
+          "path": "crates/pi-rs-host/tests/auth_bindings.rs"
+        }
+      ],
+      "refs": [
+        "packages/ai/src/oauth.ts",
+        "packages/ai/src/utils/oauth/anthropic.ts",
+        "packages/ai/src/utils/oauth/device-code.ts",
+        "packages/ai/src/utils/oauth/github-copilot.ts",
+        "packages/ai/src/utils/oauth/index.ts",
+        "packages/ai/src/utils/oauth/oauth-page.ts",
+        "packages/ai/src/utils/oauth/openai-codex.ts",
+        "packages/ai/src/utils/oauth/pkce.ts",
+        "packages/ai/src/utils/oauth/types.ts"
+      ]
+    },
+    {
+      "id": "ai.transport-types-catalog",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "Catalog, type fixtures, transport, retry, streaming, validation, and session-resource behavior have focused public tests and protocol oracles.",
+      "evidence": [
+        {
+          "path": "crates/pi-rs-ai/tests/registry.rs"
+        },
+        {
+          "path": "crates/pi-rs-ai/tests/http.rs"
+        },
+        {
+          "path": "crates/pi-rs-ai-types/tests/fixtures.rs"
+        }
+      ],
+      "refs": [
+        "packages/ai/src/env-api-keys.ts",
+        "packages/ai/src/models.generated.ts",
+        "packages/ai/src/models.ts",
+        "packages/ai/src/session-resources.ts",
+        "packages/ai/src/stream.ts",
+        "packages/ai/src/types.ts",
+        "packages/ai/src/utils/abort-signals.ts",
+        "packages/ai/src/utils/diagnostics.ts",
+        "packages/ai/src/utils/event-stream.ts",
+        "packages/ai/src/utils/hash.ts",
+        "packages/ai/src/utils/headers.ts",
+        "packages/ai/src/utils/json-parse.ts",
+        "packages/ai/src/utils/node-http-proxy.ts",
+        "packages/ai/src/utils/overflow.ts",
+        "packages/ai/src/utils/sanitize-unicode.ts",
+        "packages/ai/src/utils/typebox-helpers.ts",
+        "packages/ai/src/utils/validation.ts"
+      ]
+    },
+    {
+      "id": "agent.general-harness",
+      "status": "out-of-scope",
+      "owner": "DESIGN product boundary",
+      "rationale": "The standalone general-purpose harness/repository/proxy framework is not exercised by the shipped coding agent or bounded extension platform.",
+      "evidence": [
+        {
+          "path": "DESIGN.md",
+          "contains": "a general-purpose agent framework"
+        }
+      ],
+      "refs": [
+        "packages/agent/src/harness/agent-harness.ts",
+        "packages/agent/src/harness/compaction/branch-summarization.ts",
+        "packages/agent/src/harness/compaction/compaction.ts",
+        "packages/agent/src/harness/compaction/utils.ts",
+        "packages/agent/src/harness/env/nodejs.ts",
+        "packages/agent/src/harness/messages.ts",
+        "packages/agent/src/harness/prompt-templates.ts",
+        "packages/agent/src/harness/session/jsonl-repo.ts",
+        "packages/agent/src/harness/session/jsonl-storage.ts",
+        "packages/agent/src/harness/session/memory-repo.ts",
+        "packages/agent/src/harness/session/memory-storage.ts",
+        "packages/agent/src/harness/session/repo-utils.ts",
+        "packages/agent/src/harness/session/session.ts",
+        "packages/agent/src/harness/session/uuid.ts",
+        "packages/agent/src/harness/skills.ts",
+        "packages/agent/src/harness/system-prompt.ts",
+        "packages/agent/src/harness/types.ts",
+        "packages/agent/src/harness/utils/shell-output.ts",
+        "packages/agent/src/harness/utils/truncate.ts",
+        "packages/agent/src/node.ts",
+        "packages/agent/src/proxy.ts"
+      ]
+    },
+    {
+      "id": "agent.loop",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "The Pi-generated agent event-order oracle covers loop state, tool ordering, steering/follow-ups, cancellation, settlement, and failures.",
+      "evidence": [
+        {
+          "path": "tests/agent-parity/oracle.json"
+        },
+        {
+          "path": "crates/pi-rs-agent/tests/agent_parity.rs"
+        }
+      ],
+      "refs": [
+        "packages/agent/src/agent-loop.ts",
+        "packages/agent/src/agent.ts",
+        "packages/agent/src/index.ts",
+        "packages/agent/src/types.ts"
+      ]
+    },
+    {
+      "id": "tui.extension-composition",
+      "status": "open",
+      "owner": "PLAN 9.5",
+      "rationale": "Overlay/custom-component composition and public rendering middleware remain open even though the default terminal renderer is proven.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "custom component/overlay composition"
+        }
+      ],
+      "refs": [
+        "packages/tui/src/index.ts",
+        "packages/tui/src/tui.ts"
+      ]
+    },
+    {
+      "id": "tui.platform-modifiers",
+      "status": "open",
+      "owner": "PLAN 11",
+      "rationale": "Pi uses native macOS/Windows modifier polling to recover Shift+Tab and Ctrl+Space when terminals lose modifier state; pi-rs has no equivalent platform fixture/mechanism yet.",
+      "evidence": [
+        {
+          "path": "DESIGN.md",
+          "contains": "Interactive:"
+        }
+      ],
+      "refs": [
+        "packages/tui/src/native-modifiers.ts",
+        "packages/tui/src/terminal.ts"
+      ]
+    },
+    {
+      "id": "tui.mechanisms",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "Editor/autocomplete/input/component/image/cell behavior is pinned by focused TUI ports and the complete interactive frame suite.",
+      "evidence": [
+        {
+          "path": "crates/pi-rs-tui/src/ui_harness.rs"
+        },
+        {
+          "path": "crates/pi-rs-tui/src/editor.rs"
+        },
+        {
+          "path": "tests/ui-parity/editor-turn.pi.json"
+        }
+      ],
+      "refs": [
+        "packages/tui/src/autocomplete.ts",
+        "packages/tui/src/components/box.ts",
+        "packages/tui/src/components/cancellable-loader.ts",
+        "packages/tui/src/components/editor.ts",
+        "packages/tui/src/components/image.ts",
+        "packages/tui/src/components/input.ts",
+        "packages/tui/src/components/loader.ts",
+        "packages/tui/src/components/markdown.ts",
+        "packages/tui/src/components/select-list.ts",
+        "packages/tui/src/components/settings-list.ts",
+        "packages/tui/src/components/spacer.ts",
+        "packages/tui/src/components/text.ts",
+        "packages/tui/src/components/truncated-text.ts",
+        "packages/tui/src/editor-component.ts",
+        "packages/tui/src/fuzzy.ts",
+        "packages/tui/src/keybindings.ts",
+        "packages/tui/src/keys.ts",
+        "packages/tui/src/kill-ring.ts",
+        "packages/tui/src/stdin-buffer.ts",
+        "packages/tui/src/terminal-image.ts",
+        "packages/tui/src/undo-stack.ts",
+        "packages/tui/src/utils.ts",
+        "packages/tui/src/word-navigation.ts"
+      ]
+    },
+    {
+      "id": "coding.assembly",
+      "status": "open",
+      "owner": "PLAN 9.1b",
+      "rationale": "The Rust launcher still names product roles and composition instead of selecting generic public declarations from a builtins manifest.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "no Rust code names `pi-rs-interactive`"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/bun/cli.ts",
+        "packages/coding-agent/src/cli.ts",
+        "packages/coding-agent/src/main.ts"
+      ]
+    },
+    {
+      "id": "coding.noninteractive",
+      "status": "open",
+      "owner": "PLAN 10",
+      "rationale": "Print, JSON/RPC, complete argument/file-input behavior, and serialized stdout/stderr/exit contracts remain prerequisites.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "Match non-interactive coding-agent modes"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/cli/args.ts",
+        "packages/coding-agent/src/cli/file-processor.ts",
+        "packages/coding-agent/src/cli/initial-message.ts",
+        "packages/coding-agent/src/cli/startup-ui.ts",
+        "packages/coding-agent/src/core/output-guard.ts",
+        "packages/coding-agent/src/modes/index.ts",
+        "packages/coding-agent/src/modes/print-mode.ts",
+        "packages/coding-agent/src/modes/rpc/jsonl.ts",
+        "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+        "packages/coding-agent/src/modes/rpc/rpc-mode.ts",
+        "packages/coding-agent/src/modes/rpc/rpc-types.ts"
+      ]
+    },
+    {
+      "id": "coding.extension-context",
+      "status": "open",
+      "owner": "PLAN 9.2",
+      "rationale": "Complete contexts in every mode plus session actions, cancellation, rebinding, and command-only restrictions remain open.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "Remaining in 9.2"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/core/agent-session-runtime.ts",
+        "packages/coding-agent/src/core/agent-session-services.ts",
+        "packages/coding-agent/src/core/sdk.ts"
+      ]
+    },
+    {
+      "id": "coding.extension-events",
+      "status": "open",
+      "owner": "PLAN 9.3",
+      "rationale": "The complete event vocabulary, fold/middleware semantics, and lifecycle ordering are not yet emitted at every real product seam.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "Complete event pipeline and fold semantics"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/core/agent-session.ts",
+        "packages/coding-agent/src/core/diagnostics.ts",
+        "packages/coding-agent/src/core/event-bus.ts",
+        "packages/coding-agent/src/core/timings.ts"
+      ]
+    },
+    {
+      "id": "coding.extension-api",
+      "status": "open",
+      "owner": "PLAN 9.4",
+      "rationale": "Dynamic tools/messages/flags/shortcuts/providers and their live registry effects remain incomplete.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "Complete non-UI ExtensionAPI actions"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/core/experimental.ts",
+        "packages/coding-agent/src/core/extensions/index.ts",
+        "packages/coding-agent/src/core/extensions/loader.ts",
+        "packages/coding-agent/src/core/extensions/runner.ts",
+        "packages/coding-agent/src/core/extensions/types.ts",
+        "packages/coding-agent/src/core/extensions/wrapper.ts",
+        "packages/coding-agent/src/core/provider-attribution.ts",
+        "packages/coding-agent/src/core/source-info.ts"
+      ]
+    },
+    {
+      "id": "coding.extension-ui",
+      "status": "open",
+      "owner": "PLAN 9.5",
+      "rationale": "Public extension dialogs, slots, custom row rendering, editor/overlay composition, cleanup, and headless outcomes remain incomplete.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "Complete the composable extension UI"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/modes/interactive/components/config-selector.ts",
+        "packages/coding-agent/src/modes/interactive/components/custom-editor.ts",
+        "packages/coding-agent/src/modes/interactive/components/custom-message.ts",
+        "packages/coding-agent/src/modes/interactive/components/extension-editor.ts",
+        "packages/coding-agent/src/modes/interactive/components/extension-input.ts",
+        "packages/coding-agent/src/modes/interactive/components/extension-selector.ts",
+        "packages/coding-agent/src/modes/interactive/components/index.ts",
+        "packages/coding-agent/src/modes/interactive/components/show-images-selector.ts",
+        "packages/coding-agent/src/modes/interactive/components/skill-invocation-message.ts",
+        "packages/coding-agent/src/modes/interactive/components/theme-selector.ts",
+        "packages/coding-agent/src/modes/interactive/components/thinking-selector.ts",
+        "packages/coding-agent/src/modes/interactive/interactive-mode.ts"
+      ]
+    },
+    {
+      "id": "coding.lua-config",
+      "status": "open",
+      "owner": "PLAN 9.6",
+      "rationale": "The temporary JSON settings/keybindings/theme path must be replaced by atomic global/project config.lua declarations and mutations.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "Canonical `config.lua` declaration"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/core/keybindings.ts",
+        "packages/coding-agent/src/core/settings-manager.ts",
+        "packages/coding-agent/src/migrations.ts",
+        "packages/coding-agent/src/modes/interactive/theme/dark.json",
+        "packages/coding-agent/src/modes/interactive/theme/light.json",
+        "packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+        "packages/coding-agent/src/modes/interactive/theme/theme.ts"
+      ]
+    },
+    {
+      "id": "coding.resources-packages",
+      "status": "open",
+      "owner": "PLAN 9.7",
+      "rationale": "Resource discovery, Lua modules, prompt/skill/theme provenance, package transport, and pi config remain open.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "Resources, public Lua modules, and package transport"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/cli/config-selector.ts",
+        "packages/coding-agent/src/core/package-manager.ts",
+        "packages/coding-agent/src/core/prompt-templates.ts",
+        "packages/coding-agent/src/core/resource-loader.ts",
+        "packages/coding-agent/src/core/skills.ts",
+        "packages/coding-agent/src/package-manager-cli.ts",
+        "packages/coding-agent/src/utils/frontmatter.ts",
+        "packages/coding-agent/src/utils/fs-watch.ts",
+        "packages/coding-agent/src/utils/tools-manager.ts"
+      ]
+    },
+    {
+      "id": "coding.public-assembly",
+      "status": "open",
+      "owner": "PLAN 9.10",
+      "rationale": "The coding-agent barrel still exposes policy implemented through monolithic/private composition; decomposition, ablation, and replacement must close before its public capability map can be accepted.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "Close first-party decomposition"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/core/index.ts",
+        "packages/coding-agent/src/index.ts"
+      ]
+    },
+    {
+      "id": "coding.highlight-catalog",
+      "status": "open",
+      "owner": "PLAN 11",
+      "rationale": "The checked highlight mechanism has 41 of Pi highlight.js’s 191 registered grammars; unknown reachable fence tags still fall back differently.",
+      "evidence": [
+        {
+          "path": "DESIGN.md",
+          "contains": "final parity audit must widen this to Pi's full reachable behavior"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/utils/syntax-highlight.ts"
+      ]
+    },
+    {
+      "id": "coding.platform-clipboard",
+      "status": "open",
+      "owner": "PLAN 11",
+      "rationale": "Pi can use its optional native clipboard addon on macOS/Windows/X11; pi-rs currently only matches Pi’s addon-unavailable fallback.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "native clipboard addon"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/utils/clipboard-native.ts"
+      ]
+    },
+    {
+      "id": "coding.footer-git",
+      "status": "open",
+      "owner": "PLAN 11",
+      "rationale": "The default footer lacks Pi’s live git-branch discovery/watcher and extension-status data provider; frame fixtures currently inject deterministic footer data.",
+      "evidence": [
+        {
+          "path": "crates/pi-rs-app/src/builtins/interactive/PARITY.md",
+          "contains": "git watcher"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/core/footer-data-provider.ts",
+        "packages/coding-agent/src/utils/git.ts"
+      ]
+    },
+    {
+      "id": "coding.platform-update",
+      "status": "open",
+      "owner": "PLAN 11",
+      "rationale": "Windows self-update and sandbox/Bun environment restoration have no equivalent platform differential evidence on the current base.",
+      "evidence": [
+        {
+          "path": "PLAN.md",
+          "contains": "No unlisted product-visible difference"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/bun/restore-sandbox-env.ts",
+        "packages/coding-agent/src/utils/windows-self-update.ts"
+      ]
+    },
+    {
+      "id": "coding.tools",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "The 65-case Pi tool oracle compares arguments, outputs/details/errors, effects, truncation, cancellation, and images byte-for-byte.",
+      "evidence": [
+        {
+          "path": "tests/tool-parity/oracle.json"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/tool_parity.rs"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/core/tools/bash.ts",
+        "packages/coding-agent/src/core/tools/edit-diff.ts",
+        "packages/coding-agent/src/core/tools/edit.ts",
+        "packages/coding-agent/src/core/tools/file-mutation-queue.ts",
+        "packages/coding-agent/src/core/tools/find.ts",
+        "packages/coding-agent/src/core/tools/grep.ts",
+        "packages/coding-agent/src/core/tools/index.ts",
+        "packages/coding-agent/src/core/tools/ls.ts",
+        "packages/coding-agent/src/core/tools/output-accumulator.ts",
+        "packages/coding-agent/src/core/tools/path-utils.ts",
+        "packages/coding-agent/src/core/tools/read.ts",
+        "packages/coding-agent/src/core/tools/render-utils.ts",
+        "packages/coding-agent/src/core/tools/tool-definition-wrapper.ts",
+        "packages/coding-agent/src/core/tools/truncate.ts",
+        "packages/coding-agent/src/core/tools/write.ts"
+      ]
+    },
+    {
+      "id": "coding.export",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "HTML/JSONL transfer uses a Pi-generated exact embedded-payload/full-document oracle plus product command fixtures.",
+      "evidence": [
+        {
+          "path": "tests/export-html-parity/oracle.json"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/export_html_parity.rs"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/core/export-html/ansi-to-html.ts",
+        "packages/coding-agent/src/core/export-html/index.ts",
+        "packages/coding-agent/src/core/export-html/template.css",
+        "packages/coding-agent/src/core/export-html/template.html",
+        "packages/coding-agent/src/core/export-html/template.js",
+        "packages/coding-agent/src/core/export-html/tool-renderer.ts",
+        "packages/coding-agent/src/core/export-html/vendor/highlight.min.js",
+        "packages/coding-agent/src/core/export-html/vendor/marked.min.js"
+      ]
+    },
+    {
+      "id": "coding.sessions-compaction",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "Session persistence/resume/tree/branch/compaction and next-request reconstruction have Pi-derived oracles and product replays.",
+      "evidence": [
+        {
+          "path": "tests/session-parity/oracle.json"
+        },
+        {
+          "path": "tests/compaction-parity/oracle.json"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/interactive_compaction.rs"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/core/bash-executor.ts",
+        "packages/coding-agent/src/core/compaction/branch-summarization.ts",
+        "packages/coding-agent/src/core/compaction/compaction.ts",
+        "packages/coding-agent/src/core/compaction/index.ts",
+        "packages/coding-agent/src/core/compaction/utils.ts",
+        "packages/coding-agent/src/core/messages.ts",
+        "packages/coding-agent/src/core/session-cwd.ts",
+        "packages/coding-agent/src/core/session-manager.ts",
+        "packages/coding-agent/src/core/system-prompt.ts"
+      ]
+    },
+    {
+      "id": "coding.auth-model-trust",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "Auth/model/trust startup and interactive outcomes are covered by protocol/public tests and Pi cell fixtures.",
+      "evidence": [
+        {
+          "path": "crates/pi-rs-app/tests/interactive_login.rs"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/interactive_model.rs"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/interactive_trust.rs"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/cli/list-models.ts",
+        "packages/coding-agent/src/cli/project-trust.ts",
+        "packages/coding-agent/src/cli/session-picker.ts",
+        "packages/coding-agent/src/config.ts",
+        "packages/coding-agent/src/core/auth-guidance.ts",
+        "packages/coding-agent/src/core/auth-storage.ts",
+        "packages/coding-agent/src/core/defaults.ts",
+        "packages/coding-agent/src/core/http-dispatcher.ts",
+        "packages/coding-agent/src/core/model-registry.ts",
+        "packages/coding-agent/src/core/model-resolver.ts",
+        "packages/coding-agent/src/core/project-trust.ts",
+        "packages/coding-agent/src/core/provider-display-names.ts",
+        "packages/coding-agent/src/core/resolve-config-value.ts",
+        "packages/coding-agent/src/core/trust-manager.ts"
+      ]
+    },
+    {
+      "id": "coding.interactive-default",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "All currently reachable default interactive states are driven through Pi and pi-rs at cell/cursor/input checkpoints by the 26-scenario UI suite.",
+      "evidence": [
+        {
+          "path": "scripts/ui-diff"
+        },
+        {
+          "path": "tests/ui-parity/basic-turn.pi.json"
+        },
+        {
+          "path": "tests/ui-parity/session-turn.pi.json"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/modes/interactive/assets/clankolas.png",
+        "packages/coding-agent/src/modes/interactive/components/armin.ts",
+        "packages/coding-agent/src/modes/interactive/components/assistant-message.ts",
+        "packages/coding-agent/src/modes/interactive/components/bash-execution.ts",
+        "packages/coding-agent/src/modes/interactive/components/bordered-loader.ts",
+        "packages/coding-agent/src/modes/interactive/components/branch-summary-message.ts",
+        "packages/coding-agent/src/modes/interactive/components/compaction-summary-message.ts",
+        "packages/coding-agent/src/modes/interactive/components/countdown-timer.ts",
+        "packages/coding-agent/src/modes/interactive/components/daxnuts.ts",
+        "packages/coding-agent/src/modes/interactive/components/diff.ts",
+        "packages/coding-agent/src/modes/interactive/components/dynamic-border.ts",
+        "packages/coding-agent/src/modes/interactive/components/earendil-announcement.ts",
+        "packages/coding-agent/src/modes/interactive/components/footer.ts",
+        "packages/coding-agent/src/modes/interactive/components/keybinding-hints.ts",
+        "packages/coding-agent/src/modes/interactive/components/login-dialog.ts",
+        "packages/coding-agent/src/modes/interactive/components/model-selector.ts",
+        "packages/coding-agent/src/modes/interactive/components/oauth-selector.ts",
+        "packages/coding-agent/src/modes/interactive/components/scoped-models-selector.ts",
+        "packages/coding-agent/src/modes/interactive/components/session-selector-search.ts",
+        "packages/coding-agent/src/modes/interactive/components/session-selector.ts",
+        "packages/coding-agent/src/modes/interactive/components/settings-selector.ts",
+        "packages/coding-agent/src/modes/interactive/components/tool-execution.ts",
+        "packages/coding-agent/src/modes/interactive/components/tree-selector.ts",
+        "packages/coding-agent/src/modes/interactive/components/trust-selector.ts",
+        "packages/coding-agent/src/modes/interactive/components/user-message-selector.ts",
+        "packages/coding-agent/src/modes/interactive/components/user-message.ts",
+        "packages/coding-agent/src/modes/interactive/components/visual-truncate.ts"
+      ]
+    },
+    {
+      "id": "coding.platform-utils",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "Process, clipboard fallback, image, shell, path, JSON, ANSI, telemetry/changelog, and startup utilities are exercised by tool/image/product fixtures.",
+      "evidence": [
+        {
+          "path": "crates/pi-rs-host/tests/clipboard_bindings.rs"
+        },
+        {
+          "path": "tests/image-parity/oracle.json"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/startup_network.rs"
+        }
+      ],
+      "refs": [
+
+        "packages/coding-agent/src/core/exec.ts",
+        "packages/coding-agent/src/core/slash-commands.ts",
+        "packages/coding-agent/src/core/telemetry.ts",
+        "packages/coding-agent/src/utils/ansi.ts",
+        "packages/coding-agent/src/utils/changelog.ts",
+        "packages/coding-agent/src/utils/child-process.ts",
+        "packages/coding-agent/src/utils/clipboard-image.ts",
+        "packages/coding-agent/src/utils/clipboard.ts",
+        "packages/coding-agent/src/utils/deprecation.ts",
+        "packages/coding-agent/src/utils/exif-orientation.ts",
+        "packages/coding-agent/src/utils/highlight-js-lib-index.d.ts",
+        "packages/coding-agent/src/utils/html.ts",
+        "packages/coding-agent/src/utils/image-convert.ts",
+        "packages/coding-agent/src/utils/image-resize-core.ts",
+        "packages/coding-agent/src/utils/image-resize-worker.ts",
+        "packages/coding-agent/src/utils/image-resize.ts",
+        "packages/coding-agent/src/utils/json.ts",
+        "packages/coding-agent/src/utils/mime.ts",
+        "packages/coding-agent/src/utils/open-browser.ts",
+        "packages/coding-agent/src/utils/paths.ts",
+        "packages/coding-agent/src/utils/photon.ts",
+        "packages/coding-agent/src/utils/pi-user-agent.ts",
+        "packages/coding-agent/src/utils/shell.ts",
+        "packages/coding-agent/src/utils/sleep.ts",
+        "packages/coding-agent/src/utils/version-check.ts"
+      ]
+    }
+  ]
+}
