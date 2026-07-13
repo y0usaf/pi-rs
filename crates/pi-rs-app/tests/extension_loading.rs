@@ -200,6 +200,66 @@ fn queued_extension_ui_actions_match_pi_examples() {
 }
 
 #[test]
+fn extension_context_snapshots_and_shutdown_match_pi() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("project");
+    let agent_dir = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    // SAFETY: this integration-test process owns its environment.
+    unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
+    let host = Host::new(HostConfig {
+        cwd: Some(cwd.to_string_lossy().into_owned()),
+        project_trusted: true,
+        ..HostConfig::default()
+    })
+    .unwrap();
+    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    host.load(
+        "examples/extensions/shutdown-command.lua",
+        include_str!("../../../examples/extensions/shutdown-command.lua"),
+    )
+    .unwrap();
+
+    let model = serde_json::json!({
+        "id":"faux-1", "name":"Faux", "api":"anthropic-messages",
+        "provider":"faux", "baseUrl":"http://127.0.0.1:1", "reasoning":false,
+        "input":["text"], "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},
+        "contextWindow":128000, "maxTokens":1024
+    });
+    let request = serde_json::json!({
+        "model":model, "cwd":cwd, "agentDir":agent_dir,
+        "readmePath":"/pi-rs-pkg/README.md", "docsPath":"/pi-rs-pkg/docs",
+        "examplesPath":"/pi-rs-pkg/examples"
+    });
+    let actual = host
+        .call_command("interactive-extension-context-parity", &request.to_string())
+        .unwrap()
+        .unwrap();
+    let expected: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/extension-context-parity/oracle.json"
+    ))
+    .unwrap();
+    assert_eq!(actual["snapshot"], expected["snapshot"]);
+    assert_eq!(actual["stale"], expected["stale"]);
+
+    let mut tool_request = request;
+    tool_request["tool"] = "finish_and_exit".into();
+    let tool = host
+        .call_command(
+            "interactive-extension-context-parity",
+            &tool_request.to_string(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(tool["snapshot"]["shutdowns"], 1);
+    assert_eq!(
+        tool["toolResult"]["content"][0]["text"],
+        "Shutdown requested. Exiting after this response."
+    );
+}
+
+#[test]
 fn no_extensions_and_untrusted_project_keep_only_explicit_cli_sources() {
     let root = tempfile::tempdir().unwrap();
     let cwd = root.path().join("project");

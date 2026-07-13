@@ -218,7 +218,7 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 | `sandbox/index.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `send-user-message.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `session-name.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `shutdown-command.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
+| `shutdown-command.ts` | planned 9.2 | Base context/action oracle + executable shutdown-command.lua translation |
 | `snake.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `space-invaders.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `ssh.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |

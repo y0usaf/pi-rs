@@ -4234,6 +4234,158 @@ function EXTENSION_UI_POLICY.pump(state)
   return changed
 end
 
+
+-- ExtensionContext snapshots + lifecycle action queue. Handlers receive copied
+-- values/read-only facades; all product mutation is applied by the process loop.
+EXTENSION_CONTEXT_POLICY = {}
+
+EXTENSION_CONTEXT_POLICY.stale_message = "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload()."
+
+function EXTENSION_CONTEXT_POLICY.readonly_facade(methods)
+  return setmetatable({}, {
+    __index = methods,
+    __newindex = function() error("extension context is read-only", 2) end,
+    __metatable = false,
+  })
+end
+
+function EXTENSION_CONTEXT_POLICY.copy_snapshot(value)
+  if value == nil then return nil end
+  return pi.json.decode(pi.json.encode(value))
+end
+
+function EXTENSION_CONTEXT_POLICY.enqueue(state, generation, action)
+  if generation ~= state.extension_context_generation then
+    error(EXTENSION_CONTEXT_POLICY.stale_message, 2)
+  end
+  state.extension_actions[#state.extension_actions + 1] = action
+  state.async_render = true
+end
+
+function EXTENSION_CONTEXT_POLICY.snapshot(state, options)
+  options = options or {}
+  local generation = state.extension_context_generation
+  local function assert_active()
+    if generation ~= state.extension_context_generation then
+      error(EXTENSION_CONTEXT_POLICY.stale_message, 2)
+    end
+  end
+  local manager = state.session_manager
+  local registry = state.registry
+  local agent_state = state.agent and state.agent:get_state() or {}
+  local idle = not (agent_state.isStreaming == true)
+  local pending = #(state.steering_texts or {}) + #(state.follow_up_texts or {})
+    + #(state.compaction_queued or {}) > 0
+  local usage
+  if state.model and (state.model.contextWindow or 0) > 0 then
+    local estimate = compaction_lib.estimate_context_tokens(agent_state.messages or {})
+    usage = {
+      tokens = estimate.tokens,
+      contextWindow = state.model.contextWindow,
+      percent = estimate.tokens / state.model.contextWindow * 100,
+    }
+  end
+  local session_snapshot = EXTENSION_CONTEXT_POLICY.readonly_facade({
+    get_session_file = function() assert_active(); return manager:get_session_file() end,
+    get_session_id = function() assert_active(); return manager:get_session_id() end,
+    get_session_name = function() assert_active(); return manager:get_session_name() end,
+    get_cwd = function() assert_active(); return manager:get_cwd() end,
+    get_leaf_id = function() assert_active(); return manager:get_leaf_id() end,
+    get_header = function()
+      assert_active(); return EXTENSION_CONTEXT_POLICY.copy_snapshot(manager:get_header())
+    end,
+    get_entries = function()
+      assert_active(); return EXTENSION_CONTEXT_POLICY.copy_snapshot(manager:get_entries())
+    end,
+    get_branch = function()
+      assert_active(); return EXTENSION_CONTEXT_POLICY.copy_snapshot(manager:get_branch())
+    end,
+    get_entry = function(id)
+      assert_active(); return EXTENSION_CONTEXT_POLICY.copy_snapshot(manager:get_entry(id))
+    end,
+    build_session_context = function()
+      assert_active(); return EXTENSION_CONTEXT_POLICY.copy_snapshot(manager:build_session_context())
+    end,
+    is_persisted = function() assert_active(); return manager:is_persisted() end,
+  })
+  local registry_snapshot = EXTENSION_CONTEXT_POLICY.readonly_facade({
+    get_available = function()
+      assert_active(); return EXTENSION_CONTEXT_POLICY.copy_snapshot(registry.get_available())
+    end,
+    find = function(provider, id)
+      assert_active(); return EXTENSION_CONTEXT_POLICY.copy_snapshot(registry.find(provider, id))
+    end,
+    has_configured_auth = function(model)
+      assert_active(); return registry.has_configured_auth(model)
+    end,
+    is_using_oauth = function(model) assert_active(); return registry.is_using_oauth(model) end,
+  })
+  local context = {
+    ui = state.extension_ui,
+    mode = "tui",
+    hasUI = true,
+    cwd = state.cwd,
+    sessionManager = session_snapshot,
+    modelRegistry = registry_snapshot,
+    model = EXTENSION_CONTEXT_POLICY.copy_snapshot(state.model),
+    signal = options.signal,
+    isIdle = function() assert_active(); return idle end,
+    isProjectTrusted = function() assert_active(); return state.project_trusted == true end,
+    hasPendingMessages = function() assert_active(); return pending end,
+    getContextUsage = function()
+      assert_active(); return EXTENSION_CONTEXT_POLICY.copy_snapshot(usage)
+    end,
+    getSystemPrompt = function() assert_active(); return agent_state.systemPrompt or "" end,
+    abort = function()
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation, { kind = "abort" })
+    end,
+    shutdown = function()
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation, { kind = "shutdown" })
+    end,
+    compact = function(compact_options)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "compact", options = compact_options or {} })
+    end,
+  }
+  if options.command then
+    context.getSystemPromptOptions = function()
+      assert_active()
+      return EXTENSION_CONTEXT_POLICY.copy_snapshot(
+        state.system_prompt_options or { cwd = state.cwd })
+    end
+    context.waitForIdle = function()
+      local action = { kind = "wait_idle", settled = false }
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation, action)
+      while not action.settled do pi.sleep(10) end
+    end
+  end
+  return context
+end
+
+function EXTENSION_CONTEXT_POLICY.pump(state)
+  local remaining = {}
+  for _, action in ipairs(state.extension_actions) do
+    if action.kind == "wait_idle" and state.session.is_streaming() then
+      remaining[#remaining + 1] = action
+    elseif action.kind == "wait_idle" then
+      action.settled = true
+    elseif action.kind == "abort" then
+      restore_queued_messages_to_editor(state, { abort = true })
+    elseif action.kind == "shutdown" then
+      state.shutdown_requested = true
+    elseif action.kind == "compact" then
+      local opts = action.options or {}
+      state.turn = pi.spawn(function()
+        local ok, result = pcall(state.session.compact, opts.customInstructions)
+        if ok and opts.onComplete then opts.onComplete(result) end
+        if not ok and opts.onError then opts.onError({ message = tostring(result) }) end
+      end)
+    end
+  end
+  state.extension_actions = remaining
+  if state.shutdown_requested and not state.session.is_streaming() then shutdown(state) end
+end
+
 local function handle_dequeue(state)
   local restored = restore_queued_messages_to_editor(state)
   if restored == 0 then
@@ -4559,13 +4711,7 @@ local function shell_submit_actions(state)
     add_to_history = function(text) state.editor.editor:add_to_history(text) end,
     bash_command = function(command, excluded) handle_bash_command(state, command, excluded) end,
     extension_command = function(text)
-      local context = {
-        cwd = state.cwd,
-        mode = "interactive",
-        hasUI = true,
-        isProjectTrusted = function() return state.project_trusted == true end,
-        ui = state.extension_ui,
-      }
+      local context = EXTENSION_CONTEXT_POLICY.snapshot(state, { command = true })
       return EXTENSION_POLICY.execute_command(text, context, {
         background = true,
         on_error = function(err)
@@ -6096,6 +6242,7 @@ end
 
 function bind_session_runtime(state, session_manager)
   local request = state.request
+  state.extension_context_generation = (state.extension_context_generation or 0) + 1
   state.session_manager = session_manager
   state.cwd = session_manager:get_cwd()
   local startup = session_startup_from_request(session_manager, request)
@@ -6108,18 +6255,20 @@ function bind_session_runtime(state, session_manager)
   -- registry/prompt path as built-ins.
   local active_tools, active_tool_names = EXTENSION_POLICY.active_tools({ "read", "bash", "edit", "write" })
   local stream_fn = retry_parity_stream(request)
+  state.system_prompt_options = {
+    cwd = state.cwd, agentDir = request.agentDir,
+    toolNames = active_tool_names,
+    readmePath = request.readmePath, docsPath = request.docsPath,
+    examplesPath = request.examplesPath,
+  }
+  local system_prompt = build_session_system_prompt(state.system_prompt_options)
   local agent = pi.agent.new({
     initialState = {
       model = state.model, tools = active_tools,
       -- sdk.ts: `agent.state.messages = existingSession.messages`.
       messages = startup.context.messages,
       thinkingLevel = state.thinking_level,
-      systemPrompt = build_session_system_prompt({
-        cwd = state.cwd, agentDir = request.agentDir,
-        toolNames = active_tool_names,
-        readmePath = request.readmePath, docsPath = request.docsPath,
-        examplesPath = request.examplesPath,
-      }),
+      systemPrompt = system_prompt,
     },
     steeringMode = pi.settings.steering_mode(),
     followUpMode = pi.settings.follow_up_mode(),
@@ -6134,14 +6283,12 @@ function bind_session_runtime(state, session_manager)
     -- Spec: each request resolves auth for the current model's provider
     -- (modelRegistry.getApiKeyForProvider) so /model can cross providers.
     getApiKey = function(provider) return pi.auth.get_api_key(provider) end,
-    beforeToolCall = function(event)
-      return EXTENSION_POLICY.emit_tool_call(event, {
-        cwd = state.cwd,
-        mode = "interactive",
-        hasUI = true,
-        isProjectTrusted = function() return state.project_trusted == true end,
-        ui = state.extension_ui,
-      })
+    createToolContext = function(signal)
+      return EXTENSION_CONTEXT_POLICY.snapshot(state, { signal = signal })
+    end,
+    beforeToolCall = function(event, signal)
+      return EXTENSION_POLICY.emit_tool_call(event,
+        EXTENSION_CONTEXT_POLICY.snapshot(state, { signal = signal }))
     end,
   })
   state.agent = agent
@@ -8741,6 +8888,7 @@ local function create_interactive_state(request)
     inherited_process_callbacks = {}, pending_inherited_process = nil,
     pending_suspend = false,
     extension_ui_actions = {}, extension_ui_active = nil,
+    extension_actions = {}, extension_context_generation = 0, shutdown_requested = false,
   }
   state.extension_ui = EXTENSION_UI_POLICY.context(state)
   -- Spec: main.ts mirrors --api-key into the auth storage as a runtime
@@ -8856,6 +9004,7 @@ local function run_interactive_state(state)
       if state.exit then return { exit = true } end
       local now = pi.monotonic_ms()
       local render = false
+      EXTENSION_CONTEXT_POLICY.pump(state)
       if EXTENSION_UI_POLICY.pump(state) then render = true end
       if state.async_render then
         state.async_render = false
@@ -9517,6 +9666,74 @@ pi.register_command("interactive-scoped-models-parity-sequence", {
   end,
 })
 
+
+-- PLAN 9.2 base-context differential seam. This builds the same interactive
+-- runtime snapshots and action pump used by loaded commands/tools.
+pi.register_command("interactive-extension-context-parity", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local model = request.model
+    local state = {
+      request = request, model = model, cwd = request.cwd or pi.cwd(),
+      project_trusted = true, steering_texts = {}, follow_up_texts = {},
+      compaction_queued = {}, extension_actions = {},
+      extension_context_generation = 0, shutdown_requested = false,
+      async_render = false, exit = false, usage = {}, transcript = {},
+      registry = {
+        get_available = function() return { model } end,
+        find = function(provider, id)
+          if provider == model.provider and id == model.id then return model end
+        end,
+        has_configured_auth = function() return true end,
+        is_using_oauth = function() return false end,
+        refresh = function() end, get_error = function() return nil end,
+      },
+      wall_now_ms = pi.now_ms,
+    }
+    state.extension_ui = EXTENSION_UI_POLICY.context(state)
+    local manager = pi.session.in_memory({ cwd = state.cwd })
+    bind_session_runtime(state, manager)
+    local context = EXTENSION_CONTEXT_POLICY.snapshot(state, { command = true })
+    local found = context.modelRegistry.find(model.provider, model.id)
+    local tool_result
+    if request.tool then
+      for _, tool in ipairs(pi.registered_tools()) do
+        if tool.name == request.tool then
+          tool_result = tool.execute("context-oracle", request.arguments or {}, nil, nil,
+            EXTENSION_CONTEXT_POLICY.snapshot(state))
+        end
+      end
+    else
+      context.shutdown()
+    end
+    EXTENSION_CONTEXT_POLICY.pump(state)
+    local usage = context.getContextUsage()
+    local snapshot = {
+      mode = context.mode, hasUI = context.hasUI, cwd = "{CWD}",
+      trusted = context.isProjectTrusted(), idle = context.isIdle(),
+      pending = context.hasPendingMessages(), hasSignal = context.signal ~= nil,
+      model = { provider = context.model.provider, id = context.model.id },
+      session = {
+        persisted = context.sessionManager.is_persisted(), cwd = "{CWD}",
+        entries = #context.sessionManager.get_entries(),
+        branch = #context.sessionManager.get_branch(),
+      },
+      registryFound = found and { provider = found.provider, id = found.id } or nil,
+      systemPromptHasCwd = context.getSystemPrompt():find(
+        "Current working directory: " .. state.cwd, 1, true) ~= nil,
+      systemPromptOptionsCwd = context.getSystemPromptOptions().cwd == state.cwd,
+      usage = usage, waitForIdle = context.waitForIdle ~= nil,
+      shutdowns = state.exit and 1 or 0,
+    }
+    state.extension_context_generation = state.extension_context_generation + 1
+    local ok, stale = pcall(context.isIdle)
+    return {
+      snapshot = snapshot,
+      stale = ok and "" or tostring(stale):match(":%d+: (.*)$") or tostring(stale),
+      toolResult = tool_result,
+    }
+  end,
+})
 
 -- First queued extension-UI slice: real loaded commands/tool hooks drive the
 -- shipped select→confirm→notify policy through the editor slot.
