@@ -4011,9 +4011,11 @@ local function create_base_autocomplete_provider(state)
       commands[#commands + 1] = {
         name = command.invocation_name,
         description = command.description,
+        get_argument_completions = command.get_argument_completions,
       }
     end
   end
+
   return pi.tui.autocomplete_provider({
     commands = commands,
     base_path = state.cwd,

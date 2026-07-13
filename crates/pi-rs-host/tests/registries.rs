@@ -307,6 +307,53 @@ fn command_collisions_get_numbered_invocation_names() {
 }
 
 #[test]
+fn command_catalog_and_argument_completion_share_resolved_registry() {
+    let host = host();
+    host.load(
+        "test://commands",
+        r#"
+            local pi = ...
+            pi.register_command("commands", {
+                description = "List commands",
+                get_argument_completions = function(prefix)
+                    if prefix == "ex" then return {{ value = "extension", label = "extension" }} end
+                end,
+                handler = function() return pi.get_commands() end,
+            })
+            pi.register_command("completion-probe", {
+                handler = function()
+                    for _, command in ipairs(pi.registered_extension_commands()) do
+                        if command.name == "commands" then
+                            return command.get_argument_completions("ex")
+                        end
+                    end
+                end,
+            })
+        "#,
+    )
+    .expect("load");
+
+    let catalog = host
+        .call_command("commands", "")
+        .expect("catalog runs")
+        .expect("catalog result");
+    assert_eq!(catalog[0]["name"], "commands");
+    assert_eq!(catalog[0]["description"], "List commands");
+    assert_eq!(catalog[0]["source"], "extension");
+    assert_eq!(catalog[0]["sourceInfo"]["path"], "test://commands");
+    assert_eq!(catalog[1]["name"], "completion-probe");
+
+    let completions = host
+        .call_command("completion-probe", "")
+        .expect("completion probe runs")
+        .expect("completion result");
+    assert_eq!(
+        completions,
+        serde_json::json!([{ "value": "extension", "label": "extension" }])
+    );
+}
+
+#[test]
 fn hung_tool_is_killed_by_watchdog() {
     let host = host_with_budget(100);
     host.load(
@@ -369,6 +416,41 @@ fn exerciser_command_demo_runs() {
 
     let reply = host.call_command("echo", "hello").expect("command runs");
     assert_eq!(reply, Some(serde_json::json!({ "message": "echo: hello" })));
+}
+
+#[test]
+fn translated_commands_example_registers_catalog_and_completion() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/extensions/commands.lua"
+    );
+    let source = std::fs::read_to_string(path).expect("translated example exists");
+    let host = host();
+    host.load("examples/extensions/commands.lua", &source)
+        .expect("example loads");
+    host.load(
+        "test://commands-probe",
+        r#"
+            local pi = ...
+            pi.register_command("commands-probe", { handler = function()
+                for _, command in ipairs(pi.registered_extension_commands()) do
+                    if command.name == "commands" then
+                        return command.get_argument_completions("sk")
+                    end
+                end
+            end })
+        "#,
+    )
+    .expect("probe loads");
+
+    let commands = host.commands().expect("commands mirror");
+    assert_eq!(commands[0].invocation_name, "commands");
+    assert_eq!(
+        host.call_command("commands-probe", "")
+            .expect("probe runs")
+            .expect("completion result"),
+        serde_json::json!([{ "value": "skill", "label": "skill" }])
+    );
 }
 
 #[test]

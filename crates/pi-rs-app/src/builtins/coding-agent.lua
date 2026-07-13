@@ -92,6 +92,14 @@ end })
 pi.register_command("extension-vertical-slice", { handler = function(args)
   local request = pi.json.decode(args)
   local tools, names = active_tool_definitions()
+  if request.commandCompletion then
+    for _, command in ipairs(pi.registered_extension_commands()) do
+      if command.invocation_name == request.commandCompletion.name and command.get_argument_completions then
+        return { completions = command.get_argument_completions(request.commandCompletion.prefix or "") }
+      end
+    end
+    return { completions = nil }
+  end
   if request.tool then
     for _, tool in ipairs(tools) do
       if tool.name == request.tool then
