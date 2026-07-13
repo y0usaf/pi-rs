@@ -1,5 +1,37 @@
 {
   "oracle": "Pi v0.79.0 c5582102",
+  "translations": [
+    {
+      "source": "commands.ts",
+      "lua": "examples/extensions/commands.lua",
+      "evidence": "queued_extension_ui_actions_match_pi_examples"
+    },
+    {
+      "source": "hello.ts",
+      "lua": "examples/extensions/hello.lua",
+      "evidence": "product_loader_runs_tool_and_blocking_hook_with_isolated_failures"
+    },
+    {
+      "source": "permission-gate.ts",
+      "lua": "examples/extensions/permission-gate.lua",
+      "evidence": "queued_extension_ui_actions_match_pi_examples"
+    },
+    {
+      "source": "protected-paths.ts",
+      "lua": "examples/extensions/protected-paths.lua",
+      "evidence": "translated_tool_examples_execute_through_the_public_surface"
+    },
+    {
+      "source": "shutdown-command.ts",
+      "lua": "examples/extensions/shutdown-command.lua",
+      "evidence": "extension_context_snapshots_and_shutdown_match_pi"
+    },
+    {
+      "source": "structured-output.ts",
+      "lua": "examples/extensions/structured-output.lua",
+      "evidence": "translated_tool_examples_execute_through_the_public_surface"
+    }
+  ],
   "categories": {
     "events": [
       {
@@ -42,11 +74,14 @@
     "api": [
       {
         "status": "implemented",
-        "evidence": "pi-rs-host API + registry/OS binding tests; Lua spelling uses snake_case",
+        "evidence": "Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case",
         "items": [
           "exec",
+          "getCommands",
+          "getFlag",
           "on",
           "registerCommand",
+          "registerFlag",
           "registerProvider",
           "registerShortcut",
           "registerTool",
@@ -67,11 +102,8 @@
           "appendEntry",
           "getActiveTools",
           "getAllTools",
-          "getCommands",
-          "getFlag",
           "getSessionName",
           "getThinkingLevel",
-          "registerFlag",
           "registerMessageRenderer",
           "sendMessage",
           "sendUserMessage",
@@ -85,11 +117,19 @@
     ],
     "ui": [
       {
+        "status": "implemented",
+        "evidence": "Queued action oracle + extension-ui terminal differential",
+        "items": [
+          "confirm",
+          "notify",
+          "select"
+        ]
+      },
+      {
         "status": "planned 9.5",
         "evidence": "Queued extension UI action surface + frame/input fixtures",
         "items": [
           "addAutocompleteProvider",
-          "confirm",
           "custom",
           "editor",
           "getAllThemes",
@@ -98,10 +138,8 @@
           "getTheme",
           "getToolsExpanded",
           "input",
-          "notify",
           "onTerminalInput",
           "pasteToEditor",
-          "select",
           "setEditorComponent",
           "setEditorText",
           "setFooter",
@@ -181,12 +219,14 @@
     ],
     "examples": [
       {
-        "status": "planned 9.1",
-        "evidence": "Initial product-loaded tool/command/blocking-hook vertical slice",
+        "status": "implemented",
+        "evidence": "Executable Lua translations through product/public-surface integration tests",
         "items": [
           "commands.ts",
           "hello.ts",
-          "permission-gate.ts"
+          "permission-gate.ts",
+          "protected-paths.ts",
+          "structured-output.ts"
         ]
       },
       {
@@ -246,7 +286,6 @@
           "preset.ts",
           "project-trust.ts",
           "prompt-customizer.ts",
-          "protected-paths.ts",
           "provider-payload.ts",
           "qna.ts",
           "question.ts",
@@ -262,7 +301,6 @@
           "space-invaders.ts",
           "ssh.ts",
           "status-line.ts",
-          "structured-output.ts",
           "subagent/agents.ts",
           "subagent/index.ts",
           "summarize.ts",

@@ -214,6 +214,21 @@
           dontInstall = true;
         };
 
+      # Closed, offline Pi extension surface + translation/API-doc freshness gate.
+      mkExtensionParity =
+        system:
+        let
+          pkgs = mkPkgs system;
+        in
+        pkgs.runCommand "extension-parity"
+          {
+            nativeBuildInputs = [ pkgs.python3 ];
+          }
+          ''
+            python3 ${self}/scripts/extension-inventory --check
+            touch $out
+          '';
+
       # Offline, fixture-backed normalization and rejection tests for the
       # reviewed model-catalog update path.
       mkModelCatalogUpdateTest =
@@ -330,6 +345,7 @@
         model-catalog-update = mkModelCatalogUpdateTest system;
         construction-inventory = mkConstructionInventoryTest system;
         external-extension-inventory = mkExternalExtensionInventoryTest system;
+        extension-parity = mkExtensionParity system;
       });
 
       packages = forAllSystems (system: rec {
