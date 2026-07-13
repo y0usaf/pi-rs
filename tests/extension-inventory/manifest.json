@@ -115,8 +115,8 @@
     ],
     "context": [
       {
-        "status": "planned 9.2",
-        "evidence": "Live immutable context snapshots + queued lifecycle actions",
+        "status": "implemented",
+        "evidence": "Shared mode snapshots/actions + Pi-derived context oracle + shortcut/tool product tests",
         "items": [
           "abort",
           "compact",
@@ -139,8 +139,8 @@
     ],
     "command_context": [
       {
-        "status": "planned 9.2",
-        "evidence": "Command-only actions, stale-handle rejection, replacement oracle",
+        "status": "implemented",
+        "evidence": "Queued command actions + Pi-derived restriction/cancellation/order oracle + real replacement tests",
         "items": [
           "fork",
           "getSystemPromptOptions",
@@ -184,8 +184,8 @@
         ]
       },
       {
-        "status": "planned 9.2",
-        "evidence": "Base context/action oracle + executable shutdown-command.lua translation",
+        "status": "implemented",
+        "evidence": "Executable shutdown-command.lua translation + context/action oracle",
         "items": [
           "shutdown-command.ts"
         ]

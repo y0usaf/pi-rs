@@ -12,6 +12,7 @@ use std::thread;
 use pi_rs_app::builtins::{CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
 use pi_rs_app::cli::extensions::load_product_extensions;
 use pi_rs_host::{Host, HostConfig};
+use pi_rs_session::SessionManager;
 
 fn write(path: &std::path::Path, source: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -242,6 +243,10 @@ fn extension_context_snapshots_and_shutdown_match_pi() {
     .unwrap();
     assert_eq!(actual["snapshot"], expected["snapshot"]);
     assert_eq!(actual["stale"], expected["stale"]);
+    assert_eq!(actual["modes"], expected["modes"]);
+    assert_eq!(actual["actions"], expected["actions"]);
+    assert_eq!(actual["replacement"], expected["replacement"]);
+    assert_eq!(actual["reload"], expected["reload"]);
 
     let mut tool_request = request;
     tool_request["tool"] = "finish_and_exit".into();
@@ -257,6 +262,148 @@ fn extension_context_snapshots_and_shutdown_match_pi() {
         tool["toolResult"]["content"][0]["text"],
         "Shutdown requested. Exiting after this response."
     );
+
+    host.load(
+        "examples/extensions/session-lifecycle-demo.lua",
+        include_str!("../../../examples/extensions/session-lifecycle-demo.lua"),
+    )
+    .unwrap();
+    tool_request["lifecycleAction"] = serde_json::json!({ "action": "new" });
+    let replaced = host
+        .call_command(
+            "interactive-extension-action-behavior",
+            &tool_request.to_string(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(replaced["result"]["result"]["cancelled"], false);
+    assert_eq!(replaced["result"]["callback"]["mode"], "tui");
+    assert_eq!(replaced["result"]["callback"]["idle"], true);
+    assert_eq!(
+        replaced["eventContext"],
+        serde_json::json!({
+            "mode":"tui", "hasUI":true, "cwd":cwd,
+            "idle":true, "pending":false, "commandOnly":false
+        })
+    );
+    assert_ne!(
+        replaced["result"]["beforeId"],
+        replaced["result"]["callback"]["sessionId"]
+    );
+    assert_eq!(
+        replaced["currentSessionId"],
+        replaced["result"]["callback"]["sessionId"]
+    );
+    assert_eq!(replaced["result"]["stale"], expected["stale"]);
+    assert_eq!(replaced["generation"], 2);
+
+    let session_dir = root.path().join("sessions");
+    let mut source_session = SessionManager::create(
+        &cwd.to_string_lossy(),
+        Some(&session_dir.to_string_lossy()),
+        &agent_dir.to_string_lossy(),
+        None,
+    )
+    .unwrap();
+    let user_id = source_session
+        .append_message(serde_json::json!({
+            "role":"user", "content":[{"type":"text","text":"branch me"}],
+            "timestamp":1
+        }))
+        .unwrap();
+    source_session
+        .append_message(serde_json::json!({
+            "role":"assistant", "content":[{"type":"text","text":"done"}],
+            "api":"anthropic-messages", "provider":"faux", "model":"faux-1",
+            "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,
+                "totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,
+                    "cacheWrite":0,"total":0}},
+            "stopReason":"stop", "timestamp":2
+        }))
+        .unwrap();
+    let source_file = source_session.get_session_file().unwrap().to_owned();
+
+    tool_request["sessionFile"] = source_file.clone().into();
+    tool_request["sessionDir"] = session_dir.to_string_lossy().into_owned().into();
+    tool_request["lifecycleAction"] = serde_json::json!({
+        "action": "tree", "entryId": user_id
+    });
+    let navigated = host
+        .call_command(
+            "interactive-extension-action-behavior",
+            &tool_request.to_string(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(navigated["result"]["result"]["cancelled"], false);
+    assert_eq!(navigated["result"]["stale"], "");
+    assert_eq!(navigated["currentSessionFile"], source_file);
+    assert_eq!(navigated["generation"], 1);
+
+    tool_request["lifecycleAction"] = serde_json::json!({
+        "action": "fork", "entryId": user_id, "position": "at"
+    });
+    let forked = host
+        .call_command(
+            "interactive-extension-action-behavior",
+            &tool_request.to_string(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(forked["result"]["result"]["cancelled"], false);
+    assert_eq!(forked["result"]["stale"], expected["stale"]);
+    assert_eq!(forked["generation"], 2);
+    assert_ne!(forked["currentSessionFile"], source_file);
+    assert_eq!(
+        forked["currentSessionFile"],
+        forked["result"]["callback"]["sessionFile"]
+    );
+
+    let mut target_session = SessionManager::create(
+        &cwd.to_string_lossy(),
+        Some(&session_dir.to_string_lossy()),
+        &agent_dir.to_string_lossy(),
+        None,
+    )
+    .unwrap();
+    target_session
+        .append_message(serde_json::json!({
+            "role":"assistant", "content":[{"type":"text","text":"target"}],
+            "api":"anthropic-messages", "provider":"faux", "model":"faux-1",
+            "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,
+                "totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,
+                    "cacheWrite":0,"total":0}},
+            "stopReason":"stop", "timestamp":3
+        }))
+        .unwrap();
+    let target_file = target_session.get_session_file().unwrap().to_owned();
+    tool_request["sessionFile"] = source_file.into();
+    tool_request["lifecycleAction"] = serde_json::json!({
+        "action": "switch", "sessionPath": target_file
+    });
+    let switched = host
+        .call_command(
+            "interactive-extension-action-behavior",
+            &tool_request.to_string(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(switched["result"]["result"]["cancelled"], false);
+    assert_eq!(switched["result"]["stale"], expected["stale"]);
+    assert_eq!(switched["currentSessionFile"], target_file);
+    assert_eq!(switched["generation"], 2);
+
+    tool_request["lifecycleAction"] = serde_json::json!({ "action": "reload" });
+    let reloaded = host
+        .call_command(
+            "interactive-extension-action-behavior",
+            &tool_request.to_string(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(reloaded["result"]["result"]["cancelled"], false);
+    assert_eq!(reloaded["result"]["stale"], expected["stale"]);
+    assert_eq!(reloaded["generation"], 2);
 }
 
 #[test]

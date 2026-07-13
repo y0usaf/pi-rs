@@ -18,55 +18,91 @@ pi.register_role({
   local request = pi.json.decode(args)
   local events = {}
   -- main.ts createSessionManager → sdk.ts createAgentSession: open the
-  -- CLI-selected session (--continue/--session) or create a fresh one,
-  -- then run the restore slice (--no-session's inMemory joins the
-  -- non-interactive-modes rung, PLAN item 10).
+  -- CLI-selected session (--continue/--session) or create a fresh one.
   local session = construct_session(request)
-  -- Spec: the session header's cwd is the effective runtime cwd.
   local cwd = session:get_cwd()
   local startup = session_startup_from_request(session, request)
   local active_tools, active_tool_names = active_tool_definitions()
-  local extension_context = {
-    cwd = cwd,
-    mode = "print",
-    hasUI = false,
-    isProjectTrusted = function() return request.projectTrusted == true end,
+  local model = startup.model or request.model
+  local system_prompt_options = {
+    cwd = cwd, agentDir = request.agentDir, toolNames = active_tool_names,
+    readmePath = request.readmePath, docsPath = request.docsPath,
+    examplesPath = request.examplesPath,
+  }
+  local extension_state = {
+    request = request, cwd = cwd, session_manager = session, model = model,
+    project_trusted = request.projectTrusted == true,
+    extension_mode = request.mode or "print",
+    extension_has_ui = request.mode == "rpc",
+    extension_actions = {}, extension_context_generation = 0,
+    system_prompt_options = system_prompt_options,
+    registry = {
+      get_available = pi.ai.available_models,
+      find = pi.ai.find_model,
+      has_configured_auth = pi.ai.has_configured_auth,
+      is_using_oauth = pi.ai.is_using_oauth,
+    },
   }
   local agent = pi.agent.new({
     initialState = {
-      model = startup.model or request.model,
-      tools = active_tools,
-      -- sdk.ts: `agent.state.messages = existingSession.messages`.
+      model = model, tools = active_tools,
       messages = startup.context.messages,
       thinkingLevel = startup.thinking_level,
-      systemPrompt = build_session_system_prompt({
-        cwd = cwd,
-        agentDir = request.agentDir,
-        toolNames = active_tool_names,
-        readmePath = request.readmePath,
-        docsPath = request.docsPath,
-        examplesPath = request.examplesPath,
-      }),
+      systemPrompt = build_session_system_prompt(system_prompt_options),
     },
     convertToLlm = convert_to_llm_with_block_images,
     apiKey = request.apiKey,
-    -- Spec (sdk.ts streamFn): each request resolves auth for the current
-    -- model's provider — a restored session may cross providers.
     getApiKey = function(provider) return pi.auth.get_api_key(provider) end,
-    beforeToolCall = function(event)
-      return EXTENSION_POLICY.emit_tool_call(event, extension_context)
+    createToolContext = function(signal)
+      return EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = signal })
+    end,
+    beforeToolCall = function(event, signal)
+      return EXTENSION_POLICY.emit_tool_call(event,
+        EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = signal }))
     end,
     on_event = function(event) events[#events + 1] = event end,
   })
+  extension_state.agent = agent
+  extension_state.extension_is_idle = function()
+    return agent:get_state().isStreaming ~= true
+  end
+  extension_state.extension_has_pending = function()
+    return agent:has_queued_messages()
+  end
+  extension_state.extension_action_handlers = {
+    abort = function() agent:abort() end,
+    -- Pi print/JSON shutdown is a no-op; RPC defers exit until its command
+    -- response, whose framing remains item 10.
+    shutdown = function()
+      if extension_state.extension_mode == "rpc" then
+        extension_state.shutdown_requested = true
+      end
+    end,
+    compact = function(action)
+      local options = action.options or {}
+      if options.onError then
+        options.onError({ message = "Compaction is unavailable after print completion" })
+      end
+    end,
+  }
   agent:subscribe(function(event)
     if event.type == "message_update" and event.assistantMessageEvent and
        event.assistantMessageEvent.type == "text_delta" then
       pi.output(event.assistantMessageEvent.delta or "")
     end
-    -- agent-session.ts _handleAgentEvent: session persistence.
     persist_agent_event(session, event)
   end)
-  agent:prompt(request.prompt)
+
+  -- Keep the queued-action applier live while the provider/tool coroutine
+  -- runs. Extensions never mutate the one-shot state directly.
+  local turn = pi.spawn(function() agent:prompt(request.prompt) end)
+  while not turn:done() do
+    EXTENSION_CONTEXT_POLICY.pump(extension_state)
+    pi.sleep(1)
+  end
+  turn:join()
+  EXTENSION_CONTEXT_POLICY.pump(extension_state)
+
   local state = agent:get_state()
   local last = state.messages[#state.messages]
   local text = ""
@@ -77,9 +113,6 @@ pi.register_role({
   end
   return {
     text = text, events = events, sessionPath = session:get_session_file(),
-    -- Restore outcomes for differential pinning (tests/resume_replay.rs);
-    -- pi surfaces modelFallbackMessage through the interactive frontend
-    -- only, so nothing here prints.
     model = startup.model and { provider = startup.model.provider, id = startup.model.id } or nil,
     thinkingLevel = startup.thinking_level,
     modelFallbackMessage = startup.fallback_message,
