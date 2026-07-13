@@ -1,12 +1,12 @@
 -- core/compaction/utils.ts + core/compaction/branch-summarization.ts —
 -- the shared summarization machinery (PLAN 6.4); the compaction pipeline
--- (utils/compaction.lua, PLAN 6.5) builds on the exports. One
--- chunk-global export table keeps the concatenated pack under Lua's
--- active-local budget.
+-- (utils/compaction.lua, PLAN 6.5) builds on the exports. The export table
+-- is chunk-local: each product pack owns its copy and never communicates
+-- through `_G`.
 --
--- Shared fragment: included by the interactive pack after
--- utils/messages.lua (it closes over that fragment's convert_to_llm).
-branch_summary_lib = (function(pi, convert_to_llm)
+-- Shared fragment: included after utils/messages.lua and extensions.lua. Its
+-- export is namespaced on the pack-local policy table, never `_G`.
+EXTENSION_POLICY.branch_summary = (function(pi, convert_to_llm)
   -- ---- compaction.ts estimateTokens (the entry-token slice) ----
 
   -- JS String.length (UTF-16 code units) for the chars/4 heuristic.

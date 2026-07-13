@@ -893,3 +893,26 @@ fn find_matches_path_globs_and_reports_limits() {
     );
     assert_eq!(result["details"]["resultLimitReached"], 1);
 }
+
+#[test]
+fn file_backed_extension_imports_builtin_tool_and_render_modules() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let host = host(dir.path());
+    let example = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/extensions/module-demo.lua"
+    );
+    host.load_file(example).expect("module example loads");
+    let result = host
+        .call_command("module-demo", "")
+        .expect("module demo runs")
+        .expect("module demo result");
+    assert_eq!(
+        result,
+        json!({
+            "content": "alpha\nbeta",
+            "path": "~/demo.txt",
+            "truncated": true
+        })
+    );
+}

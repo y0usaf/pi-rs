@@ -205,3 +205,27 @@ local function spacer_component(lines)
     return out
   end
 end
+
+-- Public rendering helpers. The module value closes over this pack's reviewed
+-- policy and host mechanisms; callers do not import frontend implementation
+-- classes or rely on globals.
+pi.module.define({
+  name = "pi.tools.render",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      strip_ansi = strip_ansi,
+      sanitize_binary_output = sanitize_binary_output,
+      shorten_path = shorten_path,
+      str = str,
+      get_text_output = get_text_output,
+      render_tool_path = render_tool_path,
+      get_language_from_path = get_language_from_path,
+      trim_trailing_empty_lines = trim_trailing_empty_lines,
+      text_component = text_component,
+      box_component = box_component,
+      spacer_component = spacer_component,
+    }
+  end,
+})

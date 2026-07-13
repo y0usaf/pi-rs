@@ -1,10 +1,11 @@
 local pi = ...
 pi.declare_package({ command_visibility = "internal" })
 
--- Product policy ported from interactive/theme/theme.ts. Theme assets are
--- injected ahead of this file by the embedded-pack declaration below.
-local dark_json = pi.json.decode(DARK_THEME_JSON)
-local light_json = pi.json.decode(LIGHT_THEME_JSON)
+-- Product policy ported from interactive/theme/theme.ts. The built-in theme
+-- definitions are Lua tables injected ahead of this file; custom themes use
+-- the same declaration shape rather than a JSON compatibility input.
+local dark_json = DARK_THEME
+local light_json = LIGHT_THEME
 
 local CUBE = { 0, 95, 135, 175, 215, 255 }
 local GRAY = {}
@@ -70,6 +71,56 @@ local function color_ansi(value, mode, background)
 end
 
 local function create_theme(data, mode)
+  -- ThemeJsonSchema port. Keep validation locals inside the factory so the
+  -- monolithic compatibility frontend does not exceed Lua's 200 active-local
+  -- limit while it is decomposed into modules.
+  local color_keys = {
+    "accent", "border", "borderAccent", "borderMuted", "success", "error",
+    "warning", "muted", "dim", "text", "thinkingText", "selectedBg",
+    "userMessageBg", "userMessageText", "customMessageBg", "customMessageText",
+    "customMessageLabel", "toolPendingBg", "toolSuccessBg", "toolErrorBg",
+    "toolTitle", "toolOutput", "mdHeading", "mdLink", "mdLinkUrl", "mdCode",
+    "mdCodeBlock", "mdCodeBlockBorder", "mdQuote", "mdQuoteBorder", "mdHr",
+    "mdListBullet", "toolDiffAdded", "toolDiffRemoved", "toolDiffContext",
+    "syntaxComment", "syntaxKeyword", "syntaxFunction", "syntaxVariable",
+    "syntaxString", "syntaxNumber", "syntaxType", "syntaxOperator",
+    "syntaxPunctuation", "thinkingOff", "thinkingMinimal", "thinkingLow",
+    "thinkingMedium", "thinkingHigh", "thinkingXhigh", "bashMode",
+  }
+  local label = data.name or "unnamed"
+  local function validate_color(value)
+    if type(value) == "number" then
+      if math.type(value) ~= "integer" or value < 0 or value > 255 then
+        error("Invalid theme \"" .. label .. "\": color indices must be integers from 0 to 255")
+      end
+      return
+    end
+    if type(value) ~= "string" then
+      error("Invalid theme \"" .. label .. "\": colors must be strings or integers from 0 to 255")
+    end
+  end
+  if type(data.name) ~= "string" then
+    error("Invalid theme \"" .. label .. "\":\n\nOther errors:\n  - /name: Expected string")
+  end
+  if type(data.colors) ~= "table" then
+    error("Invalid theme \"" .. label .. "\":\n\nOther errors:\n  - /colors: Expected object")
+  end
+  local missing = {}
+  for _, key in ipairs(color_keys) do
+    if data.colors[key] == nil then missing[#missing + 1] = key
+    else validate_color(data.colors[key]) end
+  end
+  if #missing > 0 then
+    table.sort(missing)
+    local rows = {}
+    for _, key in ipairs(missing) do rows[#rows + 1] = "  - " .. key end
+    error("Invalid theme \"" .. label .. "\":\n\nMissing required color tokens:\n"
+      .. table.concat(rows, "\n")
+      .. "\n\nPlease add these colors to your theme's \"colors\" object."
+      .. "\nSee the built-in themes (dark.lua, light.lua) for reference values.")
+  end
+  for _, value in pairs(data.vars or {}) do validate_color(value) end
+  for _, value in pairs(data.export or {}) do validate_color(value) end
   local theme = { name = data.name, mode = mode, fg_codes = {}, bg_codes = {} }
   local vars = data.vars or {}
   for key, value in pairs(data.colors) do
@@ -1319,7 +1370,7 @@ local function footer_agent_data(state)
   if context_window > 0 then
     -- agent-session.ts getContextUsage over the compaction.ts
     -- token-estimation port (utils/compaction.lua, written once).
-    context_percent = (compaction_lib.estimate_context_tokens(agent_state.messages).tokens
+    context_percent = (EXTENSION_POLICY.compaction.estimate_context_tokens(agent_state.messages).tokens
       / context_window) * 100
   else
     -- getContextUsage() undefined: the footer falls back to 0 (footer.ts
@@ -1685,9 +1736,11 @@ function bash_execution_lines(row, width, theme)
     return lines
   end
 
-  -- updateDisplay: context truncation with the bash tool's limits.
+  -- updateDisplay: context truncation with the bash tool's limits. This is
+  -- an explicit exact-version dependency on the tools package, not `_G`.
   local full_output = table.concat(row.output_lines, "\n")
-  local context_truncation = truncate_lib.truncate_tail(full_output, {})
+  local truncate = pi.module.require("pi.tools.truncate", "1")
+  local context_truncation = truncate.truncate_tail(full_output, {})
   local available_lines = {}
   if context_truncation.content ~= nil and context_truncation.content ~= "" then
     available_lines = split_all(context_truncation.content, "\n")
@@ -1709,7 +1762,8 @@ function bash_execution_lines(row, width, theme)
       for i = hidden_line_count + 1, #available_lines do
         styled[#styled + 1] = theme:fg("muted", available_lines[i])
       end
-      local result = visual_truncate_lib.truncate_to_visual_lines(
+      local visual_truncate = pi.module.require("pi.tui.visual-truncate", "1")
+      local result = visual_truncate.truncate_to_visual_lines(
         "\n" .. table.concat(styled, "\n"), 20, width, 1)
       append(lines, result.visualLines)
     end
@@ -6315,8 +6369,8 @@ end
 -- ===========================================================================
 -- Compaction — agent-session.ts compact() / _checkCompaction /
 -- _runAutoCompaction over the utils/compaction.lua port (PLAN 6.5). The
--- LLM work is compaction_lib; this section decides when to run it, what
--- persists, and which events the UI sees.
+-- shared pack-local compaction policy owns LLM work; this section decides
+-- when to run it, what persists, and which events the UI sees.
 -- ===========================================================================
 
 -- agent.lua error_text: strip Lua's source:line prefix so surfaced
@@ -6365,7 +6419,7 @@ function retry_policy_is_retryable(model, message)
   if not message or message.stopReason ~= "error"
      or not message.errorMessage or message.errorMessage == "" then return false end
   local context_window = model and model.contextWindow or 0
-  if compaction_lib.is_context_overflow(message, context_window) then return false end
+  if EXTENSION_POLICY.compaction.is_context_overflow(message, context_window) then return false end
   if pi.tui.js_regex_search(RETRY_POLICY_PATTERNS.non_retryable, message.errorMessage) ~= nil then
     return false
   end
@@ -6436,7 +6490,7 @@ local function create_compaction_slice(state, agent, session_manager)
   end
 
   local function run_compaction(preparation, signal, custom_instructions, api_key)
-    return compaction_lib.compact(preparation, state.model, {
+    return EXTENSION_POLICY.compaction.compact(preparation, state.model, {
       apiKey = api_key,
       customInstructions = custom_instructions,
       signal = signal,
@@ -6484,7 +6538,7 @@ local function create_compaction_slice(state, agent, session_manager)
       end
       local path_entries = session_manager:get_branch()
       local settings = pi.settings.compaction_settings()
-      local preparation = compaction_lib.prepare_compaction(path_entries, settings)
+      local preparation = EXTENSION_POLICY.compaction.prepare_compaction(path_entries, settings)
       if not preparation then
         local last = path_entries[#path_entries]
         if last and last.type == "compaction" then error("Already compacted", 0) end
@@ -6524,7 +6578,7 @@ local function create_compaction_slice(state, agent, session_manager)
       local api_key = pi.auth.get_api_key(state.model.provider)
       if not api_key then return { silent = true } end
       local path_entries = session_manager:get_branch()
-      local preparation = compaction_lib.prepare_compaction(path_entries, settings)
+      local preparation = EXTENSION_POLICY.compaction.prepare_compaction(path_entries, settings)
       if not preparation then return { silent = true } end
       local extension_result, cancelled, from_extension = extension_compaction(
         preparation, path_entries, nil, signal)
@@ -6593,7 +6647,7 @@ local function create_compaction_slice(state, agent, session_manager)
       end
     end
     -- Case 1: overflow — compact and auto-retry once.
-    if same_model and compaction_lib.is_context_overflow(assistant_message, context_window) then
+    if same_model and EXTENSION_POLICY.compaction.is_context_overflow(assistant_message, context_window) then
       if slice.overflow_recovery_attempted then
         emit({ type = "compaction_end", reason = "overflow", aborted = false,
           willRetry = false,
@@ -6616,7 +6670,7 @@ local function create_compaction_slice(state, agent, session_manager)
     local context_tokens
     if assistant_message.stopReason == "error" then
       local messages = agent:get_state().messages
-      local estimate = compaction_lib.estimate_context_tokens(messages)
+      local estimate = EXTENSION_POLICY.compaction.estimate_context_tokens(messages)
       if estimate.lastUsageIndex == nil then return false end
       local usage_msg = messages[estimate.lastUsageIndex + 1]
       if compaction_entry and usage_msg and usage_msg.role == "assistant" then
@@ -6627,9 +6681,9 @@ local function create_compaction_slice(state, agent, session_manager)
       end
       context_tokens = estimate.tokens
     else
-      context_tokens = compaction_lib.calculate_context_tokens(assistant_message.usage)
+      context_tokens = EXTENSION_POLICY.compaction.calculate_context_tokens(assistant_message.usage)
     end
-    if compaction_lib.should_compact(context_tokens, context_window, settings) then
+    if EXTENSION_POLICY.compaction.should_compact(context_tokens, context_window, settings) then
       return run_auto_compaction("threshold", false)
     end
     return false
@@ -6941,10 +6995,10 @@ function bind_session_runtime(state, session_manager)
       local prefix = pi.settings.shell_command_prefix()
       local shell_path = pi.settings.shell_path()
       local resolved = prefix and (prefix .. "\n" .. command) or command
-      local executed, result = pcall(bash_executor_lib.execute_bash_with_operations,
+      local executed, result = pcall(EXTENSION_POLICY.bash_executor.execute_bash_with_operations,
         resolved, session_manager:get_cwd(),
         (options and options.operations)
-          or bash_executor_lib.create_local_bash_operations({ shellPath = shell_path }),
+          or EXTENSION_POLICY.bash_executor.create_local_bash_operations({ shellPath = shell_path }),
         { onChunk = on_chunk, signal = signal })
       bash_slice.signal = nil
       if not executed then error(result, 0) end
@@ -9215,7 +9269,8 @@ function navigate_session_tree(state, target_id, options)
   if not target_entry then error("Entry " .. target_id .. " not found", 0) end
 
   local entries_to_summarize =
-    branch_summary_lib.collect_entries_for_branch_summary(sm, old_leaf_id, target_id)
+    EXTENSION_POLICY.branch_summary.collect_entries_for_branch_summary(
+      sm, old_leaf_id, target_id)
   local signal = options.signal or pi.abort_signal()
   local preparation = {
     targetId = target_id, oldLeafId = old_leaf_id, commonAncestorId = nil,
@@ -9242,7 +9297,7 @@ function navigate_session_tree(state, target_id, options)
   elseif options.summarize and #entries_to_summarize > 0 then
     local settings = pi.settings.branch_summary()
     local api_key = pi.auth.get_api_key(state.model.provider)
-    local result = branch_summary_lib.generate_branch_summary(entries_to_summarize, {
+    local result = EXTENSION_POLICY.branch_summary.generate_branch_summary(entries_to_summarize, {
       model = state.model, apiKey = api_key, signal = signal,
       customInstructions = options.customInstructions,
       replaceInstructions = options.replaceInstructions,

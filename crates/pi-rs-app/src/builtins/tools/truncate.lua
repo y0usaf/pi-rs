@@ -206,12 +206,20 @@ local function truncate_line(line, max_chars)
   return { text = line:sub(1, max_chars) .. "... [truncated]", wasTruncated = true }
 end
 
--- Cross-pack export: the interactive pack's bash surface (core/
--- bash-executor.ts + components/bash-execution.ts, PLAN 7.1) consumes the
--- same truncateTail port. The tools pack always loads before the
--- interactive pack (main.rs / ui-diff.rs load order).
-truncate_lib = {
-  truncate_tail = truncate_tail,
-  DEFAULT_MAX_LINES = DEFAULT_MAX_LINES,
-  DEFAULT_MAX_BYTES = DEFAULT_MAX_BYTES,
-}
+-- Public exact-version module: builtin and file-backed packages import the
+-- same closures. No `_G` export or load-order-only global remains.
+pi.module.define({
+  name = "pi.tools.truncate",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      truncate_head = truncate_head,
+      truncate_tail = truncate_tail,
+      truncate_line = truncate_line,
+      format_size = format_size,
+      DEFAULT_MAX_LINES = DEFAULT_MAX_LINES,
+      DEFAULT_MAX_BYTES = DEFAULT_MAX_BYTES,
+    }
+  end,
+})
