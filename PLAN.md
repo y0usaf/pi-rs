@@ -256,7 +256,7 @@ generic mechanisms.
   `86acfca` and `d5d5f6a` close lint and lockfile reconciliation. Integrated app/
   workspace tests, `nix flake check`, and release `nix build .#pi-rs` pass.
 
-- [ ] **1.3 — Implement deterministic XDG roots and read-only legacy fallback**
+- [x] **1.3 — Implement deterministic XDG roots and read-only legacy fallback**
   (**serial**; depends on 1.2).
 
   Expose canonical config/data/state/cache paths as immutable startup data.
@@ -270,6 +270,14 @@ generic mechanisms.
 
   **Accept:** a compact matrix proves precedence and no-write behavior for
   config, credentials, sessions, packages, and cache resources.
+
+  **Landed:** `06ab41f` adds deterministic validated XDG/HOME roots, immutable
+  file-backed startup visibility, lstat-style per-resource precedence, canonical-
+  only destinations, and explicit non-mutating import reports. The five-resource
+  matrix covers overrides/defaults, absent/invalid environments, malformed and
+  inaccessible entries, symlinks, fallback provenance, and byte/metadata-stable
+  legacy resources. Integrated app/workspace tests, formatting, `nix flake check`,
+  and release `nix build .#pi-rs` pass.
 
 ## 2 — Harden reusable Rust mechanisms
 
