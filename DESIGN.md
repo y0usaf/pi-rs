@@ -198,27 +198,44 @@ package.
 
 ## Performance contract
 
-Performance claims come only from the reproducible release-mode harness created
-by PLAN 0.2. It records the reference machine/environment, fixture revision,
-sample count, warm/cold conditions, and machine-readable results. Numeric
-baselines and budgets are measured there before being written into this section;
-0.1 does not invent aspirational thresholds.
+Performance claims come only from the versioned release harness and parameters
+in `tests/performance/`. It emits machine-readable environment, fixture,
+condition, sample-count, and distribution data. The initial reference run was
+made 2026-07-13 from source `2252118f84e03f217ce15e2b747fcc3bb4f64438`
+on Linux 7.1.3/NixOS, x86-64, AMD Ryzen 9 7950X (16 cores/32 threads), 95,748
+MiB RAM, rustc 1.94.0, after five explicit warmups. It used release mode and
+`reference-v1.json`: 30 startup, 10 idle, 500 input, 5,000 render, 2,000 Lua,
+and 500 effect samples. Baselines below are that run's p50/p95 unless stated
+otherwise; budgets deliberately include first-run noise without treating the
+implementation language as evidence.
 
-| Metric | Required measurement | Goal |
-|---|---|---|
-| Startup | offline warm-cache process start → first input-ready frame, p50/p95 in ms | At or below the checked release budget. |
-| Idle memory | RSS after a fixed settle period with the canonical empty session, MiB | At or below the checked release budget; no upward drift while idle. |
-| Input latency | injected key/input timestamp → corresponding flushed frame, p50/p95 in ms | At or below the checked interactive budget. |
-| Render cost | unchanged and canonical changed retained-tree frames, p50/p95 µs plus frames/s | At or below cost / at or above throughput budgets. |
-| Lua dispatch | snapshot → no-op/action-batch completion, p50/p95 µs and bytes copied | At or below dispatch and copy budgets. |
-| Effect round trip | queued local deterministic effect → completion action, p50/p95 µs | At or below the checked effect budget. |
-| Release size | stripped closure/binary bytes, reported separately | At or below the checked size budget. |
-| Cleanup | live tasks/processes/sockets and RSS growth after repeated cancel/reload/shutdown | Zero leaked resources; bounded growth within the checked tolerance. |
+| Metric | Initial measured baseline | Release budget |
+|---|---:|---:|
+| Warm-cache process start → first input-ready frame | 3.262 / 3.730 ms | p50 ≤ 5 ms; p95 ≤ 6 ms |
+| Idle RSS after 500 ms settle | 11.445 MiB (min=max across 10 samples) | max ≤ 14 MiB; max−min ≤ 1 MiB |
+| Injected input → flushed frame acknowledgement | 5.801 / 9.598 µs | p50 ≤ 15 µs; p95 ≤ 25 µs |
+| Unchanged 80-row retained frame at 120×40 | 125.744 / 127.999 µs | p95 ≤ 200 µs |
+| One-row-changed retained frame at 120×40 | 125.874 / 128.108 µs; 7,836 frames/s | p95 ≤ 200 µs; ≥ 5,000 frames/s |
+| Lua no-op dispatch | 17.493 / 23.544 µs | p95 ≤ 50 µs |
+| Lua three-action dispatch | 26.569 / 33.242 µs; 93 snapshot bytes | p95 ≤ 50 µs; ≤ 128 bytes/dispatch |
+| Local zero-duration timer effect round trip | 1,077.919 / 1,098.657 µs | p50 ≤ 1,500 µs; p95 ≤ 2,000 µs |
 
-A result without the prescribed harness and environment is diagnostic, not
-acceptance. Optimization follows profiles: batch crossings, retain display
-structures, bound history/snapshots, and remove unused dependencies. Visual or
-provider/auth correctness is never traded for an unmeasured speed claim.
+Startup includes process creation, Lua-host initialization, and the first TUI
+frame. Input latency includes the cross-process injection/acknowledgement pipe.
+RSS is Linux `/proc` VmRSS. Render timing includes submission of the retained
+line vector and differential output generation. Lua timing crosses the host/VM
+thread boundary with the checked bounded JSON snapshot; the effect path also
+suspends and resumes through the host timer. These conditions are part of the
+contract and may not be silently replaced by an easier microbenchmark.
+
+Release binary/closure size and repeated cancel/reload/shutdown leak tolerances
+remain required by PLAN 7.1, but PLAN 0.2's assigned harness does not measure
+them; numeric budgets must be added here only after their prescribed release
+measurements exist. A result from another environment is diagnostic until its
+variance is explained. Optimization follows profiles: batch crossings, retain
+display structures, bound history/snapshots, and remove unused dependencies.
+Visual or provider/auth correctness is never traded for an unmeasured speed
+claim.
 
 ## Doctrine conformance
 
