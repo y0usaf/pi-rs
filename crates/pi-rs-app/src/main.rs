@@ -141,7 +141,9 @@ async fn run(args: Args) -> ExitCode {
 
     if let Some(search) = &args.list_models {
         if let Some(error) = model_registry.get_error() {
-            warning_line(&format!("Warning: errors loading models.json:\n{error}"));
+            warning_line(&format!(
+                "Warning: errors loading config.lua models:\n{error}"
+            ));
         }
         println!(
             "{}",

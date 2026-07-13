@@ -13,11 +13,11 @@ fn reload_rereads_settings_and_project_context_through_product_policy() {
     std::fs::create_dir_all(&cwd).unwrap();
     std::fs::create_dir_all(&agent_dir).unwrap();
     let context_path = cwd.join("AGENTS.md");
-    let settings_path = agent_dir.join("settings.json");
     std::fs::write(&context_path, "initial project rule").unwrap();
+    let settings_path = agent_dir.join("config.lua");
     std::fs::write(
         &settings_path,
-        r#"{"theme":"dark","hideThinkingBlock":false}"#,
+        "local pi = ...\npi.config.settings({ theme = 'dark', hideThinkingBlock = false })\n",
     )
     .unwrap();
 
@@ -47,7 +47,7 @@ fn reload_rereads_settings_and_project_context_through_product_policy() {
         "contextPath": context_path,
         "contextAfter": "reloaded project rule",
         "settingsPath": settings_path,
-        "settingsAfter": "{\"theme\":\"light\",\"hideThinkingBlock\":true}",
+        "settingsAfter": "local pi = ...\npi.config.settings({ theme = 'light', hideThinkingBlock = true })\n",
         "model": {
             "id": "claude-parity-1",
             "name": "Claude Parity",

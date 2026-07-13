@@ -43,7 +43,7 @@ const HEADERS: [&str; 6] = [
 
 /// Spec: `listModels(modelRegistry, searchPattern?)` — returns the
 /// rendered output; the caller prints (stdout) and reports the
-/// models.json load warning (stderr).
+/// custom model declaration load warning (stderr).
 pub fn render_model_list(
     model_registry: &ModelRegistry,
     auth_storage: &crate::core::auth_storage::AuthStorage,

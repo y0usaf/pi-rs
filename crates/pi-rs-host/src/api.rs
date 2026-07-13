@@ -2939,7 +2939,8 @@ pub(crate) fn build(
     crate::exec::install(lua, &pi, cwd)?;
     crate::http::install(lua, &pi)?;
     crate::os::install(lua, &pi, cwd)?;
-    crate::settings::install(lua, &pi, cwd, project_trusted)?;
+    let settings = crate::settings::install(lua, &pi, cwd, project_trusted)?;
+    crate::config::install_runtime(lua, &pi, cwd, project_trusted, settings)?;
     crate::session::install(lua, &pi, cwd)?;
     crate::trust::install(lua, &pi)?;
     crate::clipboard::install(lua, &pi)?;

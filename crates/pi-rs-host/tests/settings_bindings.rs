@@ -1,7 +1,5 @@
-//! `pi.settings` — the settings-manager port bound per VM. Pins the
-//! spec's getBlockImages/setBlockImages semantics through the public
-//! Lua surface: the default, project-scope merge (`.pi/settings.json`),
-//! and the granular global persistence of setBlockImages.
+//! `pi.settings` over canonical global/project `config.lua` declarations.
+//! Pins merged reads, public mutation, reload, and managed-block persistence.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -24,7 +22,7 @@ pi.register_command("settings-write", {
 })
 pi.register_command("settings-reload", {
   handler = function()
-    pi.settings.reload()
+    pi.config.reload()
     return { blocked = pi.settings.block_images() }
   end,
 })
@@ -48,24 +46,21 @@ fn block_images_reads_merged_settings_and_persists_globally() {
     let got = host.call_command("settings-read", "").unwrap().unwrap();
     assert_eq!(got["blocked"], false);
 
-    // setBlockImages(true) answers dynamically and persists to the
-    // *global* scope's settings.json under the images nested field.
+    // setBlockImages(true) answers dynamically and updates only pi's managed
+    // block in the global config.lua.
     let got = host
         .call_command("settings-write", r#"{"blocked":true}"#)
         .unwrap()
         .unwrap();
     assert_eq!(got["blocked"], true);
-    let global: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(agent_dir.path().join("settings.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(global["images"]["blockImages"], true);
+    let global_source = std::fs::read_to_string(agent_dir.path().join("config.lua")).unwrap();
+    let global = pi_rs_host::config::evaluate(&global_source, "config.lua").unwrap();
+    assert_eq!(global.settings["images"]["blockImages"], true);
 
-    // External edits remain invisible until reload, then replace the cached
-    // merged settings exactly like SettingsManager.reload().
+    // External edits remain invisible until atomic reload.
     std::fs::write(
-        agent_dir.path().join("settings.json"),
-        r#"{"images":{"blockImages":false}}"#,
+        agent_dir.path().join("config.lua"),
+        "local pi = ...\npi.config.settings({ images = { blockImages = false } })\n",
     )
     .unwrap();
     let got = host.call_command("settings-read", "").unwrap().unwrap();
@@ -73,14 +68,18 @@ fn block_images_reads_merged_settings_and_persists_globally() {
     let got = host.call_command("settings-reload", "").unwrap().unwrap();
     assert_eq!(got["blocked"], false);
 
-    // Project settings merge over global (spec: one-level deep merge).
+    // Trusted project declarations merge over global.
     std::fs::create_dir_all(project.path().join(".pi")).unwrap();
     std::fs::write(
-        project.path().join(".pi/settings.json"),
-        r#"{"images":{"blockImages":true}}"#,
+        project.path().join(".pi/config.lua"),
+        "local pi = ...\npi.config.settings({ images = { blockImages = true } })\n",
     )
     .unwrap();
-    std::fs::write(agent_dir.path().join("settings.json"), "{}").unwrap();
+    std::fs::write(
+        agent_dir.path().join("config.lua"),
+        "local pi = ...\npi.config.settings({})\n",
+    )
+    .unwrap();
     let host = Host::new(HostConfig {
         cwd: Some(cwd),
         ..HostConfig::default()
@@ -147,17 +146,16 @@ fn settings_demo_example_exercises_the_public_surface() {
     assert_eq!(result["lastChangelogVersionUnset"], true);
     assert_eq!(result["lastChangelogVersion"], "0.79.0");
 
-    let persisted: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(agent_dir.path().join("settings.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(persisted["theme"], "light");
-    assert_eq!(persisted["defaultProvider"], "anthropic");
-    assert_eq!(persisted["defaultModel"], "claude-opus-4-6");
-    assert_eq!(persisted["warnings"]["anthropicExtraUsage"], false);
+    let persisted_source = std::fs::read_to_string(agent_dir.path().join("config.lua")).unwrap();
+    let persisted = pi_rs_host::config::evaluate(&persisted_source, "config.lua").unwrap();
+    assert_eq!(persisted.settings["theme"], "light");
+    assert_eq!(persisted.settings["defaultProvider"], "anthropic");
+    assert_eq!(persisted.settings["defaultModel"], "claude-opus-4-6");
+    assert_eq!(persisted.settings["warnings"]["anthropicExtraUsage"], false);
     assert_eq!(
-        persisted["enabledModels"],
+        persisted.settings["enabledModels"],
         serde_json::json!(["anthropic/claude-opus-4-6", "openai/gpt-5.4"])
     );
-    assert_eq!(persisted["lastChangelogVersion"], "0.79.0");
+    assert_eq!(persisted.settings["lastChangelogVersion"], "0.79.0");
+    assert!(!agent_dir.path().join("settings.json").exists());
 }
