@@ -41,6 +41,9 @@ pub struct GitHubCopilotFlow {
     /// selected github.com / enterprise domain and returned Copilot token.
     pub endpoints_override: Option<GitHubCopilotEndpoints>,
     pub policy_base_url_override: Option<String>,
+    /// Catalog model IDs whose Copilot policy endpoint is enabled after login.
+    /// The caller supplies catalog data directly; auth has no product-host link.
+    pub model_ids: Vec<String>,
 }
 
 pub fn github_copilot_flow() -> GitHubCopilotFlow {
@@ -65,18 +68,17 @@ pub fn normalize_github_domain(input: &str) -> Option<String> {
 }
 
 pub fn github_copilot_base_url(token: Option<&str>, enterprise_domain: Option<&str>) -> String {
-    if let Some(token) = token {
-        if let Some(proxy_host) = token
+    if let Some(token) = token
+        && let Some(proxy_host) = token
             .split(';')
             .find_map(|part| part.strip_prefix("proxy-ep="))
             .filter(|host| !host.is_empty())
-        {
-            let api_host = proxy_host
-                .strip_prefix("proxy.")
-                .map(|host| format!("api.{host}"))
-                .unwrap_or_else(|| proxy_host.to_owned());
-            return format!("https://{api_host}");
-        }
+    {
+        let api_host = proxy_host
+            .strip_prefix("proxy.")
+            .map(|host| format!("api.{host}"))
+            .unwrap_or_else(|| proxy_host.to_owned());
+        return format!("https://{api_host}");
     }
     enterprise_domain
         .map(|domain| format!("https://copilot-api.{domain}"))
@@ -94,6 +96,7 @@ fn copilot_headers(request: reqwest::RequestBuilder) -> reqwest::RequestBuilder 
 async fn fetch_json(
     request: reqwest::RequestBuilder,
     callbacks: Option<&dyn OAuthLoginCallbacks>,
+    secrets: &[&str],
 ) -> Result<Value, AuthError> {
     let response = if let Some(callbacks) = callbacks {
         tokio::select! {
@@ -109,7 +112,8 @@ async fn fetch_json(
     if !response.status().is_success() {
         let status = response.status();
         let reason = status.canonical_reason().unwrap_or("");
-        let body = response.text().await.unwrap_or_default();
+        let body =
+            pi_rs_ai_types::redact_sensitive(&response.text().await.unwrap_or_default(), secrets);
         return Err(AuthError::Message(format!(
             "{} {reason}: {body}",
             status.as_u16()
@@ -135,12 +139,13 @@ impl GitHubCopilotFlow {
         let endpoints = self.endpoints(domain);
         let value = fetch_json(
             copilot_headers(
-                reqwest::Client::new()
+                crate::http::shared_http_client()
                     .get(endpoints.copilot_token_url)
                     .header("Accept", "application/json")
                     .bearer_auth(refresh_token),
             ),
             None,
+            &[refresh_token],
         )
         .await?;
         if !value.is_object() {
@@ -171,7 +176,7 @@ impl GitHubCopilotFlow {
             .clone()
             .unwrap_or_else(|| github_copilot_base_url(Some(token), enterprise_domain));
         let _ = copilot_headers(
-            reqwest::Client::new()
+            crate::http::shared_http_client()
                 .post(format!("{base_url}/models/{model_id}/policy"))
                 .header("Content-Type", "application/json")
                 .bearer_auth(token)
@@ -207,13 +212,14 @@ impl GitHubCopilotFlow {
         let domain = enterprise_domain.as_deref().unwrap_or("github.com");
         let endpoints = self.endpoints(domain);
         let value = fetch_json(
-            reqwest::Client::new()
+            crate::http::shared_http_client()
                 .post(&endpoints.device_code_url)
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .header("User-Agent", USER_AGENT)
                 .form(&[("client_id", CLIENT_ID), ("scope", "read:user")]),
             Some(callbacks),
+            &[],
         )
         .await?;
         if !value.is_object() {
@@ -250,7 +256,7 @@ impl GitHubCopilotFlow {
             expires_in_seconds: Some(expires_in),
         });
 
-        let client = reqwest::Client::new();
+        let client = crate::http::shared_http_client();
         let access_url = endpoints.access_token_url.clone();
         let device_code = device_code.to_owned();
         let github_access_token = poll_device_code(interval, Some(expires_in), callbacks, || {
@@ -270,6 +276,7 @@ impl GitHubCopilotFlow {
                             ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                         ]),
                     None,
+                    &[],
                 )
                 .await?;
                 if let Some(token) = value.get("access_token").and_then(Value::as_str) {
@@ -300,10 +307,16 @@ impl GitHubCopilotFlow {
             .refresh(&github_access_token, enterprise_domain.as_deref())
             .await?;
         callbacks.on_progress("Enabling models...");
+        let model_ids = if self.model_ids.is_empty() {
+            callbacks.provider_model_ids("github-copilot")
+        } else {
+            self.model_ids.clone()
+        };
         let mut tasks = tokio::task::JoinSet::new();
-        for model_id in callbacks.provider_model_ids("github-copilot") {
+        for model_id in &model_ids {
             let flow = self.clone();
             let token = credentials.access.clone();
+            let model_id = model_id.clone();
             let enterprise_domain = enterprise_domain.clone();
             tasks.spawn(async move {
                 flow.enable_model(&token, &model_id, enterprise_domain.as_deref())

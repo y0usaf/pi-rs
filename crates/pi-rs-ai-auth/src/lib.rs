@@ -1,9 +1,10 @@
 //! pi-rs-ai-auth — the `packages/ai` OAuth port (spec: `ref/pi` @
 //! `c5582102`, pi v0.79.0, `src/utils/oauth/`).
 //!
-//! Structure follows the locked `pi-rs-ai` decision row: one PKCE
-//! authorization-code engine ([`engine`]), one RFC 8628 polling engine, and
-//! provider-specific code only where the wire flow is irreducibly different.
+//! Structure follows the provider/auth subsystem boundary: one PKCE
+//! authorization-code engine ([`engine`]), one RFC 8628 polling engine, an
+//! explicit-path credential store, and provider-specific code only where wire
+//! behavior is irreducibly different.
 //! Anthropic, GitHub Copilot, and OpenAI Codex match the pinned built-in OAuth
 //! registry. Resurrected from the attic (`rebuild` @ `e8cb418`,
 //! `pi-rs-ai-auth`) and reshaped to the spec's surface, messages, and pages.
@@ -14,10 +15,13 @@
 
 mod anthropic;
 mod callback_server;
+mod config_value;
+mod credential_store;
 mod device_code;
 mod engine;
 mod error;
 mod github_copilot;
+mod http;
 mod oauth_page;
 mod openai_codex;
 mod pkce;
@@ -26,6 +30,11 @@ mod types;
 
 pub use anthropic::{anthropic_flow, login_anthropic, refresh_anthropic_token};
 pub use callback_server::{CallbackCode, CallbackPages, CallbackServer};
+pub use config_value::resolve_config_value;
+pub use credential_store::{
+    AuthCredential, CredentialPaths, CredentialSnapshot, CredentialSource, CredentialStore,
+    StoredApiKey,
+};
 pub use device_code::{DeviceCodePoll, poll_device_code};
 pub use engine::{PkceFlow, login_pkce, parse_authorization_input, refresh_pkce};
 pub use error::AuthError;

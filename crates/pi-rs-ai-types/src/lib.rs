@@ -14,6 +14,7 @@
 
 pub mod diagnostics;
 pub mod models;
+pub mod redaction;
 pub mod types;
 
 pub use diagnostics::{AssistantMessageDiagnostic, DiagnosticCode, DiagnosticErrorInfo};
@@ -21,6 +22,7 @@ pub use models::{
     EXTENDED_THINKING_LEVELS, calculate_cost, clamp_thinking_level, clamp_thinking_level_for,
     get_supported_thinking_levels, models_are_equal, supported_thinking_levels_for,
 };
+pub use redaction::{REDACTED, redact_sensitive};
 pub use types::{
     AnthropicMessagesCompat, Api, AssistantContent, AssistantImages, AssistantMessage,
     AssistantMessageEvent, AssistantRole, CacheControlFormat, CacheRetention, Context,

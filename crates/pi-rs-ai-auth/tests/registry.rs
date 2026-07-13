@@ -167,6 +167,10 @@ fn credentials_round_trip_with_extra_fields() {
         credentials.extra.get("enterpriseDomain").unwrap(),
         "x.ghe.com"
     );
+    let debug = format!("{credentials:?}");
+    assert!(!debug.contains("a1"));
+    assert!(!debug.contains("r1"));
+    assert!(debug.contains("[REDACTED]"));
     let back = serde_json::to_value(&credentials).unwrap();
     assert_eq!(
         back,

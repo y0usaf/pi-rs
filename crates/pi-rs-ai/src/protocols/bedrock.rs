@@ -955,21 +955,27 @@ async fn drive(
     }
     let body = params.to_string();
     let url = request_url(model);
-    let client = reqwest::Client::builder()
+    let headers = request_headers(model, options, &url, &body)?;
+    let response = crate::transport::shared_http_client()
+        .post(&url)
         .timeout(std::time::Duration::from_millis(
             options.base.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS),
         ))
-        .build()
-        .map_err(|error| ProtocolError(error.to_string()))?;
-    let response = client
-        .post(&url)
-        .headers(request_headers(model, options, &url, &body)?)
+        .headers(headers.clone())
         .body(body)
         .send()
         .await
-        .map_err(|error| ProtocolError(error.to_string()))?;
+        .map_err(|error| {
+            ProtocolError(crate::transport::http::redact_http_message(
+                &error.to_string(),
+                &headers,
+            ))
+        })?;
     if !response.status().is_success() {
-        let body = response.text().await.unwrap_or_default();
+        let body = crate::transport::http::redact_http_message(
+            &response.text().await.unwrap_or_default(),
+            &headers,
+        );
         let message = serde_json::from_str::<Value>(&body)
             .ok()
             .and_then(|value| {
@@ -1058,7 +1064,10 @@ pub fn stream_bedrock(
                 } else {
                     StopReason::Error
                 };
-                output.error_message = Some(error.to_string());
+                output.error_message = Some(super::redact_provider_error(
+                    &error.to_string(),
+                    &options.base,
+                ));
                 task.push(AssistantMessageEvent::Error {
                     reason: output.stop_reason,
                     error: output,

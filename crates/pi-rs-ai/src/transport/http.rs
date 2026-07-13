@@ -78,6 +78,8 @@ pub async fn post_with_retry(
     retry: &RetryOptions,
     signal: Option<&AbortSignal>,
 ) -> Result<reqwest::Response, TransportError> {
+    let secret_values = sensitive_header_values(headers);
+    let secrets: Vec<&str> = secret_values.iter().map(String::as_str).collect();
     let mut last_error = None;
     for attempt in 0..=retry.max_retries {
         if let Some(signal) = signal
@@ -91,7 +93,7 @@ pub async fn post_with_retry(
             .headers(headers.clone())
             .body(body.to_string())
             .send();
-        match send_with_limits(send, retry.header_timeout_ms, signal).await {
+        match send_with_limits(send, retry.header_timeout_ms, signal, &secrets).await {
             Ok(response) => {
                 if response.status().is_success() {
                     return Ok(response);
@@ -119,8 +121,10 @@ pub async fn post_with_retry(
                         .to_string();
                     // SDK: `response.text().catch(err => castToError(err).message)`.
                     let body = match response.text().await {
-                        Ok(text) => text,
-                        Err(error) => error.to_string(),
+                        Ok(text) => pi_rs_ai_types::redact_sensitive(&text, &secrets),
+                        Err(error) => {
+                            pi_rs_ai_types::redact_sensitive(&error.to_string(), &secrets)
+                        }
                     };
                     return Err(TransportError::Status {
                         status,
@@ -137,11 +141,14 @@ pub async fn post_with_retry(
                     .to_string();
                 let response_headers = response.headers().clone();
                 let text = match response.text().await {
-                    Ok(text) => text,
+                    Ok(text) => pi_rs_ai_types::redact_sensitive(&text, &secrets),
                     // Spec: a body-read failure falls into the generic
                     // catch (network path).
                     Err(error) => {
-                        let error = TransportError::Network(error.to_string());
+                        let error = TransportError::Network(pi_rs_ai_types::redact_sensitive(
+                            &error.to_string(),
+                            &secrets,
+                        ));
                         match retry_generic(attempt, retry, &error, signal).await? {
                             true => {
                                 last_error = Some(error);
@@ -230,6 +237,7 @@ async fn send_with_limits(
     send: impl Future<Output = Result<reqwest::Response, reqwest::Error>>,
     header_timeout_ms: u64,
     signal: Option<&AbortSignal>,
+    secrets: &[&str],
 ) -> Result<reqwest::Response, TransportError> {
     let timeout = tokio::time::sleep(std::time::Duration::from_millis(header_timeout_ms));
     tokio::pin!(timeout);
@@ -238,13 +246,47 @@ async fn send_with_limits(
         Some(signal) => tokio::select! {
             _ = signal.aborted() => Err(TransportError::Aborted),
             _ = &mut timeout => Err(TransportError::HeaderTimeout(header_timeout_ms)),
-            result = &mut send => result.map_err(|e| TransportError::Network(e.to_string())),
+            result = &mut send => result.map_err(|error| TransportError::Network(
+                pi_rs_ai_types::redact_sensitive(&error.to_string(), secrets)
+            )),
         },
         None => tokio::select! {
             _ = &mut timeout => Err(TransportError::HeaderTimeout(header_timeout_ms)),
-            result = &mut send => result.map_err(|e| TransportError::Network(e.to_string())),
+            result = &mut send => result.map_err(|error| TransportError::Network(
+                pi_rs_ai_types::redact_sensitive(&error.to_string(), secrets)
+            )),
         },
     }
+}
+
+fn sensitive_header_values(headers: &HeaderMap) -> Vec<String> {
+    headers
+        .iter()
+        .filter(|(name, _)| {
+            matches!(
+                name.as_str(),
+                "authorization"
+                    | "proxy-authorization"
+                    | "x-api-key"
+                    | "api-key"
+                    | "x-goog-api-key"
+            )
+        })
+        .filter_map(|(_, value)| value.to_str().ok())
+        .flat_map(|value| {
+            let bare = value
+                .strip_prefix("Bearer ")
+                .or_else(|| value.strip_prefix("Basic "));
+            [Some(value.to_owned()), bare.map(str::to_owned)]
+        })
+        .flatten()
+        .collect()
+}
+
+pub(crate) fn redact_http_message(input: &str, headers: &HeaderMap) -> String {
+    let secret_values = sensitive_header_values(headers);
+    let secrets: Vec<&str> = secret_values.iter().map(String::as_str).collect();
+    pi_rs_ai_types::redact_sensitive(input, &secrets)
 }
 
 /// SSE reader over a response body (spec: `parseSSE(response, signal)`).

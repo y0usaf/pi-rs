@@ -864,7 +864,7 @@ async fn run_anthropic(
             } else {
                 StopReason::Error
             };
-            output.error_message = Some(message);
+            output.error_message = Some(super::redact_provider_error(&message, &options.base));
             stream.push(AssistantMessageEvent::Error {
                 reason: output.stop_reason,
                 error: output,
@@ -986,7 +986,7 @@ async fn drive(
         policy: RetryPolicy::AnthropicSdk,
     };
     let signal = options.base.signal.clone();
-    let client = reqwest::Client::new();
+    let client = crate::transport::shared_http_client();
     let response = post_with_retry(
         &client,
         &request.url,

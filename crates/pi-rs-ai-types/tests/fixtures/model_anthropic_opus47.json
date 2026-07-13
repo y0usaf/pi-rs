@@ -4,11 +4,24 @@
   "api": "anthropic-messages",
   "provider": "anthropic",
   "baseUrl": "https://api.anthropic.com",
-  "compat": { "forceAdaptiveThinking": true, "supportsTemperature": false },
+  "compat": {
+    "forceAdaptiveThinking": true,
+    "supportsTemperature": false
+  },
   "reasoning": true,
-  "thinkingLevelMap": { "xhigh": "xhigh", "max": "max" },
-  "input": ["text", "image"],
-  "cost": { "input": 5, "output": 25, "cacheRead": 0.5, "cacheWrite": 6.25 },
+  "thinkingLevelMap": {
+    "xhigh": "xhigh"
+  },
+  "input": [
+    "text",
+    "image"
+  ],
+  "cost": {
+    "input": 5,
+    "output": 25,
+    "cacheRead": 0.5,
+    "cacheWrite": 6.25
+  },
   "contextWindow": 1000000,
   "maxTokens": 128000
 }

@@ -206,7 +206,7 @@ async fn refresh_user_token(credentials: &Value) -> Result<String, ProtocolError
         }
         serializer.finish()
     };
-    let mut request = reqwest::Client::new()
+    let mut request = crate::transport::shared_http_client()
         .post(endpoint)
         .header("accept", "application/json")
         .header(
@@ -281,7 +281,7 @@ async fn service_account_token(credentials: &Value) -> Result<String, ProtocolEr
         serializer.finish()
     };
     let value = token_response(
-        reqwest::Client::new()
+        crate::transport::shared_http_client()
             .post(service_account_token_url(credentials))
             .header("accept", "application/json")
             .header(
@@ -788,7 +788,7 @@ async fn aws_imds_token(source: &Value) -> Result<Option<String>, ProtocolError>
     else {
         return Ok(None);
     };
-    let token = reqwest::Client::new()
+    let token = crate::transport::shared_http_client()
         .put(url)
         .header("accept", "*/*")
         .header("x-aws-ec2-metadata-token-ttl-seconds", "300")
@@ -809,7 +809,7 @@ async fn aws_metadata_text(
     accept: &str,
     token: Option<&str>,
 ) -> Result<String, ProtocolError> {
-    let mut request = reqwest::Client::new()
+    let mut request = crate::transport::shared_http_client()
         .get(url)
         .header("accept", accept)
         .header("x-goog-api-client", "gl-node/22.23.1");
@@ -1073,7 +1073,7 @@ async fn external_subject_token(
     }
     if let Some(url) = source.get("url").and_then(Value::as_str) {
         let json = source.pointer("/format/type").and_then(Value::as_str) == Some("json");
-        let mut request = reqwest::Client::new()
+        let mut request = crate::transport::shared_http_client()
             .get(url)
             .header("accept", if json { "application/json" } else { "*/*" })
             .header("x-goog-api-client", "gl-node/22.23.1");
@@ -1334,6 +1334,12 @@ async fn drive(
     let client = builder
         .build()
         .map_err(|error| ProtocolError(error.to_string()))?;
+    let headers = request_headers(
+        model,
+        options,
+        key,
+        auth.as_ref().map(|value| value.token.as_str()),
+    )?;
     let response = client
         .post(request_url(
             model,
@@ -1341,22 +1347,25 @@ async fn drive(
             project.as_deref(),
             location.as_deref(),
         ))
-        .headers(request_headers(
-            model,
-            options,
-            key,
-            auth.as_ref().map(|value| value.token.as_str()),
-        )?)
+        .headers(headers.clone())
         .body(params.to_string())
         .send()
         .await
-        .map_err(|error| ProtocolError(error.to_string()))?;
+        .map_err(|error| {
+            ProtocolError(crate::transport::http::redact_http_message(
+                &error.to_string(),
+                &headers,
+            ))
+        })?;
     if !response.status().is_success() {
         let status = response.status();
         return Err(ProtocolError(format_http_error(TransportError::Status {
             status: status.as_u16(),
             status_text: status.canonical_reason().unwrap_or_default().to_string(),
-            body: response.text().await.unwrap_or_default(),
+            body: crate::transport::http::redact_http_message(
+                &response.text().await.unwrap_or_default(),
+                &headers,
+            ),
         })));
     }
     stream.push(AssistantMessageEvent::Start {
@@ -1431,7 +1440,10 @@ pub fn stream_google_vertex(
                 } else {
                     StopReason::Error
                 };
-                output.error_message = Some(error.to_string());
+                output.error_message = Some(super::redact_provider_error(
+                    &error.to_string(),
+                    &options.base,
+                ));
                 task.push(AssistantMessageEvent::Error {
                     reason: output.stop_reason,
                     error: output,

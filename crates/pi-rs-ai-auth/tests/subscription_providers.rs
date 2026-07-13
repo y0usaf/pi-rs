@@ -100,7 +100,6 @@ struct Callbacks {
     auth: Mutex<Vec<OAuthAuthInfo>>,
     device_codes: Mutex<Vec<OAuthDeviceCodeInfo>>,
     progress: Mutex<Vec<String>>,
-    model_ids: Vec<String>,
 }
 
 impl OAuthLoginCallbacks for Callbacks {
@@ -124,11 +123,6 @@ impl OAuthLoginCallbacks for Callbacks {
 
     fn on_progress(&self, message: &str) {
         self.progress.lock().unwrap().push(message.into());
-    }
-
-    fn provider_model_ids(&self, provider: &str) -> Vec<String> {
-        assert_eq!(provider, "github-copilot");
-        self.model_ids.clone()
     }
 
     fn on_manual_code_input(&self) -> Option<AuthFuture<'_, String>> {
@@ -188,7 +182,12 @@ async fn codex_device_login_replays_select_device_poll_exchange_and_account_id()
     let credentials = flow.login(&callbacks).await.unwrap();
     assert_eq!(credentials.refresh, "refresh-1");
     assert_eq!(credentials.extra["accountId"], "acct-123");
-    assert_eq!(callbacks.device_codes.lock().unwrap()[0].user_code, "ABCD");
+    let device_debug = {
+        let device_codes = callbacks.device_codes.lock().unwrap();
+        assert_eq!(device_codes[0].user_code, "ABCD");
+        format!("{:?}", device_codes[0])
+    };
+    assert!(!device_debug.contains("ABCD"));
 
     let first = requests.recv().await.unwrap();
     assert_eq!(first.target, "/device/usercode");
@@ -279,11 +278,9 @@ async fn github_login_replays_enterprise_prompt_device_poll_and_copilot_refresh(
             copilot_token_url: format!("{base}/copilot/token"),
         }),
         policy_base_url_override: Some(base.clone()),
-    };
-    let callbacks = Callbacks {
         model_ids: vec!["gpt-test".into()],
-        ..Callbacks::default()
     };
+    let callbacks = Callbacks::default();
     callbacks.prompts.lock().unwrap().push_back(String::new());
 
     let credentials = flow.login(&callbacks).await.unwrap();

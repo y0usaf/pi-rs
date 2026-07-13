@@ -88,3 +88,17 @@ pub(crate) fn merge_header_map(
         }
     }
 }
+
+/// Final error boundary shared by every protocol family. Provider response
+/// parsers may preserve arbitrary server detail, but credentials supplied in
+/// options can never enter assistant snapshots or diagnostics.
+pub(crate) fn redact_provider_error(message: &str, options: &StreamOptions) -> String {
+    let mut secrets = Vec::new();
+    if let Some(api_key) = options.api_key.as_deref() {
+        secrets.push(api_key);
+    }
+    if let Some(headers) = &options.headers {
+        secrets.extend(headers.values().map(String::as_str));
+    }
+    pi_rs_ai_types::redact_sensitive(message, &secrets)
+}

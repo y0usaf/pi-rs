@@ -8,13 +8,14 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 
 use pi_rs_ai::protocols::options::{SimpleStreamOptions, StreamOptions};
 use pi_rs_ai::registry::{
-    ApiProvider, find_env_keys, get_api_provider, get_api_providers, get_env_api_key, get_model,
-    get_models, get_providers, register_api_provider, reset_api_providers, stream, stream_simple,
-    unregister_api_providers,
+    ApiProvider, env_api_key_names, find_env_keys, get_api_provider, get_api_providers,
+    get_env_api_key, get_model, get_models, get_providers, register_api_provider,
+    reset_api_providers, stream, stream_simple, unregister_api_providers,
 };
 use pi_rs_ai::transport::event_stream::create_assistant_message_event_stream;
 use pi_rs_ai_types::{Context, KNOWN_APIS, Model};
@@ -34,8 +35,7 @@ fn global_lock() -> MutexGuard<'static, ()> {
 // Catalog (models.ts registry half + generated data)
 // ---------------------------------------------------------------------
 
-/// Pin the generation: 35 providers / 1057 models, in the spec's
-/// `MODELS` declaration order (first key: amazon-bedrock).
+/// Pin the exact v0.79.0 generation and declaration order.
 #[test]
 fn catalog_counts_and_order_pin_the_generation() {
     let providers = get_providers();
@@ -45,32 +45,96 @@ fn catalog_counts_and_order_pin_the_generation() {
     assert!(providers.contains(&"openai"));
 
     let total: usize = providers.iter().map(|p| get_models(p).len()).sum();
-    assert_eq!(total, 1057, "model count");
+    assert_eq!(total, 969, "model count");
 }
 
 #[test]
-fn catalog_provenance_matches_inventory_and_protocol_vocabulary() {
+fn catalog_provenance_inventory_and_dispatch_fail_closed() {
+    let _guard = global_lock();
+    reset_api_providers();
+    let raw = include_str!("../data/models.json");
     let provenance: Value =
         serde_json::from_str(include_str!("../data/models.provenance.json")).unwrap();
-    let providers = get_providers();
-    let total: usize = providers
-        .iter()
-        .map(|provider| get_models(provider).len())
-        .sum();
-    assert_eq!(provenance["schemaVersion"], 1);
-    assert_eq!(provenance["inventory"]["providers"], providers.len());
-    assert_eq!(provenance["inventory"]["models"], total);
+    let catalog: Vec<Value> = serde_json::from_str(raw).unwrap();
 
-    for provider in providers {
-        for model in get_models(provider) {
+    assert_eq!(provenance["schemaVersion"], 1);
+    assert_eq!(
+        provenance["source"]["revision"],
+        "c5582102f51b143fadc05180e0f8aed050e923b3"
+    );
+    assert_eq!(
+        provenance["source"]["path"],
+        "packages/ai/src/models.generated.ts"
+    );
+    assert_eq!(provenance["overrides"]["count"], 0);
+    assert_eq!(
+        provenance["overrides"]["path"],
+        "scripts/model-catalog-overrides.json"
+    );
+    let output_hash = ring::digest::digest(&ring::digest::SHA256, raw.as_bytes());
+    let output_hash = output_hash
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    assert_eq!(provenance["outputSha256"], output_hash);
+
+    let mut providers = HashSet::new();
+    let mut by_provider = BTreeMap::new();
+    let mut by_api = BTreeMap::new();
+    let mut total = 0_usize;
+    for entry in &catalog {
+        let provider = entry["provider"].as_str().unwrap();
+        assert!(providers.insert(provider), "duplicate provider {provider}");
+        let mut model_ids = HashSet::new();
+        let models = entry["models"].as_array().unwrap();
+        by_provider.insert(provider, models.len());
+        total += models.len();
+        for raw_model in models {
+            let model: Model = serde_json::from_value(raw_model.clone()).unwrap();
+            assert_eq!(model.provider, provider);
+            assert!(
+                model_ids.insert(model.id.clone()),
+                "duplicate model {provider}/{}",
+                model.id
+            );
             assert!(
                 KNOWN_APIS.contains(&model.api.as_str()),
                 "{provider}/{} uses unreviewed API {}",
                 model.id,
                 model.api
             );
+            assert!(
+                get_api_provider(&model.api).is_some(),
+                "{provider}/{} has no dispatch for {}",
+                model.id,
+                model.api
+            );
+            *by_api.entry(model.api.clone()).or_insert(0_usize) += 1;
         }
     }
+
+    for provider in get_providers() {
+        assert!(
+            env_api_key_names(provider).is_some()
+                || matches!(
+                    provider,
+                    "amazon-bedrock" | "anthropic" | "github-copilot" | "openai-codex"
+                ),
+            "{provider} has no classified credential source"
+        );
+    }
+
+    assert_eq!(provenance["inventory"]["providers"], providers.len());
+    assert_eq!(provenance["inventory"]["models"], total);
+    assert_eq!(
+        provenance["inventory"]["byProvider"],
+        serde_json::to_value(by_provider).unwrap()
+    );
+    assert_eq!(
+        provenance["inventory"]["apis"],
+        serde_json::to_value(by_api).unwrap()
+    );
 }
 
 #[test]
