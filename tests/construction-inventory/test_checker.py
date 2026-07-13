@@ -118,8 +118,8 @@ class ConstructionInventoryCheckerTests(unittest.TestCase):
 
     def test_stale_rust_seam_is_rejected(self) -> None:
         main = self.root / "crates/pi-rs-app/src/main.rs"
-        main.write_text(main.read_text().replace("let command = if interactive", "let role = if interactive", 1))
-        self.assert_rejected("Rust seam mode-role-branch is stale")
+        main.write_text(main.read_text().replace("let role = if interactive", "let selected_role = if interactive", 1))
+        self.assert_rejected("stale anchor")
 
     def test_unclassified_rust_launch_call_is_rejected(self) -> None:
         main = self.root / "crates/pi-rs-app/src/main.rs"

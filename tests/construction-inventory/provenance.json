@@ -39,20 +39,21 @@
   "rust_call_operations": [
     "load_embedded",
     "load_extensions",
-    "call_command"
+    "call_command",
+    "call_role"
   ],
   "rust_call_inventory": [
     {
       "path": "crates/pi-rs-app/src/main.rs",
-      "operation": "load_embedded",
-      "count": 1,
-      "row": "rust.fixed-pack-composition"
-    },
-    {
-      "path": "crates/pi-rs-app/src/main.rs",
-      "operation": "call_command",
+      "operation": "call_role",
       "count": 4,
       "row": "rust.hardcoded-application-dispatch"
+    },
+    {
+      "path": "crates/pi-rs-app/src/builtins/manifest.rs",
+      "operation": "load_embedded",
+      "count": 2,
+      "row": "rust.fixed-pack-composition"
     },
     {
       "path": "crates/pi-rs-app/src/cli/extensions.rs",
@@ -75,16 +76,16 @@
   ],
   "rust_seams": [
     {
-      "id": "fixed-pack-list",
+      "id": "builtin-manifest",
       "row": "rust.fixed-pack-composition",
-      "path": "crates/pi-rs-app/src/main.rs",
-      "text": "let packs = [",
+      "path": "crates/pi-rs-app/src/builtins/manifest.rs",
+      "text": "pub const PACKAGES: &[BuiltinPackage]",
       "count": 1
     },
     {
-      "id": "embedded-load",
+      "id": "manifest-embedded-load",
       "row": "rust.fixed-pack-composition",
-      "path": "crates/pi-rs-app/src/main.rs",
+      "path": "crates/pi-rs-app/src/builtins/manifest.rs",
       "text": "host.load_embedded(&packs)",
       "count": 1
     },
@@ -99,21 +100,21 @@
       "id": "mode-role-branch",
       "row": "rust.hardcoded-application-dispatch",
       "path": "crates/pi-rs-app/src/main.rs",
-      "text": "let command = if interactive",
+      "text": "let role = if interactive",
       "count": 1
     },
     {
-      "id": "mode-command-launch",
+      "id": "mode-role-launch",
       "row": "rust.hardcoded-application-dispatch",
       "path": "crates/pi-rs-app/src/main.rs",
-      "text": "host.call_command(command",
+      "text": "host.call_role(role",
       "count": 1
     },
     {
-      "id": "pre-runtime-product-launches",
+      "id": "pre-runtime-role-launches",
       "row": "rust.pre-runtime-product-dispatch",
       "path": "crates/pi-rs-app/src/main.rs",
-      "text": "call_command(\"",
+      "text": "host.call_role(\"",
       "count": 3
     },
     {
@@ -132,7 +133,6 @@
     }
   ],
   "required_open_rows": [
-    "rust.hardcoded-application-dispatch",
     "rust.synthetic-source-identity",
     "modules.chunk-local-helpers",
     "dogfood.pi-compact-renderer-patching",

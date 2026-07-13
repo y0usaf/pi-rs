@@ -30,7 +30,7 @@ REQUIRED_FIELDS = {
     "rust_entrypoints",
 }
 ALLOWED_STATUS = {"implemented", "open", "DESIGN exception"}
-DECLARATION_RE = re.compile(r"pi\.register_(command|tool)\s*\(\s*(?:[\"']([^\"']+)[\"']|\{)")
+DECLARATION_RE = re.compile(r"pi\.register_(command|tool|role)\s*\(\s*(?:[\"']([^\"']+)[\"']|\{)")
 
 
 def load_json(root: Path, relative: Path) -> dict:
@@ -108,9 +108,12 @@ def extract_declarations(root: Path, embedded: dict[str, set[str]]) -> set[str]:
                 name = literal
             else:
                 block = source[match.end() :]
-                name_match = re.search(r'\bname\s*=\s*["\']([^"\']+)["\']', block)
+                field = "role" if kind == "role" else "name"
+                name_match = re.search(rf'\b{field}\s*=\s*["\']([^"\']+)["\']', block)
                 if not name_match:
-                    raise ValueError(f"{relative}: register_tool must have a literal name for inventory")
+                    raise ValueError(
+                        f"{relative}: register_{kind} must have a literal {field} for inventory"
+                    )
                 name = name_match.group(1)
             key = f"{kind}:{name}"
             if key in declarations:
