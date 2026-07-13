@@ -208,7 +208,7 @@ generic mechanisms.
 
 ## 1 — Cut the bare mechanism kernel
 
-- [ ] **1.1 — Define the kernel transaction and source-neutral package model**
+- [x] **1.1 — Define the kernel transaction and source-neutral package model**
   (**serial**; depends on 0.3).
 
   Replace compatibility-shaped host APIs with one bounded dispatch transaction:
@@ -227,12 +227,13 @@ generic mechanisms.
   handles fail; busy loops time out; actions apply only after dispatch; failed
   package loads publish nothing; root/declaration conflicts are deterministic.
 
-  **Landed slice:** `7ce1736` establishes the versioned bounded transaction,
+  **Landed:** `7ce1736` establishes the versioned bounded transaction,
   source-neutral package scopes, stale-handle/watchdog/cancellation/disposal
   behavior, deterministic roots/declarations/modules, and 13 focused invariant
-  tests. Remaining before closure: remove the inherited `api.rs` hotspot,
-  migrate retained compatibility declarations onto the canonical registry and
-  transaction path, and prove failed-load rollback for those side effects.
+  tests. `d6618ac` removes the inherited `api.rs` hotspot, splits ownership into
+  focused modules, routes retained adapters through canonical package state,
+  and proves scope-atomic rollback across every registration family with 5
+  additional tests. Integrated host/workspace tests and `nix flake check` pass.
 
 - [ ] **1.2 — Make `pi` a thin generic launcher with zero builtins**
   (**serial**; depends on 1.1).
