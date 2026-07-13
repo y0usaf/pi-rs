@@ -3,14 +3,52 @@
 //! Literal values may interpolate environment variables; values beginning with
 //! `!` execute through the configured shell with a hard timeout. Command output
 //! is cached for the process lifetime and never included in errors or debug
-//! output.
+//! output. The process-wide cache has a hard 64-entry bound and deterministic
+//! first-in/first-out eviction: hits and updates do not refresh insertion order.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{LazyLock, Mutex, PoisonError};
 use std::time::Duration;
 
-static COMMAND_CACHE: LazyLock<Mutex<HashMap<String, Option<String>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+const COMMAND_CACHE_CAPACITY: usize = 64;
+
+static COMMAND_CACHE: LazyLock<Mutex<CommandCache>> =
+    LazyLock::new(|| Mutex::new(CommandCache::new(COMMAND_CACHE_CAPACITY)));
+
+struct CommandCache {
+    capacity: usize,
+    values: HashMap<String, Option<String>>,
+    insertion_order: VecDeque<String>,
+}
+
+impl CommandCache {
+    fn new(capacity: usize) -> Self {
+        assert!(capacity > 0, "command cache capacity must be non-zero");
+        Self {
+            capacity,
+            values: HashMap::new(),
+            insertion_order: VecDeque::new(),
+        }
+    }
+
+    fn get(&self, key: &str) -> Option<Option<String>> {
+        self.values.get(key).cloned()
+    }
+
+    fn insert(&mut self, key: String, value: Option<String>) {
+        if let Some(cached) = self.values.get_mut(&key) {
+            *cached = value;
+            return;
+        }
+        while self.values.len() >= self.capacity {
+            if let Some(oldest) = self.insertion_order.pop_front() {
+                self.values.remove(&oldest);
+            }
+        }
+        self.insertion_order.push_back(key.clone());
+        self.values.insert(key, value);
+    }
+}
 
 /// Resolve a stored API-key expression without exposing command failures.
 pub async fn resolve_config_value(config: &str) -> Option<String> {
@@ -88,7 +126,6 @@ async fn resolve_command(cache_key: &str, command: &str) -> Option<String> {
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .get(cache_key)
-        .cloned()
     {
         return cached;
     }
@@ -124,4 +161,61 @@ async fn resolve_command(cache_key: &str, command: &str) -> Option<String> {
         .unwrap_or_else(PoisonError::into_inner)
         .insert(cache_key.to_owned(), resolved.clone());
     resolved
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Barrier, Mutex, PoisonError};
+
+    use super::CommandCache;
+
+    #[test]
+    fn command_cache_evicts_fifo_without_refreshing_hits_or_updates() {
+        let mut cache = CommandCache::new(2);
+        cache.insert("first".into(), Some("one".into()));
+        cache.insert("second".into(), Some("two".into()));
+        assert_eq!(cache.get("first"), Some(Some("one".into())));
+        cache.insert("first".into(), Some("updated".into()));
+        cache.insert("third".into(), None);
+
+        assert_eq!(cache.get("first"), None);
+        assert_eq!(cache.get("second"), Some(Some("two".into())));
+        assert_eq!(cache.get("third"), Some(None));
+    }
+
+    #[test]
+    fn command_cache_remains_hard_bounded_under_concurrent_insertions() {
+        const CAPACITY: usize = 8;
+        const WORKERS: usize = 16;
+        let cache = Arc::new(Mutex::new(CommandCache::new(CAPACITY)));
+        let barrier = Arc::new(Barrier::new(WORKERS));
+        let workers: Vec<_> = (0..WORKERS)
+            .map(|worker| {
+                let cache = Arc::clone(&cache);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    for sequence in 0..32 {
+                        cache
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .insert(format!("{worker}-{sequence}"), Some(sequence.to_string()));
+                    }
+                })
+            })
+            .collect();
+        for worker in workers {
+            assert!(worker.join().is_ok(), "cache worker must finish");
+        }
+
+        let cache = cache.lock().unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(cache.values.len(), CAPACITY);
+        assert_eq!(cache.insertion_order.len(), CAPACITY);
+        assert!(
+            cache
+                .insertion_order
+                .iter()
+                .all(|key| cache.values.contains_key(key))
+        );
+    }
 }
