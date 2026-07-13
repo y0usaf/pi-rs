@@ -1,13 +1,11 @@
-//! pi-rs-tui — the `packages/tui` port (spec: `ref/pi` @ `c5582102`, pi
-//! v0.79.0).
-//!
-//! WS6 owns the component tree (differential renderer, editor,
-//! autocomplete, …). The crate is seeded early with the one module the
-//! WS2 bare binary needs: [`fuzzy`] (`--list-models` search).
+//! Generic terminal mechanisms: bounded input decoding, Unicode cell layout,
+//! retained display batches, differential ANSI presentation, terminal images,
+//! and process lifecycle cleanup.
 
 pub mod autocomplete;
 pub mod box_component;
 pub mod component;
+pub mod display;
 pub mod editor;
 pub mod fuzzy;
 pub mod input;

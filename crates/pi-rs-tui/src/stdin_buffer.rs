@@ -5,6 +5,27 @@ const ESC: u8 = 0x1b;
 const PASTE_START: &[u8] = b"\x1b[200~";
 const PASTE_END: &[u8] = b"\x1b[201~";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InputLimits {
+    pub max_pending_bytes: usize,
+}
+
+impl Default for InputLimits {
+    fn default() -> Self {
+        Self {
+            max_pending_bytes: 1_048_576,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum InputDecodeError {
+    #[error("terminal input has {actual} pending bytes; limit is {limit}")]
+    PendingBytes { actual: usize, limit: usize },
+    #[error("terminal input is not valid UTF-8")]
+    InvalidUtf8,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StdinEvent {
     Data(String),
@@ -19,12 +40,19 @@ enum SequenceStatus {
 
 /// Stateful stdin parser. `flush` is the deterministic equivalent of pi's
 /// incomplete-sequence timeout.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct StdinBuffer {
     buffer: Vec<u8>,
     paste: bool,
     paste_buffer: Vec<u8>,
     pending_kitty_printable: Option<u32>,
+    limits: InputLimits,
+}
+
+impl Default for StdinBuffer {
+    fn default() -> Self {
+        Self::with_limits(InputLimits::default())
+    }
 }
 
 impl StdinBuffer {
@@ -32,12 +60,24 @@ impl StdinBuffer {
         Self::default()
     }
 
+    pub fn with_limits(limits: InputLimits) -> Self {
+        Self {
+            buffer: Vec::new(),
+            paste: false,
+            paste_buffer: Vec::new(),
+            pending_kitty_printable: None,
+            limits,
+        }
+    }
+
     pub fn process(&mut self, data: &str) -> Vec<StdinEvent> {
         self.process_bytes(data.as_bytes())
     }
 
-    /// Processes raw terminal bytes. A lone high byte uses Node readline's
-    /// historical meta-key conversion (`byte` becomes `ESC`, `byte - 128`).
+    /// Compatibility entry point for event loops that cannot surface decoder
+    /// errors. Malformed input is rejected and all partial state is discarded.
+    /// A lone high byte retains the conventional meta-key conversion (`byte`
+    /// becomes `ESC`, `byte - 128`).
     pub fn process_bytes(&mut self, data: &[u8]) -> Vec<StdinEvent> {
         let converted;
         let data = if data.len() == 1 && data[0] > 127 {
@@ -46,56 +86,87 @@ impl StdinBuffer {
         } else {
             data
         };
+        self.try_process_bytes(data).unwrap_or_default()
+    }
+
+    /// Process a raw byte batch atomically with explicit malformed/bound
+    /// errors. Incomplete UTF-8 and terminal sequences remain buffered.
+    pub fn try_process_bytes(&mut self, data: &[u8]) -> Result<Vec<StdinEvent>, InputDecodeError> {
+        let actual = self
+            .buffer
+            .len()
+            .saturating_add(self.paste_buffer.len())
+            .saturating_add(data.len());
+        if actual > self.limits.max_pending_bytes {
+            self.clear();
+            return Err(InputDecodeError::PendingBytes {
+                actual,
+                limit: self.limits.max_pending_bytes,
+            });
+        }
         if data.is_empty() && self.buffer.is_empty() {
-            return vec![StdinEvent::Data(String::new())];
+            return Ok(vec![StdinEvent::Data(String::new())]);
         }
         self.buffer.extend_from_slice(data);
         let mut events = Vec::new();
-        self.consume(&mut events);
-        events
+        if let Err(error) = self.consume(&mut events) {
+            self.clear();
+            return Err(error);
+        }
+        Ok(events)
     }
 
-    fn consume(&mut self, events: &mut Vec<StdinEvent>) {
+    fn consume(&mut self, events: &mut Vec<StdinEvent>) -> Result<(), InputDecodeError> {
         if self.paste {
             self.paste_buffer.append(&mut self.buffer);
-            self.finish_paste(events);
-            return;
+            self.finish_paste(events)?;
+            return Ok(());
         }
         if let Some(start) = find_bytes(&self.buffer, PASTE_START) {
             let before = self.buffer[..start].to_vec();
-            self.emit_complete(&before, events);
+            self.emit_complete(&before, events)?;
             self.pending_kitty_printable = None;
             self.paste_buffer = self.buffer[start + PASTE_START.len()..].to_vec();
             self.buffer.clear();
             self.paste = true;
-            self.finish_paste(events);
-            return;
+            self.finish_paste(events)?;
+            return Ok(());
         }
         let source = std::mem::take(&mut self.buffer);
-        let consumed = self.emit_complete(&source, events);
+        let consumed = self.emit_complete(&source, events)?;
         self.buffer.extend_from_slice(&source[consumed..]);
+        Ok(())
     }
 
-    fn finish_paste(&mut self, events: &mut Vec<StdinEvent>) {
+    fn finish_paste(&mut self, events: &mut Vec<StdinEvent>) -> Result<(), InputDecodeError> {
         let Some(end) = find_bytes(&self.paste_buffer, PASTE_END) else {
-            return;
+            return Ok(());
         };
-        let content = String::from_utf8_lossy(&self.paste_buffer[..end]).into_owned();
+        let content = std::str::from_utf8(&self.paste_buffer[..end])
+            .map_err(|_| InputDecodeError::InvalidUtf8)?
+            .to_owned();
         let remaining = self.paste_buffer[end + PASTE_END.len()..].to_vec();
         self.paste = false;
         self.paste_buffer.clear();
         self.pending_kitty_printable = None;
         events.push(StdinEvent::Paste(content));
         self.buffer = remaining;
-        self.consume(events);
+        self.consume(events)
     }
 
-    fn emit_complete(&mut self, source: &[u8], events: &mut Vec<StdinEvent>) -> usize {
+    fn emit_complete(
+        &mut self,
+        source: &[u8],
+        events: &mut Vec<StdinEvent>,
+    ) -> Result<usize, InputDecodeError> {
         let mut pos = 0;
         while pos < source.len() {
             if source[pos] != ESC {
-                let width = utf8_char_width(source[pos]).min(source.len() - pos).max(1);
-                self.emit_data(&source[pos..pos + width], events);
+                let width = utf8_char_width(source[pos]).max(1);
+                if width > source.len() - pos {
+                    break;
+                }
+                self.emit_data(&source[pos..pos + width], events)?;
                 pos += width;
                 continue;
             }
@@ -109,10 +180,10 @@ impl StdinBuffer {
                         && remaining[..2] == [ESC, ESC]
                         && remaining.get(2).is_some_and(|b| b"[]OP_".contains(b))
                     {
-                        self.emit_data(&remaining[..1], events);
+                        self.emit_data(&remaining[..1], events)?;
                         pos += 1;
                     } else {
-                        self.emit_data(&remaining[..end], events);
+                        self.emit_data(&remaining[..end], events)?;
                         pos += end;
                     }
                     found = true;
@@ -124,11 +195,17 @@ impl StdinBuffer {
                 break;
             }
         }
-        pos
+        Ok(pos)
     }
 
-    fn emit_data(&mut self, bytes: &[u8], events: &mut Vec<StdinEvent>) {
-        let text = String::from_utf8_lossy(bytes).into_owned();
+    fn emit_data(
+        &mut self,
+        bytes: &[u8],
+        events: &mut Vec<StdinEvent>,
+    ) -> Result<(), InputDecodeError> {
+        let text = std::str::from_utf8(bytes)
+            .map_err(|_| InputDecodeError::InvalidUtf8)?
+            .to_owned();
         let raw = if text.chars().count() == 1 {
             text.chars().next().map(u32::from)
         } else {
@@ -136,20 +213,33 @@ impl StdinBuffer {
         };
         if raw.is_some() && raw == self.pending_kitty_printable {
             self.pending_kitty_printable = None;
-            return;
+            return Ok(());
         }
         self.pending_kitty_printable = kitty_printable(&text);
         events.push(StdinEvent::Data(text));
+        Ok(())
     }
 
     pub fn flush(&mut self) -> Vec<StdinEvent> {
+        self.try_flush().unwrap_or_default()
+    }
+
+    pub fn try_flush(&mut self) -> Result<Vec<StdinEvent>, InputDecodeError> {
         if self.buffer.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
-        let data = String::from_utf8_lossy(&self.buffer).into_owned();
+        let result = std::str::from_utf8(&self.buffer)
+            .map(str::to_owned)
+            .map_err(|_| InputDecodeError::InvalidUtf8);
         self.buffer.clear();
         self.pending_kitty_printable = None;
-        vec![StdinEvent::Data(data)]
+        match result {
+            Ok(data) => Ok(vec![StdinEvent::Data(data)]),
+            Err(error) => {
+                self.clear();
+                Err(error)
+            }
+        }
     }
 
     pub fn clear(&mut self) {
@@ -327,5 +417,37 @@ mod tests {
         let mut b = StdinBuffer::new();
         assert_eq!(data(b.process_bytes(&[0xe1])), ["\x1ba"]);
         assert_eq!(data(b.process("")), [""]);
+    }
+
+    #[test]
+    fn raw_decoder_buffers_split_utf8_and_rejects_malformed_data() {
+        let mut b = StdinBuffer::new();
+        assert!(b.try_process_bytes(&[0xc3]).unwrap().is_empty());
+        assert_eq!(
+            b.try_process_bytes(&[0xa9]).unwrap(),
+            [StdinEvent::Data("é".into())]
+        );
+        assert_eq!(
+            b.try_process_bytes(&[0xff, 0xff]),
+            Err(InputDecodeError::InvalidUtf8)
+        );
+        assert!(b.buffered().is_empty());
+        assert_eq!(
+            b.try_process_bytes(b"ok").unwrap(),
+            [StdinEvent::Data("o".into()), StdinEvent::Data("k".into())]
+        );
+    }
+
+    #[test]
+    fn pending_input_is_bounded_and_error_resets_partial_state() {
+        let mut b = StdinBuffer::with_limits(InputLimits {
+            max_pending_bytes: 8,
+        });
+        assert!(b.try_process_bytes(b"\x1b[200~abc").is_err());
+        assert!(b.buffered().is_empty());
+        assert_eq!(
+            b.try_process_bytes(b"x").unwrap(),
+            [StdinEvent::Data("x".into())]
+        );
     }
 }
