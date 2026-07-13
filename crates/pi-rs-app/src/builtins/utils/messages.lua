@@ -7,13 +7,6 @@
 -- coding-agent pack, so it only assumes the chunk argument.
 local pi = ...
 
-local COMPACTION_SUMMARY_PREFIX =
-  "The conversation history before this point was compacted into the following summary:\n\n<summary>\n"
-local COMPACTION_SUMMARY_SUFFIX = "\n</summary>"
-local BRANCH_SUMMARY_PREFIX =
-  "The following is a summary of a branch that this conversation came back from:\n\n<summary>\n"
-local BRANCH_SUMMARY_SUFFIX = "</summary>"
-
 -- JS `${number}`: integral values print without a fraction.
 local function msg_num(value)
   if math.type(value) == "float" and value % 1 == 0
@@ -64,13 +57,13 @@ local function convert_to_llm(messages)
     elseif m.role == "branchSummary" then
       result[#result + 1] = {
         role = "user",
-        content = { { type = "text", text = BRANCH_SUMMARY_PREFIX .. m.summary .. BRANCH_SUMMARY_SUFFIX } },
+        content = { { type = "text", text = "The following is a summary of a branch that this conversation came back from:\n\n<summary>\n" .. m.summary .. "</summary>" } },
         timestamp = m.timestamp,
       }
     elseif m.role == "compactionSummary" then
       result[#result + 1] = {
         role = "user",
-        content = { { type = "text", text = COMPACTION_SUMMARY_PREFIX .. m.summary .. COMPACTION_SUMMARY_SUFFIX } },
+        content = { { type = "text", text = "The conversation history before this point was compacted into the following summary:\n\n<summary>\n" .. m.summary .. "\n</summary>" } },
         timestamp = m.timestamp,
       }
     elseif m.role == "user" or m.role == "assistant" or m.role == "toolResult" then

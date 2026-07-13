@@ -14,6 +14,12 @@ local function truncate_to_visual_lines(text, max_visual_lines, width, padding_x
   return { visualLines = out, skippedCount = #all - max_visual_lines }
 end
 
--- Cross-pack export: components/bash-execution.ts (interactive pack,
--- PLAN 7.1) shares the spec's truncateToVisualLines.
-visual_truncate_lib = { truncate_to_visual_lines = truncate_to_visual_lines }
+-- Public module consumed by the interactive builtin and ordinary packages.
+pi.module.define({
+  name = "pi.tui.visual-truncate",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return { truncate_to_visual_lines = truncate_to_visual_lines }
+  end,
+})

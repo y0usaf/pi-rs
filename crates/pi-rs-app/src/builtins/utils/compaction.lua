@@ -6,9 +6,9 @@
 -- `pi.ai.stream_simple`, and the JS-regex overflow patterns run on the
 -- `pi.tui.js_regex_search` mechanism (`new RegExp(pattern, "i")`).
 --
--- Shared fragment: included after utils/branch-summary.lua (it builds on
--- that fragment's exports) and utils/messages.lua (convert_to_llm).
-compaction_lib = (function(pi, bs, convert_to_llm)
+-- Shared fragment: included after utils/branch-summary.lua and messages.lua.
+-- Its export stays on the pack-local policy namespace.
+EXTENSION_POLICY.compaction = (function(pi, bs, convert_to_llm)
   -- ---- DEFAULT_COMPACTION_SETTINGS ----
   local DEFAULT_COMPACTION_SETTINGS =
     { enabled = true, reserveTokens = 16384, keepRecentTokens = 20000 }
@@ -614,4 +614,4 @@ Be concise. Focus on what's needed to understand the kept suffix.]]
     is_context_overflow = is_context_overflow,
     get_message_from_entry = get_message_from_entry,
   }
-end)(pi, branch_summary_lib, convert_to_llm)
+end)(pi, EXTENSION_POLICY.branch_summary, convert_to_llm)

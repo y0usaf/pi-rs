@@ -787,3 +787,167 @@ fn render_and_slot_declarations_are_ordered_attributed_and_rolled_back() {
         serde_json::json!([["first-footer", "test://first-ui", "footer"]])
     );
 }
+
+#[test]
+fn modules_resolve_exact_declared_dependencies_once_with_source_attribution() {
+    let host = host();
+    host.load(
+        "test://base",
+        r#"
+            local pi = ...
+            local loads = 0
+            pi.module.define({
+                name = "demo.base", version = "1", dependencies = {},
+                factory = function()
+                    loads = loads + 1
+                    return { value = 20, loads = function() return loads end }
+                end,
+            })
+        "#,
+    )
+    .expect("base module defines");
+    host.load(
+        "test://derived",
+        r#"
+            local pi = ...
+            pi.module.define({
+                name = "demo.derived", version = "2",
+                dependencies = { base = { name = "demo.base", version = "1" } },
+                factory = function(deps)
+                    pi.register_command("module-factory-source", {
+                        handler = function() return "derived" end,
+                    })
+                    return { value = deps.base.value + 22, base = deps.base }
+                end,
+            })
+        "#,
+    )
+    .expect("derived module defines");
+    host.load(
+        "test://consumer",
+        r#"
+            local pi = ...
+            pi.register_command("module-probe", { handler = function()
+                local first = pi.module.require("demo.derived", "2")
+                local second = pi.module.require("demo.derived", "2")
+                return {
+                    value = first.value,
+                    same = first == second,
+                    baseLoads = first.base.loads(),
+                    modules = pi.module.list(),
+                }
+            end })
+        "#,
+    )
+    .expect("consumer loads");
+
+    let result = host
+        .call_command("module-probe", "")
+        .expect("probe runs")
+        .expect("probe result");
+    assert_eq!(result["value"], 42);
+    assert_eq!(result["same"], true);
+    assert_eq!(result["baseLoads"], 1);
+    assert_eq!(result["modules"][0]["source"], "test://base");
+    assert_eq!(result["modules"][0]["state"], "loaded");
+    assert_eq!(result["modules"][1]["source"], "test://derived");
+    assert_eq!(result["modules"][1]["state"], "loaded");
+    let factory_command = host
+        .commands()
+        .expect("commands")
+        .into_iter()
+        .find(|command| command.name == "module-factory-source")
+        .expect("factory command");
+    assert_eq!(factory_command.source, "test://derived");
+}
+
+#[test]
+fn module_failures_are_attributed_cycle_safe_and_transactional() {
+    let host = host();
+    host.load(
+        "test://cycles",
+        r#"
+            local pi = ...
+            pi.module.define({
+                name = "cycle.a", version = "1",
+                dependencies = { b = { name = "cycle.b", version = "1" } },
+                factory = function(deps) return deps.b end,
+            })
+            pi.module.define({
+                name = "cycle.b", version = "1",
+                dependencies = { a = { name = "cycle.a", version = "1" } },
+                factory = function(deps) return deps.a end,
+            })
+        "#,
+    )
+    .expect("cycle definitions load lazily");
+    let cycle = host.load(
+        "test://cycle-consumer",
+        r#"local pi = ...; pi.module.require("cycle.a", "1")"#,
+    );
+    let message = cycle.expect_err("cycle must fail").to_string();
+    assert!(
+        message.contains("cycle.a@1 -> cycle.b@1 -> cycle.a@1"),
+        "{message}"
+    );
+    assert!(message.contains("test://cycles"), "{message}");
+
+    let rollback = host.load(
+        "test://failed-module",
+        r#"
+            local pi = ...
+            pi.module.define({
+                name = "ghost", version = "1", dependencies = {},
+                factory = function() return {} end,
+            })
+            error("factory publication failed")
+        "#,
+    );
+    assert!(rollback.is_err());
+    let missing = host.load(
+        "test://ghost-consumer",
+        r#"local pi = ...; pi.module.require("ghost", "1")"#,
+    );
+    let message = missing
+        .expect_err("rolled-back module is absent")
+        .to_string();
+    assert!(
+        message.contains("module \"ghost\" version \"1\" is not defined"),
+        "{message}"
+    );
+    assert!(message.contains("test://ghost-consumer"), "{message}");
+}
+
+#[test]
+fn duplicate_module_versions_fail_without_replacing_the_owner() {
+    let host = host();
+    host.load(
+        "test://owner",
+        r#"
+            local pi = ...
+            pi.module.define({ name="owned", version="1", dependencies={},
+                factory=function() return { value="owner" } end })
+            pi.register_command("owned-probe", { handler=function()
+                return pi.module.require("owned", "1").value
+            end })
+        "#,
+    )
+    .expect("owner loads");
+    let duplicate = host.load(
+        "test://duplicate",
+        r#"
+            local pi = ...
+            pi.module.define({ name="owned", version="1", dependencies={},
+                factory=function() return { value="duplicate" } end })
+        "#,
+    );
+    let message = duplicate.expect_err("duplicate must fail").to_string();
+    assert!(
+        message.contains("owned@1 is already defined by test://owner"),
+        "{message}"
+    );
+    assert_eq!(
+        host.call_command("owned-probe", "").expect("probe"),
+        Some(serde_json::json!({"message":"owner"}))
+    );
+}

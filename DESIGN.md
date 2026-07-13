@@ -50,9 +50,10 @@ agent**. This is a closed exception list, not examples of permitted drift.
    coding-agent example that cannot translate is a bridge bug, not an example
    we skip.
 4. **Lua package contents.** Packages distribute Lua configuration/extensions,
-   not npm TypeScript/JavaScript. Package transport remains undecided until its
-   milestone. Whatever transport is selected must preserve Pi's package
-   commands and effective resource behavior unless this list is amended.
+   modules, and data rather than TypeScript/JavaScript. Transport and package
+   command behavior remain Pi-compatible: npm registry archives, Git URLs/refs,
+   and local paths. `package.json` is inert distribution/manifest metadata, not
+   a configuration entry point or executable extension source.
 5. **Everything first-party is independently replaceable Lua on the public
    extension surface—no Rust or monolithic-Lua shortcutting.** Rust is mechanism
    only. If a piece has product behavior a user could plausibly want to change—
@@ -173,7 +174,7 @@ expects them. Tests are corrected to the reference, never the reverse.
 | Extension capability target | Strict superset of pinned Pi v0.79.0 plus a checked capability manifest derived initially from `pi-flake` commit `94694da7321ce74aa7b82c13db7e60e28c0caba6` (15 extensions, hosted there by Pi 0.80.6) | The dogfood revision is an authoring-surface oracle, not a promotion of the product behavior spec. Required additive mechanisms may land now; newer product-visible behavior requires a deliberate Pi spec promotion. CI consumes checked manifests, Lua translations, and deterministic fixtures, never an ambient sibling checkout. |
 | Shipped defaults | Embedded Lua packages via `include_str!`, declared in the builtins manifest and loaded through the public package/registration API | Difference 5. The flake source filter must include every embedded asset type. Each package is independently ablatable and replaceable; concatenation for embedding may not hide a private composition API. |
 | Sandboxing / permissions | Pi's stance: none in core, full user permissions; trust gates extension loading only | Written down so plain-Lua `os`/`io` access is a choice, not an accident. |
-| Extension distribution | Packages contain Lua configuration/extensions rather than npm TypeScript/JavaScript | Transport undecided—decide when the port reaches `package-manager.ts`. Any user-visible package-command difference must join the exhaustive list. |
+| Extension distribution | Pi-compatible npm (`npm:` registry archives), Git URL/ref, and local-path transport; package contents are Lua configuration/extensions/modules/data. The existing `package.json` `pi` manifest remains inert package metadata and points at Lua resources. Package policy may invoke npm/git through public process/filesystem mechanisms, but pi-rs never evaluates package JavaScript or exposes Node module resolution; pure-Lua dependencies are packaged or vendored. | This preserves the pinned `package-manager.ts` source grammar, project/user install roots, identity/dedupe, offline cache behavior, and install/remove/list/update/config outcomes while satisfying differences 2–4. npm is retained as an archive registry and lifecycle transport, not as the extension runtime. Git/local alone would make existing `npm:` package commands observably incompatible and require a broader exhaustive exception. |
 | Ablation | Code, docs, tests, and fixtures outside the product boundary or superseded by a port may be deleted freely | Git is the attic. Carrying dead weight costs more than resurrection. |
 
 The exhaustive list above is the sole authority for product-visible differences.

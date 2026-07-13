@@ -2,12 +2,12 @@
 -- and cancellation, used by the interactive `!`/`!!` bash mode (PLAN 7.1;
 -- AgentSession.executeBash). Pure policy over the pi.exec mechanism plus
 -- the utils/shell.ts slices it imports (getShellConfig, sanitizeBinary-
--- Output) and utils/ansi.ts stripAnsi. The truncateTail port is shared
--- with the tools pack (truncate_lib, exported from tools/truncate.lua).
+-- Output) and utils/ansi.ts stripAnsi. The truncateTail port is imported
+-- lazily from the tools package's exact-version public module.
 --
--- Shared fragment: included by the interactive pack; assumes only the
--- chunk argument and the tools pack's truncate_lib global.
-bash_executor_lib = (function(pi)
+-- Shared fragment: included after extensions.lua. Its export is namespaced on
+-- the pack-local policy table, not `_G`.
+EXTENSION_POLICY.bash_executor = (function(pi)
   local function strip_ansi(text)
     text = text:gsub("\27%][^\7\27]*\7", "")
     text = text:gsub("\27%][^\27]-\27\\", "")
@@ -95,9 +95,10 @@ bash_executor_lib = (function(pi)
   -- executeBashWithOperations.
   local function execute_bash_with_operations(command, cwd, operations, options)
     options = options or {}
+    local truncate = pi.module.require("pi.tools.truncate", "1")
     local output_chunks = {}
     local output_bytes = 0
-    local max_output_bytes = truncate_lib.DEFAULT_MAX_BYTES * 2
+    local max_output_bytes = truncate.DEFAULT_MAX_BYTES * 2
 
     local temp_file_path = nil
     local total_bytes = 0
@@ -115,7 +116,7 @@ bash_executor_lib = (function(pi)
       local text = sanitize_binary_output(strip_ansi(data)):gsub("\r", "")
       -- Start writing to the temp file once the total exceeds the
       -- threshold; ensure_temp_file persists the buffered chunks first.
-      if total_bytes > truncate_lib.DEFAULT_MAX_BYTES then
+      if total_bytes > truncate.DEFAULT_MAX_BYTES then
         ensure_temp_file()
       end
       if temp_file_path then
@@ -132,7 +133,7 @@ bash_executor_lib = (function(pi)
 
     local function settle()
       local full_output = table.concat(output_chunks)
-      local truncation = truncate_lib.truncate_tail(full_output, {})
+      local truncation = truncate.truncate_tail(full_output, {})
       if truncation.truncated then ensure_temp_file() end
       return full_output, truncation
     end

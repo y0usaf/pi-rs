@@ -18,11 +18,11 @@ use pi_rs_host::EmbeddedPack;
 pub const INTERACTIVE_PACK: EmbeddedPack = EmbeddedPack {
     name: "interactive",
     source: concat!(
-        "local DARK_THEME_JSON = [==[",
-        include_str!("interactive/theme/dark.json"),
-        "]==]\nlocal LIGHT_THEME_JSON = [==[",
-        include_str!("interactive/theme/light.json"),
-        "]==]\nDAX_HEX = [==[",
+        "local DARK_THEME = (function()\n",
+        include_str!("interactive/theme/dark.lua"),
+        "\nend)()\nlocal LIGHT_THEME = (function()\n",
+        include_str!("interactive/theme/light.lua"),
+        "\nend)()\nDAX_HEX = [==[",
         include_str!("interactive/assets/daxnuts.hex"),
         "]==]\nCLANKOLAS_BASE64 = [==[",
         include_str!("interactive/assets/clankolas.base64"),
