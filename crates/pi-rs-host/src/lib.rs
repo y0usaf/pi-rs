@@ -8,14 +8,19 @@
 //! Ownership is separated between public transaction types (`kernel`), Lua
 //! transaction bindings (`kernel_api`), package resolution (`package`), VM
 //! scheduling (`vm`), and narrow registry attribution (`runtime_registry`).
-//! Compatibility bindings remain callable while downstream launchers migrate,
-//! but they do not participate in or bypass the kernel publication path.
+//! Retained compatibility names are thin wrappers over the same canonical
+//! root/declaration/module state and package publication lifecycle.
 
 use std::sync::mpsc::{Sender, sync_channel};
 
 mod ai;
-mod api;
 mod auth;
+mod bindings;
+mod compatibility;
+mod module_api;
+mod runtime_api;
+mod tui_api;
+pub(crate) use compatibility as api;
 pub mod auth_storage;
 mod clipboard;
 pub mod config;
@@ -350,7 +355,6 @@ impl Host {
         let (reply, rx) = sync_channel(1);
         self.tx
             .send(vm::Msg::DisposePackage {
-                source: package.source.clone(),
                 scope: package.scope,
                 reply,
             })
