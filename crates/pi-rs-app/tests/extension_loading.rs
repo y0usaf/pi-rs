@@ -407,6 +407,55 @@ fn extension_context_snapshots_and_shutdown_match_pi() {
 }
 
 #[test]
+fn translated_tool_examples_execute_through_the_public_surface() {
+    let host = Host::new(HostConfig::default()).unwrap();
+    let report = host.load_embedded(&[
+        pi_rs_agent::PACK,
+        TOOLS_PACK,
+        CODING_AGENT_PACK,
+        INTERACTIVE_PACK,
+    ]);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    host.load(
+        "examples/extensions/protected-paths.lua",
+        include_str!("../../../examples/extensions/protected-paths.lua"),
+    )
+    .unwrap();
+    host.load(
+        "examples/extensions/structured-output.lua",
+        include_str!("../../../examples/extensions/structured-output.lua"),
+    )
+    .unwrap();
+
+    let protected = host
+        .call_command(
+            "extension-vertical-slice",
+            r#"{"toolCall":{"name":"write","arguments":{"path":"config/.env"}}}"#,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(protected["hookResult"]["block"], true);
+    assert_eq!(
+        protected["hookResult"]["reason"],
+        r#"Path "config/.env" is protected"#
+    );
+
+    let structured = host
+        .call_command(
+            "extension-vertical-slice",
+            r#"{"tool":"structured_output","arguments":{"headline":"Done","summary":"All checks passed.","actionItems":["Ship","Monitor"]}}"#,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        structured["result"]["content"][0]["text"],
+        "Saved structured output: Done"
+    );
+    assert_eq!(structured["result"]["details"]["actionItems"][1], "Monitor");
+    assert_eq!(structured["result"]["terminate"], true);
+}
+
+#[test]
 fn no_extensions_and_untrusted_project_keep_only_explicit_cli_sources() {
     let root = tempfile::tempdir().unwrap();
     let cwd = root.path().join("project");
