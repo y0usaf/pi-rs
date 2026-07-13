@@ -39,6 +39,7 @@ pi.register_role({
     extension_mode = request.mode or "print",
     extension_has_ui = request.mode == "rpc",
     extension_actions = {}, extension_context_generation = 0,
+    extension_ui = EXTENSION_HEADLESS_UI,
     system_prompt_options = system_prompt_options,
     registry = {
       get_available = pi.ai.available_models,
@@ -262,7 +263,7 @@ pi.register_command("extension-vertical-slice", { handler = function(args)
           toolNames = names,
           result = tool.execute("extension-slice", request.arguments or {},
             pi.abort_signal(), nil,
-            { cwd = pi.cwd(), mode = "print", hasUI = false }),
+            { cwd = pi.cwd(), mode = "print", hasUI = false, ui = EXTENSION_HEADLESS_UI }),
         }
       end
     end
@@ -277,7 +278,7 @@ pi.register_command("extension-vertical-slice", { handler = function(args)
         },
         args = request.toolCall.arguments or {},
       }, {
-        cwd = pi.cwd(), mode = "print", hasUI = false,
+        cwd = pi.cwd(), mode = "print", hasUI = false, ui = EXTENSION_HEADLESS_UI,
         isProjectTrusted = function() return request.projectTrusted == true end,
       }),
     }

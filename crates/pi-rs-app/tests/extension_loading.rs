@@ -716,6 +716,7 @@ pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:aft
 }
 
 #[test]
+
 fn complete_event_folds_match_pi_runner_oracle() {
     let mut expected: serde_json::Value = serde_json::from_str(include_str!(
         "../../../tests/extension-event-parity/oracle.json"
@@ -906,4 +907,170 @@ fn real_product_seams_follow_pi_generated_event_order() {
         .unwrap();
     filtered.drain(..first_input);
     assert_eq!(serde_json::Value::Array(filtered), expected["productTrace"]);
+}
+
+#[test]
+fn file_backed_compact_middleware_composes_without_frontend_patching() {
+    let host = Host::new(HostConfig::default()).unwrap();
+    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    host.load(
+        "examples/extensions/pi-compact.lua",
+        include_str!("../../../examples/extensions/pi-compact.lua"),
+    )
+    .unwrap();
+    // A broken earlier middleware cannot suppress later middleware/defaults.
+    host.load(
+        "test://broken-renderer",
+        r#"local pi=...; pi.register_render_middleware("user", {name="broken", order=-200, render=function(row) row.text="mutate" end})"#,
+    )
+    .unwrap();
+
+    let request = serde_json::json!({
+        "width": 64, "version": "0.79.0", "cwd": "/tmp/project",
+        "model": {"id":"faux","provider":"faux","contextWindow":128000,"reasoning":false},
+        "transcript": [
+            {"kind":"user","text":"Please inspect the renderer"},
+            {"kind":"assistant","message":{"role":"assistant","content":[
+                {"type":"thinking","thinking":"private chain of thought"},
+                {"type":"text","text":"Visible answer"}],"stopReason":"stop"}},
+            {"kind":"tool","name":"read","toolCallId":"t1","args":{"path":"src/main.rs"},
+                "state":"success","result":{"content":[{"type":"text","text":"ok"}]}},
+            {"kind":"custom","message":{"customType":"status-update","content":"indexed 3 files"}}
+        ]
+    });
+    let result = host
+        .call_command("interactive-frame", &request.to_string())
+        .unwrap()
+        .unwrap();
+    let rendered = result["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("Visible answer"), "{rendered}");
+    assert!(rendered.contains("🧠 0.0s"), "{rendered}");
+    assert!(!rendered.contains("private chain of thought"), "{rendered}");
+    assert!(rendered.contains("✓ read ╱ src/main.rs"), "{rendered}");
+    assert!(
+        rendered.contains("[status-update] indexed 3 files"),
+        "{rendered}"
+    );
+    // Default pi-compact user mode is borderless, not its compact ::: mode.
+    assert!(
+        rendered.contains("Please inspect the renderer"),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn file_backed_ui_showcase_drives_dialogs_slots_editor_and_cleanup() {
+    let host = Host::new(HostConfig::default()).unwrap();
+    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    host.load(
+        "examples/extensions/ui-surface-demo.lua",
+        include_str!("../../../examples/extensions/ui-surface-demo.lua"),
+    )
+    .unwrap();
+    let scenario = serde_json::json!({
+        "columns": 72, "rows": 30, "fullFrame": true,
+        "steps": [
+            {"name":"open","submit":"/ui-showcase"},
+            {"name":"input","input":["A","d","a","\r"]},
+            {"name":"editor","input":["\r"]},
+            {"name":"custom","input":["\r"]}
+        ]
+    });
+    let result = host
+        .call_command(
+            "interactive-extension-ui-parity-sequence",
+            &scenario.to_string(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(result["uiState"]["title"], "pi · showcase");
+    assert_eq!(result["uiState"]["toolsExpanded"], true);
+    assert_eq!(result["uiState"]["customHeader"], true);
+    assert_eq!(result["uiState"]["customFooter"], true);
+    assert_eq!(result["uiState"]["aboveWidget"], true);
+    assert_eq!(result["uiState"]["belowWidget"], true);
+    assert_eq!(result["uiState"]["active"], false);
+    assert!(
+        result["uiState"]["status"]
+            .as_str()
+            .unwrap()
+            .contains("UI showcase")
+    );
+    assert!(
+        result["uiState"]["editorText"]
+            .as_str()
+            .unwrap()
+            .contains("seed + paste")
+    );
+    assert!(
+        result["actions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|action| action["type"] == "custom_result")
+    );
+    let rendered = result["frames"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|frame| frame["ansi"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    for expected in [
+        "Custom header",
+        "Custom footer",
+        "Above editor widget",
+        "Below editor widget",
+        "Showcase status slot",
+    ] {
+        assert!(
+            rendered.contains(expected),
+            "missing {expected}: {rendered}"
+        );
+    }
+}
+
+#[test]
+fn print_context_uses_pinned_no_ui_outcomes() {
+    let host = Host::new(HostConfig::default()).unwrap();
+    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    host.load(
+        "examples/extensions/headless-ui-probe.lua",
+        r#"
+            local pi = ...
+            pi.register_tool({ name="headless-ui-probe", execute=function(_, _, _, _, ctx)
+                return { content={{type="text", text="headless"}}, details={
+                    selected=ctx.ui.select("x", {"a"}), confirmed=ctx.ui.confirm("x", "y"),
+                    input=ctx.ui.input("x"), editor=ctx.ui.editor("x"), text=ctx.ui.getEditorText(),
+                    expanded=ctx.ui.getToolsExpanded(), themes=#ctx.ui.getAllThemes(),
+                    themeResult=ctx.ui.setTheme("dark")
+                }}
+            end })
+        "#,
+    )
+    .unwrap();
+    let result = host
+        .call_command(
+            "extension-vertical-slice",
+            r#"{"tool":"headless-ui-probe"}"#,
+        )
+        .unwrap()
+        .unwrap();
+    let details = &result["result"]["details"];
+    assert_eq!(details["confirmed"], false);
+    assert_eq!(details["text"], "");
+    assert_eq!(details["expanded"], false);
+    assert_eq!(details["themes"], 0);
+    assert_eq!(details["themeResult"]["success"], false);
+    assert_eq!(details["themeResult"]["error"], "UI not available");
+    assert!(details.get("selected").is_none() || details["selected"].is_null());
 }
