@@ -1,455 +1,275 @@
-//! `pi.session` — session persistence exposed to Lua.
+//! Generic durable-record bindings installed as `pi.records`.
 //!
-//! Mechanism only (DESIGN divergence 2): the [`pi_rs_session`] port of
-//! `core/session-manager.ts` bound as per-session userdata handles.
-//! Policy — which agent events persist, the sdk.ts startup appends,
-//! when `/model` or `/name` write entries — lives in the Lua packs
-//! (`utils/agent-session.lua` and its consumers).
-//!
-//! Surface grows with its consumers; today that is the persistence
-//! and restore slice (PLAN 6.1/6.2): constructors
-//! (`create`/`open`/`in_memory`), the append methods
-//! `agent-session.ts` and `sdk.ts` call, and the read-side getters
-//! (`build_session_context` feeds the sdk.ts restore in
-//! `utils/agent-session.lua`). Listing (`list`/`list_all`, PLAN 6.3)
-//! feeds the `/resume` selector; the spec's async progress callback is
-//! not bridged — the Rust port lists synchronously, so the transient
-//! "Loading …" header state resolves before the next frame. Tree
-//! navigation (PLAN 6.4) binds `get_tree`, the branching mutators
-//! (`branch`/`reset_leaf`/`branch_with_summary`/`create_branched_session`/
-//! `new_session`), and `append_label_change`; compaction (PLAN 6.5)
-//! binds `append_compaction`.
+//! This adapter exposes only opaque JSON append, bounded iteration, atomic
+//! prefix copy, locking/list diagnostics, and cancellation. Destinations are
+//! always supplied by Lua; no product session path or record schema exists here.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use mlua::{Lua, Table, UserData, UserDataMethods, Value};
-
-use pi_rs_session::{NewSessionOptions, SessionManager};
+use mlua::{AnyUserData, Lua, Table, UserData, UserDataMethods, Value};
+use pi_rs_session::{CancellationToken, RecordCursor, RecordStore, StoreLimits};
 
 use crate::convert::{json_to_lua, lua_to_json};
 
-pub(crate) struct SessionHandle(Rc<RefCell<SessionManager>>);
+struct StoreHandle(Rc<RefCell<RecordStore>>);
+struct CursorHandle(Rc<RefCell<RecordCursor>>);
+#[derive(Clone)]
+struct CancellationHandle(CancellationToken);
 
-fn runtime_err<E: std::fmt::Display>(error: E) -> mlua::Error {
+fn runtime_err(error: impl std::fmt::Display) -> mlua::Error {
     mlua::Error::runtime(error.to_string())
 }
 
-fn opt_string(options: &Table, key: &str) -> mlua::Result<Option<String>> {
-    options.get::<Option<String>>(key)
+fn cancellation_from(options: Option<&Table>) -> mlua::Result<CancellationToken> {
+    let Some(options) = options else {
+        return Ok(CancellationToken::new());
+    };
+    let Some(userdata) = options.get::<Option<AnyUserData>>("cancel")? else {
+        return Ok(CancellationToken::new());
+    };
+    Ok(userdata.borrow::<CancellationHandle>()?.0.clone())
 }
 
-/// The spec's `SessionTreeNode` list as Lua tables (`getTree`).
-fn tree_nodes_to_lua(lua: &Lua, nodes: Vec<pi_rs_session::SessionTreeNode>) -> mlua::Result<Value> {
-    let list = lua.create_table()?;
-    for (index, node) in nodes.into_iter().enumerate() {
-        let row = lua.create_table()?;
-        row.set("entry", json_to_lua(lua, &node.entry)?)?;
-        row.set("children", tree_nodes_to_lua(lua, node.children)?)?;
-        row.set("label", node.label)?;
-        row.set("labelTimestamp", node.label_timestamp)?;
-        list.set(index + 1, row)?;
-    }
-    Ok(Value::Table(list))
+fn limits_from(options: Option<&Table>) -> mlua::Result<StoreLimits> {
+    let defaults = StoreLimits::default();
+    let Some(options) = options else {
+        return Ok(defaults);
+    };
+    Ok(StoreLimits {
+        max_record_bytes: options
+            .get::<Option<usize>>("maxRecordBytes")?
+            .unwrap_or(defaults.max_record_bytes),
+        max_window_records: options
+            .get::<Option<usize>>("maxWindowRecords")?
+            .unwrap_or(defaults.max_window_records),
+        max_window_bytes: options
+            .get::<Option<usize>>("maxWindowBytes")?
+            .unwrap_or(defaults.max_window_bytes),
+    })
 }
 
-/// The spec's `SessionContext` as a Lua table (`buildSessionContext`).
-fn context_to_lua(lua: &Lua, context: pi_rs_session::SessionContext) -> mlua::Result<Value> {
-    let table = lua.create_table()?;
-    table.set(
-        "messages",
-        json_to_lua(lua, &serde_json::Value::Array(context.messages))?,
-    )?;
-    table.set("thinkingLevel", context.thinking_level)?;
-    if let Some(model) = context.model {
-        let entry = lua.create_table()?;
-        entry.set("provider", model.provider)?;
-        entry.set("modelId", model.model_id)?;
-        table.set("model", entry)?;
-    }
-    Ok(Value::Table(table))
-}
-
-fn entries_to_lua(lua: &Lua, entries: Vec<serde_json::Value>) -> mlua::Result<Value> {
-    json_to_lua(lua, &serde_json::Value::Array(entries))
-}
-
-/// The spec's `SessionInfo` listing rows as Lua tables. `modified` and
-/// `created` are epoch milliseconds (the JS `Date` values' `getTime()`).
-fn session_infos_to_lua(lua: &Lua, infos: Vec<pi_rs_session::SessionInfo>) -> mlua::Result<Value> {
-    let list = lua.create_table()?;
-    for (index, info) in infos.into_iter().enumerate() {
-        let row = lua.create_table()?;
-        row.set("path", info.path.to_string_lossy().into_owned())?;
-        row.set("id", info.id)?;
-        row.set("cwd", info.cwd)?;
-        row.set("name", info.name)?;
-        row.set("parentSessionPath", info.parent_session_path)?;
-        row.set("created", info.created_ms)?;
-        row.set("modified", info.modified_ms)?;
-        row.set("messageCount", info.message_count)?;
-        row.set("firstMessage", info.first_message)?;
-        row.set("allMessagesText", info.all_messages_text)?;
-        list.set(index + 1, row)?;
-    }
-    Ok(Value::Table(list))
-}
-
-impl UserData for SessionHandle {
+impl UserData for CancellationHandle {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        // ---- appends (spec: appendX — append as child of leaf, advance leaf) ----
-        methods.add_method("append_message", |_, this, message: Value| {
-            let message = lua_to_json(message)?;
-            this.0
-                .borrow_mut()
-                .append_message(message)
-                .map_err(runtime_err)
-        });
-        methods.add_method("append_thinking_level_change", |_, this, level: String| {
-            this.0
-                .borrow_mut()
-                .append_thinking_level_change(&level)
-                .map_err(runtime_err)
-        });
-        methods.add_method(
-            "append_model_change",
-            |_, this, (provider, model_id): (String, String)| {
-                this.0
-                    .borrow_mut()
-                    .append_model_change(&provider, &model_id)
-                    .map_err(runtime_err)
-            },
-        );
-        methods.add_method("append_session_info", |_, this, name: String| {
-            this.0
-                .borrow_mut()
-                .append_session_info(&name)
-                .map_err(runtime_err)
-        });
-        methods.add_method(
-            "append_custom_entry",
-            |_, this, (custom_type, data): (String, Value)| {
-                let data = match data {
-                    Value::Nil => None,
-                    value => Some(lua_to_json(value)?),
-                };
-                this.0
-                    .borrow_mut()
-                    .append_custom_entry(&custom_type, data)
-                    .map_err(runtime_err)
-            },
-        );
-        methods.add_method(
-            "append_custom_message_entry",
-            |_,
-             this,
-             (custom_type, content, display, details): (
-                String,
-                Value,
-                Option<bool>,
-                Value,
-            )| {
-                let content = lua_to_json(content)?;
-                let details = match details {
-                    Value::Nil => None,
-                    value => Some(lua_to_json(value)?),
-                };
-                this.0
-                    .borrow_mut()
-                    .append_custom_message_entry(
-                        &custom_type,
-                        content,
-                        display.unwrap_or(true),
-                        details,
-                    )
-                    .map_err(runtime_err)
-            },
-        );
-        // Spec: `appendCompaction(summary, firstKeptEntryId, tokensBefore,
-        // details?, fromHook?)` — the compaction entry the context rebuild
-        // cuts over on (PLAN 6.5).
-        methods.add_method(
-            "append_compaction",
-            |_,
-             this,
-             (summary, first_kept_entry_id, tokens_before, details, from_hook): (
-                String,
-                String,
-                i64,
-                Value,
-                Option<bool>,
-            )| {
-                let details = match details {
-                    Value::Nil => None,
-                    value => Some(lua_to_json(value)?),
-                };
-                this.0
-                    .borrow_mut()
-                    .append_compaction(
-                        &summary,
-                        &first_kept_entry_id,
-                        tokens_before,
-                        details,
-                        from_hook,
-                    )
-                    .map_err(runtime_err)
-            },
-        );
-
-        // ---- read side ----
-        methods.add_method("get_session_file", |_, this, ()| {
-            Ok(this.0.borrow().get_session_file().map(str::to_owned))
-        });
-        methods.add_method("get_session_id", |_, this, ()| {
-            Ok(this.0.borrow().get_session_id().to_owned())
-        });
-        methods.add_method("get_session_name", |_, this, ()| {
-            Ok(this.0.borrow().get_session_name())
-        });
-        methods.add_method("get_cwd", |_, this, ()| {
-            Ok(this.0.borrow().get_cwd().to_owned())
-        });
-        methods.add_method("get_session_dir", |_, this, ()| {
-            Ok(this.0.borrow().get_session_dir().to_owned())
-        });
-        methods.add_method("get_leaf_id", |_, this, ()| {
-            Ok(this.0.borrow().get_leaf_id().map(str::to_owned))
-        });
-        methods.add_method("is_persisted", |_, this, ()| {
-            Ok(this.0.borrow().is_persisted())
-        });
-        methods.add_method("uses_default_session_dir", |_, this, ()| {
-            Ok(this.0.borrow().uses_default_session_dir())
-        });
-        methods.add_method("get_header", |lua, this, ()| {
-            match this.0.borrow().get_header() {
-                Some(header) => json_to_lua(lua, header),
-                None => Ok(Value::Nil),
-            }
-        });
-        methods.add_method("get_entry", |lua, this, id: String| {
-            match this.0.borrow().get_entry(&id) {
-                Some(entry) => json_to_lua(lua, entry),
-                None => Ok(Value::Nil),
-            }
-        });
-        methods.add_method("get_entries", |lua, this, ()| {
-            entries_to_lua(lua, this.0.borrow().get_entries())
-        });
-        methods.add_method("get_branch", |lua, this, from_id: Option<String>| {
-            entries_to_lua(lua, this.0.borrow().get_branch(from_id.as_deref()))
-        });
-        methods.add_method("build_session_context", |lua, this, ()| {
-            context_to_lua(lua, this.0.borrow().build_session_context())
-        });
-        methods.add_method("get_tree", |lua, this, ()| {
-            tree_nodes_to_lua(lua, this.0.borrow().get_tree())
-        });
-        methods.add_method(
-            "export_branch_jsonl",
-            |_, this, (output_path, timestamp): (String, String)| {
-                this.0
-                    .borrow()
-                    .export_branch_jsonl(&output_path, &timestamp)
-                    .map_err(runtime_err)
-            },
-        );
-
-        // ---- branching (spec: branch / resetLeaf / branchWithSummary /
-        // createBranchedSession / newSession / appendLabelChange) ----
-        methods.add_method("branch", |_, this, id: String| {
-            this.0.borrow_mut().branch(&id).map_err(runtime_err)
-        });
-        methods.add_method("reset_leaf", |_, this, ()| {
-            this.0.borrow_mut().reset_leaf();
+        methods.add_method("cancel", |_, this, ()| {
+            this.0.cancel();
             Ok(())
         });
-        methods.add_method(
-            "branch_with_summary",
-            |_,
-             this,
-             (from_id, summary, details, from_hook): (
-                Option<String>,
-                String,
-                Value,
-                Option<bool>,
-            )| {
-                let details = match details {
-                    Value::Nil => None,
-                    value => Some(lua_to_json(value)?),
-                };
-                this.0
-                    .borrow_mut()
-                    .branch_with_summary(from_id.as_deref(), &summary, details, from_hook)
-                    .map_err(runtime_err)
-            },
-        );
-        methods.add_method("create_branched_session", |_, this, leaf_id: String| {
-            this.0
-                .borrow_mut()
-                .create_branched_session(&leaf_id)
-                .map_err(runtime_err)
-        });
-        methods.add_method("new_session", |_, this, options: Option<Table>| {
-            let options = match &options {
-                Some(options) => Some(NewSessionOptions {
-                    id: opt_string(options, "id")?,
-                    parent_session: opt_string(options, "parentSession")?,
-                }),
-                None => None,
-            };
-            this.0
-                .borrow_mut()
-                .new_session(options)
-                .map_err(runtime_err)
-        });
-        methods.add_method(
-            "append_label_change",
-            |_, this, (target_id, label): (String, Option<String>)| {
-                this.0
-                    .borrow_mut()
-                    .append_label_change(&target_id, label.as_deref())
-                    .map_err(runtime_err)
-            },
-        );
+        methods.add_method("is_cancelled", |_, this, ()| Ok(this.0.is_cancelled()));
     }
 }
 
-fn handle(manager: SessionManager) -> SessionHandle {
-    SessionHandle(Rc::new(RefCell::new(manager)))
+impl UserData for StoreHandle {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("path", |_, this, ()| {
+            Ok(this.0.borrow().path().to_string_lossy().into_owned())
+        });
+        methods.add_method("record_count", |_, this, ()| {
+            Ok(this.0.borrow().record_count())
+        });
+        methods.add_method(
+            "append",
+            |_, this, (value, options): (Value, Option<Table>)| {
+                let value = lua_to_json(value)?;
+                let cancellation = cancellation_from(options.as_ref())?;
+                this.0
+                    .borrow_mut()
+                    .append(&value, &cancellation)
+                    .map_err(runtime_err)
+            },
+        );
+        methods.add_method("cursor", |_, this, ()| {
+            let cursor = this.0.borrow().cursor().map_err(runtime_err)?;
+            Ok(CursorHandle(Rc::new(RefCell::new(cursor))))
+        });
+        methods.add_method("copy", |_, this, options: Table| {
+            let directory: String = options.get("directory")?;
+            let name: String = options.get("name")?;
+            let record_count = options.get::<Option<u64>>("recordCount")?;
+            let cancellation = cancellation_from(Some(&options))?;
+            let copied = this
+                .0
+                .borrow()
+                .copy_prefix(directory, &name, record_count, &cancellation)
+                .map_err(runtime_err)?;
+            Ok(StoreHandle(Rc::new(RefCell::new(copied))))
+        });
+    }
 }
 
-pub(crate) fn install(lua: &Lua, pi: &Table, cwd: &str) -> mlua::Result<()> {
-    let table = lua.create_table()?;
-    let vm_cwd = cwd.to_owned();
-
-    // Spec: `SessionManager.create(cwd, sessionDir?, options?)` — the
-    // default session dir derives from cwd + agent dir (config.ts).
-    let default_cwd = vm_cwd.clone();
-    table.set(
-        "create",
-        lua.create_function(move |_, options: Option<Table>| {
-            let (cwd, session_dir, agent_dir, new_options) = match &options {
-                Some(options) => (
-                    opt_string(options, "cwd")?,
-                    opt_string(options, "sessionDir")?,
-                    opt_string(options, "agentDir")?,
-                    Some(NewSessionOptions {
-                        id: opt_string(options, "id")?,
-                        parent_session: opt_string(options, "parentSession")?,
-                    }),
-                ),
-                None => (None, None, None, None),
-            };
-            let cwd = cwd.unwrap_or_else(|| default_cwd.clone());
-            let agent_dir = agent_dir.unwrap_or_else(crate::discover::agent_dir);
-            let manager =
-                SessionManager::create(&cwd, session_dir.as_deref(), &agent_dir, new_options)
-                    .map_err(runtime_err)?;
-            Ok(handle(manager))
-        })?,
-    )?;
-
-    // Spec: `SessionManager.open(sessionPath, sessionDir?, cwdOverride?)`
-    // — without an override the cwd comes from the session header.
-    table.set(
-        "open",
-        lua.create_function(move |_, options: Table| {
-            let path: String = options.get("path")?;
-            let session_dir = opt_string(&options, "sessionDir")?;
-            let cwd = opt_string(&options, "cwd")?;
-            let agent_dir =
-                opt_string(&options, "agentDir")?.unwrap_or_else(crate::discover::agent_dir);
-            let manager =
-                SessionManager::open(&path, session_dir.as_deref(), cwd.as_deref(), &agent_dir)
-                    .map_err(runtime_err)?;
-            Ok(handle(manager))
-        })?,
-    )?;
-
-    // Spec: `SessionManager.list(cwd, sessionDir?)` — sessions for a
-    // project directory, most recently modified first.
-    let list_cwd = vm_cwd.clone();
-    table.set(
-        "list",
-        lua.create_function(move |lua, options: Option<Table>| {
-            let (cwd, session_dir, agent_dir) = match &options {
-                Some(options) => (
-                    opt_string(options, "cwd")?,
-                    opt_string(options, "sessionDir")?,
-                    opt_string(options, "agentDir")?,
-                ),
-                None => (None, None, None),
-            };
-            let cwd = cwd.unwrap_or_else(|| list_cwd.clone());
-            let agent_dir = agent_dir.unwrap_or_else(crate::discover::agent_dir);
-            let sessions = SessionManager::list(&cwd, session_dir.as_deref(), &agent_dir, None)
+impl UserData for CursorHandle {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("next_sequence", |_, this, ()| {
+            Ok(this.0.borrow().next_sequence())
+        });
+        methods.add_method("next", |lua, this, options: Option<Table>| {
+            let defaults = StoreLimits::default();
+            let max_records =
+                options
+                    .as_ref()
+                    .map_or(Ok(defaults.max_window_records), |table| {
+                        table
+                            .get::<Option<usize>>("maxRecords")
+                            .map(|value| value.unwrap_or(defaults.max_window_records))
+                    })?;
+            let max_bytes = options
+                .as_ref()
+                .map_or(Ok(defaults.max_window_bytes), |table| {
+                    table
+                        .get::<Option<usize>>("maxBytes")
+                        .map(|value| value.unwrap_or(defaults.max_window_bytes))
+                })?;
+            let cancellation = cancellation_from(options.as_ref())?;
+            let window = this
+                .0
+                .borrow_mut()
+                .next_window(max_records, max_bytes, &cancellation)
                 .map_err(runtime_err)?;
-            session_infos_to_lua(lua, sessions)
+            let result = lua.create_table()?;
+            result.set(
+                "records",
+                json_to_lua(lua, &serde_json::Value::Array(window.records))?,
+            )?;
+            result.set("startSequence", window.start_sequence)?;
+            result.set("nextSequence", window.next_sequence)?;
+            result.set("encodedBytes", window.encoded_bytes)?;
+            result.set("done", window.done)?;
+            Ok(result)
+        });
+    }
+}
+
+pub(crate) fn install(lua: &Lua, pi: &Table, _cwd: &str) -> mlua::Result<()> {
+    let records = lua.create_table()?;
+    records.set(
+        "cancellation",
+        lua.create_function(|_, ()| Ok(CancellationHandle(CancellationToken::new())))?,
+    )?;
+    records.set(
+        "create",
+        lua.create_function(|_, options: Table| {
+            let directory: String = options.get("directory")?;
+            let name: String = options.get("name")?;
+            let limits = limits_from(Some(&options))?;
+            let cancellation = cancellation_from(Some(&options))?;
+            let store = RecordStore::create(directory, &name, limits, &cancellation)
+                .map_err(runtime_err)?;
+            Ok(StoreHandle(Rc::new(RefCell::new(store))))
         })?,
     )?;
-
-    // Spec: `SessionManager.listAll(sessionDir?)` — every session across
-    // all project directories (`{agentDir}/sessions`), or one custom
-    // flat directory.
-    table.set(
-        "list_all",
-        lua.create_function(move |lua, options: Option<Table>| {
-            let (session_dir, agent_dir) = match &options {
-                Some(options) => (
-                    opt_string(options, "sessionDir")?,
-                    opt_string(options, "agentDir")?,
-                ),
-                None => (None, None),
-            };
-            let agent_dir = agent_dir.unwrap_or_else(crate::discover::agent_dir);
-            let default_dir = std::path::Path::new(&pi_rs_session::paths::resolve_path(&agent_dir))
-                .join("sessions");
-            let sessions = SessionManager::list_all(session_dir.as_deref(), &default_dir, None);
-            session_infos_to_lua(lua, sessions)
+    records.set(
+        "open",
+        lua.create_function(|_, options: Table| {
+            let path: String = options.get("path")?;
+            let limits = limits_from(Some(&options))?;
+            let cancellation = cancellation_from(Some(&options))?;
+            let store = RecordStore::open(path, limits, &cancellation).map_err(runtime_err)?;
+            Ok(StoreHandle(Rc::new(RefCell::new(store))))
         })?,
     )?;
-
-    // Spec: `SessionManager.inMemory(cwd?)` — never persists.
-    table.set(
-        "in_memory",
-        lua.create_function(move |_, options: Option<Table>| {
-            let cwd = match &options {
-                Some(options) => opt_string(options, "cwd")?,
-                None => None,
-            };
-            let cwd = cwd.unwrap_or_else(|| vm_cwd.clone());
-            Ok(handle(SessionManager::in_memory_at(&cwd)))
+    records.set(
+        "list",
+        lua.create_function(|lua, options: Table| {
+            let directory: String = options.get("directory")?;
+            let limits = limits_from(Some(&options))?;
+            let cancellation = cancellation_from(Some(&options))?;
+            let listing =
+                RecordStore::list(directory, limits, &cancellation).map_err(runtime_err)?;
+            let result = lua.create_table()?;
+            let stores = lua.create_table()?;
+            for (index, info) in listing.stores.into_iter().enumerate() {
+                let row = lua.create_table()?;
+                row.set("name", info.name)?;
+                row.set("path", info.path.to_string_lossy().into_owned())?;
+                row.set("formatVersion", info.format_version)?;
+                row.set("recordCount", info.record_count)?;
+                row.set("bytes", info.bytes)?;
+                stores.set(index + 1, row)?;
+            }
+            let diagnostics = lua.create_table()?;
+            for (index, diagnostic) in listing.diagnostics.into_iter().enumerate() {
+                let row = lua.create_table()?;
+                row.set("path", diagnostic.path.to_string_lossy().into_owned())?;
+                row.set("kind", diagnostic.kind)?;
+                row.set("message", diagnostic.message)?;
+                diagnostics.set(index + 1, row)?;
+            }
+            result.set("stores", stores)?;
+            result.set("diagnostics", diagnostics)?;
+            Ok(result)
         })?,
     )?;
-
-    // Spec: the standalone `buildSessionContext(entries)` — compaction
-    // (PLAN 6.5) computes `tokensBefore` over the current branch entries
-    // without re-reading the session file.
-    table.set(
-        "build_context",
-        lua.create_function(|lua, entries: Table| {
-            let entries: Vec<serde_json::Value> = entries
-                .sequence_values::<Value>()
-                .map(|value| value.and_then(lua_to_json))
-                .collect::<mlua::Result<_>>()?;
-            context_to_lua(
-                lua,
-                pi_rs_session::build_session_context(&entries, pi_rs_session::Leaf::Latest),
-            )
-        })?,
-    )?;
-
-    // messages.ts timestamp semantics: JS `Date.parse` of the entry ISO
-    // string (`NaN` → nil), for the Lua-side message constructors
-    // (`getMessageFromEntry` in the branch-summarization port).
-    table.set(
-        "parse_iso_ms",
-        lua.create_function(|_, timestamp: String| {
-            Ok(pi_rs_session::time::parse_iso_ms(&timestamp))
-        })?,
-    )?;
-
-    pi.set("session", table)?;
+    pi.set("records", records)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used, clippy::unwrap_used)]
+
+    use crate::{Host, HostConfig};
+
+    #[test]
+    fn ordinary_file_backed_package_exercises_the_public_record_store() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let package = temporary.path().join("record-package.lua");
+        let destination = temporary.path().join("xdg-state/pi/records");
+        let destination_lua =
+            serde_json::to_string(&destination.to_string_lossy()).expect("encode destination path");
+        let source = format!(
+            r#"
+local pi = ...
+local directory = {destination_lua}
+local store = pi.records.create({{ directory=directory, name="source" }})
+local sequence = store:append({{ schema="different", payload={{1, true, "x"}} }})
+local copied = store:copy({{ directory=directory, name="copied", recordCount=1 }})
+local cursor = copied:cursor()
+local window = cursor:next({{ maxRecords=4, maxBytes=4096 }})
+local cancellation = pi.records.cancellation()
+cancellation:cancel()
+local cancelled = not pcall(function()
+  store:append({{ unreachable=true }}, {{ cancel=cancellation }})
+end)
+pi.on("record_store_probe", function()
+  return {{
+    sequence=sequence,
+    copiedCount=copied:record_count(),
+    schema=window.records[1].schema,
+    payloadCount=#window.records[1].payload,
+    done=window.done,
+    cancelled=cancelled,
+    sourcePath=store:path(),
+  }}
+end)
+"#
+        );
+        std::fs::write(&package, source).expect("write file-backed package");
+
+        let host = Host::new(HostConfig::default()).expect("host starts");
+        let package_path = package.to_string_lossy().into_owned();
+        let loaded = host.load_extensions(std::slice::from_ref(&package_path));
+        assert!(loaded.errors.is_empty(), "{:?}", loaded.errors);
+        let outcomes = host
+            .emit("record_store_probe", &serde_json::json!({}))
+            .expect("dispatch probe");
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].source, package_path);
+        let result = outcomes[0]
+            .result
+            .as_ref()
+            .expect("handler succeeds")
+            .as_ref()
+            .expect("handler returns value");
+        assert_eq!(result["sequence"], 0);
+        assert_eq!(result["copiedCount"], 1);
+        assert_eq!(result["schema"], "different");
+        assert_eq!(result["payloadCount"], 3);
+        assert_eq!(result["done"], true);
+        assert_eq!(result["cancelled"], true);
+        assert!(
+            result["sourcePath"]
+                .as_str()
+                .is_some_and(|path| path.starts_with(destination.to_string_lossy().as_ref()))
+        );
+    }
 }
