@@ -234,6 +234,24 @@
             touch $out
           '';
 
+      # Fail-closed first-party construction inventory: embedded source units,
+      # declarations, Rust launch/composition seams, and named open risks must
+      # all remain classified; negative controls pin rejection behavior.
+      mkConstructionInventoryTest =
+        system:
+        let
+          pkgs = mkPkgs system;
+        in
+        pkgs.runCommand "construction-inventory-test"
+          {
+            nativeBuildInputs = [ pkgs.python3 ];
+          }
+          ''
+            python3 ${self}/scripts/construction-inventory --check
+            python3 ${self}/tests/construction-inventory/test_checker.py
+            touch $out
+          '';
+
       mkModelCatalogUpdater =
         system:
         let
@@ -289,6 +307,7 @@
         arch-fresh = mkArchFresh system;
         bare-boot = mkBareBoot system;
         model-catalog-update = mkModelCatalogUpdateTest system;
+        construction-inventory = mkConstructionInventoryTest system;
       });
 
       packages = forAllSystems (system: rec {
