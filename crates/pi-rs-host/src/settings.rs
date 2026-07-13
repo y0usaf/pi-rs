@@ -18,7 +18,12 @@ fn lock(settings: &SharedSettings) -> mlua::Result<std::sync::MutexGuard<'_, Set
         .map_err(|_| mlua::Error::runtime("settings store poisoned"))
 }
 
-pub(crate) fn install(lua: &Lua, pi: &Table, cwd: &str, project_trusted: bool) -> mlua::Result<()> {
+pub(crate) fn install(
+    lua: &Lua,
+    pi: &Table,
+    cwd: &str,
+    project_trusted: bool,
+) -> mlua::Result<SharedSettings> {
     let settings: SharedSettings = Arc::new(Mutex::new(SettingsManager::create(
         std::path::Path::new(cwd),
         None,
@@ -241,11 +246,10 @@ pub(crate) fn install(lua: &Lua, pi: &Table, cwd: &str, project_trusted: bool) -
     table.set(
         "reload",
         lua.create_function(move |_, ()| {
-            lock(&store)?.reload();
-            Ok(())
+            lock(&store)?.try_reload().map_err(mlua::Error::external)
         })?,
     )?;
 
     pi.set("settings", table)?;
-    Ok(())
+    Ok(settings)
 }

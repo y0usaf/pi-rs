@@ -198,8 +198,8 @@ pub(crate) fn install(lua: &Lua, pi: &Table, storage: SharedStorage) -> mlua::Re
         })?,
     )?;
 
-    // Spec `getError()` — models.json load errors (none until the
-    // models.json half lands).
+    // Config declaration load diagnostics; custom-model registry application
+    // is completed with the declaration/resource integration.
     let reg = Arc::clone(&registry);
     ai.set(
         "registry_error",

@@ -58,8 +58,8 @@ fn retry_policy_matches_pi_for_every_oracle_case() {
             "retry": case.get("settings").cloned().unwrap_or_else(|| serde_json::json!({}))
         });
         std::fs::write(
-            project.join(".pi/settings.json"),
-            serde_json::to_vec(&settings).unwrap(),
+            project.join(".pi/config.lua"),
+            pi_rs_host::config::update_managed_settings("", settings.as_object().unwrap()),
         )
         .unwrap();
         unsafe {

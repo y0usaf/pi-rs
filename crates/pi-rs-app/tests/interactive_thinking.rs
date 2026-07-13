@@ -220,11 +220,10 @@ fn new_sessions_default_to_medium_clamped_to_the_model() {
 fn cycling_skips_null_map_levels_and_persists_to_session_settings_and_requests() {
     let _env = ENV_LOCK.lock().unwrap();
     let fixture = fixture();
-    // Settings default "off": the walk starts from the bottom, so one
-    // cycle pins the null-map skip (off -> low with minimal marked null).
+    // Config default "off": one cycle pins the null-map skip.
     std::fs::write(
-        fixture.agent_dir.join("settings.json"),
-        serde_json::json!({ "defaultThinkingLevel": "off" }).to_string(),
+        fixture.agent_dir.join("config.lua"),
+        "local pi = ...\npi.config.settings({ defaultThinkingLevel = 'off' })\n",
     )
     .unwrap();
     let (base_url, requests) = spawn_stub();
@@ -244,12 +243,10 @@ fn cycling_skips_null_map_levels_and_persists_to_session_settings_and_requests()
     let entries = session_entries(&fixture);
     assert_eq!(thinking_entries(&entries), vec!["off", "low"]);
 
-    // Settings: agent-session.ts setThinkingLevel persists the default.
-    let settings: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(fixture.agent_dir.join("settings.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(settings["defaultThinkingLevel"], "low");
+    // The interactive mutation persists back into the managed config.lua block.
+    let source = std::fs::read_to_string(fixture.agent_dir.join("config.lua")).unwrap();
+    let settings = pi_rs_host::config::evaluate(&source, "config.lua").unwrap();
+    assert_eq!(settings.settings["defaultThinkingLevel"], "low");
 
     // Requests: thinking disabled at "off" (the spec's explicit
     // `{type: "disabled"}` for reasoning models); the low budget after.

@@ -7,13 +7,10 @@
 //!   [`AuthStorage`] instance between the `pi.auth` bindings, the
 //!   `pi.ai` registry bindings, and the CLI — same instance semantics,
 //!   different ownership;
-//! - WS2.6 subset: the built-in catalog + auth resolution half. The
-//!   models.json half (custom models, provider/model overrides, schema
-//!   validation, `$ENV`/`!command` header interpolation) and the
-//!   `registerProvider` glue land when their consumers do. Until then
-//!   `get_error()` is always `None` and provider request configs are
-//!   empty, so `hasConfiguredAuth` reduces to `authStorage.hasAuth` —
-//!   behaviorally identical to the spec with no models.json on disk.
+//! - current subset: built-in catalog + auth resolution. Lua-declared custom
+//!   models/provider overrides and dynamic provider application remain registry
+//!   integration work; no user JSON model file is consulted. `get_error()` is
+//!   therefore always `None` and request configs are empty.
 
 use pi_rs_ai::registry::{get_models, get_providers};
 use pi_rs_ai_types::Model;
@@ -40,8 +37,8 @@ pub struct ModelRegistry {
 }
 
 impl ModelRegistry {
-    /// Spec: `ModelRegistry.create` / `inMemory` (no models.json half
-    /// landed yet, so the two constructors coincide).
+    /// Built-in catalog constructor; Lua declarations are applied by the host
+    /// configuration/registry integration rather than a JSON file.
     pub fn new(auth_storage: &AuthStorage) -> Self {
         let mut registry = Self {
             models: Vec::new(),

@@ -163,6 +163,9 @@ local DEFAULT_KEYS = {
   ["app.models.clearAll"] = "ctrl+x", ["app.models.toggleProvider"] = "ctrl+p",
   ["app.models.reorderUp"] = "alt+up", ["app.models.reorderDown"] = "alt+down",
   ["tui.input.tab"] = "tab",
+  ["tui.select.up"] = "up", ["tui.select.down"] = "down",
+  ["tui.select.pageUp"] = "pageUp", ["tui.select.pageDown"] = "pageDown",
+  ["tui.select.confirm"] = "enter", ["tui.select.cancel"] = { "escape", "ctrl+c" },
   -- core/keybindings.ts app.tree.* (the tree-selector surface; the
   -- app.session.tree/fork actions ship with empty defaultKeys, so they
   -- are reachable only through /tree, /fork, and double-escape until
@@ -177,6 +180,20 @@ local DEFAULT_KEYS = {
   ["tui.editor.cursorLeft"] = "left", ["tui.editor.cursorRight"] = "right",
   ["tui.editor.deleteCharBackward"] = "backspace",
 }
+
+BUILTIN_DEFAULT_KEYS = {}
+for action, binding in pairs(DEFAULT_KEYS) do BUILTIN_DEFAULT_KEYS[action] = binding end
+function reload_config_keybindings()
+  for action in pairs(DEFAULT_KEYS) do DEFAULT_KEYS[action] = nil end
+  for action, binding in pairs(BUILTIN_DEFAULT_KEYS) do DEFAULT_KEYS[action] = binding end
+  local snapshot = pi.config.snapshot()
+  for action, binding in pairs(snapshot.keybindings or {}) do
+    if type(binding) == "string" or type(binding) == "table" then
+      DEFAULT_KEYS[action] = binding
+    end
+  end
+end
+reload_config_keybindings()
 
 -- JS String.split semantics (empty pieces preserved), so "/" formats as
 -- "/" like formatKeyText's split("/")/split("+") round trip.
@@ -1331,14 +1348,14 @@ local function message_text(message) return content_text(message, "text") end
 -- ===========================================================================
 
 -- pi-tui keybindings.ts tui.select.* defaults.
-local SELECT_KEYS = {
-  up = "up",
-  down = "down",
-  pageUp = "pageUp",
-  pageDown = "pageDown",
-  confirm = "enter",
-  cancel = { "escape", "ctrl+c" },
-}
+local SELECT_KEYS = setmetatable({}, { __index = function(_, key)
+  local actions = {
+    up = "tui.select.up", down = "tui.select.down",
+    pageUp = "tui.select.pageUp", pageDown = "tui.select.pageDown",
+    confirm = "tui.select.confirm", cancel = "tui.select.cancel",
+  }
+  return DEFAULT_KEYS[actions[key]]
+end })
 
 -- components/dynamic-border.ts
 local function dynamic_border_line(theme, width, color)
@@ -7708,7 +7725,8 @@ function handle_reload_command(state)
         EXTENSION_CONTEXT_POLICY.snapshot(state))
       state.extension_shutdown_emitted = true
       state.next_session_start_event = { type = "session_start", reason = "reload" }
-      pi.settings.reload()
+      pi.config.reload()
+      reload_config_keybindings()
       local theme_name = pi.settings.theme()
       local data = theme_name == "light" and light_json or dark_json
       state.theme_data = data

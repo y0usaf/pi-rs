@@ -81,11 +81,6 @@ pub fn get_auth_path() -> PathBuf {
     get_agent_dir().join("auth.json")
 }
 
-/// Spec: `getModelsPath()`.
-pub fn get_models_path() -> PathBuf {
-    get_agent_dir().join("models.json")
-}
-
 /// Spec: `getSessionsDir()` — root of the per-cwd session directories
 /// (consumed by `SessionManager.listAll`).
 pub fn get_sessions_dir() -> PathBuf {
