@@ -6204,7 +6204,7 @@
 			{
 				"id": "mai-code-1-flash-picker",
 				"name": "MAI-Code-1-Flash",
-				"api": "openai-completions",
+				"api": "openai-responses",
 				"provider": "github-copilot",
 				"baseUrl": "https://api.individual.githubcopilot.com",
 				"headers": {
@@ -6212,11 +6212,6 @@
 					"Editor-Version": "vscode/1.107.0",
 					"Editor-Plugin-Version": "copilot-chat/0.35.0",
 					"Copilot-Integration-Id": "vscode-chat"
-				},
-				"compat": {
-					"supportsStore": false,
-					"supportsDeveloperRole": false,
-					"supportsReasoningEffort": false
 				},
 				"reasoning": true,
 				"input": [

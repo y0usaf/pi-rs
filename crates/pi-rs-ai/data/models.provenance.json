@@ -2,16 +2,16 @@
 	"schemaVersion": 1,
 	"source": {
 		"repository": "https://github.com/earendil-works/pi.git",
-		"revision": "8479bd84743e8889f728acb21a62794102db0529",
+		"revision": "f8f75544b63c5910568b2a0f667da858e4a11147",
 		"path": "packages/ai/src/models.generated.ts",
-		"catalogSha256": "80c641a6b8d511555d3bdcbaca7bafe2c0a301d41f5b7f424daf314cd5db2c31"
+		"catalogSha256": "1ea5a5a219401a865f1e842a75566d6ba2172bbc7c81034124c1b9f96356920c"
 	},
 	"overrides": {
 		"path": "scripts/model-catalog-overrides.json",
 		"sha256": "5fd2f8d99edfe1e37a0a6004d1c709bb2f5b94cef8a6e53aa9c0119f8145debb",
 		"count": 0
 	},
-	"outputSha256": "4e41659a84c28becfcc98985c2141a65ffe4de5e548703e2834286a3944ea096",
+	"outputSha256": "79646ae48787a102102d076ff1ffb30c903d0855dc06ed9eecd96167badbeaae",
 	"inventory": {
 		"providers": 35,
 		"models": 1057,
@@ -54,10 +54,10 @@
 		},
 		"apis": {
 			"bedrock-converse-stream": 106,
-			"openai-completions": 483,
+			"openai-completions": 482,
 			"anthropic-messages": 272,
 			"azure-openai-responses": 45,
-			"openai-responses": 85,
+			"openai-responses": 86,
 			"google-generative-ai": 19,
 			"google-vertex": 10,
 			"mistral-conversations": 30,
