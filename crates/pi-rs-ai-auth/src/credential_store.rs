@@ -278,17 +278,18 @@ impl CredentialStore {
                 AuthError::Message("canonical credential path has no parent".into())
             })?;
         create_private_directory(parent)?;
+        // The lock file is a persistent identity, not a create-new sentinel.
+        // The OS owns lock lifetime and releases it when this descriptor closes
+        // or the process dies, so stale bytes can never block a later writer.
         let lock_path = lock_path(&self.paths.canonical);
+        let file = open_private_lock_file(&lock_path)?;
         for _ in 0..LOCK_ATTEMPTS {
-            match create_private_file(&lock_path, true) {
-                Ok(mut file) => {
-                    writeln!(file, "{}", std::process::id())?;
-                    return Ok(CredentialLock { path: lock_path });
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            match file.try_lock() {
+                Ok(()) => return Ok(CredentialLock { file }),
+                Err(std::fs::TryLockError::WouldBlock) => {
                     tokio::time::sleep(LOCK_DELAY).await;
                 }
-                Err(error) => return Err(error.into()),
+                Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
             }
         }
         Err(AuthError::Message(
@@ -394,16 +395,126 @@ fn create_private_file(path: &Path, create_new: bool) -> Result<fs::File, std::i
         .open(path)
 }
 
+#[cfg(unix)]
+fn open_private_lock_file(path: &Path) -> Result<fs::File, std::io::Error> {
+    use std::os::unix::fs::OpenOptionsExt;
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(path)
+}
+
+#[cfg(not(unix))]
+fn open_private_lock_file(path: &Path) -> Result<fs::File, std::io::Error> {
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+}
+
 fn sync_directory(path: &Path) -> Result<(), std::io::Error> {
     fs::File::open(path)?.sync_all()
 }
 
 struct CredentialLock {
-    path: PathBuf,
+    file: fs::File,
 }
 
 impl Drop for CredentialLock {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        let _ = self.file.unlock();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::panic)]
+
+    use std::process::Command;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::{
+        AuthCredential, CredentialPaths, CredentialStore, lock_path, open_private_lock_file,
+    };
+
+    const DEAD_WRITER_PATH: &str = "PI_RS_AUTH_DEAD_WRITER_PATH";
+    static TEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    fn test_store(name: &str) -> (CredentialStore, std::path::PathBuf) {
+        let sequence = TEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "pi-rs-ai-auth-lock-{name}-{}-{sequence}",
+            std::process::id()
+        ));
+        let canonical = root.join("credentials.json");
+        let paths = CredentialPaths::new(canonical.clone(), None)
+            .unwrap_or_else(|error| panic!("valid test paths: {error}"));
+        (CredentialStore::new(paths), canonical)
+    }
+
+    #[tokio::test]
+    async fn dead_writer_process_cannot_leave_a_blocking_lock() {
+        if let Some(canonical) = std::env::var_os(DEAD_WRITER_PATH) {
+            let paths = CredentialPaths::new(canonical.into(), None)
+                .unwrap_or_else(|error| panic!("valid child paths: {error}"));
+            let store = CredentialStore::new(paths);
+            let _lock = store
+                .acquire_lock()
+                .await
+                .unwrap_or_else(|error| panic!("child acquires lock: {error}"));
+            std::process::exit(91);
+        }
+
+        let (store, canonical) = test_store("dead-writer");
+        let status = Command::new(
+            std::env::current_exe().unwrap_or_else(|error| panic!("test executable: {error}")),
+        )
+        .arg("--exact")
+        .arg("credential_store::tests::dead_writer_process_cannot_leave_a_blocking_lock")
+        .arg("--nocapture")
+        .env(DEAD_WRITER_PATH, &canonical)
+        .status()
+        .unwrap_or_else(|error| panic!("spawn dead writer: {error}"));
+        assert_eq!(status.code(), Some(91));
+        assert!(
+            lock_path(&canonical).exists(),
+            "lock identity is persistent"
+        );
+
+        store
+            .set("after-crash", AuthCredential::ApiKey { key: "x".into() })
+            .await
+            .unwrap_or_else(|error| panic!("OS released dead writer lock: {error}"));
+        assert!(canonical.exists());
+        let _ = std::fs::remove_dir_all(canonical.parent().unwrap_or(&canonical));
+    }
+
+    #[tokio::test]
+    async fn dropping_guard_releases_lock_for_a_waiting_file() {
+        let (store, canonical) = test_store("release");
+        let guard = store
+            .acquire_lock()
+            .await
+            .unwrap_or_else(|error| panic!("first lock: {error}"));
+        let contender = open_private_lock_file(&lock_path(&canonical))
+            .unwrap_or_else(|error| panic!("open contender: {error}"));
+        assert!(
+            matches!(contender.try_lock(), Err(std::fs::TryLockError::WouldBlock)),
+            "live guard must exclude a contender"
+        );
+
+        drop(guard);
+        contender
+            .try_lock()
+            .unwrap_or_else(|error| panic!("dropped guard releases lock: {error}"));
+        contender
+            .unlock()
+            .unwrap_or_else(|error| panic!("release contender: {error}"));
+        let _ = std::fs::remove_dir_all(canonical.parent().unwrap_or(&canonical));
     }
 }
