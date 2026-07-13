@@ -162,7 +162,7 @@ generic mechanisms.
   experience + exhaustive provider/auth subsystem contract and locks the
   coordination skills to serial/frontier/wave, exact-base, and path ownership.
 
-- [ ] **0.2 — Establish compact experience and performance baselines**
+- [x] **0.2 — Establish compact experience and performance baselines**
   (**serial after 0.1**).
 
   Select a small canonical set covering startup, prompt editing, streaming,
@@ -179,6 +179,12 @@ generic mechanisms.
   **Accept:** fixtures are reviewable and byte-idempotent; negative controls
   identify the first cell/input mismatch; benchmarks emit stable machine-
   readable results; normal checks do not execute Node/TypeScript Pi.
+
+  **Landed:** `1bb2758` adds 6 compact journeys / 20 cell-exact checkpoints and
+  offline mismatch/idempotence checks plus the release benchmark; `cbb0ab4`
+  records measured reference baselines and budgets. Integrated release results
+  remained within every budget; workspace Cargo/Nix and release-package checks
+  passed.
 
 - [ ] **0.3 — Remove faithful-port scaffolding** (**serial after 0.2**).
 
