@@ -47,20 +47,20 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 |---|---|---|
 | `appendEntry` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
 | `events` | implemented | Pi EventEmitter semantics in registries.rs + examples/extensions/event-bus-demo.lua |
-| `exec` | implemented | pi-rs-host API + registry/OS binding tests; Lua spelling uses snake_case |
+| `exec` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
 | `getActiveTools` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
 | `getAllTools` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
-| `getCommands` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
-| `getFlag` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
+| `getCommands` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
+| `getFlag` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
 | `getSessionName` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
 | `getThinkingLevel` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
-| `on` | implemented | pi-rs-host API + registry/OS binding tests; Lua spelling uses snake_case |
-| `registerCommand` | implemented | pi-rs-host API + registry/OS binding tests; Lua spelling uses snake_case |
-| `registerFlag` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
+| `on` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
+| `registerCommand` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
+| `registerFlag` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
 | `registerMessageRenderer` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
-| `registerProvider` | implemented | pi-rs-host API + registry/OS binding tests; Lua spelling uses snake_case |
-| `registerShortcut` | implemented | pi-rs-host API + registry/OS binding tests; Lua spelling uses snake_case |
-| `registerTool` | implemented | pi-rs-host API + registry/OS binding tests; Lua spelling uses snake_case |
+| `registerProvider` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
+| `registerShortcut` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
+| `registerTool` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
 | `sendMessage` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
 | `sendUserMessage` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
 | `setActiveTools` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
@@ -68,14 +68,14 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 | `setModel` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
 | `setSessionName` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
 | `setThinkingLevel` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
-| `unregisterProvider` | implemented | pi-rs-host API + registry/OS binding tests; Lua spelling uses snake_case |
+| `unregisterProvider` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
 
 ## Extension UI operations
 
 | Surface | Status | Evidence / target |
 |---|---|---|
 | `addAutocompleteProvider` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `confirm` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
+| `confirm` | implemented | Queued action oracle + extension-ui terminal differential |
 | `custom` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
 | `editor` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
 | `getAllThemes` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
@@ -84,10 +84,10 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 | `getTheme` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
 | `getToolsExpanded` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
 | `input` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `notify` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
+| `notify` | implemented | Queued action oracle + extension-ui terminal differential |
 | `onTerminalInput` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
 | `pasteToEditor` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `select` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
+| `select` | implemented | Queued action oracle + extension-ui terminal differential |
 | `setEditorComponent` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
 | `setEditorText` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
 | `setFooter` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
@@ -164,7 +164,7 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 | `border-status-editor.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `built-in-tool-renderer.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `claude-rules.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `commands.ts` | planned 9.1 | Initial product-loaded tool/command/blocking-hook vertical slice |
+| `commands.ts` | implemented | Executable Lua translations through product/public-surface integration tests |
 | `confirm-destructive.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `custom-compaction.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `custom-footer.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
@@ -186,7 +186,7 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 | `github-issue-autocomplete.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `gondolin/index.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `handoff.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `hello.ts` | planned 9.1 | Initial product-loaded tool/command/blocking-hook vertical slice |
+| `hello.ts` | implemented | Executable Lua translations through product/public-surface integration tests |
 | `hidden-thinking-label.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `inline-bash.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `input-transform-streaming.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
@@ -200,14 +200,14 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 | `notify.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `overlay-qa-tests.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `overlay-test.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `permission-gate.ts` | planned 9.1 | Initial product-loaded tool/command/blocking-hook vertical slice |
+| `permission-gate.ts` | implemented | Executable Lua translations through product/public-surface integration tests |
 | `pirate.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `plan-mode/index.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `plan-mode/utils.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `preset.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `project-trust.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `prompt-customizer.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `protected-paths.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
+| `protected-paths.ts` | implemented | Executable Lua translations through product/public-surface integration tests |
 | `provider-payload.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `qna.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `question.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
@@ -223,7 +223,7 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 | `space-invaders.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `ssh.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `status-line.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `structured-output.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
+| `structured-output.ts` | implemented | Executable Lua translations through product/public-surface integration tests |
 | `subagent/agents.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `subagent/index.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
 | `summarize.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
