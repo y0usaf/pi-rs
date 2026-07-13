@@ -192,10 +192,24 @@ pub async fn login_pkce(
                 // Spec: `parsed.state ?? verifier` (empty string kept).
                 state = parsed_state.or_else(|| Some(verifier.clone()));
             }
+            cancelled = callbacks.on_cancelled() => {
+                cancelled?;
+                return Err(AuthError::Cancelled);
+            }
         }
-    } else if let Some(settled) = server.wait_for_code().await {
-        code = Some(settled.code);
-        state = Some(settled.state);
+    } else {
+        tokio::select! {
+            settled = server.wait_for_code() => {
+                if let Some(settled) = settled {
+                    code = Some(settled.code);
+                    state = Some(settled.state);
+                }
+            }
+            cancelled = callbacks.on_cancelled() => {
+                cancelled?;
+                return Err(AuthError::Cancelled);
+            }
+        }
     }
 
     // Spec: `if (!code)` — empty counts as missing.
@@ -221,7 +235,7 @@ pub async fn login_pkce(
         .ok_or_else(|| AuthError::Message("Missing OAuth state".into()))?;
 
     callbacks.on_progress("Exchanging authorization code for tokens...");
-    exchange_authorization_code(flow, &code, &state, &verifier, &redirect_uri).await
+    exchange_authorization_code(flow, &code, &state, &verifier, &redirect_uri, callbacks).await
     // Spec `finally`: the server closes when it drops.
 }
 
@@ -237,19 +251,24 @@ pub async fn refresh_pkce(
             "client_id": flow.client_id,
             "refresh_token": refresh_token,
         }),
+        None,
     )
     .await
-    .map_err(|e| {
+    .map_err(|error| {
         AuthError::Message(format!(
-            "{} token refresh request failed. url={}; details={e}",
-            flow.error_label, flow.token_url
+            "{} token refresh request failed. url={}; details={}",
+            flow.error_label,
+            flow.token_url,
+            pi_rs_ai_types::redact_sensitive(&error.to_string(), &[refresh_token])
         ))
     })?;
 
-    parse_token_response(&body).map_err(|e| {
+    parse_token_response(&body).map_err(|error| {
         AuthError::Message(format!(
-            "{} token refresh returned invalid JSON. url={}; body={body}; details={e}",
-            flow.error_label, flow.token_url
+            "{} token refresh returned invalid JSON. url={}; body={}; details={error}",
+            flow.error_label,
+            flow.token_url,
+            pi_rs_ai_types::redact_sensitive(&body, &[refresh_token])
         ))
     })
 }
@@ -261,6 +280,7 @@ async fn exchange_authorization_code(
     state: &str,
     verifier: &str,
     redirect_uri: &str,
+    callbacks: &dyn OAuthLoginCallbacks,
 ) -> Result<OAuthCredentials, AuthError> {
     let body = post_json(
         &flow.token_url,
@@ -272,19 +292,22 @@ async fn exchange_authorization_code(
             "redirect_uri": redirect_uri,
             "code_verifier": verifier,
         }),
+        Some(callbacks),
     )
     .await
-    .map_err(|e| {
+    .map_err(|error| {
         AuthError::Message(format!(
-            "Token exchange request failed. url={}; redirect_uri={redirect_uri}; response_type=authorization_code; details={e}",
-            flow.token_url
+            "Token exchange request failed. url={}; redirect_uri={redirect_uri}; response_type=authorization_code; details={}",
+            flow.token_url,
+            pi_rs_ai_types::redact_sensitive(&error.to_string(), &[code, state, verifier])
         ))
     })?;
 
-    parse_token_response(&body).map_err(|e| {
+    parse_token_response(&body).map_err(|error| {
         AuthError::Message(format!(
-            "Token exchange returned invalid JSON. url={}; body={body}; details={e}",
-            flow.token_url
+            "Token exchange returned invalid JSON. url={}; body={}; details={error}",
+            flow.token_url,
+            pi_rs_ai_types::redact_sensitive(&body, &[code, state, verifier])
         ))
     })
 }
@@ -308,22 +331,36 @@ fn parse_token_response(body: &str) -> Result<OAuthCredentials, serde_json::Erro
 
 /// Spec: `postJson` — a plain 30s-timeout POST, no retry; non-2xx is the
 /// spec's `HTTP request failed. status=…; url=…; body=…` error.
-async fn post_json(url: &str, body: &serde_json::Value) -> Result<String, AuthError> {
-    let response = reqwest::Client::new()
+async fn post_json(
+    url: &str,
+    body: &serde_json::Value,
+    callbacks: Option<&dyn OAuthLoginCallbacks>,
+) -> Result<String, AuthError> {
+    let request = crate::http::shared_http_client()
         .post(url)
         .timeout(std::time::Duration::from_secs(30))
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
         .body(body.to_string())
-        .send()
-        .await?;
+        .send();
+    let response = match callbacks {
+        Some(callbacks) => tokio::select! {
+            response = request => response?,
+            cancelled = callbacks.on_cancelled() => {
+                cancelled?;
+                return Err(AuthError::Cancelled);
+            }
+        },
+        None => request.await?,
+    };
 
     let status = response.status().as_u16();
     let response_body = response.text().await?;
 
     if !(200..300).contains(&status) {
         return Err(AuthError::Message(format!(
-            "HTTP request failed. status={status}; url={url}; body={response_body}"
+            "HTTP request failed. status={status}; url={url}; body={}",
+            pi_rs_ai_types::redact_sensitive(&response_body, &[])
         )));
     }
 

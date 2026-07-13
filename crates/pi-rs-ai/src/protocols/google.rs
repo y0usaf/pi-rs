@@ -456,25 +456,27 @@ async fn drive(
     {
         params = next;
     }
-    let client = reqwest::Client::builder()
+    let response = crate::transport::shared_http_client()
+        .post(request_url(model))
         .timeout(std::time::Duration::from_millis(
             options.base.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS),
         ))
-        .build()
-        .map_err(|e| ProtocolError(e.to_string()))?;
-    let response = client
-        .post(request_url(model))
         .headers(headers(model, options, key)?)
         .body(params.to_string())
         .send()
         .await
-        .map_err(|e| ProtocolError(e.to_string()))?;
+        .map_err(|error| {
+            ProtocolError(pi_rs_ai_types::redact_sensitive(&error.to_string(), &[key]))
+        })?;
     if !response.status().is_success() {
         let status = response.status();
         let error = TransportError::Status {
             status: status.as_u16(),
             status_text: status.canonical_reason().unwrap_or_default().to_string(),
-            body: response.text().await.unwrap_or_default(),
+            body: pi_rs_ai_types::redact_sensitive(
+                &response.text().await.unwrap_or_default(),
+                &[key],
+            ),
         };
         return Err(ProtocolError(format_http_error(error)));
     }
@@ -550,7 +552,10 @@ pub fn stream_google(
                 } else {
                     StopReason::Error
                 };
-                output.error_message = Some(error.to_string());
+                output.error_message = Some(super::redact_provider_error(
+                    &error.to_string(),
+                    &options.base,
+                ));
                 task.push(AssistantMessageEvent::Error {
                     reason: output.stop_reason,
                     error: output,

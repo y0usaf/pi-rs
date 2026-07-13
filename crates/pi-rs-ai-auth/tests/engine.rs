@@ -155,6 +155,30 @@ impl OAuthLoginCallbacks for TestCallbacks {
     }
 }
 
+struct CancelledCallbacks;
+
+impl OAuthLoginCallbacks for CancelledCallbacks {
+    fn on_auth(&self, _info: OAuthAuthInfo) {}
+
+    fn on_device_code(&self, _info: OAuthDeviceCodeInfo) {}
+
+    fn on_prompt(&self, _prompt: OAuthPrompt) -> AuthFuture<'_, String> {
+        Box::pin(async { Err(AuthError::Cancelled) })
+    }
+
+    fn on_select(&self, _prompt: OAuthSelectPrompt) -> AuthFuture<'_, Option<String>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    fn is_cancelled(&self) -> bool {
+        true
+    }
+
+    fn on_cancelled(&self) -> AuthFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
 fn query_param(url: &str, key: &str) -> Option<String> {
     url::Url::parse(url)
         .unwrap()
@@ -188,6 +212,9 @@ async fn login_via_callback_server() {
     );
     let state = query_param(&info.url, "state").unwrap();
     let challenge = query_param(&info.url, "code_challenge").unwrap();
+    let auth_debug = format!("{info:?}");
+    assert!(!auth_debug.contains(&state));
+    assert!(!auth_debug.contains(&challenge));
     assert_eq!(challenge, pi_rs_ai_auth::challenge_for(&state));
     assert_eq!(
         query_param(&info.url, "redirect_uri").unwrap(),
@@ -230,6 +257,20 @@ async fn login_via_callback_server() {
         body["redirect_uri"],
         format!("http://localhost:{port}/callback").as_str()
     );
+}
+
+#[tokio::test]
+async fn callback_wait_is_cancellable() {
+    let (token_addr, _bodies) = token_server(vec![]);
+    let flow = test_flow(free_port(), token_addr);
+    let error = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        login_pkce(&flow, &CancelledCallbacks),
+    )
+    .await
+    .unwrap()
+    .unwrap_err();
+    assert!(matches!(error, AuthError::Cancelled));
 }
 
 // ---------------------------------------------------------------------
@@ -358,6 +399,28 @@ async fn refresh_success_and_body() {
     assert_eq!(body["grant_type"], "refresh_token");
     assert_eq!(body["client_id"], "client-123");
     assert_eq!(body["refresh_token"], "old-refresh");
+}
+
+#[tokio::test]
+async fn refresh_errors_never_expose_request_or_response_tokens() {
+    let request_secret = "old-refresh-secret";
+    let response_secret = "response-access-secret";
+    let body = serde_json::json!({
+        "message": format!("echo {request_secret}"),
+        "access_token": response_secret
+    })
+    .to_string();
+    let (token_addr, _bodies) = token_server(vec![(401, body)]);
+    let flow = test_flow(free_port(), token_addr);
+
+    let error = refresh_pkce(&flow, request_secret).await.unwrap_err();
+    let display = error.to_string();
+    let debug = format!("{error:?}");
+    for secret in [request_secret, response_secret] {
+        assert!(!display.contains(secret));
+        assert!(!debug.contains(secret));
+    }
+    assert!(display.contains("[REDACTED]"));
 }
 
 #[tokio::test]

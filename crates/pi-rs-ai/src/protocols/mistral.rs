@@ -593,25 +593,30 @@ async fn drive(
     {
         payload = next;
     }
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_millis(
-            options.base.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS),
-        ))
-        .build()
-        .map_err(|error| ProtocolError(error.to_string()))?;
-    let response = client
+    let response = crate::transport::shared_http_client()
         .post(format!(
             "{}/v1/chat/completions",
             model.base_url.trim_end_matches('/')
+        ))
+        .timeout(std::time::Duration::from_millis(
+            options.base.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS),
         ))
         .headers(request_headers(model, options, api_key)?)
         .body(payload.to_string())
         .send()
         .await
-        .map_err(|error| ProtocolError(error.to_string()))?;
+        .map_err(|error| {
+            ProtocolError(pi_rs_ai_types::redact_sensitive(
+                &error.to_string(),
+                &[api_key],
+            ))
+        })?;
     if !response.status().is_success() {
         let status = response.status().as_u16();
-        let body = response.text().await.unwrap_or_default();
+        let body = pi_rs_ai_types::redact_sensitive(
+            &response.text().await.unwrap_or_default(),
+            &[api_key],
+        );
         return Err(ProtocolError(format_http_error(status, &body)));
     }
     if let Some(hook) = &options.base.on_response {
@@ -713,7 +718,10 @@ pub fn stream_mistral(
                 } else {
                     StopReason::Error
                 };
-                output.error_message = Some(error.to_string());
+                output.error_message = Some(super::redact_provider_error(
+                    &error.to_string(),
+                    &options.base,
+                ));
                 task.push(AssistantMessageEvent::Error {
                     reason: output.stop_reason,
                     error: output,

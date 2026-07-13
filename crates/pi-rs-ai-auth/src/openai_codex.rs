@@ -93,7 +93,8 @@ impl OpenAiCodexFlow {
     ) -> Result<OAuthCredentials, AuthError> {
         let status = response.status();
         if !status.is_success() {
-            let text = response.text().await.unwrap_or_default();
+            let text =
+                pi_rs_ai_types::redact_sensitive(&response.text().await.unwrap_or_default(), &[]);
             let fallback = status.canonical_reason().unwrap_or("");
             let detail = if text.is_empty() { fallback } else { &text };
             return Err(AuthError::Message(format!(
@@ -108,7 +109,8 @@ impl OpenAiCodexFlow {
         let expires_in = value.get("expires_in").and_then(Value::as_f64);
         let (Some(access), Some(refresh), Some(expires_in)) = (access, refresh, expires_in) else {
             return Err(AuthError::Message(format!(
-                "OpenAI Codex token {operation} response missing fields: {value}"
+                "OpenAI Codex token {operation} response missing fields: {}",
+                pi_rs_ai_types::redact_sensitive(&value.to_string(), &[])
             )));
         };
         Ok(OAuthCredentials {
@@ -128,7 +130,7 @@ impl OpenAiCodexFlow {
     ) -> Result<OAuthCredentials, AuthError> {
         let response = self
             .send(
-                reqwest::Client::new()
+                crate::http::shared_http_client()
                     .post(&self.endpoints.token_url)
                     .header("Content-Type", "application/x-www-form-urlencoded")
                     .form(&[
@@ -154,7 +156,7 @@ impl OpenAiCodexFlow {
     async fn refresh(&self, refresh_token: &str) -> Result<OAuthCredentials, AuthError> {
         let response = self
             .send(
-                reqwest::Client::new()
+                crate::http::shared_http_client()
                     .post(&self.endpoints.token_url)
                     .header("Content-Type", "application/x-www-form-urlencoded")
                     .form(&[
@@ -277,7 +279,7 @@ impl OpenAiCodexFlow {
     ) -> Result<OAuthCredentials, AuthError> {
         let response = self
             .send(
-                reqwest::Client::new()
+                crate::http::shared_http_client()
                     .post(&self.endpoints.device_user_code_url)
                     .header("Content-Type", "application/json")
                     .body(json!({ "client_id": CLIENT_ID }).to_string()),
@@ -289,7 +291,8 @@ impl OpenAiCodexFlow {
             if status.as_u16() == 404 {
                 return Err(AuthError::Message("OpenAI Codex device code login is not enabled for this server. Use browser login or verify the server URL.".into()));
             }
-            let body = response.text().await.unwrap_or_default();
+            let body =
+                pi_rs_ai_types::redact_sensitive(&response.text().await.unwrap_or_default(), &[]);
             return Err(AuthError::Message(format!(
                 "OpenAI Codex device code request failed with status {}{}",
                 status.as_u16(),
@@ -313,12 +316,14 @@ impl OpenAiCodexFlow {
             (device_auth_id, user_code, interval)
         else {
             return Err(AuthError::Message(format!(
-                "Invalid OpenAI Codex device code response: {value}"
+                "Invalid OpenAI Codex device code response: {}",
+                pi_rs_ai_types::redact_sensitive(&value.to_string(), &[])
             )));
         };
         if !interval.is_finite() || interval < 0.0 {
             return Err(AuthError::Message(format!(
-                "Invalid OpenAI Codex device code response: {value}"
+                "Invalid OpenAI Codex device code response: {}",
+                pi_rs_ai_types::redact_sensitive(&value.to_string(), &[])
             )));
         }
         callbacks.on_device_code(OAuthDeviceCodeInfo {
@@ -328,7 +333,7 @@ impl OpenAiCodexFlow {
             expires_in_seconds: Some(DEVICE_CODE_TIMEOUT_SECONDS),
         });
 
-        let client = reqwest::Client::new();
+        let client = crate::http::shared_http_client();
         let token_url = self.endpoints.device_token_url.clone();
         let auth_id = device_auth_id.to_owned();
         let user_code = user_code.to_owned();
@@ -362,14 +367,18 @@ impl OpenAiCodexFlow {
                                 DeviceCodePoll::Complete((code.to_owned(), verifier.to_owned()))
                             }
                             _ => DeviceCodePoll::Failed(format!(
-                                "Invalid OpenAI Codex device auth token response: {value}"
+                                "Invalid OpenAI Codex device auth token response: {}",
+                                pi_rs_ai_types::redact_sensitive(&value.to_string(), &[])
                             )),
                         });
                     }
                     if matches!(status.as_u16(), 403 | 404) {
                         return Ok(DeviceCodePoll::Pending);
                     }
-                    let body = response.text().await.unwrap_or_default();
+                    let body = pi_rs_ai_types::redact_sensitive(
+                        &response.text().await.unwrap_or_default(),
+                        &[&auth_id, &user_code],
+                    );
                     let error_code = serde_json::from_str::<Value>(&body).ok().and_then(|value| {
                         let error = value.get("error")?;
                         error

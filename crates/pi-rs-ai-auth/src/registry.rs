@@ -73,10 +73,20 @@ pub fn get_oauth_providers() -> Vec<Arc<dyn OAuthProviderInterface>> {
 }
 
 /// Spec: the `{ newCredentials, apiKey }` result of `getOAuthApiKey`.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct OAuthApiKeyResult {
     pub new_credentials: OAuthCredentials,
     pub api_key: String,
+}
+
+impl std::fmt::Debug for OAuthApiKeyResult {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OAuthApiKeyResult")
+            .field("new_credentials", &self.new_credentials)
+            .field("api_key", &pi_rs_ai_types::REDACTED)
+            .finish()
+    }
 }
 
 /// Spec: `getOAuthApiKey(providerId, credentials)` — resolve an API key

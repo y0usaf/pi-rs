@@ -33,6 +33,13 @@ fn sse_response(body: &str) -> String {
     )
 }
 
+fn error_response(status: u16, body: &str) -> String {
+    format!(
+        "HTTP/1.1 {status} Error\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    )
+}
+
 /// Serve one canned response per connection, capturing raw requests.
 fn serve(responses: Vec<String>) -> (SocketAddr, Captured) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -479,6 +486,33 @@ async fn tool_history_without_tools_sends_empty_tools() {
 
     let body = request_body(&captured.lock().unwrap().remove(0));
     assert_eq!(body["tools"], json!([]));
+}
+
+#[tokio::test]
+async fn provider_error_snapshots_redact_api_keys() {
+    let secret = "snapshot-secret-value";
+    let body = serde_json::json!({
+        "error": {"message": format!("provider echoed {secret}")}
+    })
+    .to_string();
+    let (addr, _) = serve(vec![error_response(401, &body)]);
+    let model = openai_model(addr);
+    let stream = stream_openai_completions(
+        &model,
+        &Context::default(),
+        Some(OpenAICompletionsOptions {
+            base: StreamOptions {
+                api_key: Some(secret.into()),
+                ..StreamOptions::default()
+            },
+            ..OpenAICompletionsOptions::default()
+        }),
+    );
+    while stream.next().await.is_some() {}
+    let result = stream.result().await.unwrap();
+    let snapshot = serde_json::to_string(&result).unwrap();
+    assert!(!snapshot.contains(secret));
+    assert!(snapshot.contains("[REDACTED]"));
 }
 
 #[tokio::test]

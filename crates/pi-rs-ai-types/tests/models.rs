@@ -83,11 +83,11 @@ fn supported_levels_explicit_nulls_are_unsupported() {
     let ring = model("model_antling_ring.json");
     assert_eq!(get_supported_thinking_levels(&ring), vec![High, XHigh]);
 
-    // Opus 4.7 explicitly maps both extended levels.
+    // Pinned Opus 4.7 explicitly maps xhigh; max is not advertised.
     let opus = model("model_anthropic_opus47.json");
     assert_eq!(
         get_supported_thinking_levels(&opus),
-        vec![Off, Minimal, Low, Medium, High, XHigh, Max]
+        vec![Off, Minimal, Low, Medium, High, XHigh]
     );
 }
 

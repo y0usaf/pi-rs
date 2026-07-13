@@ -22,7 +22,7 @@ pub type AuthFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, AuthError>> +
 
 /// Spec: `OAuthCredentials` — `refresh`/`access`/`expires` plus an open
 /// index signature (`extra`, flattened through serde).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct OAuthCredentials {
     pub refresh: String,
     pub access: String,
@@ -30,6 +30,18 @@ pub struct OAuthCredentials {
     pub expires: i64,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+impl std::fmt::Debug for OAuthCredentials {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OAuthCredentials")
+            .field("refresh", &pi_rs_ai_types::REDACTED)
+            .field("access", &pi_rs_ai_types::REDACTED)
+            .field("expires", &self.expires)
+            .field("extra_fields", &self.extra.keys().collect::<Vec<_>>())
+            .finish()
+    }
 }
 
 /// Spec: `OAuthProviderId` — an open string, never a closed enum.
@@ -44,19 +56,49 @@ pub struct OAuthPrompt {
 }
 
 /// Spec: `OAuthAuthInfo`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct OAuthAuthInfo {
     pub url: String,
     pub instructions: Option<String>,
 }
 
+impl std::fmt::Debug for OAuthAuthInfo {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let origin = url::Url::parse(&self.url)
+            .ok()
+            .map(|mut url| {
+                url.set_query(None);
+                url.set_fragment(None);
+                url.to_string()
+            })
+            .unwrap_or_else(|| pi_rs_ai_types::REDACTED.to_owned());
+        formatter
+            .debug_struct("OAuthAuthInfo")
+            .field("url", &origin)
+            .field("instructions", &self.instructions)
+            .finish()
+    }
+}
+
 /// Spec: `OAuthDeviceCodeInfo`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct OAuthDeviceCodeInfo {
     pub user_code: String,
     pub verification_uri: String,
     pub interval_seconds: Option<f64>,
     pub expires_in_seconds: Option<f64>,
+}
+
+impl std::fmt::Debug for OAuthDeviceCodeInfo {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OAuthDeviceCodeInfo")
+            .field("user_code", &pi_rs_ai_types::REDACTED)
+            .field("verification_uri", &self.verification_uri)
+            .field("interval_seconds", &self.interval_seconds)
+            .field("expires_in_seconds", &self.expires_in_seconds)
+            .finish()
+    }
 }
 
 /// Spec: `OAuthSelectOption`.
@@ -102,9 +144,9 @@ pub trait OAuthLoginCallbacks: Send + Sync {
         Box::pin(std::future::pending())
     }
 
-    /// Catalog IDs used by Copilot's post-login policy-enablement calls.
-    /// Supplied by the host to avoid a dependency from auth back to the
-    /// transport/catalog crate.
+    /// Compatibility adapter for callers that have not yet supplied Copilot
+    /// model IDs as flow data. New integrations set `GitHubCopilotFlow::model_ids`.
+    #[doc(hidden)]
     fn provider_model_ids(&self, _provider: &str) -> Vec<String> {
         Vec::new()
     }

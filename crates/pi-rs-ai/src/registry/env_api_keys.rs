@@ -15,7 +15,7 @@ use std::path::Path;
 
 /// Spec: `getApiKeyEnvVars(provider)` — the env-var name(s) that can
 /// hold a provider's API key, in precedence order.
-fn get_api_key_env_vars(provider: &str) -> Option<&'static [&'static str]> {
+pub fn env_api_key_names(provider: &str) -> Option<&'static [&'static str]> {
     let vars: &'static [&'static str] = match provider {
         "github-copilot" => &["COPILOT_GITHUB_TOKEN"],
         // ANTHROPIC_OAUTH_TOKEN takes precedence over ANTHROPIC_API_KEY
@@ -78,7 +78,7 @@ fn has_vertex_adc_credentials() -> bool {
 /// provide an API key. Only actual API-key variables; ambient credential
 /// sources (AWS profiles, ADC) are intentionally excluded.
 pub fn find_env_keys(provider: &str) -> Option<Vec<&'static str>> {
-    let vars = get_api_key_env_vars(provider)?;
+    let vars = env_api_key_names(provider)?;
     let found: Vec<&'static str> = vars
         .iter()
         .copied()

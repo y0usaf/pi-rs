@@ -271,7 +271,7 @@ async fn drive(
         params = next;
     }
     let response = post_with_retry(
-        &reqwest::Client::new(),
+        &crate::transport::shared_http_client(),
         &request_url(&base_url, &api_version)?,
         &headers(model, options, api_key)?,
         &params.to_string(),
@@ -363,7 +363,10 @@ pub fn stream_azure_openai_responses(
                 } else {
                     StopReason::Error
                 };
-                output.error_message = Some(error.to_string());
+                output.error_message = Some(super::redact_provider_error(
+                    &error.to_string(),
+                    &options.base,
+                ));
                 task_stream.push(AssistantMessageEvent::Error {
                     reason: output.stop_reason,
                     error: output,
@@ -413,6 +416,7 @@ pub fn stream_simple_azure_openai_responses(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::normalize_azure_base_url;
 

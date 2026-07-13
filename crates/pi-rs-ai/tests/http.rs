@@ -233,6 +233,35 @@ async fn pre_aborted_signal_short_circuits() {
 }
 
 #[tokio::test]
+async fn status_errors_redact_request_and_response_secrets() {
+    let secret = "transport-secret-value";
+    let body = format!(r#"{{"message":"echo {secret}","access_token":"response-token"}}"#);
+    let addr = serve(vec![http_response(401, "Unauthorized", "", &body)], false);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        reqwest::header::AUTHORIZATION,
+        format!("Bearer {secret}").parse().unwrap(),
+    );
+    let error = post_with_retry(
+        &reqwest::Client::new(),
+        &url(addr),
+        &headers,
+        "{}",
+        &RetryOptions::default(),
+        None,
+    )
+    .await
+    .unwrap_err();
+    let display = error.to_string();
+    let debug = format!("{error:?}");
+    for value in [secret, "response-token"] {
+        assert!(!display.contains(value));
+        assert!(!debug.contains(value));
+    }
+    assert!(display.contains("[REDACTED]"));
+}
+
+#[tokio::test]
 async fn header_timeout_fires_when_server_stalls() {
     let addr = serve(vec![], true); // accept, read, never respond
     let client = reqwest::Client::new();

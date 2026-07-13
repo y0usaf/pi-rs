@@ -34,12 +34,14 @@
 //!   with the raw body and lets protocols format.
 
 pub mod abort;
+pub mod client;
 pub mod event_stream;
 pub mod http;
 pub mod retry;
 pub mod sse;
 
 pub use abort::AbortSignal;
+pub use client::shared_http_client;
 pub use event_stream::{
     AssistantMessageEventStream, EventStream, create_assistant_message_event_stream,
 };

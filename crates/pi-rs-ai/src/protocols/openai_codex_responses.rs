@@ -982,7 +982,7 @@ async fn drive(
     }
     let headers = build_sse_headers(model, options, &account_id, token)?;
     let response = post_with_retry(
-        &reqwest::Client::new(),
+        &crate::transport::shared_http_client(),
         &resolve_codex_url(&model.base_url),
         &headers,
         &body.to_string(),
@@ -1071,7 +1071,10 @@ pub fn stream_openai_codex_responses(
                 } else {
                     StopReason::Error
                 };
-                output.error_message = Some(error.to_string());
+                output.error_message = Some(super::redact_provider_error(
+                    &error.to_string(),
+                    &options.base,
+                ));
                 task_stream.push(AssistantMessageEvent::Error {
                     reason: output.stop_reason,
                     error: output,
