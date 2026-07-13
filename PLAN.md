@@ -235,7 +235,7 @@ generic mechanisms.
   and proves scope-atomic rollback across every registration family with 5
   additional tests. Integrated host/workspace tests and `nix flake check` pass.
 
-- [ ] **1.2 — Make `pi` a thin generic launcher with zero builtins**
+- [x] **1.2 — Make `pi` a thin generic launcher with zero builtins**
   (**serial**; depends on 1.1).
 
   Reduce `pi-rs-app` to CLI parsing, XDG/legacy root discovery, host creation,
@@ -248,6 +248,13 @@ generic mechanisms.
   **Accept:** zero-pack `pi` loads and runs an ordinary file-backed application;
   missing/broken packages diagnose cleanly; no Rust identifier names a shipped
   command, screen, tool, or session workflow.
+
+  **Landed:** `c512181` removes the inherited embedded product and reduces `pi`
+  to ordered file-package loading plus generic `application` root dispatch, with
+  binary-level ablation, ordering, conflict, and failure diagnostics. `e78a8d8`
+  makes the installed Nix smoke exercise the same ordinary file-backed path;
+  `86acfca` and `d5d5f6a` close lint and lockfile reconciliation. Integrated app/
+  workspace tests, `nix flake check`, and release `nix build .#pi-rs` pass.
 
 - [ ] **1.3 — Implement deterministic XDG roots and read-only legacy fallback**
   (**serial**; depends on 1.2).
