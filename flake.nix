@@ -306,6 +306,24 @@
             touch $out
           '';
 
+      # Closed, offline source/public-surface audit against the pinned Pi
+      # extraction. Reference regeneration is explicit and never reads an
+      # ambient sibling checkout during normal checks.
+      mkFinalParityAudit =
+        system:
+        let
+          pkgs = mkPkgs system;
+        in
+        pkgs.runCommand "final-parity-audit"
+          {
+            nativeBuildInputs = [ pkgs.python3 ];
+          }
+          ''
+            python3 ${self}/scripts/final-parity-audit --check
+            python3 ${self}/scripts/final-parity-audit --self-test
+            touch $out
+          '';
+
       mkModelCatalogUpdater =
         system:
         let
@@ -365,6 +383,7 @@
         external-extension-inventory = mkExternalExtensionInventoryTest system;
         extension-parity = mkExtensionParity system;
         dogfood-fixtures = mkDogfoodFixtureTest system;
+        final-parity-audit = mkFinalParityAudit system;
       });
 
       packages = forAllSystems (system: rec {
