@@ -316,6 +316,7 @@ function EXTENSION_POLICY.execute_command(text, context, options)
 end
 
 
+
 -- ExtensionContext policy shared by every product mode. Values are copied or
 -- exposed through read-only facades; mutations are plain queued actions. The
 -- mode loop is the only action applier.
@@ -553,3 +554,30 @@ function EXTENSION_CONTEXT_POLICY.pump(state)
   state.extension_actions = remaining
   if state.extension_after_pump then state.extension_after_pump() end
 end
+
+-- Pi runner.ts noOpUIContext for print/json modes. Mutations are inert and
+-- dialog calls return the pinned no-UI outcomes without touching frontend state.
+EXTENSION_HEADLESS_UI = EXTENSION_HEADLESS_UI or (function()
+  local theme = {
+    fg = function(_, _, text) return text end, bg = function(_, _, text) return text end,
+    bold = function(_, text) return text end, italic = function(_, text) return text end,
+    underline = function(_, text) return text end, strikethrough = function(_, text) return text end,
+  }
+  return {
+    select = function() return nil end, confirm = function() return false end,
+    input = function() return nil end, notify = function() end,
+    onTerminalInput = function() return function() end end,
+    setStatus = function() end, setWorkingMessage = function() end,
+    setWorkingVisible = function() end, setWorkingIndicator = function() end,
+    setHiddenThinkingLabel = function() end, setWidget = function() end,
+    setFooter = function() end, setHeader = function() end, setTitle = function() end,
+    custom = function() return nil end, pasteToEditor = function() end,
+    setEditorText = function() end, getEditorText = function() return "" end,
+    editor = function() return nil end, addAutocompleteProvider = function() end,
+    setEditorComponent = function() end, getEditorComponent = function() return nil end,
+    theme = theme, getAllThemes = function() return {} end, getTheme = function() return nil end,
+    setTheme = function() return { success = false, error = "UI not available" } end,
+    getToolsExpanded = function() return false end, setToolsExpanded = function() end,
+  }
+end)()
+
