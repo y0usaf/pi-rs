@@ -1022,19 +1022,14 @@ dependencies = [
 name = "pi-rs-app"
 version = "0.1.0"
 dependencies = [
- "pi-rs-agent",
  "pi-rs-ai",
  "pi-rs-ai-auth",
- "pi-rs-ai-types",
  "pi-rs-host",
- "pi-rs-session",
  "pi-rs-tui",
  "serde",
  "serde_json",
- "sha2",
  "tempfile",
  "thiserror",
- "tokio",
 ]
 
 [[package]]
