@@ -1,4 +1,4 @@
-//! Whole catalog/auth acceptance gate for PLAN item 8.
+//! Retained provider/auth catalog evidence; launcher runtime does not depend on it.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::collections::BTreeMap;
