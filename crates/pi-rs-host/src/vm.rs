@@ -27,7 +27,8 @@ use crate::api;
 use crate::convert::{json_to_lua, lua_to_json};
 use crate::error::{HostError, WATCHDOG_MARKER};
 use crate::{
-    CommandInfo, FlagInfo, HostConfig, Outcome, ProviderInfo, ToolInfo, ToolUpdateCallback,
+    CommandInfo, FlagInfo, HostConfig, Outcome, ProviderInfo, RoleInfo, ToolInfo,
+    ToolUpdateCallback,
 };
 
 /// Check the watchdog deadline every N VM instructions.
@@ -64,6 +65,10 @@ pub(crate) enum Msg {
     Flags {
         reply: SyncSender<Result<Vec<FlagInfo>, HostError>>,
     },
+    /// Host-side metadata mirror of public application/frontend roles.
+    Roles {
+        reply: SyncSender<Result<Vec<RoleInfo>, HostError>>,
+    },
     /// Update the shared parsed/default flag-value map.
     SetFlagValue {
         name: String,
@@ -89,6 +94,12 @@ pub(crate) enum Msg {
     /// Run a registered command handler on the coroutine path.
     CallCommand {
         invocation_name: String,
+        args: String,
+        reply: SyncSender<Result<Option<serde_json::Value>, HostError>>,
+    },
+    /// Run the active declaration for a generic application/frontend role.
+    CallRole {
+        role: String,
         args: String,
         reply: SyncSender<Result<Option<serde_json::Value>, HostError>>,
     },
@@ -166,6 +177,9 @@ fn vm_main(config: HostConfig, rx: Receiver<Msg>, init_tx: SyncSender<Result<(),
             Msg::Flags { reply } => {
                 let _ = reply.send(flags_mirror(&lua));
             }
+            Msg::Roles { reply } => {
+                let _ = reply.send(roles_mirror(&lua));
+            }
             Msg::SetFlagValue { name, value, reply } => {
                 let result = api::set_flag_value(&lua, &name, &value)
                     .map_err(|error| HostError::Lua(error.to_string()));
@@ -212,6 +226,9 @@ fn vm_main(config: HostConfig, rx: Receiver<Msg>, init_tx: SyncSender<Result<(),
                     &args,
                     &cwd,
                 ));
+            }
+            Msg::CallRole { role, args, reply } => {
+                let _ = reply.send(call_role(&lua, &rt, &config, &role, &args, &cwd));
             }
         }
     }
@@ -275,6 +292,30 @@ fn flags_mirror(lua: &mlua::Lua) -> Result<Vec<FlagInfo>, HostError> {
                     .get("type")
                     .map_err(|error| HostError::Lua(error.to_string()))?,
                 default,
+            })
+        })
+        .collect()
+}
+
+fn roles_mirror(lua: &mlua::Lua) -> Result<Vec<RoleInfo>, HostError> {
+    api::all_roles(lua)
+        .map_err(|error| HostError::Lua(error.to_string()))?
+        .into_iter()
+        .map(|(source, _, role)| {
+            Ok(RoleInfo {
+                id: role
+                    .get("id")
+                    .map_err(|error| HostError::Lua(error.to_string()))?,
+                role: role
+                    .get("role")
+                    .map_err(|error| HostError::Lua(error.to_string()))?,
+                source,
+                active: role
+                    .get("active")
+                    .map_err(|error| HostError::Lua(error.to_string()))?,
+                priority: role
+                    .get("priority")
+                    .map_err(|error| HostError::Lua(error.to_string()))?,
             })
         })
         .collect()
@@ -394,6 +435,30 @@ fn call_command(
         .and_then(value_to_reply);
     api::set_current_source(lua, "<host>");
     res
+}
+
+fn call_role(
+    lua: &mlua::Lua,
+    rt: &tokio::runtime::Runtime,
+    config: &HostConfig,
+    role: &str,
+    args: &str,
+    cwd: &str,
+) -> Result<Option<serde_json::Value>, HostError> {
+    let selected =
+        api::resolve_role(lua, role).map_err(|error| HostError::Lua(error.to_string()))?;
+    let Some(selected) = selected else {
+        return Err(HostError::UnknownRole(role.to_owned()));
+    };
+    api::set_current_source(lua, &selected.source);
+    let signal = pi_rs_ai::transport::AbortSignal::new();
+    let result = crate::ai::signal_userdata(lua, signal)
+        .map_err(|error| HostError::Lua(error.to_string()))
+        .and_then(|signal| invocation_context(lua, cwd, signal))
+        .and_then(|ctx| dispatch(lua, rt, config, selected.handler, (args.to_owned(), ctx)))
+        .and_then(value_to_reply);
+    api::set_current_source(lua, "<host>");
+    result
 }
 
 fn invocation_context(

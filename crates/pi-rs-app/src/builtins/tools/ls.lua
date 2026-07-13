@@ -51,6 +51,7 @@ local MAX_SAFE_INTEGER = 9007199254740991 -- JS Number.MAX_SAFE_INTEGER
 
 pi.register_tool({
   name = "ls",
+  active_by_default = false,
   label = "ls",
   description = (
     "List directory contents. Returns entries sorted alphabetically, with '/' suffix for"

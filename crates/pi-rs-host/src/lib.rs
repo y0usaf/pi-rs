@@ -171,6 +171,18 @@ pub struct FlagInfo {
     pub default: Option<serde_json::Value>,
 }
 
+/// Host-side metadata mirror of one public application/frontend role.
+/// `role` is the generic launcher role selected by the embedder; `id`,
+/// activation, and priority are declaration data owned by Lua packages.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoleInfo {
+    pub id: String,
+    pub role: String,
+    pub source: String,
+    pub active: bool,
+    pub priority: i64,
+}
+
 /// Handle to the Lua VM thread. Cheap to clone; all methods are
 /// synchronous from the caller's side (dispatch runs on the VM thread).
 #[derive(Clone)]
@@ -315,6 +327,17 @@ impl Host {
         rx.recv().map_err(|_| HostError::VmUnavailable)?
     }
 
+    /// Metadata mirror of application/frontend role declarations. Unlike
+    /// commands, roles resolve by explicit activation + priority data; source
+    /// identity is provenance only.
+    pub fn roles(&self) -> Result<Vec<RoleInfo>, HostError> {
+        let (reply, rx) = sync_channel(1);
+        self.tx
+            .send(vm::Msg::Roles { reply })
+            .map_err(|_| HostError::VmUnavailable)?;
+        rx.recv().map_err(|_| HostError::VmUnavailable)?
+    }
+
     /// Set one parsed extension flag value in the shared runtime. Individual
     /// extensions can read it only when they registered that name.
     pub fn set_flag_value(&self, name: &str, value: serde_json::Value) -> Result<(), HostError> {
@@ -383,6 +406,25 @@ impl Host {
         self.tx
             .send(vm::Msg::CallCommand {
                 invocation_name: invocation_name.to_owned(),
+                args: args.to_owned(),
+                reply,
+            })
+            .map_err(|_| HostError::VmUnavailable)?;
+        rx.recv().map_err(|_| HostError::VmUnavailable)?
+    }
+
+    /// Run the active declaration for a generic application/frontend role.
+    /// The handler uses the same coroutine, source attribution, invocation
+    /// context, and watchdog path as every ordinary extension callback.
+    pub fn call_role(
+        &self,
+        role: &str,
+        args: &str,
+    ) -> Result<Option<serde_json::Value>, HostError> {
+        let (reply, rx) = sync_channel(1);
+        self.tx
+            .send(vm::Msg::CallRole {
+                role: role.to_owned(),
                 args: args.to_owned(),
                 reply,
             })

@@ -2,30 +2,11 @@
 -- snapshots; this Lua policy chooses active tools and event fold semantics.
 EXTENSION_POLICY = EXTENSION_POLICY or {}
 
-function EXTENSION_POLICY.active_tools(default_names)
-  local by_name = {}
-  for _, definition in ipairs(pi.registered_tools()) do
-    by_name[definition.name] = definition
-  end
-
-  local active, names, selected = {}, {}, {}
-  for _, name in ipairs(default_names) do
-    local definition = by_name[name]
-    if definition then
-      active[#active + 1] = definition
-      names[#names + 1] = name
-      selected[name] = true
-    end
-  end
-  -- Extension tools are active by default. Embedded non-default tools (grep,
-  -- find, ls) remain inactive; ordinary file-backed registrations append in
-  -- deterministic load order.
-  for _, definition in ipairs(pi.registered_extension_tools()) do
-    if not selected[definition.name] then
-      active[#active + 1] = definition
-      names[#names + 1] = definition.name
-      selected[definition.name] = true
-    end
+function EXTENSION_POLICY.active_tools()
+  local active, names = {}, {}
+  for _, definition in ipairs(pi.registered_active_tools()) do
+    active[#active + 1] = definition
+    names[#names + 1] = definition.name
   end
   return active, names
 end

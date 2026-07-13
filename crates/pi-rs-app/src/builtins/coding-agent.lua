@@ -4,18 +4,17 @@
 -- interactive pack (src/builtins/mod.rs concatenates them ahead of this
 -- file).
 local pi = ...
+pi.declare_package({ command_visibility = "internal" })
 
--- sdk.ts createAgentSession + agent-session.ts _buildRuntime: the default
--- active tool set is read/bash/edit/write (grep/find/ls stay registered
--- but inactive until the tools surface lands, PLAN item 7); the base
--- system prompt is rebuilt over the active set.
-local DEFAULT_ACTIVE_TOOL_NAMES = { "read", "bash", "edit", "write" }
-
+-- sdk.ts createAgentSession + agent-session.ts _buildRuntime: activation is
+-- explicit declaration data on each registered tool.
 local function active_tool_definitions()
-  return EXTENSION_POLICY.active_tools(DEFAULT_ACTIVE_TOOL_NAMES)
+  return EXTENSION_POLICY.active_tools()
 end
 
-pi.register_command("pi-rs-run", { handler = function(args, ctx)
+pi.register_role({
+  id = "coding-agent-print", role = "print", active = true, priority = 0,
+  handler = function(args, ctx)
   local request = pi.json.decode(args)
   local events = {}
   -- main.ts createSessionManager → sdk.ts createAgentSession: open the
@@ -87,8 +86,8 @@ pi.register_command("pi-rs-run", { handler = function(args, ctx)
   }
 end })
 
--- PLAN 9.1 product-extension exerciser: the same active-tool composition and
--- tool_call fold used by pi-rs-run, without requiring a provider fixture.
+-- PLAN 9.1 product-extension exerciser: the print role's active-tool
+-- composition and tool_call fold, without requiring a provider fixture.
 pi.register_command("extension-vertical-slice", { handler = function(args)
   local request = pi.json.decode(args)
   local tools, names = active_tool_definitions()

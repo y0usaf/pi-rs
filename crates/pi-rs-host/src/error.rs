@@ -34,6 +34,10 @@ pub enum HostError {
     #[error("no registered command named '{0}'")]
     UnknownCommand(String),
 
+    /// `call_role` with no active declaration for the requested generic role.
+    #[error("no active application/frontend declaration for role '{0}'")]
+    UnknownRole(String),
+
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
 

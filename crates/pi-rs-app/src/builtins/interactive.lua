@@ -1,4 +1,5 @@
 local pi = ...
+pi.declare_package({ command_visibility = "internal" })
 
 -- Product policy ported from interactive/theme/theme.ts. Theme assets are
 -- injected ahead of this file by the embedded-pack declaration below.
@@ -6254,10 +6255,9 @@ function bind_session_runtime(state, session_manager)
   state.thinking_level = startup.thinking_level
   state.session_context = startup.context
 
-  -- Built-in defaults plus every loaded extension tool. Extension tool
-  -- definitions are active by default in Pi and participate in the same agent
-  -- registry/prompt path as built-ins.
-  local active_tools, active_tool_names = EXTENSION_POLICY.active_tools({ "read", "bash", "edit", "write" })
+  -- Tool activation is public declaration data shared by embedded and
+  -- file-backed packages; source identity does not participate.
+  local active_tools, active_tool_names = EXTENSION_POLICY.active_tools()
   local stream_fn = retry_parity_stream(request)
   state.system_prompt_options = {
     cwd = state.cwd, agentDir = request.agentDir,
@@ -9078,7 +9078,8 @@ local function print_resume_command(state)
   io.write("\27[2mTo resume this session:\27[22m " .. resume_command .. "\n")
 end
 
-pi.register_command("pi-rs-interactive", {
+pi.register_role({
+  id = "coding-agent-interactive", role = "interactive", active = true, priority = 0,
   description = "Run the default Lua-authored interactive frontend",
   handler = function(args)
     local request = pi.json.decode(args)
@@ -9095,7 +9096,8 @@ pi.register_command("pi-rs-interactive", {
 -- rename seam, no rename hint), focused on its session list. Returns the
 -- selected path, or none when cancelled; `quit` mirrors the picker's
 -- onExit → process.exit(0).
-pi.register_command("pi-rs-resume-picker", {
+pi.register_role({
+  id = "coding-agent-session-picker", role = "resume-picker", active = true, priority = 0,
   description = "Select a session to resume (--resume)",
   handler = function(args)
     local request = pi.json.decode(args)
@@ -9157,7 +9159,8 @@ pi.register_command("pi-rs-resume-picker", {
 -- cli/startup-ui.ts showStartupSelector — a pre-runtime TUI containing an
 -- ExtensionSelectorComponent; main.rs maps the selected label to a value
 -- (the missing-session-cwd prompt's Continue/Cancel).
-pi.register_command("pi-rs-startup-selector", {
+pi.register_role({
+  id = "coding-agent-startup-selector", role = "startup-selector", active = true, priority = 0,
   description = "Pre-runtime selector (startup prompts)",
   handler = function(args)
     local request = pi.json.decode(args)

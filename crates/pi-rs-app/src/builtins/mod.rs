@@ -9,6 +9,8 @@
 //! audits stay file-shaped. Fragment order is dependency order followed by
 //! the spec's `createAllTools` registration order.
 
+pub mod manifest;
+
 use pi_rs_host::EmbeddedPack;
 
 /// Exact landed core of the default interactive frontend. Theme assets and

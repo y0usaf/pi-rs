@@ -129,8 +129,8 @@ fn block_images_filters_provider_context_but_not_the_session() {
     let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     let result = host
-        .call_command(
-            "pi-rs-run",
+        .call_role(
+            "print",
             &serde_json::json!({
                 "model": model, "apiKey": "test-key", "prompt": "read the image",
                 "cwd": cwd,
