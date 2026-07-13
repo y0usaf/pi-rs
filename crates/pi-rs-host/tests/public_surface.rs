@@ -1,10 +1,8 @@
-//! PLAN 9.1a: public Lua surface taxonomy + the no-private-tier guard.
+//! Source-neutral public Lua surface guard.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use pi_rs_host::{EmbeddedPack, Host, HostConfig};
-
-const CONTRACT: &str = include_str!("../../../LUA_SURFACE.md");
 const PROBE: &str = r#"
 local pi = ...
 
@@ -31,29 +29,6 @@ pi.on("public_surface_probe", function()
   return { api_shape = received_shape }
 end)
 "#;
-
-#[test]
-fn contract_defines_exactly_three_public_tiers_and_no_private_tier() {
-    let headings: Vec<&str> = CONTRACT
-        .lines()
-        .filter(|line| {
-            line.starts_with("## ") && line.as_bytes().get(3).is_some_and(u8::is_ascii_digit)
-        })
-        .collect();
-
-    assert_eq!(
-        headings,
-        vec![
-            "## 1. Pi-compatible API",
-            "## 2. Additive mechanism API",
-            "## 3. Packaged Lua modules",
-        ]
-    );
-    assert!(CONTRACT.contains("There is no embedded/private tier."));
-    assert!(CONTRACT.contains("provenance only"));
-    assert!(CONTRACT.contains("`EXTENSION_INVENTORY.md` is the closed inventory for this tier"));
-    assert!(CONTRACT.contains("public module/dependency mechanism owned by PLAN 9.7"));
-}
 
 #[test]
 fn embedded_and_file_sources_receive_the_same_api_table_shape() {
@@ -95,7 +70,7 @@ fn embedded_and_file_sources_receive_the_same_api_table_shape() {
         .as_array()
         .expect("API shape is an array");
     for representative in [
-        "register_tool:function", // Pi-compatible API
+        "register_tool:function", // composable declaration API
         "fs:table",               // additive mechanism API
         "fs.read_file:function",
     ] {
