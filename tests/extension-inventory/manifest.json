@@ -54,11 +54,17 @@
         ]
       },
       {
+        "status": "implemented",
+        "evidence": "Pi EventEmitter semantics in registries.rs + examples/extensions/event-bus-demo.lua",
+        "items": [
+          "events"
+        ]
+      },
+      {
         "status": "planned 9.4",
         "evidence": "Non-UI ExtensionAPI actions/registries + translated examples",
         "items": [
           "appendEntry",
-          "events",
           "getActiveTools",
           "getAllTools",
           "getCommands",
