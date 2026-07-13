@@ -142,7 +142,7 @@ generic mechanisms.
 
 ## 0 — Reset the contract and coordination tools
 
-- [ ] **0.1 — Replace the legacy parity contract** (**serial**).
+- [x] **0.1 — Replace the legacy parity contract** (**serial**).
 
   Rewrite `DESIGN.md` around this product contract, including a doctrine table,
   explicit hot-path/mechanism decisions, the XDG/legacy policy, provider/auth
@@ -157,6 +157,10 @@ generic mechanisms.
   unambiguous; workers are directed to Pi only for named experience or
   provider/auth evidence; no implementation work begins under the old
   contract.
+
+  **Landed:** `1a5c66b` replaces the faithful-port promise with the bounded
+  experience + exhaustive provider/auth subsystem contract and locks the
+  coordination skills to serial/frontier/wave, exact-base, and path ownership.
 
 - [ ] **0.2 — Establish compact experience and performance baselines**
   (**serial after 0.1**).
