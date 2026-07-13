@@ -1,0 +1,143 @@
+{
+  "schema": 1,
+  "oracle": "Pi v0.79.0 c5582102",
+  "audit_base": "pi-rs 50608024c274d10c92ab07da28043d4557282b8f",
+  "embedded_packages": [
+    {
+      "id": "agent",
+      "descriptor": "crates/pi-rs-agent/src/lib.rs",
+      "constant": "PACK",
+      "source_name": "pi-rs-agent"
+    },
+    {
+      "id": "tools",
+      "descriptor": "crates/pi-rs-app/src/builtins/mod.rs",
+      "constant": "TOOLS_PACK",
+      "source_name": "tools"
+    },
+    {
+      "id": "coding-agent",
+      "descriptor": "crates/pi-rs-app/src/builtins/mod.rs",
+      "constant": "CODING_AGENT_PACK",
+      "source_name": "coding-agent"
+    },
+    {
+      "id": "interactive",
+      "descriptor": "crates/pi-rs-app/src/builtins/mod.rs",
+      "constant": "INTERACTIVE_PACK",
+      "source_name": "interactive"
+    }
+  ],
+  "non_embedded_packages": [
+    "rust-launcher",
+    "external-dogfood"
+  ],
+  "rust_source_roots": [
+    "crates/pi-rs-app/src"
+  ],
+  "rust_entrypoint_pattern": "\"(pi-rs-(?:interactive|run|resume-picker|startup-selector))\"",
+  "rust_call_operations": [
+    "load_embedded",
+    "load_extensions",
+    "call_command"
+  ],
+  "rust_call_inventory": [
+    {
+      "path": "crates/pi-rs-app/src/main.rs",
+      "operation": "load_embedded",
+      "count": 1,
+      "row": "rust.fixed-pack-composition"
+    },
+    {
+      "path": "crates/pi-rs-app/src/main.rs",
+      "operation": "call_command",
+      "count": 4,
+      "row": "rust.hardcoded-application-dispatch"
+    },
+    {
+      "path": "crates/pi-rs-app/src/cli/extensions.rs",
+      "operation": "load_extensions",
+      "count": 1,
+      "row": "rust.extension-load-order"
+    },
+    {
+      "path": "crates/pi-rs-app/src/bin/ui-diff.rs",
+      "operation": "load_embedded",
+      "count": 1,
+      "row": "rust.ui-diff-harness-composition"
+    },
+    {
+      "path": "crates/pi-rs-app/src/bin/ui-diff.rs",
+      "operation": "call_command",
+      "count": 1,
+      "row": "rust.ui-diff-harness-composition"
+    }
+  ],
+  "rust_seams": [
+    {
+      "id": "fixed-pack-list",
+      "row": "rust.fixed-pack-composition",
+      "path": "crates/pi-rs-app/src/main.rs",
+      "text": "let packs = [",
+      "count": 1
+    },
+    {
+      "id": "embedded-load",
+      "row": "rust.fixed-pack-composition",
+      "path": "crates/pi-rs-app/src/main.rs",
+      "text": "host.load_embedded(&packs)",
+      "count": 1
+    },
+    {
+      "id": "file-extension-composition",
+      "row": "rust.extension-load-order",
+      "path": "crates/pi-rs-app/src/main.rs",
+      "text": "let extension_report = load_product_extensions(",
+      "count": 1
+    },
+    {
+      "id": "mode-role-branch",
+      "row": "rust.hardcoded-application-dispatch",
+      "path": "crates/pi-rs-app/src/main.rs",
+      "text": "let command = if interactive",
+      "count": 1
+    },
+    {
+      "id": "mode-command-launch",
+      "row": "rust.hardcoded-application-dispatch",
+      "path": "crates/pi-rs-app/src/main.rs",
+      "text": "host.call_command(command",
+      "count": 1
+    },
+    {
+      "id": "pre-runtime-product-launches",
+      "row": "rust.pre-runtime-product-dispatch",
+      "path": "crates/pi-rs-app/src/main.rs",
+      "text": "call_command(\"",
+      "count": 3
+    },
+    {
+      "id": "synthetic-key-format",
+      "row": "rust.synthetic-source-identity",
+      "path": "crates/pi-rs-host/src/lib.rs",
+      "text": "format!(\"<{}>\", self.name)",
+      "count": 1
+    },
+    {
+      "id": "synthetic-load-path",
+      "row": "rust.synthetic-source-identity",
+      "path": "crates/pi-rs-host/src/lib.rs",
+      "text": "self.load(&key, pack.source)",
+      "count": 1
+    }
+  ],
+  "required_open_rows": [
+    "rust.hardcoded-application-dispatch",
+    "rust.synthetic-source-identity",
+    "modules.chunk-local-helpers",
+    "dogfood.pi-compact-renderer-patching",
+    "dogfood.gecko-long-lived-resource",
+    "dogfood.rlm-long-lived-resource",
+    "dogfood.pomodoro-long-lived-resource"
+  ]
+}
