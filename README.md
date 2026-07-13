@@ -61,22 +61,6 @@ cargo test --workspace
 nix flake check
 ```
 
-## Terminal demo
-
-The checked-in GIF is generated from [`demo/pi-rs.tape`](demo/pi-rs.tape).
-The recording uses an isolated home directory and offline UI actions, so it
-never reads credentials or contacts a model provider.
-
-```sh
-nix run .#demo
-```
-
-VHS infers the output format from an override's extension:
-
-```sh
-nix run .#demo -- --output /tmp/pi-rs.mp4
-```
-
 ## Updating the built-in model catalog
 
 The runtime reads only the reviewed snapshot in

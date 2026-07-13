@@ -274,6 +274,10 @@
             vhs
           ];
           text = ''
+            if [ -z "''${OPENROUTER_API_KEY:-}" ]; then
+              echo "OPENROUTER_API_KEY is required to record the demo" >&2
+              exit 1
+            fi
             exec vhs ${./demo/pi-rs.tape} "$@"
           '';
         };
