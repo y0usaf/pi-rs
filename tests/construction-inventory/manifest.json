@@ -63,6 +63,7 @@
         "command:interactive-settings-parity-sequence",
         "command:interactive-scoped-models-parity-sequence",
         "command:interactive-extension-context-parity",
+        "command:interactive-extension-action-behavior",
         "command:interactive-extension-ui-parity-sequence",
         "command:interactive-trust-parity-sequence",
         "command:interactive-provider-parity-sequence",
