@@ -8,8 +8,9 @@ use pi_rs_ai::protocols::SimpleStreamOptions;
 use pi_rs_ai::transport::AbortSignal;
 use pi_rs_ai_types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, AssistantRole, Context, Model,
-    ModelThinkingLevel, StopReason, TextContent, ThinkingLevelMap, Usage, now_ms,
+    ModelThinkingLevel, ProviderResponse, StopReason, TextContent, ThinkingLevelMap, Usage, now_ms,
 };
+use tokio::sync::{mpsc, oneshot};
 
 use crate::auth::SharedStorage;
 use crate::convert::{JSON_KEY_ORDER, json_to_lua, lua_to_json};
@@ -22,6 +23,24 @@ type SharedRegistry = Arc<Mutex<ModelRegistry>>;
 
 fn lock_registry(registry: &SharedRegistry) -> std::sync::MutexGuard<'_, ModelRegistry> {
     registry.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+enum ProviderHookRequest {
+    Payload {
+        payload: serde_json::Value,
+        model: Model,
+        reply: oneshot::Sender<Option<serde_json::Value>>,
+    },
+    Response {
+        response: ProviderResponse,
+        model: Model,
+        reply: oneshot::Sender<()>,
+    },
+}
+
+struct ProviderHookCallbacks {
+    payload: Option<Function>,
+    response: Option<Function>,
 }
 
 #[derive(Clone, Debug)]
@@ -74,7 +93,8 @@ pub(crate) fn install(lua: &Lua, pi: &Table, storage: SharedStorage) -> mlua::Re
             |lua, (model, context, options, on_event): (Value, Value, Option<Table>, Function)| async move {
                 let model: Model = from_lua_json(model, "model")?;
                 let context = context_from_lua(context)?;
-                let options = stream_options(options)?;
+                let (hook_tx, mut hook_rx) = mpsc::unbounded_channel();
+                let (options, hooks) = stream_options(options, hook_tx)?;
                 let signal = options.base.signal.clone();
                 let stream = match pi_rs_ai::registry::stream_simple(&model, &context, Some(options)) {
                     Ok(stream) => stream,
@@ -97,8 +117,44 @@ pub(crate) fn install(lua: &Lua, pi: &Table, storage: SharedStorage) -> mlua::Re
                     }
                 };
 
-                while let Some(event) = stream.next().await {
-                    call_event(&lua, &on_event, &event).await?;
+                let mut hooks_open = true;
+                loop {
+                    tokio::select! {
+                        biased;
+                        request = hook_rx.recv(), if hooks_open => {
+                            let Some(request) = request else {
+                                hooks_open = false;
+                                continue;
+                            };
+                            match request {
+                                ProviderHookRequest::Payload { payload, model, reply } => {
+                                    let value = if let Some(callback) = &hooks.payload {
+                                        let payload = crate::convert::json_to_lua(&lua, &payload)?;
+                                        let model = model_to_lua(&lua, &model)?;
+                                        let value: Value = callback.call_async((payload, model)).await?;
+                                        if matches!(value, Value::Nil) { None } else {
+                                            Some(crate::convert::lua_to_json(value)?)
+                                        }
+                                    } else {
+                                        None
+                                    };
+                                    let _ = reply.send(value);
+                                }
+                                ProviderHookRequest::Response { response, model, reply } => {
+                                    if let Some(callback) = &hooks.response {
+                                        let response = to_lua_json(&lua, &response)?;
+                                        let model = model_to_lua(&lua, &model)?;
+                                        callback.call_async::<()>((response, model)).await?;
+                                    }
+                                    let _ = reply.send(());
+                                }
+                            }
+                        }
+                        event = stream.next() => {
+                            let Some(event) = event else { break };
+                            call_event(&lua, &on_event, &event).await?;
+                        }
+                    }
                 }
                 match stream.result().await {
                     Some(message) => to_lua_json(&lua, &message),
@@ -286,11 +342,60 @@ fn thinking_capabilities(model: &Table) -> mlua::Result<(bool, Option<ThinkingLe
     Ok((reasoning, Some(map)))
 }
 
-fn stream_options(options: Option<Table>) -> mlua::Result<SimpleStreamOptions> {
+fn stream_options(
+    options: Option<Table>,
+    hook_tx: mpsc::UnboundedSender<ProviderHookRequest>,
+) -> mlua::Result<(SimpleStreamOptions, ProviderHookCallbacks)> {
     let mut result = SimpleStreamOptions::default();
     let Some(options) = options else {
-        return Ok(result);
+        return Ok((
+            result,
+            ProviderHookCallbacks {
+                payload: None,
+                response: None,
+            },
+        ));
     };
+    let payload = options.get::<Option<Function>>("onPayload")?;
+    let response = options.get::<Option<Function>>("onResponse")?;
+    if payload.is_some() {
+        let tx = hook_tx.clone();
+        result.base.on_payload = Some(Arc::new(move |payload, model| {
+            let tx = tx.clone();
+            Box::pin(async move {
+                let (reply, result) = oneshot::channel();
+                if tx
+                    .send(ProviderHookRequest::Payload {
+                        payload,
+                        model,
+                        reply,
+                    })
+                    .is_err()
+                {
+                    return None;
+                }
+                result.await.unwrap_or(None)
+            })
+        }));
+    }
+    if response.is_some() {
+        result.base.on_response = Some(Arc::new(move |response, model| {
+            let tx = hook_tx.clone();
+            Box::pin(async move {
+                let (reply, result) = oneshot::channel();
+                if tx
+                    .send(ProviderHookRequest::Response {
+                        response,
+                        model,
+                        reply,
+                    })
+                    .is_ok()
+                {
+                    let _ = result.await;
+                }
+            })
+        }));
+    }
     result.base.api_key = options.get("apiKey")?;
     result.base.max_tokens = options.get("maxTokens")?;
     // Spec `SimpleStreamOptions.reasoning` — compaction/summarization
@@ -309,7 +414,7 @@ fn stream_options(options: Option<Table>) -> mlua::Result<SimpleStreamOptions> {
     if let Some(signal) = options.get::<Option<AnyUserData>>("signal")? {
         result.base.signal = Some(signal.borrow::<LuaAbortSignal>()?.0.clone());
     }
-    Ok(result)
+    Ok((result, ProviderHookCallbacks { payload, response }))
 }
 
 fn context_from_lua(value: Value) -> mlua::Result<Context> {

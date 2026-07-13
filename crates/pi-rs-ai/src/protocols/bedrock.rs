@@ -949,7 +949,7 @@ async fn drive(
 ) -> Result<(), ProtocolError> {
     let mut params = build_params(model, context, options)?;
     if let Some(hook) = &options.base.on_payload
-        && let Some(next) = hook(params.clone(), model)
+        && let Some(next) = hook(params.clone(), model.clone()).await
     {
         params = next;
     }
@@ -983,12 +983,13 @@ async fn drive(
     }
     if let Some(hook) = &options.base.on_response {
         hook(
-            &ProviderResponse {
+            ProviderResponse {
                 status: response.status().as_u16(),
                 headers: headers_to_record(response.headers()),
             },
-            model,
-        );
+            model.clone(),
+        )
+        .await;
     }
     let mut bytes = response.bytes_stream();
     let mut buffer = Vec::new();

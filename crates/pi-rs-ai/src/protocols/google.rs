@@ -452,7 +452,7 @@ async fn drive(
     }
     let mut params = build_params(model, context, options);
     if let Some(hook) = &options.base.on_payload
-        && let Some(next) = hook(params.clone(), model)
+        && let Some(next) = hook(params.clone(), model.clone()).await
     {
         params = next;
     }
