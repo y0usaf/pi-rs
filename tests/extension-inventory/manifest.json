@@ -184,6 +184,13 @@
         ]
       },
       {
+        "status": "planned 9.2",
+        "evidence": "Base context/action oracle + executable shutdown-command.lua translation",
+        "items": [
+          "shutdown-command.ts"
+        ]
+      },
+      {
         "status": "planned 9.8",
         "evidence": "Translation matrix; bridge capability closes in the owning 9.2–9.7 rung",
         "items": [
@@ -244,7 +251,7 @@
           "sandbox/index.ts",
           "send-user-message.ts",
           "session-name.ts",
-          "shutdown-command.ts",
+
           "snake.ts",
           "space-invaders.ts",
           "ssh.ts",

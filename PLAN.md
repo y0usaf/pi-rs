@@ -1778,6 +1778,37 @@ before it landed:
       snapshots, cancellation, stale-handle rejection, replacement ordering,
       and command-only restrictions against Pi.
 
+      **Landed slice (2026-07-12): interactive base contexts + queued lifecycle
+      primitives.** Loaded extension commands, `tool_call` handlers, and extension
+      tool execution now receive one Lua-authored `ExtensionContext` snapshot:
+      Pi's `mode="tui"`/hasUI/cwd/trust/model/signal/idle/pending values, read-only
+      session-manager + model-registry facades, context usage, system prompt, and
+      command-only system-prompt options/wait-for-idle. The agent mechanism gained
+      only an injected `createToolContext` callback; product shape and policy stay in
+      the embedded frontend. Abort, compact, shutdown, and wait-for-idle enqueue plain
+      actions; the process loop alone applies them. Shutdown defers until idle, and
+      every session bind/reload advances a generation so captured contexts reject use
+      with Pi's exact stale-handle diagnostic.
+
+      `tests/extension-context-parity/` is generated from Pi's real
+      `ExtensionRunner`/`AgentSession`; it pins the base snapshot, read-only session
+      and registry observations, usage/system-prompt access, command-only wait
+      availability, shutdown settlement, and stale rejection. The complete
+      `shutdown-command.lua` translation exercises shutdown from an ordinary loaded
+      tool through the shipped action pump. `scripts/extension-context-oracle`
+      regenerates byte-idempotently; the inventory assigns that translated example to
+      9.2. Focused app/agent tests, `cargo fmt --check`,
+      `scripts/extension-inventory --check`, `scripts/ui-diff` (all 26 suites),
+      `cargo test --workspace`, and `nix build
+      .#checks.x86_64-linux.workspace-test --print-build-logs` are green.
+
+      **Remaining in 9.2:** carry the same complete context into print/JSON/RPC and
+      shortcut/event dispatches; add command-only new/fork/tree/switch/reload plus
+      `withSession` callbacks over the existing session machinery; pin action
+      cancellation, stale handles after real replacement/reload, lifecycle ordering,
+      and command-only restrictions with translated session examples. The checkbox
+      remains open; 9.3 still owns emission/folding of the event vocabulary.
+
 - [ ] **9.3 Complete event pipeline and fold semantics.** Emit the pinned event
       vocabulary at the real product seams: project/resource discovery;
       session start/before-switch/before-fork/before-compact/compact/shutdown/

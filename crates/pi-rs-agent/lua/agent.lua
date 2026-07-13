@@ -138,10 +138,13 @@ local function execute_prepared(context, assistant_message, prepared, config, si
     emit({ type = "tool_execution_update", toolCallId = call.id,
            toolName = call.name, args = call.arguments, partialResult = partial })
   end
-  local executed, value = pcall(tool.execute, call.id, args, signal, updates,
-    -- Spec ExtensionContext slice: `model` is the current agent model
-    -- (runner.ts `get model()`); the full ctx bridge lands with item 9.
-    { cwd = pi.cwd(), signal = signal, isIdle = false, model = config.model })
+  local tool_context
+  if config.createToolContext then
+    tool_context = config.createToolContext(signal)
+  else
+    tool_context = { cwd = pi.cwd(), signal = signal, isIdle = false, model = config.model }
+  end
+  local executed, value = pcall(tool.execute, call.id, args, signal, updates, tool_context)
   local result, is_error
   if executed then result, is_error = value, false
   else result, is_error = error_tool_result(error_text(value)), true end
