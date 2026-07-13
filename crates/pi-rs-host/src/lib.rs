@@ -1,18 +1,15 @@
-//! pi-rs-host — the Lua extension host (DESIGN.md WS1; spec:
-//! `ref/pi/packages/coding-agent/src/core/extensions/`).
+//! Lua package host and generic mechanism kernel.
 //!
-//! The substrate half of the extension seam: an mlua VM on a dedicated
-//! thread, an event bus with an open string vocabulary, the coroutine
-//! async seam (handlers may await host futures — the locked decision), and
-//! a per-dispatch watchdog that meters Lua execution slices only.
+//! The canonical boundary is one watchdog-bounded transaction: an immutable
+//! event/context snapshot enters Lua and one validated action/effect batch is
+//! published after a successful root dispatch. Package provenance affects only
+//! byte loading and diagnostics; every source uses the same API and scope.
 //!
-//! The bridge is the canonical API (Lua-first): extension chunks are
-//! called with the `pi` API table as their single argument — the Lua
-//! mirror of the spec's `export default function (pi)`. Extensions receive
-//! plain tables and return plain tables; results come back to the caller
-//! as uninterpreted JSON values — the host never matches on result
-//! variants. This crate is headless by design: no terminal, no rendering,
-//! no prompting.
+//! Ownership is separated between public transaction types (`kernel`), Lua
+//! transaction bindings (`kernel_api`), package resolution (`package`), VM
+//! scheduling (`vm`), and narrow registry attribution (`runtime_registry`).
+//! Compatibility bindings remain callable while downstream launchers migrate,
+//! but they do not participate in or bypass the kernel publication path.
 
 use std::sync::mpsc::{Sender, sync_channel};
 
@@ -30,10 +27,14 @@ pub mod hljs;
 mod http;
 pub mod image;
 mod jsdiff;
+pub mod kernel;
+mod kernel_api;
 pub mod model_registry;
 mod os;
+mod package;
 mod paths;
 pub mod resolve_config_value;
+mod runtime_registry;
 mod schema;
 mod session;
 mod settings;
@@ -42,6 +43,7 @@ pub mod trust;
 mod vm;
 
 pub use error::HostError;
+pub use package::PackageSource;
 
 /// Default per-dispatch watchdog budget in milliseconds of *continuous
 /// Lua execution* (time suspended awaiting host futures is free, and
@@ -189,13 +191,49 @@ pub struct RoleInfo {
 #[derive(Clone)]
 pub struct Host {
     tx: Sender<vm::Msg>,
+    control: std::sync::Arc<kernel::Control>,
+    owners: std::sync::Arc<()>,
 }
 
 impl Host {
     /// Start the VM thread and install the `pi` API.
     pub fn new(config: HostConfig) -> Result<Self, HostError> {
-        let tx = vm::spawn(config)?;
-        Ok(Self { tx })
+        let control = kernel::Control::new();
+        let tx = vm::spawn(config, std::sync::Arc::clone(&control))?;
+        Ok(Self {
+            tx,
+            control,
+            owners: std::sync::Arc::new(()),
+        })
+    }
+
+    /// Load any package provenance through the one source-neutral transaction.
+    pub fn load_package(
+        &self,
+        package: PackageSource<'_>,
+    ) -> Result<kernel::PackageHandle, HostError> {
+        let package = package.resolve()?;
+        let (scope, _) = self.control.create_scope(package.source_key.clone())?;
+        let (reply, rx) = sync_channel(1);
+        self.tx
+            .send(vm::Msg::Load {
+                source_key: package.source_key.clone(),
+                source: package.source,
+                scope,
+                reply,
+            })
+            .map_err(|_| HostError::VmUnavailable)?;
+        match rx.recv().map_err(|_| HostError::VmUnavailable)? {
+            Ok(()) => Ok(kernel::PackageHandle {
+                source: package.source_key,
+                scope,
+                generation: self.control.generation(),
+            }),
+            Err(error) => {
+                let _ = self.control.dispose(scope);
+                Err(error)
+            }
+        }
     }
 
     /// Load an extension chunk. `source_key` attributes registrations and
@@ -203,22 +241,19 @@ impl Host {
     /// embedded packs). The chunk runs on the coroutine path, so top-level
     /// awaits work.
     pub fn load(&self, source_key: &str, source: &str) -> Result<(), HostError> {
-        let (reply, rx) = sync_channel(1);
-        self.tx
-            .send(vm::Msg::Load {
-                source_key: source_key.to_owned(),
-                source: source.to_owned(),
-                reply,
-            })
-            .map_err(|_| HostError::VmUnavailable)?;
-        rx.recv().map_err(|_| HostError::VmUnavailable)?
+        self.load_package(PackageSource::Memory {
+            key: source_key,
+            source,
+        })
+        .map(|_| ())
     }
 
-    /// Load one on-disk extension file; the path is its source key.
+    /// Load one on-disk extension file through the canonical package loader.
     pub fn load_file(&self, path: &str) -> Result<(), HostError> {
-        let source = std::fs::read_to_string(path)
-            .map_err(|e| HostError::Io(format!("read '{path}': {e}")))?;
-        self.load(path, &source)
+        self.load_package(PackageSource::File {
+            path: std::path::Path::new(path),
+        })
+        .map(|_| ())
     }
 
     /// Load embedded packs in order through the public load path,
@@ -231,8 +266,11 @@ impl Host {
         let mut errors = Vec::new();
         for pack in packs {
             let key = pack.source_key();
-            match self.load(&key, pack.source) {
-                Ok(()) => loaded.push(key),
+            match self.load_package(PackageSource::Embedded {
+                name: pack.name,
+                source: pack.source,
+            }) {
+                Ok(_) => loaded.push(key),
                 Err(e) => errors.push(LoadError {
                     path: key,
                     error: format!("Failed to load extension: {e}"),
@@ -276,6 +314,56 @@ impl Host {
             }),
         }
         LoadReport { loaded, errors }
+    }
+
+    /// Dispatch one immutable snapshot to the selected generic root. Queued
+    /// actions/effects become visible only in the returned successful batch.
+    pub fn dispatch(
+        &self,
+        request: kernel::DispatchRequest,
+    ) -> Result<kernel::DispatchBatch, HostError> {
+        let (reply, rx) = sync_channel(1);
+        self.tx
+            .send(vm::Msg::Dispatch { request, reply })
+            .map_err(|_| HostError::VmUnavailable)?;
+        rx.recv().map_err(|_| HostError::VmUnavailable)?
+    }
+
+    /// Create a generation-checked read handle over an immutable JSON value.
+    #[must_use]
+    pub fn read_handle(&self, value: serde_json::Value) -> kernel::ReadHandle {
+        self.control.issue_handle(value)
+    }
+
+    /// Resolve a read handle only while its generation is current.
+    pub fn read(&self, handle: &kernel::ReadHandle) -> Result<serde_json::Value, HostError> {
+        self.control.read_handle(handle)
+    }
+
+    /// Cancel and dispose a package scope, run its bounded disposers, remove
+    /// its declarations, and invalidate all prior generation handles.
+    pub fn dispose_package(&self, package: &kernel::PackageHandle) -> Result<(), HostError> {
+        if self.control.scope_source(package.scope)? != package.source {
+            return Err(HostError::ScopeOwnership(package.scope.get()));
+        }
+        self.control.dispose(package.scope)?;
+        let (reply, rx) = sync_channel(1);
+        self.tx
+            .send(vm::Msg::DisposePackage {
+                source: package.source.clone(),
+                scope: package.scope,
+                reply,
+            })
+            .map_err(|_| HostError::VmUnavailable)?;
+        rx.recv().map_err(|_| HostError::VmUnavailable)?
+    }
+
+    /// Inspect scope state for lifecycle/resource-cleanup evidence.
+    pub fn scope_stats(
+        &self,
+        package: &kernel::PackageHandle,
+    ) -> Result<kernel::ScopeStats, HostError> {
+        self.control.stats(package.scope)
     }
 
     /// Emit an event to every subscribed handler, sequentially in
@@ -431,5 +519,21 @@ impl Host {
             })
             .map_err(|_| HostError::VmUnavailable)?;
         rx.recv().map_err(|_| HostError::VmUnavailable)?
+    }
+}
+
+impl Drop for Host {
+    fn drop(&mut self) {
+        if std::sync::Arc::strong_count(&self.owners) != 1 {
+            return;
+        }
+        let scopes = self.control.active_scopes();
+        for (scope, _) in &scopes {
+            let _ = self.control.dispose(*scope);
+        }
+        let (reply, rx) = sync_channel(1);
+        if self.tx.send(vm::Msg::Shutdown { scopes, reply }).is_ok() {
+            let _ = rx.recv();
+        }
     }
 }

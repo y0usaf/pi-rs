@@ -26,6 +26,7 @@ use std::time::Instant;
 use crate::api;
 use crate::convert::{json_to_lua, lua_to_json};
 use crate::error::{HostError, WATCHDOG_MARKER};
+use crate::kernel::{CancellationToken, Control, DispatchBatch, DispatchRequest, ScopeId};
 use crate::{
     CommandInfo, FlagInfo, HostConfig, Outcome, ProviderInfo, RoleInfo, ToolInfo,
     ToolUpdateCallback,
@@ -41,7 +42,24 @@ pub(crate) enum Msg {
         /// Chunk name for error messages and source attribution.
         source_key: String,
         source: String,
+        scope: ScopeId,
         reply: SyncSender<Result<(), HostError>>,
+    },
+    /// Run a generic root through the snapshot/action transaction.
+    Dispatch {
+        request: DispatchRequest,
+        reply: SyncSender<Result<DispatchBatch, HostError>>,
+    },
+    /// Dispose one package's callbacks and published registrations.
+    DisposePackage {
+        source: String,
+        scope: ScopeId,
+        reply: SyncSender<Result<(), HostError>>,
+    },
+    /// Final host-owner shutdown: cancel/dispose every remaining scope.
+    Shutdown {
+        scopes: Vec<(ScopeId, String)>,
+        reply: SyncSender<()>,
     },
     /// Call every handler subscribed to `event`, sequentially in
     /// registration order, each under its own watchdog window; one hung or
@@ -107,12 +125,12 @@ pub(crate) enum Msg {
 
 /// Spawn the dedicated VM thread. Returns after the VM has initialized
 /// (or failed to).
-pub(crate) fn spawn(config: HostConfig) -> Result<Sender<Msg>, HostError> {
+pub(crate) fn spawn(config: HostConfig, control: Arc<Control>) -> Result<Sender<Msg>, HostError> {
     let (tx, rx) = std::sync::mpsc::channel::<Msg>();
     let (init_tx, init_rx) = sync_channel::<Result<(), String>>(1);
     std::thread::Builder::new()
         .name("pi-rs-host-lua".to_owned())
-        .spawn(move || vm_main(config, rx, init_tx))
+        .spawn(move || vm_main(config, control, rx, init_tx))
         .map_err(|_| HostError::VmUnavailable)?;
     match init_rx.recv() {
         Ok(Ok(())) => Ok(tx),
@@ -121,7 +139,12 @@ pub(crate) fn spawn(config: HostConfig) -> Result<Sender<Msg>, HostError> {
     }
 }
 
-fn vm_main(config: HostConfig, rx: Receiver<Msg>, init_tx: SyncSender<Result<(), String>>) {
+fn vm_main(
+    config: HostConfig,
+    control: Arc<Control>,
+    rx: Receiver<Msg>,
+    init_tx: SyncSender<Result<(), String>>,
+) {
     let init = || -> Result<(mlua::Lua, mlua::Table, tokio::runtime::Runtime, String), String> {
         let lua = mlua::Lua::new();
         // Host cwd for the OS bindings (spec: the loader's injected cwd).
@@ -130,7 +153,8 @@ fn vm_main(config: HostConfig, rx: Receiver<Msg>, init_tx: SyncSender<Result<(),
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_else(|_| ".".to_owned())
         });
-        let pi = api::build(&lua, &cwd, config.project_trusted).map_err(|e| e.to_string())?;
+        let pi = api::build(&lua, &cwd, config.project_trusted, Arc::clone(&control))
+            .map_err(|e| e.to_string())?;
         // enable_all: the process driver (pi.exec) needs the io/signal
         // drivers in addition to time.
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -155,10 +179,42 @@ fn vm_main(config: HostConfig, rx: Receiver<Msg>, init_tx: SyncSender<Result<(),
             Msg::Load {
                 source_key,
                 source,
+                scope,
                 reply,
             } => {
-                let res = load_chunk(&lua, &rt, &config, &pi, &source_key, &source);
-                let _ = reply.send(res);
+                let result = crate::kernel_api::set_scope(&lua, Some(scope))
+                    .map_err(|error| HostError::Lua(error.to_string()))
+                    .and_then(|()| load_chunk(&lua, &rt, &config, &pi, &source_key, &source));
+                if result.is_err() {
+                    let _ =
+                        crate::kernel_api::dispose_callbacks(&lua, &rt, &config, &control, scope);
+                }
+                let _ = crate::kernel_api::set_scope(&lua, None);
+                let _ = reply.send(result);
+            }
+            Msg::Dispatch { request, reply } => {
+                let result = dispatch_root(&lua, &rt, &config, &control, &request);
+                let _ = reply.send(result);
+            }
+            Msg::DisposePackage {
+                source,
+                scope,
+                reply,
+            } => {
+                let callbacks =
+                    crate::kernel_api::dispose_callbacks(&lua, &rt, &config, &control, scope);
+                let removal = api::remove_source(&lua, &source)
+                    .map_err(|error| HostError::Lua(error.to_string()));
+                let _ = reply.send(callbacks.and(removal));
+            }
+            Msg::Shutdown { scopes, reply } => {
+                for (scope, source) in scopes {
+                    let _ =
+                        crate::kernel_api::dispose_callbacks(&lua, &rt, &config, &control, scope);
+                    let _ = api::remove_source(&lua, &source);
+                }
+                let _ = reply.send(());
+                return;
             }
             Msg::Emit {
                 event,
@@ -532,6 +588,41 @@ fn emit(
     outcomes
 }
 
+fn dispatch_root(
+    lua: &mlua::Lua,
+    rt: &tokio::runtime::Runtime,
+    config: &HostConfig,
+    control: &Control,
+    request: &DispatchRequest,
+) -> Result<DispatchBatch, HostError> {
+    let root = crate::kernel_api::resolve_root(lua, request.root)?;
+    let cancellation = control.token(root.scope)?;
+    if cancellation.is_cancelled() {
+        return Err(HostError::Cancelled);
+    }
+    let generation = control.generation();
+    crate::kernel_api::set_scope(lua, Some(root.scope))
+        .map_err(|error| HostError::Lua(error.to_string()))?;
+    crate::kernel_api::begin_transaction(lua, generation, root.scope, cancellation.clone())
+        .map_err(|error| HostError::Lua(error.to_string()))?;
+    api::set_current_source(lua, &root.source);
+    let result = crate::kernel_api::snapshot(lua, request, generation, root.scope)
+        .map_err(|error| HostError::Lua(error.to_string()))
+        .and_then(|snapshot| {
+            dispatch_function(lua, rt, config, root.handler, snapshot, Some(cancellation))
+        });
+    let batch = match result {
+        Ok(_) => crate::kernel_api::finish_transaction(lua, root.source),
+        Err(error) => {
+            crate::kernel_api::clear_transaction(lua);
+            Err(error)
+        }
+    };
+    api::set_current_source(lua, "<host>");
+    let _ = crate::kernel_api::set_scope(lua, None);
+    batch
+}
+
 /// Run one Lua function as a coroutine driven to completion on the VM
 /// thread's runtime, bounded by the slice-counting watchdog.
 fn dispatch(
@@ -541,12 +632,29 @@ fn dispatch(
     func: mlua::Function,
     args: impl mlua::IntoLuaMulti,
 ) -> Result<mlua::Value, HostError> {
+    dispatch_function(lua, rt, config, func, args, None)
+}
+
+pub(crate) fn dispatch_function(
+    lua: &mlua::Lua,
+    rt: &tokio::runtime::Runtime,
+    config: &HostConfig,
+    func: mlua::Function,
+    args: impl mlua::IntoLuaMulti,
+    cancellation: Option<CancellationToken>,
+) -> Result<mlua::Value, HostError> {
     let budget_ms = config.dispatch_timeout_ms;
     let state = Arc::new(WatchdogState::new(budget_ms));
 
     let triggers = mlua::HookTriggers::new().every_nth_instruction(NTH_INSTRUCTION);
     let hook_state = Arc::clone(&state);
     lua.set_global_hook(triggers, move |_lua, _debug| {
+        if cancellation
+            .as_ref()
+            .is_some_and(CancellationToken::is_cancelled)
+        {
+            return Err(mlua::Error::runtime(crate::error::CANCEL_MARKER));
+        }
         if hook_state.exceeded() {
             return Err(mlua::Error::runtime(format!(
                 "{WATCHDOG_MARKER} handler exceeded {budget_ms}ms of continuous Lua execution"
