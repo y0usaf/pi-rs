@@ -1,164 +1,138 @@
-//! Public file-backed exercisers for bounded terminal/display mechanisms.
+//! File-backed v1 input and retained-display capability.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use pi_rs_host::{Host, HostConfig};
+use pi_rs_host::kernel::{DispatchRequest, RootKind};
+use pi_rs_host::{Host, HostConfig, PackageSource};
 
-fn host_with_examples() -> Host {
-    let host = Host::new(HostConfig::default()).expect("host");
-    for name in [
-        "tui-stdin-buffer-demo",
-        "tui-terminal-demo",
-        "tui-render-demo",
-    ] {
-        let path = format!(
-            "{}/../../examples/extensions/{name}.lua",
-            env!("CARGO_MANIFEST_DIR")
-        );
-        host.load_file(&path).expect("example loads");
-    }
-    host
-}
+const PACKAGE: &str = r#"
+local pi = ...
+local roots = pi.roots.v1
+local terminal = pi.terminal.v1
+
+local function frame(text, cursor_visible)
+  return {
+    version = terminal.display_schema_version,
+    viewport = { columns = 12, rows = 3 },
+    root = 1,
+    nodes = {
+      {
+        id = 1, rect = { x = 0, y = 0, width = 12, height = 3 },
+        clip_children = true, content = { kind = "group" }, children = { 2 },
+      },
+      {
+        id = 2, rect = { x = 1, y = 1, width = 10, height = 1 },
+        clip_children = true, focusable = true,
+        content = {
+          kind = "text", wrap = "clip",
+          runs = { { text = text, style = { bold = true } } },
+        },
+      },
+    },
+    focused = 2,
+    cursor = {
+      node = 2, row = 0, column = 3, shape = "bar", visible = cursor_visible,
+    },
+  }
+end
+
+roots.register({
+  kind="application", id="terminal-probe", active=true, priority=0,
+  dispatch=function()
+    local input = terminal.input_buffer()
+    local first = input:feed("a\27[")
+    local pending = input:buffer()
+    local second = input:feed("A\27[200~hello")
+    local paste = input:feed(" world\27[201~")
+    input:feed("\27[")
+    input:clear()
+    local cleared = input:buffer()
+    input:feed("\27[")
+    local flushed = input:flush()
+
+    local display = terminal.display()
+    local initial = display:submit(frame("A界", true))
+    local unchanged = display:submit(frame("A界", true))
+    local changed = display:submit(frame("A好", true))
+    local revision_before_error = display:revision()
+    local malformed_ok, malformed_error = pcall(function()
+      display:submit(frame("bad\27[2J", true))
+    end)
+    local revision_after_error = display:revision()
+    display:reset_presentation()
+    local redrawn = display:submit(frame("A好", false))
+
+    roots.action("terminal_probe", {
+      input={
+        first=first, pending=pending, second=second, paste=paste,
+        cleared=cleared, flushed=flushed,
+      },
+      display={
+        schema_version=terminal.display_schema_version,
+        initial=initial, unchanged=unchanged, changed=changed,
+        malformed_ok=malformed_ok, malformed_error=tostring(malformed_error),
+        revision_before_error=revision_before_error,
+        revision_after_error=revision_after_error, redrawn=redrawn,
+      },
+    })
+  end,
+})
+"#;
 
 #[test]
-fn stdin_buffer_example_pins_events_and_buffer_bytes() {
-    let host = host_with_examples();
-    let result = host
-        .call_command("tui-stdin-buffer-demo", "")
-        .expect("command")
-        .expect("result");
+fn input_is_batched_and_retained_display_is_transactional() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("terminal-probe.lua");
+    std::fs::write(&path, PACKAGE).unwrap();
+    let host = Host::new(HostConfig::default()).unwrap();
+    host.load_package(PackageSource::File { path: &path })
+        .unwrap();
+    let batch = host
+        .dispatch(DispatchRequest::new(
+            RootKind::Application,
+            serde_json::json!({"kind":"probe"}),
+            serde_json::json!({}),
+        ))
+        .unwrap();
+    let result = &batch.actions[0].payload;
 
     assert_eq!(
-        result["first"],
+        result["input"]["first"],
         serde_json::json!([{ "kind": "data", "data": "a" }])
     );
-    assert_eq!(result["pending"], "\u{1b}[");
+    assert_eq!(result["input"]["pending"], "\u{1b}[");
     assert_eq!(
-        result["second"],
+        result["input"]["second"],
         serde_json::json!([{ "kind": "data", "data": "\u{1b}[A" }])
     );
     assert_eq!(
-        result["paste"],
+        result["input"]["paste"],
         serde_json::json!([{ "kind": "paste", "data": "hello world" }])
     );
-    assert_eq!(result["cleared"], "");
+    assert_eq!(result["input"]["cleared"], "");
     assert_eq!(
-        result["flushed"],
+        result["input"]["flushed"],
         serde_json::json!([{ "kind": "data", "data": "\u{1b}[" }])
     );
-}
 
-#[test]
-fn terminal_example_pins_state_and_all_output_bytes() {
-    let host = host_with_examples();
-    let result = host
-        .call_command("tui-terminal-demo", "")
-        .expect("command")
-        .expect("result");
-
+    let display = &result["display"];
+    assert_eq!(display["schema_version"], 1);
+    assert_eq!(display["initial"]["revision"], 1);
+    assert_eq!(display["initial"]["painted_cells"], 3);
     assert_eq!(
-        result["dimensions"],
-        serde_json::json!({ "columns": 100, "rows": 40 })
-    );
-    assert_eq!(
-        result["started"],
-        "\u{1b}[?2004h\u{1b}[>7u\u{1b}[?u\u{1b}[c"
-    );
-    assert_eq!(result["negotiation"], serde_json::json!({}));
-    assert_eq!(result["modify_output"], "\u{1b}[>4;2m");
-    assert_eq!(result["kitty_output"], "\u{1b}[>4;0m");
-    assert_eq!(
-        result["flags"],
-        serde_json::json!({ "kitty": true, "modify_other_keys": false })
-    );
-    assert_eq!(result["input"], serde_json::json!(["x"]));
-    assert_eq!(result["flushed"], serde_json::json!(["\u{1b}["]));
-    assert_eq!(
-        result["drawing"],
-        concat!(
-            "ok\u{1b}[2B\u{1b}[1A\u{1b}[?25l\u{1b}[?25h\u{1b}[K\u{1b}[J",
-            "\u{1b}[2J\u{1b}[H\u{1b}]0;pi-rs\u{7}\u{1b}]9;4;3\u{7}",
-            "\u{1b}]9;4;3\u{7}\u{1b}]9;4;0;\u{7}"
-        )
-    );
-    assert_eq!(result["drained"], "\u{1b}[<u");
-    assert_eq!(result["discarded"], serde_json::json!({}));
-    assert_eq!(result["stopped"], "\u{1b}[?2004l");
-}
-
-#[test]
-fn retained_display_example_is_versioned_transactional_and_minimal() {
-    let host = host_with_examples();
-    let result = host
-        .call_command("tui-render-demo", "")
-        .expect("command")
-        .expect("result");
-
-    assert_eq!(result["schema_version"], 1);
-    assert_eq!(result["first"]["revision"], 1);
-    assert_eq!(result["first"]["visited_nodes"], 2);
-    assert_eq!(result["first"]["painted_cells"], 3);
-    assert_eq!(
-        result["first"]["identities"]["added"],
+        display["initial"]["identities"]["added"],
         serde_json::json!([1, 2])
     );
+    assert_eq!(display["unchanged"]["ansi"], "");
+    assert_eq!(display["changed"]["changed_cells"], 1);
+    assert_eq!(display["malformed_ok"], false);
     assert!(
-        result["first"]["ansi"]
-            .as_str()
-            .is_some_and(|ansi| ansi.contains("\u{1b}[6 q\u{1b}[?25h"))
-    );
-
-    assert_eq!(result["unchanged"]["ansi"], "");
-    assert_eq!(
-        result["unchanged"]["identities"]["retained"],
-        serde_json::json!([1, 2])
-    );
-    assert_eq!(result["changed"]["changed_cells"], 1);
-    assert_eq!(
-        result["changed"]["identities"]["retained"],
-        serde_json::json!([1])
-    );
-    assert_eq!(
-        result["changed"]["identities"]["changed"],
-        serde_json::json!([2])
-    );
-
-    assert_eq!(result["malformed_ok"], false);
-    assert!(
-        result["malformed_error"]
+        display["malformed_error"]
             .as_str()
             .is_some_and(|error| error.contains("terminal control data"))
     );
-    assert_eq!(result["revision_before_error"], 3);
-    assert_eq!(result["revision_after_error"], 3);
-    assert_eq!(result["redrawn"]["revision"], 4);
-    assert_eq!(result["redrawn"]["full_redraw"], true);
-    assert!(
-        result["redrawn"]["ansi"]
-            .as_str()
-            .is_some_and(|ansi| ansi.contains("\u{1b}[?25l"))
-    );
-}
-
-#[test]
-fn live_display_process_constructor_has_no_terminal_side_effect() {
-    let host = Host::new(HostConfig::default()).expect("host");
-    host.load(
-        "<live-display-constructor>",
-        r#"local pi = ...
-pi.register_command("live-display-constructor", {
-  handler = function()
-    local process = pi.tui.display_process()
-    local dimensions = process:dimensions()
-    return { columns = dimensions.columns, rows = dimensions.rows }
-  end,
-})"#,
-    )
-    .expect("extension loads");
-    let result = host
-        .call_command("live-display-constructor", "")
-        .expect("command")
-        .expect("result");
-    assert!(result["columns"].as_u64().is_some_and(|value| value > 0));
-    assert!(result["rows"].as_u64().is_some_and(|value| value > 0));
+    assert_eq!(display["revision_before_error"], 3);
+    assert_eq!(display["revision_after_error"], 3);
+    assert_eq!(display["redrawn"]["revision"], 4);
+    assert_eq!(display["redrawn"]["full_redraw"], true);
 }

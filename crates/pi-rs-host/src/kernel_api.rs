@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use mlua::{AnyUserData, Function, Table, UserData, UserDataMethods, Value};
 
-use crate::convert::{immutable_json_to_lua, json_to_lua, lua_to_json_strict};
+use crate::convert::{immutable_json_to_lua, lua_to_json_strict};
 use crate::kernel::{
     Action, CancellationToken, Control, DeclarationKind, DispatchBatch, DispatchRequest, Effect,
     Generation, KERNEL_API_VERSION, MAX_BATCH_ITEMS, MAX_ITEM_BYTES, ResourceId, RootKind, ScopeId,
@@ -30,6 +30,15 @@ impl UserData for LuaCancellation {
         });
     }
 }
+
+#[derive(Default)]
+struct TransactionQueue {
+    next_sequence: u64,
+    actions: Vec<(u64, String, serde_json::Value)>,
+    effects: Vec<(u64, String, serde_json::Value)>,
+}
+
+impl UserData for TransactionQueue {}
 
 struct LuaReadHandle {
     handle: crate::kernel::ReadHandle,
@@ -194,14 +203,6 @@ fn register_root(lua: &mlua::Lua, definition: Table) -> mlua::Result<()> {
     register_root_entry(lua, &kind, definition, false)
 }
 
-pub(crate) fn register_adapter_root(
-    lua: &mlua::Lua,
-    family: &str,
-    definition: Table,
-) -> mlua::Result<()> {
-    register_root_entry(lua, family, definition, true)
-}
-
 fn register_root_entry(
     lua: &mlua::Lua,
     kind: &str,
@@ -239,20 +240,6 @@ fn register_root_entry(
     roots.set(key, entry)
 }
 
-pub(crate) fn root_entries(lua: &mlua::Lua, family: &str) -> mlua::Result<Vec<Table>> {
-    let roots: Table = crate::api::registry_table(lua)?.get(ROOTS_KEY)?;
-    roots
-        .pairs::<String, Table>()
-        .filter_map(|pair| match pair {
-            Ok((_, entry)) if entry.get::<String>("kind").is_ok_and(|kind| kind == family) => {
-                Some(Ok(entry))
-            }
-            Ok(_) => None,
-            Err(error) => Some(Err(error)),
-        })
-        .collect()
-}
-
 fn register_declaration(lua: &mlua::Lua, kind: &str, definition: Table) -> mlua::Result<()> {
     let id = definition
         .get::<Option<String>>("id")?
@@ -261,18 +248,6 @@ fn register_declaration(lua: &mlua::Lua, kind: &str, definition: Table) -> mlua:
         .ok_or_else(|| mlua::Error::runtime("declaration id/name must be a non-empty string"))?;
     definition.set("id", id.as_str())?;
     register_declaration_entry(lua, kind, &id, definition, true)
-}
-
-/// Canonical registration path used by retained public names. Compatibility
-/// adapters may compose duplicate public ids, but state, attribution, ordering,
-/// cleanup, and visibility all live in this one declaration list.
-pub(crate) fn register_adapter_declaration(
-    lua: &mlua::Lua,
-    kind: &str,
-    id: &str,
-    definition: Table,
-) -> mlua::Result<()> {
-    register_declaration_entry(lua, kind, id, definition, false)
 }
 
 fn register_declaration_entry(
@@ -543,9 +518,7 @@ pub(crate) fn begin_transaction(
     let transaction = lua.create_table()?;
     transaction.set("generation", generation.get())?;
     transaction.set("scope", scope.get())?;
-    transaction.set("next_sequence", 0_u64)?;
-    transaction.set("actions", lua.create_table()?)?;
-    transaction.set("effects", lua.create_table()?)?;
+    transaction.set("queue", lua.create_userdata(TransactionQueue::default())?)?;
     transaction.set(
         "cancellation",
         lua.create_userdata(LuaCancellation(cancellation))?,
@@ -559,16 +532,6 @@ fn active_transaction(lua: &mlua::Lua) -> mlua::Result<Table> {
         .ok_or_else(|| {
             mlua::Error::runtime("actions and effects may only be queued during dispatch")
         })
-}
-
-pub(crate) fn current_cancellation(lua: &mlua::Lua) -> mlua::Result<Option<CancellationToken>> {
-    let Some(transaction) =
-        crate::api::registry_table(lua)?.get::<Option<Table>>(TRANSACTION_KEY)?
-    else {
-        return Ok(None);
-    };
-    let value: AnyUserData = transaction.get("cancellation")?;
-    Ok(Some(value.borrow::<LuaCancellation>()?.0.clone()))
 }
 
 fn queue_item(lua: &mlua::Lua, list_key: &str, kind: &str, payload: Value) -> mlua::Result<()> {
@@ -587,19 +550,26 @@ fn queue_item(lua: &mlua::Lua, list_key: &str, kind: &str, payload: Value) -> ml
         )));
     }
     let transaction = active_transaction(lua)?;
-    let list: Table = transaction.get(list_key)?;
-    if list.raw_len() >= MAX_BATCH_ITEMS {
+    let queue: AnyUserData = transaction.get("queue")?;
+    let mut queue = queue.borrow_mut::<TransactionQueue>()?;
+    let len = if list_key == "actions" {
+        queue.actions.len()
+    } else {
+        queue.effects.len()
+    };
+    if len >= MAX_BATCH_ITEMS {
         return Err(mlua::Error::runtime(format!(
             "dispatch exceeds {MAX_BATCH_ITEMS} queued {list_key}"
         )));
     }
-    let sequence = transaction.get::<u64>("next_sequence")?;
-    transaction.set("next_sequence", sequence + 1)?;
-    let entry = lua.create_table()?;
-    entry.set("sequence", sequence)?;
-    entry.set("kind", kind)?;
-    entry.set("payload", json_to_lua(lua, &payload)?)?;
-    list.push(entry)
+    let sequence = queue.next_sequence;
+    queue.next_sequence = sequence + 1;
+    if list_key == "actions" {
+        queue.actions.push((sequence, kind.to_owned(), payload));
+    } else {
+        queue.effects.push((sequence, kind.to_owned(), payload));
+    }
+    Ok(())
 }
 
 pub(crate) fn snapshot(
@@ -633,9 +603,30 @@ pub(crate) fn finish_transaction(
             .get("scope")
             .map_err(|error| HostError::Lua(error.to_string()))?,
     );
-    let actions = read_actions(&transaction).map_err(|error| HostError::Lua(error.to_string()))?;
-    let effects =
-        read_effects(&transaction, scope).map_err(|error| HostError::Lua(error.to_string()))?;
+    let queue: AnyUserData = transaction
+        .get("queue")
+        .map_err(|error| HostError::Lua(error.to_string()))?;
+    let mut queue = queue
+        .borrow_mut::<TransactionQueue>()
+        .map_err(|error| HostError::Lua(error.to_string()))?;
+    let actions = std::mem::take(&mut queue.actions)
+        .into_iter()
+        .map(|(sequence, kind, payload)| Action {
+            sequence,
+            kind,
+            payload,
+        })
+        .collect();
+    let effects = std::mem::take(&mut queue.effects)
+        .into_iter()
+        .map(|(sequence, kind, payload)| Effect {
+            sequence,
+            kind,
+            payload,
+            scope,
+        })
+        .collect();
+    drop(queue);
     clear_transaction(lua);
     Ok(DispatchBatch {
         version: KERNEL_API_VERSION,
@@ -645,37 +636,6 @@ pub(crate) fn finish_transaction(
         actions,
         effects,
     })
-}
-
-fn read_actions(transaction: &Table) -> mlua::Result<Vec<Action>> {
-    let list: Table = transaction.get("actions")?;
-    let mut actions = Vec::with_capacity(list.raw_len());
-    for entry in list.sequence_values::<Table>() {
-        let entry = entry?;
-        actions.push(Action {
-            sequence: entry.get("sequence")?,
-            kind: entry.get("kind")?,
-            payload: lua_to_json_strict(entry.get("payload")?)?,
-        });
-    }
-    actions.sort_by_key(|action| action.sequence);
-    Ok(actions)
-}
-
-fn read_effects(transaction: &Table, scope: ScopeId) -> mlua::Result<Vec<Effect>> {
-    let list: Table = transaction.get("effects")?;
-    let mut effects = Vec::with_capacity(list.raw_len());
-    for entry in list.sequence_values::<Table>() {
-        let entry = entry?;
-        effects.push(Effect {
-            sequence: entry.get("sequence")?,
-            kind: entry.get("kind")?,
-            payload: lua_to_json_strict(entry.get("payload")?)?,
-            scope,
-        });
-    }
-    effects.sort_by_key(|effect| effect.sequence);
-    Ok(effects)
 }
 
 pub(crate) fn clear_transaction(lua: &mlua::Lua) {

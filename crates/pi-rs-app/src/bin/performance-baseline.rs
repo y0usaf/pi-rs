@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
 
+use pi_rs_host::kernel::{DispatchRequest, RootKind};
 use pi_rs_host::{Host, HostConfig};
 use pi_rs_tui::display::{
     CursorMetadata, CursorShape, DISPLAY_SCHEMA_VERSION, DisplayBatch, DisplayNode,
@@ -17,18 +18,21 @@ use serde::{Deserialize, Serialize};
 const SCHEMA: &str = "pi-rs-performance-v1";
 const LUA_BENCH: &str = r#"
 local pi = ...
-pi.on("bench-noop", function(_) return nil end)
-pi.on("bench-batch", function(event)
-  return { actions = {
-    { type = "status", value = event.value },
-    { type = "invalidate", target = "editor" },
-    { type = "effect", name = "local" }
-  } }
-end)
-pi.on("bench-effect", function(_)
-  pi.sleep(0)
-  return { completed = true }
-end)
+local roots = pi.roots.v1
+local effects = pi.effects.v1
+roots.register({
+  kind="application", id="performance-benchmark", active=true, priority=0,
+  dispatch=function(snapshot)
+    if snapshot.event.kind == "batch" then
+      roots.action("status", { value=snapshot.context.value })
+      roots.action("invalidate", { target="editor" })
+      roots.action("effect", { name="local" })
+    elseif snapshot.event.kind == "effect" then
+      effects.timer.sleep(0)
+      roots.action("completed", { value=true })
+    end
+  end,
+})
 "#;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -469,13 +473,22 @@ fn benchmark_render(samples: usize) -> Result<(Distribution, Distribution, Scala
     ))
 }
 
-fn checked_emit(host: &Host, event: &str, payload: &serde_json::Value) -> Result<(), Error> {
-    let outcomes = host.emit(event, payload)?;
-    let first = outcomes
-        .first()
-        .ok_or_else(|| Error::Probe(format!("event {event:?} had no handler")))?;
-    if let Err(message) = &first.result {
-        return Err(Error::Probe(format!("event {event:?} failed: {message}")));
+fn checked_dispatch(
+    host: &Host,
+    kind: &str,
+    payload: &serde_json::Value,
+    expected_actions: usize,
+) -> Result<(), Error> {
+    let batch = host.dispatch(DispatchRequest::new(
+        RootKind::Application,
+        serde_json::json!({"kind":kind}),
+        payload.clone(),
+    ))?;
+    if batch.actions.len() != expected_actions {
+        return Err(Error::Probe(format!(
+            "dispatch {kind:?} returned {} actions, expected {expected_actions}",
+            batch.actions.len()
+        )));
     }
     Ok(())
 }
@@ -492,26 +505,26 @@ fn benchmark_lua(
         "selection": { "start": 4, "end": 9 },
         "items": [1, 2, 3, 4]
     });
-    checked_emit(&host, "bench-noop", &payload)?;
-    checked_emit(&host, "bench-batch", &payload)?;
-    checked_emit(&host, "bench-effect", &payload)?;
+    checked_dispatch(&host, "noop", &payload, 0)?;
+    checked_dispatch(&host, "batch", &payload, 3)?;
+    checked_dispatch(&host, "effect", &payload, 1)?;
 
     let mut noop = Vec::with_capacity(lua_samples);
     let mut batch = Vec::with_capacity(lua_samples);
     for _ in 0..lua_samples {
         let started = Instant::now();
-        checked_emit(&host, "bench-noop", &payload)?;
+        checked_dispatch(&host, "noop", &payload, 0)?;
         noop.push(micros(started.elapsed()));
     }
     for _ in 0..lua_samples {
         let started = Instant::now();
-        checked_emit(&host, "bench-batch", &payload)?;
+        checked_dispatch(&host, "batch", &payload, 3)?;
         batch.push(micros(started.elapsed()));
     }
     let mut effect = Vec::with_capacity(effect_samples);
     for _ in 0..effect_samples {
         let started = Instant::now();
-        checked_emit(&host, "bench-effect", &payload)?;
+        checked_dispatch(&host, "effect", &payload, 1)?;
         effect.push(micros(started.elapsed()));
     }
     let snapshot_bytes = serde_json::to_vec(&payload)
