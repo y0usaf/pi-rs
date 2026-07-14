@@ -1,6 +1,6 @@
-//! Source-neutral public Lua surface and behavior guard.
+//! Exact public-surface ablation and source-neutrality guard.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use pi_rs_host::kernel::{DispatchRequest, RootKind};
 use pi_rs_host::{Host, HostConfig, PackageSource};
@@ -10,25 +10,24 @@ local pi = ...
 local roots = pi.roots.v1
 local terminal = pi.terminal.v1
 
-local function api_shape(api)
-  local shape = {}
-  for key, value in pairs(api) do
-    if type(key) == "string" then
-      shape[#shape + 1] = key .. ":" .. type(value)
-      if type(value) == "table" then
-        for child_key, child_value in pairs(value) do
-          if type(child_key) == "string" then
-            shape[#shape + 1] = key .. "." .. child_key .. ":" .. type(child_value)
-          end
-        end
-      end
-    end
+local function keys(table_value)
+  local result = {}
+  for key in pairs(table_value) do
+    if type(key) == "string" then result[#result + 1] = key end
   end
-  table.sort(shape)
-  return shape
+  table.sort(result)
+  return result
 end
 
-local received_shape = api_shape(pi)
+local shape = {
+  top = keys(pi),
+  kernel = keys(pi.kernel),
+  roots = keys(pi.roots),
+  terminal = keys(pi.terminal),
+  models = keys(pi.models),
+  effects = keys(pi.effects),
+}
+
 roots.register({
   kind="application", id="source-neutral-probe", active=true, priority=0,
   dispatch=function()
@@ -46,7 +45,7 @@ roots.register({
       }},
     })
     roots.action("probed", {
-      api_shape=received_shape,
+      shape=shape,
       input={text=text, events=#events},
       revision=submitted.revision,
       painted_cells=submitted.painted_cells,
@@ -65,7 +64,7 @@ fn dispatch(host: &Host) -> pi_rs_host::kernel::DispatchBatch {
 }
 
 #[test]
-fn embedded_and_file_sources_receive_identical_capability_and_behavior() {
+fn file_and_embedded_packages_see_only_the_same_compact_surface() {
     let embedded_host = Host::new(HostConfig::default()).expect("embedded host starts");
     embedded_host
         .load_package(PackageSource::Embedded {
@@ -91,21 +90,16 @@ fn embedded_and_file_sources_receive_identical_capability_and_behavior() {
 
     let payload = &embedded.actions[0].payload;
     assert_eq!(
+        payload["shape"]["top"],
+        serde_json::json!(["effects", "kernel", "models", "roots", "terminal"])
+    );
+    for member in ["kernel", "roots", "terminal", "models", "effects"] {
+        assert_eq!(payload["shape"][member], serde_json::json!(["v1"]));
+    }
+    assert_eq!(
         payload["input"],
         serde_json::json!({"text":"same input", "events":10})
     );
     assert_eq!(payload["revision"], 1);
     assert_eq!(payload["painted_cells"], 10);
-    let shape = payload["api_shape"].as_array().expect("shape array");
-    for member in [
-        "roots:table",
-        "terminal:table",
-        "models:table",
-        "effects:table",
-    ] {
-        assert!(
-            shape.iter().any(|entry| entry == member),
-            "missing {member}"
-        );
-    }
 }

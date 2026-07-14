@@ -12,17 +12,18 @@ fn launcher_sources_do_not_link_embedded_lua_or_product_branches() {
         .and_then(|(_, rest)| rest.split_once("[dev-dependencies]"))
         .map(|(dependencies, _)| dependencies)
         .expect("runtime dependencies section");
-    for product_crate in [
-        "pi-rs-agent",
-        "pi-rs-ai =",
-        "pi-rs-ai-auth",
-        "pi-rs-session",
-    ] {
+    for product_crate in ["pi-rs-ai =", "pi-rs-ai-auth", "pi-rs-session"] {
         assert!(
             !runtime.contains(product_crate),
             "unexpected {product_crate}"
         );
     }
+
+    let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let workspace =
+        std::fs::read_to_string(repository.join("Cargo.toml")).expect("read workspace manifest");
+    assert!(!workspace.contains("pi-rs-agent"));
+    assert!(!repository.join("crates/pi-rs-agent").exists());
 
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut pending = vec![root];

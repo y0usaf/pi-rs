@@ -3,13 +3,9 @@
 const DEFAULT_MAX_EVENTS: usize = 256;
 const MAX_EVENTS: usize = 1_024;
 
-pub(crate) fn install(
-    lua: &mlua::Lua,
-    pi: &mlua::Table,
-    storage: crate::auth::SharedStorage,
-) -> mlua::Result<()> {
+pub(crate) fn install(lua: &mlua::Lua, pi: &mlua::Table) -> mlua::Result<()> {
     let bridge = lua.create_table()?;
-    crate::ai::install(lua, &bridge, storage)?;
+    crate::ai::install(lua, &bridge)?;
     let mechanisms: mlua::Table = bridge.get("ai")?;
     let stream: mlua::Function = mechanisms.get("stream_simple")?;
 

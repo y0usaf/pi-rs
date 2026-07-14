@@ -189,16 +189,96 @@ fn is_array_table(t: &mlua::Table) -> mlua::Result<bool> {
     Ok(count == len)
 }
 
-pub(crate) fn lua_to_json_strict(val: mlua::Value) -> mlua::Result<serde_json::Value> {
-    validate_kernel_value(&val, &mut std::collections::HashSet::new())?;
-    lua_to_json(val)
+pub(crate) fn lua_to_json_strict(value: mlua::Value) -> mlua::Result<serde_json::Value> {
+    strict_value(value, &mut std::collections::HashSet::new())
 }
 
-fn validate_kernel_value(
-    value: &mlua::Value,
+fn strict_value(
+    value: mlua::Value,
     ancestors: &mut std::collections::HashSet<usize>,
-) -> mlua::Result<()> {
+) -> mlua::Result<serde_json::Value> {
     match value {
+        mlua::Value::Nil => Ok(serde_json::Value::Null),
+        mlua::Value::Boolean(value) => Ok(serde_json::Value::Bool(value)),
+        mlua::Value::Integer(value) => Ok(serde_json::Value::Number(value.into())),
+        mlua::Value::Number(value) => {
+            if value.is_finite() && value.fract() == 0.0 && value.abs() <= F64_EXACT_INT {
+                Ok(serde_json::Value::Number((value as i64).into()))
+            } else {
+                Ok(serde_json::Number::from_f64(value)
+                    .map(serde_json::Value::Number)
+                    .unwrap_or(serde_json::Value::Null))
+            }
+        }
+        mlua::Value::String(value) => Ok(serde_json::Value::String(value.to_str()?.to_owned())),
+        mlua::Value::Table(table) => {
+            let pointer = table.to_pointer() as usize;
+            if !ancestors.insert(pointer) {
+                return Err(mlua::Error::runtime(
+                    "cyclic tables cannot cross the kernel boundary",
+                ));
+            }
+            let result = if is_array_table(&table)? {
+                let mut values = Vec::with_capacity(table.raw_len());
+                for index in 1..=table.raw_len() {
+                    values.push(strict_value(table.get(index)?, ancestors)?);
+                }
+                Ok(serde_json::Value::Array(values))
+            } else {
+                let mut entries = Vec::new();
+                for pair in table.clone().pairs::<mlua::Value, mlua::Value>() {
+                    let (key, value) = pair?;
+                    let key = match key {
+                        mlua::Value::String(value) => value.to_str()?.to_owned(),
+                        mlua::Value::Integer(value) => value.to_string(),
+                        mlua::Value::Function(_)
+                        | mlua::Value::Thread(_)
+                        | mlua::Value::UserData(_)
+                        | mlua::Value::LightUserData(_)
+                        | mlua::Value::Error(_)
+                        | mlua::Value::Other(_) => {
+                            return Err(mlua::Error::runtime(
+                                "functions, threads, userdata, and errors cannot cross the kernel boundary",
+                            ));
+                        }
+                        _ => {
+                            let _ = strict_value(value, ancestors)?;
+                            continue;
+                        }
+                    };
+                    entries.push((key, value));
+                }
+                entries.sort_by(|left, right| left.0.cmp(&right.0));
+                let mut map = serde_json::Map::new();
+                if let Some(meta) = table.metatable() {
+                    let null_keys: Vec<String> = meta
+                        .raw_get::<mlua::Table>(JSON_NULL_KEYS)
+                        .ok()
+                        .map(|keys| keys.sequence_values::<String>().collect())
+                        .transpose()?
+                        .unwrap_or_default();
+                    if let Ok(order) = meta.raw_get::<mlua::Table>(JSON_KEY_ORDER) {
+                        for key in order.sequence_values::<String>() {
+                            let key = key?;
+                            if let Some(position) =
+                                entries.iter().position(|(entry, _)| *entry == key)
+                            {
+                                let (key, value) = entries.remove(position);
+                                map.insert(key, strict_value(value, ancestors)?);
+                            } else if null_keys.contains(&key) {
+                                map.insert(key, serde_json::Value::Null);
+                            }
+                        }
+                    }
+                }
+                for (key, value) in entries {
+                    map.insert(key, strict_value(value, ancestors)?);
+                }
+                Ok(serde_json::Value::Object(map))
+            };
+            ancestors.remove(&pointer);
+            result
+        }
         mlua::Value::Function(_)
         | mlua::Value::Thread(_)
         | mlua::Value::UserData(_)
@@ -207,22 +287,6 @@ fn validate_kernel_value(
         | mlua::Value::Other(_) => Err(mlua::Error::runtime(
             "functions, threads, userdata, and errors cannot cross the kernel boundary",
         )),
-        mlua::Value::Table(table) => {
-            let pointer = table.to_pointer() as usize;
-            if !ancestors.insert(pointer) {
-                return Err(mlua::Error::runtime(
-                    "cyclic tables cannot cross the kernel boundary",
-                ));
-            }
-            for pair in table.clone().pairs::<mlua::Value, mlua::Value>() {
-                let (key, value) = pair?;
-                validate_kernel_value(&key, ancestors)?;
-                validate_kernel_value(&value, ancestors)?;
-            }
-            ancestors.remove(&pointer);
-            Ok(())
-        }
-        _ => Ok(()),
     }
 }
 

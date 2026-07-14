@@ -73,10 +73,11 @@ fn queued_actions_are_not_observable_until_dispatch_succeeds() {
         r#"
 local pi = ...
 local k = pi.kernel.v1
+local sleep = pi.effects.v1.timer.sleep
 k.root({ kind="agent", id="publication", active=true, priority=0,
   dispatch=function()
     k.action("early", { value = 1 })
-    pi.sleep(100)
+    sleep(100)
     k.action("late", { value = 2 })
   end,
 })
@@ -345,10 +346,11 @@ fn cancellation_and_resource_disposal_are_scope_owned() {
         r#"
 local pi = ...
 local k = pi.kernel.v1
-k.resource(function() pi.fs.write_file({marker_lua}, "disposed") end)
+local effects = pi.effects.v1
+k.resource(function() effects.fs.write({marker_lua}, "disposed") end)
 k.root({{ kind="frontend", id="cancellable", active=true, priority=0,
   dispatch=function()
-    pi.sleep(10000)
+    effects.timer.sleep(10000)
     k.action("too-late", {{}})
   end,
 }})
@@ -381,7 +383,7 @@ fn final_host_drop_cancels_scopes_and_runs_disposers() {
     let marker = directory.path().join("shutdown.txt");
     let marker_lua = serde_json::to_string(&marker.to_string_lossy()).unwrap();
     let source = format!(
-        "local pi=...; pi.kernel.v1.resource(function() pi.fs.write_file({marker_lua}, 'shutdown') end)"
+        "local pi=...; pi.kernel.v1.resource(function() pi.effects.v1.fs.write({marker_lua}, 'shutdown') end)"
     );
     {
         let host = host(5_000);

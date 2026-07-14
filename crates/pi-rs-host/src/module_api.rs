@@ -100,9 +100,9 @@ fn require_module(lua: &mlua::Lua, name: &str, version: &str) -> mlua::Result<ml
     }
 }
 
-/// Install and return the one module table shared by `pi.module` and
-/// `pi.kernel.v1.module`.
-pub(crate) fn install(lua: &mlua::Lua, pi: &mlua::Table) -> mlua::Result<mlua::Table> {
+/// Install and return the module table published only as
+/// `pi.kernel.v1.module` and `pi.roots.v1.module`.
+pub(crate) fn install(lua: &mlua::Lua) -> mlua::Result<mlua::Table> {
     // Deterministic, exact-version Lua modules. A module factory receives only
     // its declared dependency aliases; definitions and imports are identical
     // for embedded and file-backed sources. Package transport is deliberately
@@ -197,6 +197,27 @@ pub(crate) fn install(lua: &mlua::Lua, pi: &mlua::Table) -> mlua::Result<mlua::T
             Ok(result)
         })?,
     )?;
-    pi.set("module", module_api.clone())?;
     Ok(module_api)
+}
+
+pub(crate) fn remove_scope(lua: &mlua::Lua, scope: crate::kernel::ScopeId) -> mlua::Result<()> {
+    let registry = registry_table(lua)?;
+    let modules: mlua::Table = registry.get("modules")?;
+    let order: mlua::Table = registry.get("module_order")?;
+    let kept = lua.create_table()?;
+    for key in order.sequence_values::<String>() {
+        let key = key?;
+        let Some(entry) = modules.get::<Option<mlua::Table>>(key.as_str())? else {
+            continue;
+        };
+        if entry.get::<u64>("scope")? == scope.get() {
+            modules.set(key.as_str(), mlua::Nil)?;
+        } else {
+            entry.set("state", "defined")?;
+            entry.set("value", mlua::Nil)?;
+            kept.push(key)?;
+        }
+    }
+    registry.set("module_order", kept)?;
+    registry.set("module_stack", lua.create_table()?)
 }

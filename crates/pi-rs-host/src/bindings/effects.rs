@@ -15,7 +15,8 @@ pub(crate) fn install(
 ) -> mlua::Result<()> {
     let bridge = lua.create_table()?;
     crate::os::install(lua, &bridge, cwd, hub.clone())?;
-    crate::exec::install(lua, &bridge, cwd, hub)?;
+    crate::exec::install(lua, &bridge, cwd, hub.clone())?;
+    crate::effects::install(lua, &bridge, hub)?;
     let fs: mlua::Table = bridge.get("fs")?;
     let stat: mlua::Function = fs.get("stat")?;
     let read_file: mlua::Function = fs.get("read_file")?;
@@ -119,6 +120,9 @@ pub(crate) fn install(
         )?,
     )?;
 
+    let timer = lua.create_table()?;
+    timer.set("sleep", bridge.get::<mlua::Function>("sleep")?)?;
+
     let cancellation = lua.create_table()?;
     cancellation.set(
         "new",
@@ -131,6 +135,7 @@ pub(crate) fn install(
     v1.set("api_version", 1_u32)?;
     v1.set("fs", filesystem)?;
     v1.set("process", process)?;
+    v1.set("timer", timer)?;
     v1.set("cancellation", cancellation)?;
     let effects = lua.create_table()?;
     effects.set("v1", v1)?;
