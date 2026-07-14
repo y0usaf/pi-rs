@@ -15,6 +15,7 @@ fn invoke(root: &Path, arguments: &[&str]) -> Output {
         .env_remove("XDG_DATA_HOME")
         .env_remove("XDG_STATE_HOME")
         .env_remove("XDG_CACHE_HOME")
+        .env_remove("PI_PACKAGE_MANIFEST")
         .args(arguments)
         .output()
         .expect("run pi")
@@ -108,14 +109,80 @@ k.root({
 }
 
 #[test]
-fn zero_package_launch_has_no_embedded_application_policy() {
+fn versioned_manifest_is_generic_relative_and_selectable_as_a_distribution_default() {
+    let scratch = tempfile::tempdir().unwrap();
+    let policy = scratch.path().join("policy");
+    let launch_root = scratch.path().join("launch-root");
+    std::fs::create_dir_all(&policy).unwrap();
+    std::fs::create_dir_all(&launch_root).unwrap();
+    write(
+        &policy.join("application.lua"),
+        r#"
+local roots = (...).roots.v1
+roots.register({kind="application", id="manifest", dispatch=function(snapshot)
+  roots.action("manifest", {
+    manifest=snapshot.context.manifest,
+    package=snapshot.context.packages[1],
+    root=snapshot.context.root,
+  })
+end})
+"#,
+    );
+    std::fs::write(
+        policy.join("packages.json"),
+        r#"{"version":1,"packages":["application.lua"]}"#,
+    )
+    .unwrap();
+    let manifest = policy.join("packages.json");
+
+    let explicit = invoke(&launch_root, &["--manifest", manifest.to_str().unwrap()]);
+    assert!(explicit.status.success(), "{}", stderr(&explicit));
+    let explicit_json: serde_json::Value = serde_json::from_slice(&explicit.stdout).unwrap();
+    assert_eq!(
+        explicit_json["actions"][0]["payload"]["manifest"],
+        std::fs::canonicalize(&manifest)
+            .unwrap()
+            .to_string_lossy()
+            .as_ref()
+    );
+    assert!(
+        explicit_json["actions"][0]["payload"]["package"]
+            .as_str()
+            .unwrap()
+            .ends_with("/policy/application.lua")
+    );
+    assert_eq!(
+        explicit_json["actions"][0]["payload"]["root"],
+        std::fs::canonicalize(&launch_root)
+            .unwrap()
+            .to_string_lossy()
+            .as_ref()
+    );
+
+    let selected = Command::new(env!("CARGO_BIN_EXE_pi"))
+        .current_dir(&launch_root)
+        .env("HOME", &launch_root)
+        .env("PI_PACKAGE_MANIFEST", &manifest)
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .env_remove("XDG_STATE_HOME")
+        .env_remove("XDG_CACHE_HOME")
+        .output()
+        .unwrap();
+    assert!(selected.status.success(), "{}", stderr(&selected));
+    let selected_json: serde_json::Value = serde_json::from_slice(&selected.stdout).unwrap();
+    assert_eq!(selected_json["actions"], explicit_json["actions"]);
+}
+
+#[test]
+fn zero_package_launch_has_no_policy_and_exits_with_guidance() {
     let scratch = tempfile::tempdir().unwrap();
     let output = invoke(scratch.path(), &[]);
-    assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(output.stderr.is_empty());
     assert_eq!(
-        stderr(&output),
-        "pi: application root dispatch failed: no active kernel root for 'application'\n"
+        String::from_utf8(output.stdout).unwrap(),
+        "pi: no application package selected; pass --package FILE or --manifest FILE (see pi --help).\n"
     );
 }
 
