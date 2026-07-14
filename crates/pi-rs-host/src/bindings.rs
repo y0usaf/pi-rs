@@ -1,5 +1,10 @@
 //! Root table assembly for independent mechanism and compatibility modules.
 
+mod effects;
+mod models;
+mod roots;
+mod terminal;
+
 use crate::runtime_registry::REGISTRY_KEY;
 
 /// jsdiff change objects as Lua tables (`{value, count, added, removed}`),
@@ -269,6 +274,7 @@ pub(crate) fn build(
 
     let module_api = crate::module_api::install(lua, &pi)?;
     crate::kernel_api::install(lua, &pi, &module_api, control)?;
+    roots::install(lua, &pi)?;
     crate::compatibility::install(lua, &pi)?;
     crate::runtime_api::install(lua, &pi)?;
     crate::effects::install(lua, &pi, effects.clone())?;
@@ -278,8 +284,11 @@ pub(crate) fn build(
     let storage: crate::auth::SharedStorage = std::sync::Arc::new(tokio::sync::Mutex::new(
         crate::auth_storage::AuthStorage::create(None),
     ));
+    models::install(lua, &pi, std::sync::Arc::clone(&storage))?;
     crate::ai::install(lua, &pi, std::sync::Arc::clone(&storage))?;
     crate::auth::install(lua, &pi, storage)?;
+    effects::install(lua, &pi, cwd, effects.clone())?;
+    terminal::install(lua, &pi)?;
     crate::exec::install(lua, &pi, cwd, effects.clone())?;
     crate::http::install(lua, &pi, effects.clone())?;
     crate::os::install(lua, &pi, cwd, effects.clone())?;
