@@ -92,6 +92,15 @@ pi.kernel.v1.resource(function()
   effects.fs.write({shutdown}, "clean")
 end)
 
+for _, kind in ipairs({{"agent", "frontend"}}) do
+  roots.register({{
+    kind=kind, id="coding-spine-" .. kind, active=true, priority=0,
+    dispatch=function(snapshot)
+      roots.action("root_dispatch", {{kind=kind, event=snapshot.event.kind}})
+    end,
+  }})
+end
+
 roots.register({{
   kind="application", id="coding-spine", active=true, priority=0,
   dispatch=function(snapshot)
@@ -222,6 +231,19 @@ roots.register({{
             .contains("exceeded 2 events")
     );
     assert_eq!(batch.actions[1].kind, "shutdown");
+    for root in [RootKind::Agent, RootKind::Frontend] {
+        let dispatched = host
+            .dispatch(DispatchRequest::new(
+                root,
+                serde_json::json!({"kind":"root_probe"}),
+                serde_json::json!({}),
+            ))
+            .unwrap();
+        assert_eq!(dispatched.actions.len(), 1);
+        assert_eq!(dispatched.actions[0].kind, "root_dispatch");
+        assert_eq!(dispatched.actions[0].payload["kind"], root.as_str());
+        assert_eq!(dispatched.actions[0].payload["event"], "root_probe");
+    }
     assert!(!shutdown.exists());
 
     drop(host);
