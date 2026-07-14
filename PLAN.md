@@ -410,10 +410,12 @@ consumer.
   redundant policy tests while retaining compact kernel/effect/display/model
   invariants. Focused/workspace tests, `nix flake check`, and both Nix package
   builds pass. The worker's release run passed all budgets, but three integrated
-  reruns under load averages 10–27 did not: the latest measured input p50/p95
-  20.549/31.820 µs and Lua action-batch p95 64.470 µs. No implementation defect
-  is identified; rerun the integrated release harness under quiescent load before
-  closing this gate.
+  reruns under load did not. A fourth, quiescence-gated integrated run from
+  `6779746` passed 34/35 budget checks: input p50/p95 measured 15.639/23.955 µs,
+  so p50 exceeded the 15 µs budget; startup, RSS, render, Lua dispatch/snapshot,
+  and effect budgets passed. No implementation defect is identified. This gate
+  remains open pending a credible passing integrated release measurement or a
+  measured diagnosis and correction of the input path.
 
 - [ ] **3.2 — Prove a file-backed coding walking skeleton** (**serial**; depends
   on 3.1).
