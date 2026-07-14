@@ -1,10 +1,14 @@
-//! Source-neutral public Lua surface guard.
+//! Source-neutral public Lua surface and behavior guard.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use pi_rs_host::{EmbeddedPack, Host, HostConfig};
+use pi_rs_host::kernel::{DispatchRequest, RootKind};
+use pi_rs_host::{Host, HostConfig, PackageSource};
+
 const PROBE: &str = r#"
 local pi = ...
+local roots = pi.roots.v1
+local terminal = pi.terminal.v1
 
 local function api_shape(api)
   local shape = {}
@@ -25,58 +29,83 @@ local function api_shape(api)
 end
 
 local received_shape = api_shape(pi)
-pi.on("public_surface_probe", function()
-  return { api_shape = received_shape }
-end)
+roots.register({
+  kind="application", id="source-neutral-probe", active=true, priority=0,
+  dispatch=function()
+    local input = terminal.input_buffer()
+    local events = input:feed("same input")
+    local text = ""
+    for _, event in ipairs(events) do text = text .. event.data end
+    local display = terminal.display()
+    local submitted = display:submit({
+      version=terminal.display_schema_version,
+      viewport={columns=20, rows=1}, root=1,
+      nodes={{
+        id=1, rect={x=0, y=0, width=20, height=1},
+        content={kind="text", runs={{text=text}}},
+      }},
+    })
+    roots.action("probed", {
+      api_shape=received_shape,
+      input={text=text, events=#events},
+      revision=submitted.revision,
+      painted_cells=submitted.painted_cells,
+    })
+  end,
+})
 "#;
 
+fn dispatch(host: &Host) -> pi_rs_host::kernel::DispatchBatch {
+    host.dispatch(DispatchRequest::new(
+        RootKind::Application,
+        serde_json::json!({ "kind": "probe" }),
+        serde_json::json!({}),
+    ))
+    .expect("probe dispatch")
+}
+
 #[test]
-fn embedded_and_file_sources_receive_the_same_api_table_shape() {
-    let host = Host::new(HostConfig::default()).expect("host starts");
-    let embedded = host.load_embedded(&[EmbeddedPack {
-        name: "surface-probe",
-        source: PROBE,
-    }]);
-    assert!(embedded.errors.is_empty(), "{:?}", embedded.errors);
+fn embedded_and_file_sources_receive_identical_capability_and_behavior() {
+    let embedded_host = Host::new(HostConfig::default()).expect("embedded host starts");
+    embedded_host
+        .load_package(PackageSource::Embedded {
+            name: "surface-probe",
+            source: PROBE,
+        })
+        .expect("embedded package loads");
+    let embedded = dispatch(&embedded_host);
 
-    let directory = tempfile::tempdir().expect("temporary extension directory");
+    let directory = tempfile::tempdir().expect("temporary package directory");
     let path = directory.path().join("surface-probe.lua");
-    std::fs::write(&path, PROBE).expect("write file-backed extension");
-    let path = path.to_string_lossy().into_owned();
-    let file = host.load_extensions(std::slice::from_ref(&path));
-    assert!(file.errors.is_empty(), "{:?}", file.errors);
+    std::fs::write(&path, PROBE).expect("write file-backed package");
+    let file_host = Host::new(HostConfig::default()).expect("file host starts");
+    file_host
+        .load_package(PackageSource::File { path: &path })
+        .expect("file package loads");
+    let file = dispatch(&file_host);
 
-    let outcomes = host
-        .emit("public_surface_probe", &serde_json::json!({}))
-        .expect("probe dispatch");
-    assert_eq!(outcomes.len(), 2);
-    assert_eq!(outcomes[0].source, "<surface-probe>");
-    assert_eq!(outcomes[1].source, path);
-    let embedded_result = outcomes[0]
-        .result
-        .as_ref()
-        .expect("embedded probe succeeds")
-        .as_ref()
-        .expect("embedded probe returns a shape");
-    let file_result = outcomes[1]
-        .result
-        .as_ref()
-        .expect("file probe succeeds")
-        .as_ref()
-        .expect("file probe returns a shape");
-    assert_eq!(embedded_result, file_result);
+    assert_eq!(embedded.source, "<surface-probe>");
+    assert_eq!(file.source, path.to_string_lossy());
+    assert_eq!(embedded.actions, file.actions);
+    assert_eq!(embedded.effects, file.effects);
 
-    let shape = embedded_result["api_shape"]
-        .as_array()
-        .expect("API shape is an array");
-    for representative in [
-        "register_tool:function", // composable declaration API
-        "fs:table",               // additive mechanism API
-        "fs.read_file:function",
+    let payload = &embedded.actions[0].payload;
+    assert_eq!(
+        payload["input"],
+        serde_json::json!({"text":"same input", "events":10})
+    );
+    assert_eq!(payload["revision"], 1);
+    assert_eq!(payload["painted_cells"], 10);
+    let shape = payload["api_shape"].as_array().expect("shape array");
+    for member in [
+        "roots:table",
+        "terminal:table",
+        "models:table",
+        "effects:table",
     ] {
         assert!(
-            shape.iter().any(|entry| entry == representative),
-            "missing representative public member {representative}"
+            shape.iter().any(|entry| entry == member),
+            "missing {member}"
         );
     }
 }
