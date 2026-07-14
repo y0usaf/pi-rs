@@ -139,6 +139,10 @@ generic mechanisms.
    check`; direct Cargo is an iteration aid except for sanctioned fmt/clippy.
 8. **Git is the attic.** Delete superseded code and evidence from `main`; recover
    history from `pi-rust-rewrite` rather than retaining migration layers.
+9. **Usability is a ratchet.** The bare kernel and shipped product are separate
+   acceptance targets. Once the default product returns in 3.6, every later
+   integration base must keep `nix run` input-ready; ablation runs through the
+   dedicated bare/file-backed target and never replaces the default artifact.
 
 ## 0 — Reset the contract and coordination tools
 
@@ -360,125 +364,207 @@ integrator after the wave.
   redaction, a deterministic bounded command cache, and crash-safe OS-released
   credential locks. Focused catalog/protocol/auth and integrated Nix checks pass.
 
-## 3 — Expose the complete public Lua kernel
+## 3 — Recover usability through a public vertical slice
 
-- [ ] **3.1 — Bind mechanisms through one modular public API** (**serial**;
-  depends on all Wave M items).
+The default artifact is currently the deliberately ablated launcher. Correct
+that sequencing error without restoring the inherited compatibility product:
+first prove the smallest coding journey from ordinary files, then ship the same
+packages as defaults. Do not design the complete Lua API in advance of a product
+consumer.
 
-  Expose package modules, root/declaration registries, display structures, async
-  effects, provider/auth operations, and record-store operations through modular
-  bindings. Calls use immutable snapshots/read handles and queued actions. Keep
-  schemas compact and versioned; avoid Pi/Node naming where no compatibility is
-  promised.
+- [ ] **3.1 — Expose the minimum public coding spine** (**serial**; depends on
+  all Wave M items).
 
-  **Own:** `crates/pi-rs-host/src/bindings/**`, binding tests, generated concise
-  API docs. Shared module indexes/manifests have one owner.
+  Define compact versioned modules and snapshot/action contracts only for the
+  first useful journey: package/default-manifest loading; application, agent, and
+  frontend roots; terminal input and retained display submission; provider/model
+  lookup and bounded streaming; cancellation; and the filesystem/process effects
+  needed by the first tools. Split bindings by mechanism and keep shared indexes
+  under one owner. Distribution may select a default manifest, but embedded and
+  file-backed sources must enter the canonical package transaction with identical
+  capabilities.
+  This slice may delete or replace inherited compatibility bindings, but builtin
+  work may not consume them, private host methods, or synthetic-source escapes.
 
-  **Accept:** ordinary file-backed Lua applications can implement an agent loop,
-  draw a multi-component screen, execute/cancel effects, stream a model, and
-  persist arbitrary records. Embedded sources have no additional API.
+  Separate the two launch targets now: the raw `pi-core` package has no selected
+  policy and can run an explicitly supplied ordinary application; the default
+  `pi` distribution target will select shipped packages in 3.6. A no-package raw
+  invocation prints useful launcher/package guidance and exits cleanly instead of
+  treating intentional absence as a product crash.
 
-- [ ] **3.2 — Prove whole-root replacement and composition** (**serial**;
-  depends on 3.1).
+  **Own:** `crates/pi-rs-host/src/bindings/**`, focused host binding tests,
+  `crates/pi-rs-app/src/**`, app launcher tests, concise API docs for this slice,
+  and the serial package/app/check split in `flake.nix`.
 
-  Add minimal external packages that independently replace application, agent,
-  frontend, and session roots, plus two extensions that compose event/render
-  middleware. Prove deterministic priority/conflict handling, module versioning,
-  lifecycle cleanup, reload rollback, and watchdog isolation.
+  **Accept:** ordinary file-backed packages can receive terminal input, submit a
+  retained frame, resolve and stream a fixture model, execute/cancel bounded
+  effects, and shut down; snapshots/actions remain the only state boundary;
+  synthetic embedded identity grants no capability; Nix separately checks the
+  clean raw launcher and its file-backed application path.
 
-  **Own:** `examples/**`, focused public-surface tests.
+- [ ] **3.2 — Prove a file-backed coding walking skeleton** (**serial**; depends
+  on 3.1).
 
-  **Accept:** deleting all builtin assets leaves these examples runnable; no
-  example imports a private Rust module or synthetic-source capability.
+  Build small ordinary packages under `examples/` that establish the intended
+  module/root contracts before builtin work: an application coordinates an
+  ephemeral agent and frontend; the frontend accepts one prompt and renders
+  incremental output; the agent streams a deterministic fixture provider and can
+  invoke representative filesystem/process effects. Include cancellation and a
+  clear missing-model/auth state. Keep editor and transcript behavior deliberately
+  minimal.
 
-## 4 — Build the shipped product as ordinary Lua packages
+  Independently replace the application, agent, and frontend roots and compose
+  one event middleware plus one render middleware. Prove priority/conflict rules,
+  module versions, watchdog isolation, rollback, and scope cleanup on this narrow
+  surface.
 
-Create a dedicated builtins layer with one directory/module graph per package;
-do not recreate concatenated mega-chunks. After 3.2, `/orchestrate` may run
-**Wave P1**. Each worker owns one package tree; the declarative default manifest
-is integrated afterward by one owner.
+  **Own:** `examples/**` and focused public-surface integration tests only.
 
-- [ ] **4.1 — Agent package** (**Wave P1**, depends on 3.2).
+  **Accept:** `nix run .#pi-core -- --package ...` completes prompt → streamed
+  clean exit against fixtures, renders an input-ready frame, cancels in-flight
+  work, and diagnoses missing auth without a private API. Deleting every builtin
+  asset does not affect the test.
 
-  Implement the configurable agent reducer/state machine: prompts, provider
-  stream consumption, parallel tool settlement, steering/follow-up queues,
-  cancellation, retries, and context actions. It depends only on public modules
-  and does not require persistent sessions.
+After 3.2, `/orchestrate` may run **Wave U**. Workers own disjoint package trees;
+none may edit the default manifest, root binding indexes, or `flake.nix`.
 
-  **Accept:** deterministic stream/tool fixtures cover success, tool use,
-  steering, follow-up, cancellation, retry, and malformed provider events; a
-  file-backed replacement changes transition policy.
+- [ ] **3.3 — Minimal ephemeral agent package** (**Wave U**, path owner:
+  `crates/pi-rs-builtins/agent/**`; depends on 3.2).
 
-- [ ] **4.2 — Frontend package skeleton** (**Wave P1**, depends on 3.2).
+  Implement the Lua agent reducer needed for a useful coding turn: prompt and
+  provider stream consumption, sequential/parallel tool settlement, cancellation,
+  bounded retry, and steering/follow-up queues. It has no persistence dependency
+  and uses only the public modules proven by 3.2.
 
-  Implement the Lua-authored application/frontend root, retained component tree,
-  focus/input routing, screen invalidation, and generic slots. Rust receives only
-  display/effect actions. Keep editor, transcript rows, footer, and dialogs as
-  separate Lua modules behind intentional seams.
+  **Accept:** deterministic fixtures cover text, tool use, cancellation, retry,
+  malformed provider events, steering, and follow-up; replacing the agent root
+  changes transition policy without a frontend fork.
 
-  **Accept:** a file-backed frontend can replace it; an extension can wrap a slot
-  or renderer; resize/input/render cycles meet the initial budget.
+- [ ] **3.4 — Minimal application/frontend package** (**Wave U**, path owner:
+  `crates/pi-rs-builtins/frontend/**`; depends on 3.2).
 
-- [ ] **4.3 — Core tool package** (**Wave P1**, depends on 3.2).
+  Implement the Lua application/frontend roots, retained component tree, basic
+  multiline input, transcript rows, focus/input routing, resize, invalidation,
+  streaming updates, missing-auth/model guidance, and graceful shutdown. Keep
+  editor/transcript/chrome modules separate even where behavior is initially
+  sparse; Rust receives display/effect actions only.
 
-  Ship minimal `read`, `write`, `edit`, and `bash` tools as Lua policy over public
-  filesystem/process/diff primitives. Tool definitions, execution, truncation,
-  mutation serialization, and render declarations use the same API as user
-  tools. Additional search/list tools are optional modules, not kernel
-  requirements.
+  **Accept:** fixture journeys reach an input-ready frame, submit a prompt, show
+  incremental assistant/tool output, cancel, and exit; file-backed roots can
+  replace the application or frontend and wrap the render middleware.
 
-  **Accept:** each tool is individually replaceable; concurrent file mutation is
-  safe; cancellation and bounded output are covered from file-backed packages.
+- [ ] **3.5 — Minimal core-tool package** (**Wave U**, path owner:
+  `crates/pi-rs-builtins/tools/**`; depends on 3.2).
 
-- [ ] **4.4 — Config/resource package** (**Wave P1**, depends on 3.2).
+  Ship `read`, `write`, `edit`, and `bash` as Lua declarations over public
+  filesystem/process/diff effects. Tool execution, truncation, cancellation, and
+  file-mutation serialization are policy in this package. Do not restore inherited
+  utility mega-chunks or add a privileged builtin executor.
 
-  Implement `config.lua` declarations, package/module selection, themes,
-  keymaps, providers/models, tools, resource paths, and root selection. Load XDG
-  first and legacy config only as fallback; project configuration has an explicit
-  trust policy. Publish reload atomically.
+  **Accept:** each tool is independently suppressible/replaceable from disk;
+  concurrent mutations are safe; path errors, bounded output, process-tree
+  cancellation, and representative render data are covered.
+
+- [ ] **3.6 — Assemble defaults and restore `nix run`** (**serial after Wave U**).
+
+  Add the dedicated builtins layer and one declarative distribution manifest for
+  the agent, frontend/application, and tool packages. Integrate package indexes
+  once; do not concatenate sources or grant embedded-only modules. Make the
+  default Nix package/app select this manifest while retaining `pi-core` as the
+  explicit zero-builtin target.
+
+  **Own:** builtin crate/package manifest and indexes, workspace manifest,
+  `crates/pi-rs-app` distribution integration, `flake.nix`, installed-launcher
+  checks, and the minimal default-journey integration test.
+
+  **Accept:** `nix run` reaches an input-ready coding UI; an offline fixture run
+  completes a prompt plus tool call; missing credentials produce actionable UI;
+  successful live-provider use needs only supported credentials; every embedded
+  source copied to disk behaves identically; `nix run .#pi-core` remains clean and
+  its explicit file-backed journey passes. From this commit onward, default
+  usability is a required check, not deferred release work.
+
+## 4 — Complete the replaceable product vertically
+
+Grow public modules only alongside their file-backed and shipped consumers. Keep
+`nix run` green throughout. After 3.6, work may proceed by disjoint mechanism and
+package paths, but shared binding indexes/default manifests remain serial.
+
+- [ ] **4.1 — Close the public capability surface on demonstrated consumers**
+  (**serial**; depends on 3.6).
+
+  Add the remaining compact modules needed by configuration, records, richer UI,
+  provider declarations, lifecycle/reload, and extension composition. Exercise
+  every addition immediately from an ordinary file-backed package. Expose package
+  modules, roots/declarations, display structures, async effects, provider/auth,
+  and record operations without Pi/Node compatibility naming or mutable host
+  access.
+
+  **Accept:** file-backed applications can implement the complete agent loop,
+  multi-component screen, all effect families, provider/auth operations, and
+  arbitrary record persistence; every dispatch is bounded; generated concise API
+  docs cover the actual demonstrated surface; embedded sources have no extra API.
+
+After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
+
+- [ ] **4.2 — Config/resource package** (**Wave P1**, path owner:
+  `crates/pi-rs-builtins/config/**`; depends on 4.1).
+
+  Implement `config.lua` declarations, package/module selection, themes, keymaps,
+  providers/models, tools, resource paths, and root selection. Load XDG first and
+  legacy config only as fallback; project configuration has explicit trust policy
+  and reload publishes atomically.
 
   **Accept:** precedence/trust/rollback/idempotence matrices pass; all effective
-  configuration is inspectable; Rust contains no product default.
+  configuration is inspectable; replacing the file-backed config changes policy;
+  Rust contains no product default.
 
-- [ ] **4.5 — Configurable session package** (**Wave P1**, depends on 3.2).
+- [ ] **4.3 — Configurable session package** (**Wave P1**, path owner:
+  `crates/pi-rs-builtins/session/**`; depends on 4.1).
 
   Implement optional persistent conversation policy over the public record store:
-  record schema, reconstruction reducer, names, branch/tree behavior, selection,
-  compaction records, retention, and ephemeral fallback. Session actions are
-  queued; stale runtime handles fail across switch/reload.
+  record schema, reconstruction, names, branch/tree meaning, selection,
+  compaction records, retention, and legacy interpretation. Session actions are
+  queued and every write targets XDG.
 
-  **Accept:** suppressing the package yields a useful ephemeral app; a small
-  file-backed replacement persists a different schema; branch, compact, resume,
-  corruption, cancellation, and legacy-read/XDG-write paths are covered.
+  **Accept:** suppressing the package leaves the useful ephemeral app from 3.6;
+  a small file-backed replacement persists a different schema; branch, compact,
+  resume, corruption, cancellation, stale-handle, and legacy-read/XDG-write paths
+  are covered.
 
-- [ ] **4.6 — Assemble the default package graph** (**serial after Wave P1**).
+- [ ] **4.4 — Integrate configuration/session and close replacement composition**
+  (**serial after Wave P1**).
 
-  Add one declarative manifest selecting the shipped Lua packages and generic
-  roots. Embed packages without concatenation or hidden modules. Resolve package
-  dependencies/version conflicts deterministically.
+  Extend the declarative default manifest once, then independently suppress and
+  replace application, agent, frontend, and session roots. Compose representative
+  event/render middleware and config declarations. Prove deterministic conflicts,
+  module versions, lifecycle cleanup, reload rollback, watchdog isolation, and
+  copied-to-disk reproduction across the expanded graph.
 
-  **Accept:** each package can be suppressed; embedded packages copied to disk
-  reproduce the same product; zero-pack boot remains green.
+  **Accept:** `nix run` remains input-ready with and without persistent sessions;
+  each package/root is suppressible or replaceable; two extensions compose without
+  privileged ordering; zero-builtin/file-backed checks remain green.
 
 ## 5 — Close the Pi-feeling interactive experience
 
-After 4.6, `/orchestrate` may run **Wave P2** by separate Lua module trees and
+After 4.4, `/orchestrate` may run **Wave P2** by separate Lua module trees and
 fixture paths. One worker owns the frontend root integration points per wave;
 other workers contribute modules through interfaces already merged.
 
 - [ ] **5.1 — Transcript and streaming presentation** (**Wave P2**; depends on
-  4.6).
+  4.4).
 
-  Implement user, assistant, thinking, tool, warning, error, retry, compaction,
+  Complete user, assistant, thinking, tool, warning, error, retry, compaction,
   and custom rows with Pi's defining spacing/color/wrapping behavior. Streaming
   updates retain stable component identity and bounded invalidation.
 
   **Accept:** canonical transcript/tool/stream grids from 0.2 match; long
-  transcripts remain within render and memory budgets; renderers are replaceable.
+  transcripts remain within render and memory budgets; renderers are replaceable;
+  the simpler 3.6 journey remains green.
 
-- [ ] **5.2 — Editor, completion, and keymaps** (**Wave P2**; depends on 4.6).
+- [ ] **5.2 — Editor, completion, and keymaps** (**Wave P2**; depends on 4.4).
 
-  Implement Lua editor policy over terminal/text primitives: multiline edits,
+  Complete Lua editor policy over terminal/text primitives: multiline edits,
   undo, history, paste collapse, file/path completion, command completion,
   external editor, and configurable keymaps.
 
@@ -486,7 +572,7 @@ other workers contribute modules through interfaces already merged.
   a file-backed editor/keymap replacement uses no private API.
 
 - [ ] **5.3 — Dialogs, selectors, status, and chrome** (**Wave P2**; depends on
-  4.6).
+  4.4).
 
   Implement model/session selectors, generic select/confirm/input/editor dialogs,
   notifications, working indicator, header, footer, status, widgets, and overlays
@@ -503,7 +589,8 @@ other workers contribute modules through interfaces already merged.
   graceful shutdown. Keep cross-root communication snapshot/action based.
 
   **Accept:** complete canonical interaction journeys pass without hidden mutable
-  coupling; replacing or removing the session root requires no frontend fork.
+  coupling; replacing or removing the session root requires no frontend fork;
+  default and bare/file-backed Nix launch checks remain green.
 
 ## 6 — Complete provider and authentication parity
 
