@@ -12,6 +12,8 @@ fn help_describes_only_generic_package_launching() {
     let help = String::from_utf8(output.stdout).unwrap();
     assert!(help.contains("generic Lua application launcher"));
     assert!(help.contains("--package FILE"));
+    assert!(help.contains("--manifest FILE"));
+    assert!(help.contains("PI_PACKAGE_MANIFEST"));
     for product_term in [
         "--login",
         "--model",

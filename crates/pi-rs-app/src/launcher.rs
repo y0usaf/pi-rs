@@ -9,13 +9,17 @@ use std::path::{Path, PathBuf};
 
 use pi_rs_host::kernel::{DispatchBatch, DispatchRequest, RootKind};
 use pi_rs_host::{Host, HostConfig, PackageSource};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+const PACKAGE_MANIFEST_ENV: &str = "PI_PACKAGE_MANIFEST";
+const PACKAGE_MANIFEST_VERSION: u32 = 1;
 
 use crate::startup::StartupContext;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Options {
     pub package_root: Option<PathBuf>,
+    pub manifest: Option<PathBuf>,
     pub packages: Vec<PathBuf>,
     pub arguments: Vec<String>,
     pub help: bool,
@@ -37,6 +41,33 @@ pub enum LauncherError {
     },
     #[error("package root '{0}' is not a directory")]
     PackageRootNotDirectory(PathBuf),
+    #[error("package manifest is absent: '{0}'")]
+    ManifestAbsent(PathBuf),
+    #[error("package manifest path '{path}' is unavailable: {source}")]
+    ManifestPath {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("package manifest is not a regular file: '{0}'")]
+    ManifestNotFile(PathBuf),
+    #[error("package manifest '{path}' is unreadable: {source}")]
+    ManifestUnreadable {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("package manifest '{path}' is invalid: {source}")]
+    ManifestInvalid {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+    #[error("package manifest '{path}' uses version {actual}; expected version {expected}")]
+    ManifestVersion {
+        path: PathBuf,
+        actual: u32,
+        expected: u32,
+    },
+    #[error("package manifest '{0}' selects no packages")]
+    ManifestEmpty(PathBuf),
     #[error("package {position} is absent: '{path}'")]
     PackageAbsent { position: usize, path: PathBuf },
     #[error("package {position} path '{path}' is unavailable: {source}")]
@@ -67,6 +98,18 @@ pub enum LauncherError {
     Encode(serde_json::Error),
     #[error("cannot write the application result: {0}")]
     Output(std::io::Error),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PackageManifest {
+    version: u32,
+    packages: Vec<PathBuf>,
+}
+
+struct PackageSelection {
+    manifest: Option<PathBuf>,
+    packages: Vec<PathBuf>,
 }
 
 #[derive(Serialize)]
@@ -110,6 +153,15 @@ where
                     "--root may be specified only once".to_owned(),
                 ));
             }
+        } else if argument == "--manifest" {
+            let value = arguments.next().ok_or_else(|| {
+                LauncherError::Arguments("--manifest requires a JSON file".to_owned())
+            })?;
+            if options.manifest.replace(PathBuf::from(value)).is_some() {
+                return Err(LauncherError::Arguments(
+                    "--manifest may be specified only once".to_owned(),
+                ));
+            }
         } else if argument == "--package" || argument == "-p" {
             let value = arguments.next().ok_or_else(|| {
                 LauncherError::Arguments("--package requires a Lua file".to_owned())
@@ -127,7 +179,7 @@ where
 
 #[must_use]
 pub fn help_text() -> &'static str {
-    "pi - generic Lua application launcher\n\nUsage:\n  pi [--root DIR] [--package FILE ...] [-- ARG ...]\n\nOptions:\n  --root DIR                           Resolve relative package files from DIR\n  --package FILE, -p FILE             Load an ordinary Lua package; repeat in dependency order\n  --help, -h                          Show this help\n  --version, -V                       Show the launcher version\n\nWith no packages, pi still creates a zero-policy host and reports that no\napplication root is active. Packages register the application root through\npi.kernel.v1. The launcher emits the successful action/effect batch as JSON.\n"
+    "pi - generic Lua application launcher\n\nUsage:\n  pi [--root DIR] [--manifest FILE] [--package FILE ...] [-- ARG ...]\n\nOptions:\n  --root DIR                           Resolve relative command-line inputs from DIR\n  --manifest FILE                     Load a versioned JSON package manifest\n  --package FILE, -p FILE             Load an ordinary Lua package; repeat in dependency order\n  --help, -h                          Show this help\n  --version, -V                       Show the launcher version\n\nPI_PACKAGE_MANIFEST selects a distribution manifest when --manifest is absent.\nManifest packages resolve from the manifest directory; explicit packages resolve\nfrom --root. With no selection, the raw launcher prints guidance and exits cleanly.\nPackages register roots through pi.roots.v1 and emit queued actions.\n"
 }
 
 fn canonical_root(selected: Option<&Path>) -> Result<PathBuf, LauncherError> {
@@ -145,53 +197,126 @@ fn canonical_root(selected: Option<&Path>) -> Result<PathBuf, LauncherError> {
     Ok(root)
 }
 
-fn package_paths(root: &Path, selected: &[PathBuf]) -> Result<Vec<PathBuf>, LauncherError> {
-    selected
-        .iter()
-        .enumerate()
-        .map(|(index, path)| {
-            let position = index + 1;
-            let joined = if path.is_absolute() {
-                path.clone()
-            } else {
-                root.join(path)
-            };
-            let resolved = std::fs::canonicalize(&joined).map_err(|source| {
-                if source.kind() == std::io::ErrorKind::NotFound {
-                    LauncherError::PackageAbsent {
-                        position,
-                        path: joined.clone(),
-                    }
-                } else {
-                    LauncherError::PackagePath {
-                        position,
-                        path: joined.clone(),
-                        source,
-                    }
-                }
-            })?;
-            if !resolved.is_file() {
-                return Err(LauncherError::PackageNotFile {
-                    position,
-                    path: resolved,
-                });
-            }
-            Ok(resolved)
-        })
-        .collect()
+fn selected_manifest(options: &Options) -> Option<PathBuf> {
+    options
+        .manifest
+        .clone()
+        .or_else(|| std::env::var_os(PACKAGE_MANIFEST_ENV).map(PathBuf::from))
 }
 
-fn dispatch(options: &Options) -> Result<DispatchBatch, LauncherError> {
+fn resolve_package(base: &Path, path: &Path, position: usize) -> Result<PathBuf, LauncherError> {
+    let joined = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    };
+    let resolved = std::fs::canonicalize(&joined).map_err(|source| {
+        if source.kind() == std::io::ErrorKind::NotFound {
+            LauncherError::PackageAbsent {
+                position,
+                path: joined.clone(),
+            }
+        } else {
+            LauncherError::PackagePath {
+                position,
+                path: joined.clone(),
+                source,
+            }
+        }
+    })?;
+    if !resolved.is_file() {
+        return Err(LauncherError::PackageNotFile {
+            position,
+            path: resolved,
+        });
+    }
+    Ok(resolved)
+}
+
+fn package_selection(
+    root: &Path,
+    selected_manifest: Option<&Path>,
+    explicit: &[PathBuf],
+) -> Result<PackageSelection, LauncherError> {
+    let mut selected = Vec::<(PathBuf, PathBuf)>::new();
+    let manifest = if let Some(path) = selected_manifest {
+        let joined = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            root.join(path)
+        };
+        let resolved = std::fs::canonicalize(&joined).map_err(|source| {
+            if source.kind() == std::io::ErrorKind::NotFound {
+                LauncherError::ManifestAbsent(joined.clone())
+            } else {
+                LauncherError::ManifestPath {
+                    path: joined.clone(),
+                    source,
+                }
+            }
+        })?;
+        if !resolved.is_file() {
+            return Err(LauncherError::ManifestNotFile(resolved));
+        }
+        let bytes =
+            std::fs::read(&resolved).map_err(|source| LauncherError::ManifestUnreadable {
+                path: resolved.clone(),
+                source,
+            })?;
+        let document: PackageManifest =
+            serde_json::from_slice(&bytes).map_err(|source| LauncherError::ManifestInvalid {
+                path: resolved.clone(),
+                source,
+            })?;
+        if document.version != PACKAGE_MANIFEST_VERSION {
+            return Err(LauncherError::ManifestVersion {
+                path: resolved,
+                actual: document.version,
+                expected: PACKAGE_MANIFEST_VERSION,
+            });
+        }
+        if document.packages.is_empty() {
+            return Err(LauncherError::ManifestEmpty(resolved));
+        }
+        let base = resolved
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| root.to_path_buf());
+        selected.extend(
+            document
+                .packages
+                .into_iter()
+                .map(|package| (base.clone(), package)),
+        );
+        Some(resolved)
+    } else {
+        None
+    };
+    selected.extend(
+        explicit
+            .iter()
+            .cloned()
+            .map(|package| (root.to_path_buf(), package)),
+    );
+    let packages = selected
+        .iter()
+        .enumerate()
+        .map(|(index, (base, package))| resolve_package(base, package, index + 1))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(PackageSelection { manifest, packages })
+}
+
+fn dispatch(options: &Options, manifest: Option<&Path>) -> Result<DispatchBatch, LauncherError> {
     let startup = StartupContext::discover()?;
     let root = canonical_root(options.package_root.as_deref())?;
-    let packages = package_paths(&root, &options.packages)?;
+    let selection = package_selection(&root, manifest, &options.packages)?;
     let host = Host::new(HostConfig {
         cwd: Some(root.to_string_lossy().into_owned()),
         ..HostConfig::default()
     })
     .map_err(LauncherError::Host)?;
 
-    for (index, path) in packages.iter().enumerate() {
+    for (index, path) in selection.packages.iter().enumerate() {
         host.load_package(PackageSource::File { path })
             .map_err(|source| match source {
                 source @ pi_rs_host::HostError::Io(_) => LauncherError::PackageUnreadable {
@@ -213,7 +338,8 @@ fn dispatch(options: &Options) -> Result<DispatchBatch, LauncherError> {
     });
     let context = serde_json::json!({
         "root": root.to_string_lossy(),
-        "packages": packages
+        "manifest": selection.manifest.as_ref().map(|path| path.to_string_lossy()),
+        "packages": selection.packages
             .iter()
             .map(|path| path.to_string_lossy())
             .collect::<Vec<_>>(),
@@ -223,8 +349,20 @@ fn dispatch(options: &Options) -> Result<DispatchBatch, LauncherError> {
         .map_err(LauncherError::Dispatch)
 }
 
+#[must_use]
+pub fn no_selection_text() -> &'static str {
+    "pi: no application package selected; pass --package FILE or --manifest FILE (see pi --help).\n"
+}
+
 pub fn run(options: &Options, output: &mut dyn std::io::Write) -> Result<(), LauncherError> {
-    let batch = dispatch(options)?;
+    let manifest = selected_manifest(options);
+    if manifest.is_none() && options.packages.is_empty() {
+        let _ = StartupContext::discover()?;
+        return output
+            .write_all(no_selection_text().as_bytes())
+            .map_err(LauncherError::Output);
+    }
+    let batch = dispatch(options, manifest.as_deref())?;
     let document = ResultDocument {
         version: batch.version,
         generation: batch.generation.get(),

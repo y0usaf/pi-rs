@@ -79,15 +79,16 @@
             ;
         };
 
-      # The `pi` binary (crates/pi-rs-app).
-      mkPiRs =
+      # Raw zero-policy `pi` binary (crates/pi-rs-app). The default
+      # distribution is the same artifact until its manifest lands in 3.6.
+      mkPiCore =
         system:
         let
           c = mkCraneLib system;
         in
         c.craneLib.buildPackage {
           inherit (c) src cargoArtifacts;
-          pname = "pi-rs";
+          pname = "pi-core";
           version = "0.1.0";
           nativeBuildInputs = c.commonEnv.nativeBuildInputs ++ [
             c.pkgs.ripgrep
@@ -98,48 +99,64 @@
           meta.mainProgram = "pi";
         };
 
-      # Installed-launcher smoke test: the packaged binary has no embedded
-      # product policy and runs an ordinary file-backed application root.
-      mkLauncherSmoke =
+      mkPiRs = system: mkPiCore system;
+
+      # Raw-core ablation: intentional absence is useful guidance, not a
+      # failed product launch.
+      mkCoreNoPackageCheck =
         system:
         let
           pkgs = mkPkgs system;
-          piRs = mkPiRs system;
+          piCore = mkPiCore system;
         in
-        pkgs.runCommand "launcher-smoke"
+        pkgs.runCommand "pi-core-no-package"
+          {
+            nativeBuildInputs = [ piCore ];
+          }
+          ''
+            export HOME=$TMPDIR
+            unset PI_PACKAGE_MANIFEST
+            pi > guidance.txt 2> error.txt
+            test ! -s error.txt
+            grep -q 'no application package selected' guidance.txt
+            grep -q -- '--package FILE or --manifest FILE' guidance.txt
+            touch $out
+          '';
+
+      # Raw-core capability: an ordinary file package reaches the canonical
+      # package transaction and application-root dispatch.
+      mkCoreFileApplicationCheck =
+        system:
+        let
+          pkgs = mkPkgs system;
+          piCore = mkPiCore system;
+        in
+        pkgs.runCommand "pi-core-file-application"
           {
             nativeBuildInputs = [
-              piRs
+              piCore
               pkgs.jq
             ];
           }
           ''
             export HOME=$TMPDIR
-
-            version=$(pi --version)
-            test -n "$version"
+            unset PI_PACKAGE_MANIFEST
 
             pi --help > help.txt
             grep -q 'generic Lua application launcher' help.txt
-            grep -q -- '--package FILE' help.txt
-
-            if pi > zero-pack.out 2> zero-pack.err; then
-              echo 'expected zero-pack launch to report the absent application root' >&2
-              exit 1
-            fi
-            test ! -s zero-pack.out
-            grep -q "no active kernel root for 'application'" zero-pack.err
+            grep -q -- '--manifest FILE' help.txt
 
             cat > application.lua <<'LUA'
-            local k = (...).kernel.v1
-            k.root({
+            local roots = (...).roots.v1
+            roots.register({
               kind = "application",
-              id = "launcher-smoke",
+              id = "core-file-check",
               dispatch = function(snapshot)
-                k.action("launched", {
+                roots.action("launched", {
                   argument = snapshot.event.arguments[1],
                   root = snapshot.context.root,
                 })
+                roots.action("shutdown", { reason = "complete" })
               end,
             })
             LUA
@@ -149,6 +166,7 @@
               .version == 1 and
               .actions[0].kind == "launched" and
               .actions[0].payload.argument == "accepted" and
+              .actions[1].kind == "shutdown" and
               (.source | endswith("/application.lua"))
             ' result.json >/dev/null
 
@@ -260,17 +278,31 @@
       checks = forAllSystems (system: {
         workspace-test = mkTest system;
         workspace-clippy = mkClippy system;
-        launcher-smoke = mkLauncherSmoke system;
+        core-no-package = mkCoreNoPackageCheck system;
+        core-file-application = mkCoreFileApplicationCheck system;
         model-catalog-update = mkModelCatalogUpdateTest system;
       });
 
       packages = forAllSystems (system: rec {
+        pi-core = mkPiCore system;
         pi-rs = mkPiRs system;
         update-model-catalog = mkModelCatalogUpdater system;
         default = pi-rs;
       });
 
       apps = forAllSystems (system: {
+        default = {
+          type = "app";
+          program = "${mkPiRs system}/bin/pi";
+        };
+        pi-rs = {
+          type = "app";
+          program = "${mkPiRs system}/bin/pi";
+        };
+        pi-core = {
+          type = "app";
+          program = "${mkPiCore system}/bin/pi";
+        };
         demo = {
           type = "app";
           program = "${mkDemo system}/bin/pi-rs-demo";
