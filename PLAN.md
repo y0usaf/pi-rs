@@ -418,25 +418,43 @@ consumer.
 - [ ] **3.2 — Prove a file-backed coding walking skeleton** (**serial**; depends
   on 3.1).
 
-  Build small ordinary packages under `examples/` that establish the intended
-  module/root contracts before builtin work: an application coordinates an
-  ephemeral agent and frontend; the frontend accepts one prompt and renders
-  incremental output; the agent streams a deterministic fixture provider and can
-  invoke representative filesystem/process effects. Include cancellation and a
-  clear missing-model/auth state. Keep editor and transcript behavior deliberately
-  minimal.
+  The launcher is currently one-shot: it dispatches a single synthetic startup
+  event, serializes the resulting batch as JSON, and exits. No interactive
+  product can exist on that. This gate builds the generic product loop that
+  joins the proven mechanisms: terminal bytes → bounded input batches → root
+  dispatch → action/effect settlement → retained display diff → ANSI frames,
+  repeated until a shutdown action. Scheduling, wakeup, effect settlement, and
+  frame presentation are Rust mechanism; the meaning of every action stays Lua
+  policy. No private APIs, no privileged scheduler, no mutable host escapes.
+
+  Alongside the loop, build small ordinary packages under `examples/` that
+  establish the intended module/root contracts before builtin work: an
+  application coordinates an ephemeral agent and frontend; the frontend accepts
+  one prompt and renders incremental output; the agent streams a deterministic
+  fixture provider and can invoke representative filesystem/process effects.
+  Include cancellation and a clear missing-model/auth state. Keep editor and
+  transcript behavior deliberately minimal.
 
   Independently replace the application, agent, and frontend roots and compose
-  one event middleware plus one render middleware. Prove priority/conflict rules,
-  module versions, watchdog isolation, rollback, and scope cleanup on this narrow
-  surface.
+  one event middleware plus one render middleware. Prove priority/conflict
+  rules, module versions, watchdog isolation, rollback, and scope cleanup on
+  this narrow surface.
 
-  **Own:** `examples/**` and focused public-surface integration tests only.
+  **Own:** `crates/pi-rs-app/src/**`, any new public host seam the loop
+  requires (serial with the root/binding indexes), `examples/**`, and the
+  PTY-driven acceptance tests.
 
-  **Accept:** `nix run .#pi-core -- --package ...` completes prompt → streamed
-  clean exit against fixtures, renders an input-ready frame, cancels in-flight
-  work, and diagnoses missing auth without a private API. Deleting every builtin
-  asset does not affect the test.
+  **Accept:** a PTY harness drives `nix run .#pi-core -- --package ...`: typed
+  prompt → incremental rendered frames from the fixture provider → a
+  representative tool effect → cancellation of in-flight work → return to an
+  input-ready frame → clean exit with all scopes disposed. Missing model/auth
+  diagnoses usefully without a private API. Deleting every builtin asset does
+  not affect the test.
+
+  **Falsifier:** this gate is the architecture's proof, and it is timeboxed.
+  If the loop cannot be composed from the public snapshot/action/effect
+  contracts without privileged escapes, stop: amend `DESIGN.md` and this plan
+  before any Wave U work begins.
 
 After 3.2, `/orchestrate` may run **Wave U**. Workers own disjoint package trees;
 none may edit the default manifest, root binding indexes, or `flake.nix`.
