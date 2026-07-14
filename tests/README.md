@@ -11,12 +11,11 @@ Each permanent suite has one acceptance owner; overlap is diagnostic only.
 | `crates/pi-rs-ai/tests/{event_stream,http,json_parse,openai_completions,registry,retry,sse,transform_messages}.rs` + `crates/pi-rs-ai/tests/fixtures/**` | Provider transport, registry, conversion, and replay mechanisms independent of product workflow. |
 | `crates/pi-rs-ai-types/tests/**` | Typed provider/model/message wire-schema round trips and validation. |
 | `crates/pi-rs-ai-auth/tests/**` | Credential, PKCE, callback/device-flow, registry, and subscription-auth engines. |
-| `crates/pi-rs-host/tests/**` | Generic host/Lua mechanism invariants: bounded dispatch, source neutrality, registries, effects, JSON, and terminal primitives. |
-| `crates/pi-rs-agent/tests/**` | Public Lua agent primitive state, lifecycle, streaming, and tool-settlement mechanics; not default-product behavior. |
-| `crates/pi-rs-app/tests/assembly.rs` | Zero-pack boot plus package/root suppression and file-backed replacement. |
-| `crates/pi-rs-app/tests/agent_tool_roundtrip.rs` | Ordinary file-backed Lua consumer spanning agent and tool capabilities. |
+| `crates/pi-rs-host/tests/**` | Generic kernel transactions, bounded effects/cleanup, exact compact Lua surface, source neutrality, terminal input/display, and the minimum file-backed coding spine. |
+| `crates/pi-rs-app/tests/{launcher,launcher_coding_spine,launcher_surface,source_audit}.rs` | Raw zero-policy guidance, generic manifest/package loading, explicit file-backed coding capability, and absence of linked product policy. |
+| `crates/pi-rs-app/tests/startup_paths.rs` | XDG root selection and read-only per-resource legacy fallback. |
 | `crates/pi-rs-app/tests/ai_auth_catalog.rs` | Every advertised model API dispatches and every supported subscription auth family is registered. |
-| `flake.nix` checks `workspace-test`, `workspace-clippy`, and `launcher-smoke` | Aggregate retained suites, shipped-target lint safety, and installed-binary/catalog startup respectively. |
+| `flake.nix` checks `workspace-test`, `workspace-clippy`, `core-no-package`, `core-file-application`, and `model-catalog-update` | Aggregate retained suites, shipped-target lint safety, raw-core ablation/capability, and fail-closed catalog updates. |
 
 Whole-product snapshots, Pi extension compatibility, external-extension dogfood,
 and legacy session/tool/frontend policy have no permanent suite here.

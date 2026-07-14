@@ -402,6 +402,19 @@ consumer.
   synthetic embedded identity grants no capability; Nix separately checks the
   clean raw launcher and its file-backed application path.
 
+  **Integrated slice:** `5d5a734`, `a5eb81e`, and `767e2a2` add the focused
+  versioned roots/terminal/models/effects surface, generic manifest selection,
+  raw no-package guidance, separate `pi-core`/`pi-rs` outputs, and file-backed
+  end-to-end/source-neutral evidence. `521daf8` removes the inherited broad
+  compatibility surface, Rust agent product, stale extension packs, and
+  redundant policy tests while retaining compact kernel/effect/display/model
+  invariants. Focused/workspace tests, `nix flake check`, and both Nix package
+  builds pass. The worker's release run passed all budgets, but three integrated
+  reruns under load averages 10–27 did not: the latest measured input p50/p95
+  20.549/31.820 µs and Lua action-batch p95 64.470 µs. No implementation defect
+  is identified; rerun the integrated release harness under quiescent load before
+  closing this gate.
+
 - [ ] **3.2 — Prove a file-backed coding walking skeleton** (**serial**; depends
   on 3.1).
 
