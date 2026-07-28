@@ -35,6 +35,29 @@ with no package/manifest prints guidance and exits successfully.
   (`is_cancelled()`, `wait()`).
 - `module` → exact-version `define`, `require`, and `list` mechanism shared with
   `pi.kernel.v1.module`.
+- `dispatch(kind, event[, context])` → runs another root from inside an active
+  dispatch and returns its settled batch as ordinary data. The nested root gets
+  its own transaction; nothing publishes implicitly, so the caller republishes
+  chosen actions through `action`. Nesting shares the caller's watchdog budget,
+  is depth-capped at 8, and rejects recursion into a kind already on the stack.
+- `middleware.register(definition)` → registers one bounded stage around a root
+  kind. `kind` and `handler(snapshot)` are required; `id` must be a non-empty
+  string, `phase` is `"event"` (default) or `"render"`, and `order` (default
+  `0`) breaks ties before registration sequence.
+
+  An `event` stage runs before the resolved root and receives
+  `{version, root, phase, event, context, actions}`. It may return a
+  replacement `event`, a replacement `actions` array, and `stop = true` to skip
+  the remaining stages and the root; the queued actions then become the batch.
+  A `render` stage runs after the root settles, receives
+  `{version, root, phase, event, actions}`, and may return a replacement
+  `actions` array; an explicit empty array suppresses the batch, and a failing
+  transform rolls the whole dispatch back so nothing publishes.
+
+  Stages apply to nested dispatches too. Snapshot payloads are read-only views:
+  a kept action must be returned as a plain table. Registrations are
+  scope-owned, so disposing or rolling back a package removes its stages;
+  identical `kind/phase/id` from a different source conflicts.
 
 Every dispatch receives a read-only snapshot:
 

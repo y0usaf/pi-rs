@@ -10,6 +10,7 @@ use crate::runtime_registry::REGISTRY_KEY;
 pub(crate) fn build(
     lua: &mlua::Lua,
     cwd: &str,
+    config: crate::HostConfig,
     control: std::sync::Arc<crate::kernel::Control>,
     effects: crate::effects::EffectHub,
 ) -> mlua::Result<mlua::Table> {
@@ -23,7 +24,8 @@ pub(crate) fn build(
     let pi = lua.create_table()?;
     let module_api = crate::module_api::install(lua)?;
     crate::kernel_api::install(lua, &pi, &module_api, control.clone())?;
-    roots::install(lua, &pi, control)?;
+    roots::install(lua, &pi, control, config)?;
+    crate::middleware::install(lua, &pi)?;
     terminal::install(lua, &pi)?;
     models::install(lua, &pi)?;
     effects::install(lua, &pi, cwd, effects)?;

@@ -16,6 +16,7 @@ mod exec;
 mod image;
 pub mod kernel;
 mod kernel_api;
+mod middleware;
 mod module_api;
 mod os;
 mod package;

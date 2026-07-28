@@ -66,8 +66,14 @@ fn vm_main(
                 .map(|path| path.to_string_lossy().into_owned())
                 .unwrap_or_else(|_| ".".to_owned())
         });
-        let pi = crate::bindings::build(&lua, &cwd, Arc::clone(&control), effects.clone())
-            .map_err(|error| error.to_string())?;
+        let pi = crate::bindings::build(
+            &lua,
+            &cwd,
+            config.clone(),
+            Arc::clone(&control),
+            effects.clone(),
+        )
+        .map_err(|error| error.to_string())?;
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -128,6 +134,7 @@ fn vm_main(
 fn remove_scope(lua: &mlua::Lua, scope: ScopeId) -> Result<(), HostError> {
     crate::kernel_api::remove_scope(lua, scope)
         .and_then(|()| crate::module_api::remove_scope(lua, scope))
+        .and_then(|()| crate::middleware::remove_scope(lua, scope))
         .map_err(|error| HostError::Lua(error.to_string()))
 }
 
@@ -189,13 +196,42 @@ fn dispatch_root(
     if cancellation.is_cancelled() {
         return Err(HostError::Cancelled);
     }
+    // Event middleware composes before the root handler; a stopped chain
+    // publishes the stages' queued actions as the whole batch.
+    let pipeline = runtime.block_on(crate::middleware::run_event_pipeline(
+        lua,
+        config,
+        control,
+        request.root,
+        request.event.clone(),
+        request.context.clone(),
+    ))?;
+    if pipeline.stopped {
+        let batch = DispatchBatch {
+            version: crate::kernel::KERNEL_API_VERSION,
+            generation: control.generation(),
+            scope: root.scope,
+            source: root.source,
+            actions: pipeline.actions,
+            effects: Vec::new(),
+        };
+        return runtime.block_on(crate::middleware::apply_render_pipeline(
+            lua,
+            config,
+            control,
+            request.root,
+            &request.event,
+            batch,
+        ));
+    }
+    let request = DispatchRequest::new(request.root, pipeline.event, request.context.clone());
     let generation = control.generation();
     crate::kernel_api::set_scope(lua, Some(root.scope))
         .map_err(|error| HostError::Lua(error.to_string()))?;
     crate::kernel_api::begin_transaction(lua, generation, root.scope, cancellation.clone())
         .map_err(|error| HostError::Lua(error.to_string()))?;
     crate::api::set_current_source(lua, &root.source);
-    let result = crate::kernel_api::snapshot(lua, request, generation, root.scope)
+    let result = crate::kernel_api::snapshot(lua, &request, generation, root.scope)
         .map_err(|error| HostError::Lua(error.to_string()))
         .and_then(|snapshot| {
             dispatch_function(
@@ -216,7 +252,18 @@ fn dispatch_root(
     };
     crate::api::set_current_source(lua, "<host>");
     let _ = crate::kernel_api::set_scope(lua, None);
-    batch
+    // Render middleware transforms the settled action list; a failing
+    // transform rolls back the whole dispatch so nothing publishes.
+    batch.and_then(|batch| {
+        runtime.block_on(crate::middleware::apply_render_pipeline(
+            lua,
+            config,
+            control,
+            request.root,
+            &request.event,
+            batch,
+        ))
+    })
 }
 
 /// Dispatch one root kind from inside an active dispatch.
@@ -229,19 +276,22 @@ fn dispatch_root(
 /// scope/current-source are restored afterwards.
 pub(crate) async fn dispatch_nested(
     lua: &mlua::Lua,
+
+    config: &HostConfig,
     control: &Control,
     kind: crate::kernel::RootKind,
     event: serde_json::Value,
     context: serde_json::Value,
 ) -> Result<DispatchBatch, HostError> {
     control.enter_nested_dispatch(kind)?;
-    let outcome = dispatch_nested_inner(lua, control, kind, event, context).await;
+    let outcome = dispatch_nested_inner(lua, config, control, kind, event, context).await;
     control.leave_nested_dispatch();
     outcome
 }
 
 async fn dispatch_nested_inner(
     lua: &mlua::Lua,
+    config: &HostConfig,
     control: &Control,
     kind: crate::kernel::RootKind,
     event: serde_json::Value,
@@ -253,6 +303,37 @@ async fn dispatch_nested_inner(
     if cancellation.is_cancelled() {
         return Err(HostError::Cancelled);
     }
+    // Nested dispatches compose the same middleware pipelines as top-level
+    // dispatches: the stages bound to the nested root kind apply.
+    let pipeline = crate::middleware::run_event_pipeline(
+        lua,
+        config,
+        control,
+        request.root,
+        request.event.clone(),
+        request.context.clone(),
+    )
+    .await?;
+    if pipeline.stopped {
+        let batch = DispatchBatch {
+            version: crate::kernel::KERNEL_API_VERSION,
+            generation: control.generation(),
+            scope: root.scope,
+            source: root.source,
+            actions: pipeline.actions,
+            effects: Vec::new(),
+        };
+        return crate::middleware::apply_render_pipeline(
+            lua,
+            config,
+            control,
+            request.root,
+            &request.event,
+            batch,
+        )
+        .await;
+    }
+    let request = DispatchRequest::new(kind, pipeline.event, request.context.clone());
     let generation = control.generation();
     let outer_scope = crate::api::registry_table(lua)
         .and_then(|registry| registry.get::<u64>("kernel_scope"))
@@ -301,7 +382,20 @@ async fn dispatch_nested_inner(
         Some(ScopeId::from_raw(outer_scope))
     };
     let _ = crate::kernel_api::set_scope(lua, restore);
-    batch
+    match batch {
+        Ok(batch) => {
+            crate::middleware::apply_render_pipeline(
+                lua,
+                config,
+                control,
+                request.root,
+                &request.event,
+                batch,
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    }
 }
 
 pub(crate) fn dispatch_function(
@@ -312,27 +406,7 @@ pub(crate) fn dispatch_function(
     args: impl mlua::IntoLuaMulti,
     cancellation: Option<CancellationToken>,
 ) -> Result<mlua::Value, HostError> {
-    let budget_ms = config.dispatch_timeout_ms;
-    let state = Arc::new(WatchdogState::new(budget_ms));
-    let triggers = mlua::HookTriggers::new().every_nth_instruction(NTH_INSTRUCTION);
-    let hook_state = Arc::clone(&state);
-    lua.set_global_hook(triggers, move |_lua, _debug| {
-        if cancellation
-            .as_ref()
-            .is_some_and(CancellationToken::is_cancelled)
-        {
-            return Err(mlua::Error::runtime(crate::error::CANCEL_MARKER));
-        }
-        if hook_state.exceeded() {
-            return Err(mlua::Error::runtime(format!(
-                "{} handler exceeded {budget_ms}ms of continuous Lua execution",
-                crate::error::WATCHDOG_MARKER
-            )));
-        }
-        Ok(mlua::VmState::Continue)
-    })
-    .map_err(|error| HostError::Lua(error.to_string()))?;
-
+    let (hook, state) = WatchdogHook::install(lua, config, cancellation)?;
     let result = (|| -> Result<mlua::Value, HostError> {
         let thread = lua
             .create_thread(function)
@@ -345,10 +419,80 @@ pub(crate) fn dispatch_function(
                 inner: Box::pin(future),
                 state: Arc::clone(&state),
             })
-            .map_err(|error| HostError::from_lua_message(error.to_string(), budget_ms))
+            .map_err(|error| HostError::from_lua_message(error.to_string(), hook.budget_ms))
     })();
-    lua.remove_global_hook();
+    hook.remove(lua);
     result
+}
+
+/// Async variant for execution already inside the VM runtime (middleware
+/// stages run from nested dispatch): same watchdog and cancellation, no
+/// nested `block_on`.
+pub(crate) async fn dispatch_function_async(
+    lua: &mlua::Lua,
+    config: &HostConfig,
+    function: mlua::Function,
+    args: impl mlua::IntoLuaMulti,
+    cancellation: Option<CancellationToken>,
+) -> Result<mlua::Value, HostError> {
+    let (hook, state) = WatchdogHook::install(lua, config, cancellation)?;
+    let created = (|| -> Result<_, HostError> {
+        let thread = lua
+            .create_thread(function)
+            .map_err(|error| HostError::Lua(error.to_string()))?;
+        thread
+            .into_async::<mlua::Value>(args)
+            .map_err(|error| HostError::Lua(error.to_string()))
+    })();
+    let result = match created {
+        Ok(future) => Watched {
+            inner: Box::pin(future),
+            state: Arc::clone(&state),
+        }
+        .await
+        .map_err(|error| HostError::from_lua_message(error.to_string(), hook.budget_ms)),
+        Err(error) => Err(error),
+    };
+    hook.remove(lua);
+    result
+}
+
+struct WatchdogHook {
+    budget_ms: i64,
+}
+
+impl WatchdogHook {
+    fn install(
+        lua: &mlua::Lua,
+        config: &HostConfig,
+        cancellation: Option<CancellationToken>,
+    ) -> Result<(Self, Arc<WatchdogState>), HostError> {
+        let budget_ms = config.dispatch_timeout_ms;
+        let state = Arc::new(WatchdogState::new(budget_ms));
+        let triggers = mlua::HookTriggers::new().every_nth_instruction(NTH_INSTRUCTION);
+        let hook_state = Arc::clone(&state);
+        lua.set_global_hook(triggers, move |_lua, _debug| {
+            if cancellation
+                .as_ref()
+                .is_some_and(CancellationToken::is_cancelled)
+            {
+                return Err(mlua::Error::runtime(crate::error::CANCEL_MARKER));
+            }
+            if hook_state.exceeded() {
+                return Err(mlua::Error::runtime(format!(
+                    "{} handler exceeded {budget_ms}ms of continuous Lua execution",
+                    crate::error::WATCHDOG_MARKER
+                )));
+            }
+            Ok(mlua::VmState::Continue)
+        })
+        .map_err(|error| HostError::Lua(error.to_string()))?;
+        Ok((Self { budget_ms }, state))
+    }
+
+    fn remove(self, lua: &mlua::Lua) {
+        lua.remove_global_hook();
+    }
 }
 
 struct WatchdogState {
