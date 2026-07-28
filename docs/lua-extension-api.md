@@ -30,7 +30,8 @@ and disposal path.
 
 - `root(definition)`, `declare(kind, definition)`, and `registered(kind)`;
 - `action(kind, payload)` and `effect(kind, payload)` queues;
-- exact-version `module.define`, `module.require`, and `module.list`;
+- exact-version `module.define`, `module.require`, `module.list`,
+  `module.remove`, and `module.reset`;
 - immutable `read_handle(value)`, dispatch `cancellation()`, and scoped
   `resource(disposer)`.
 
@@ -40,6 +41,32 @@ Actions/effects publish only after a successful dispatch. Snapshots contain
 `pi.roots.v1.register(definition)` accepts `kind = "application" | "agent" |
 "frontend"`; `action`, `cancellation`, and `module` are the same canonical
 kernel operations.
+
+## Module lifecycle
+
+`pi.kernel.v1.module` resolves exact `name@version` identities. `define` still
+refuses a duplicate identity, so there is one declaration path; reload is an
+explicit lifecycle operation on that declaration:
+
+- `remove(name, version)` drops the declaration and returns `true`, or `false`
+  when nothing was defined. The order index is pruned, so redefining the same
+  identity is still listed once, in its new position;
+- `reset(name, version)` drops only the cached value and returns `true` when
+  there was one, so the next `require` re-runs the same factory with the same
+  dependency aliases;
+- `list()` reports `name`, `version`, `source`, and `state` (`"defined"` or
+  `"loaded"`) in definition order.
+
+Both are scope-local: a package may reload only what it defined, and a sibling
+gets an error naming the owning source. A module whose factory is running is
+refused, because its dependents are mid-resolution. Rust invalidates nothing
+else — a dependent that already cached a value keeps it until its owner resets
+it, so reload order is Lua policy, exactly like package generation swaps.
+
+A module value is an ordinary Lua value with no cleanup hook. A module that owns
+something disposable registers it through `pi.kernel.v1.resource` and exposes
+the handle, so its owner disposes it before reloading; package disposal remains
+the other lifecycle path and removes that package's modules with its scope.
 
 ## Package composition
 

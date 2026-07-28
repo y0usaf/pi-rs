@@ -28,6 +28,8 @@ local shape = {
   effects = keys(pi.effects),
   records = keys(pi.records),
   packages = keys(pi.packages),
+  kernel_v1 = keys(pi.kernel.v1),
+  module = keys(pi.kernel.v1.module),
   effects_v1 = keys(pi.effects.v1),
   packages_v1 = keys(pi.packages.v1),
 }
@@ -115,6 +117,27 @@ fn file_and_embedded_packages_see_only_the_same_compact_surface() {
             "max_packages",
             "max_source_bytes"
         ])
+    );
+    // The kernel transaction and its exact-version module lifecycle are pinned:
+    // reload is `remove` + `define` or `reset`, never a second declaration path.
+    assert_eq!(
+        payload["shape"]["kernel_v1"],
+        serde_json::json!([
+            "action",
+            "api_version",
+            "cancellation",
+            "declare",
+            "effect",
+            "module",
+            "read_handle",
+            "registered",
+            "resource",
+            "root"
+        ])
+    );
+    assert_eq!(
+        payload["shape"]["module"],
+        serde_json::json!(["define", "list", "remove", "require", "reset"])
     );
     // The effect families are pinned too: filesystem, path arithmetic,
     // environment snapshot, processes, timers, and cancellation.
