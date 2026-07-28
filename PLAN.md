@@ -465,6 +465,7 @@ consumer.
   If the loop cannot be composed from the public snapshot/action/effect
   contracts without privileged escapes, stop: amend `DESIGN.md` and this plan
   before any Wave U work begins.
+
   **Landed slice 2 (effect/model/cancellation through the loop):** the
   walking-skeleton example extends to bounded process effect execution
   (`effects.v1.process.run` renders `echo` stdout), missing-model
@@ -477,10 +478,27 @@ consumer.
   ANSI output for each before the shutdown exit. Lua 5.4 numeric literals
   avoid `_` separators (loader rejects them).
 
-  **Remaining:** fixture provider streaming through `models.v1.stream`
-  with incremental rendered frames, root replacement (agent/frontend
-  coordination), event/render middleware composition, module version
-  conflicts, watchdog isolation, and rollback evidence on this surface.
+  **Landed slice 3 (fixture provider streaming through the loop):** the
+  walking-skeleton example streams a deterministic fixture provider through
+  the public `models.v1.stream` binding and renders every text delta as an
+  incremental retained-display frame before the final result frame. The PTY
+  acceptance test serves a canned OpenAI-completions SSE stream from an
+  ordinary local HTTP fixture on `127.0.0.1:0`; the Lua package discovers
+  the port by reading `fixture_port.txt` through the public
+  `effects.v1.fs.read` effect, builds the model/context as ordinary Lua
+  tables (`api = "openai-completions"`, `baseUrl` pointing at the fixture),
+  and streams with only an `apiKey` option — no private channel, no
+  synthetic embedded identity, no fixture protocol family in Rust. The test
+  drives key `s` and verifies the three incremental delta frames (minimal
+  cell diffs) plus the final `stream done: Hello, fixture world` frame over
+  a real pseudo-terminal, then shuts down cleanly. Focused PTY test,
+  `cargo fmt --check`, `cargo test --workspace` (59 suites, 0 failures), and
+  `nix flake check` pass.
+
+  **Remaining:** root replacement (agent/frontend coordination), event/render
+  middleware composition, module version conflicts, watchdog isolation, and
+  rollback evidence on this surface. Fixture streaming, process effects,
+  missing-model diagnosis, and cancellation are now proven.
 
   **Landed slice (loop mechanism):** the generic product loop composes the
   proven mechanisms end to end: terminal bytes → bounded input batches → root
@@ -498,12 +516,12 @@ consumer.
   exit. Existing one-shot JSON mode is preserved for non-TTY use and startup-
   shutdown batches.
 
-  **Remainder:** the walking skeleton does not yet include a fixture provider
-  stream with incremental rendered frames, root replacement (agent/frontend
-  coordination), middleware composition, module version conflicts, watchdog
-  isolation, or rollback evidence. The example is a single flat application
-  root, not yet coordinated agent+frontend roots. Process effect execution,
-  missing-model diagnosis, and cancellation landed in slice 2 above.
+  **Remainder:** the walking skeleton does not yet include root replacement
+  (agent/frontend coordination), middleware composition, module version
+  conflicts, watchdog isolation, or rollback evidence. The example is a
+  single flat application root, not yet coordinated agent+frontend roots.
+  Process effect execution, missing-model diagnosis, and cancellation landed
+  in slice 2 above; fixture provider streaming landed in slice 3 above.
 
 After 3.2, `/orchestrate` may run **Wave U**. Workers own disjoint package trees;
 none may edit the default manifest, root binding indexes, or `flake.nix`.

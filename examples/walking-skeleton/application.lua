@@ -4,7 +4,8 @@
 -- renders an input-ready frame, typed input echoes through a retained
 -- display, and a shutdown action exits cleanly. It also proves the public
 -- effect and model bindings: process execution, missing-model diagnosis,
--- and cancellation through the versioned effect surface.
+-- cancellation through the versioned effect surface, and deterministic
+-- fixture-provider streaming with incremental rendered frames.
 
 local pi = ...
 local roots = pi.roots.v1
@@ -88,6 +89,60 @@ local function run_cancellation_demo()
   end
 end
 
+
+-- Stream a deterministic fixture provider and render each text delta as
+-- an incremental frame. The fixture endpoint is an ordinary local HTTP
+-- server written by the PTY harness; the port arrives through the public
+-- filesystem effect, so no private channel exists between test and Lua.
+local function run_stream_demo()
+  render_frame("[streaming fixture provider]", false)
+  local port_text = effects.fs.read("fixture_port.txt")
+  local port = port_text:match("(%d+)")
+  if not port then
+    render_frame("stream: no fixture port", true)
+    return
+  end
+
+  local model = {
+    id = "fixture-model",
+    name = "Fixture Model",
+    api = "openai-completions",
+    provider = "fixture",
+    baseUrl = "http://127.0.0.1:" .. port,
+    reasoning = false,
+    input = { "text" },
+    cost = { input = 0, output = 0, cacheRead = 0, cacheWrite = 0 },
+    contextWindow = 4096,
+    maxTokens = 64,
+  }
+  local context = {
+    messages = {
+      { role = "user", content = "hello", timestamp = 0 },
+    },
+  }
+
+  local accumulated = ""
+  local ok, result_or_err = pcall(function()
+    return models.stream(model, context, { apiKey = "fixture-key" }, function(event)
+      if event.type == "text_delta" and event.delta then
+        accumulated = accumulated .. event.delta
+        render_frame("stream> " .. accumulated, false)
+      end
+    end)
+  end)
+
+  if not ok then
+    render_frame("stream: error " .. tostring(result_or_err), true)
+    return
+  end
+  local message = result_or_err
+  if message and message.stopReason == "stop" and #accumulated > 0 then
+    render_frame("stream done: " .. accumulated, true)
+  else
+    local reason = message and tostring(message.stopReason) or "nil"
+    render_frame("stream: unexpected stop " .. reason, true)
+  end
+end
 roots.register({
   kind = "application",
   id = "walking-skeleton",
@@ -115,6 +170,8 @@ roots.register({
             run_missing_model_demo()
           elseif ch == "t" then
             run_cancellation_demo()
+          elseif ch == "s" then
+            run_stream_demo()
           else
             -- Echo any other input back through the display.
             render_frame(ch, true)
