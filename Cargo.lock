@@ -1014,6 +1014,8 @@ dependencies = [
  "libc",
  "pi-rs-ai",
  "pi-rs-ai-auth",
+ "pi-rs-ai-types",
+ "pi-rs-builtins",
  "pi-rs-host",
  "pi-rs-tui",
  "serde",

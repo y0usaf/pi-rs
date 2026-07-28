@@ -79,8 +79,8 @@
             ;
         };
 
-      # Raw zero-policy `pi` binary (crates/pi-rs-app). The default
-      # distribution is the same artifact until its manifest lands in 3.6.
+      # Raw zero-policy `pi` binary (crates/pi-rs-app): the explicit
+      # zero-builtin target, and the artifact the default distribution wraps.
       mkPiCore =
         system:
         let
@@ -99,7 +99,107 @@
           meta.mainProgram = "pi";
         };
 
-      mkPiRs = system: mkPiCore system;
+      # The shipped Lua distribution: the package trees plus the one
+      # declarative manifest that selects them, copied verbatim. Nothing is
+      # embedded in the binary and nothing is concatenated: the installed
+      # files are the same ordinary packages the repository tests load.
+      mkPiPackages =
+        system:
+        let
+          pkgs = mkPkgs system;
+        in
+        pkgs.runCommand "pi-rs-packages" { } ''
+          mkdir -p $out
+          cp ${./crates/pi-rs-builtins/default.json} $out/default.json
+          cp -r ${./crates/pi-rs-builtins/agent} $out/agent
+          cp -r ${./crates/pi-rs-builtins/tools} $out/tools
+          cp -r ${./crates/pi-rs-builtins/frontend} $out/frontend
+          cp -r ${./crates/pi-rs-builtins/defaults} $out/defaults
+        '';
+
+      # The default distribution: the raw launcher plus the shipped manifest.
+      # `--set-default` keeps the selection replaceable: an explicit
+      # `PI_PACKAGE_MANIFEST`, `--manifest`, or `--package` still wins.
+      mkPiRs =
+        system:
+        let
+          pkgs = mkPkgs system;
+          piCore = mkPiCore system;
+          piPackages = mkPiPackages system;
+        in
+        pkgs.runCommand "pi-rs"
+          {
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+            meta.mainProgram = "pi";
+          }
+          ''
+            mkdir -p $out/bin $out/share/pi
+            cp -r ${piPackages} $out/share/pi/packages
+            makeWrapper ${piCore}/bin/pi $out/bin/pi \
+              --set-default PI_PACKAGE_MANIFEST $out/share/pi/packages/default.json
+          '';
+
+      # Installed default distribution: `nix run` reaches an input-ready
+      # coding UI with no configuration. stdin is not a terminal in the
+      # sandbox, so the launcher serializes the startup batch — the same batch
+      # an interactive session presents as its first frame.
+      mkDefaultDistributionCheck =
+        system:
+        let
+          pkgs = mkPkgs system;
+          pi = mkPiRs system;
+        in
+        pkgs.runCommand "pi-default-distribution"
+          {
+            nativeBuildInputs = [
+              pi
+              pkgs.jq
+            ];
+          }
+          ''
+            export HOME=$TMPDIR
+            cd $TMPDIR
+
+            pi --help > help.txt
+            grep -q 'generic Lua application launcher' help.txt
+
+            pi > startup.json 2> error.txt
+            test ! -s error.txt
+
+            # Only mechanism actions cross into Rust, and startup does not end
+            # the session: the UI is waiting for input.
+            jq -e '
+              .version == 1 and
+              ((.actions | map(.kind) | unique) == ["ansi"]) and
+              (.source | endswith("/frontend/application.lua"))
+            ' startup.json >/dev/null
+
+            jq -r '[.actions[] | select(.kind == "ansi") | .payload.data] | join("")' \
+              startup.json > frame.txt
+            grep -q 'pi · ' frame.txt
+            grep -q 'claude-sonnet-4-5' frame.txt
+            grep -q 'enter send' frame.txt
+            grep -q 'ctrl+d exit' frame.txt
+
+            # The shipped manifest is a default, not a lock: an explicit
+            # package still registers the active application root.
+            cat > replacement.lua <<'LUA'
+            local roots = (...).roots.v1
+            roots.register({
+              kind = "application",
+              id = "distribution-override",
+              priority = 10,
+              dispatch = function()
+                roots.action("overridden", {})
+                roots.action("shutdown", { reason = "complete" })
+              end,
+            })
+            LUA
+            pi --package replacement.lua > override.json
+            jq -e '.actions[0].kind == "overridden"' override.json >/dev/null
+
+            touch $out
+          '';
 
       # Raw-core ablation: intentional absence is useful guidance, not a
       # failed product launch.
@@ -278,6 +378,7 @@
       checks = forAllSystems (system: {
         workspace-test = mkTest system;
         workspace-clippy = mkClippy system;
+        default-distribution = mkDefaultDistributionCheck system;
         core-no-package = mkCoreNoPackageCheck system;
         core-file-application = mkCoreFileApplicationCheck system;
         model-catalog-update = mkModelCatalogUpdateTest system;
