@@ -4,7 +4,7 @@ The inherited Pi-compatibility extension API is not part of pi-rs. Ordinary Lua
 packages receive one compact, versioned mechanism table; embedded provenance
 adds no members or privileges.
 
-The complete top-level surface after PLAN 4.1's record slice is:
+The complete top-level surface after PLAN 4.1's package-composition slice is:
 
 - `pi.kernel.v1`: package transaction primitives;
 - `pi.roots.v1`: application/agent/frontend root facade;
@@ -12,7 +12,8 @@ The complete top-level surface after PLAN 4.1's record slice is:
 - `pi.models.v1`: catalog lookup + bounded provider event streaming;
 - `pi.effects.v1`: bounded filesystem/path/environment, process, timer, and
   cancellation effects;
-- `pi.records.v1`: durable append-only record stores at Lua-chosen destinations.
+- `pi.records.v1`: durable append-only record stores at Lua-chosen destinations;
+- `pi.packages.v1`: bounded package composition, listing, and disposal.
 
 No top-level event bus, command/tool registry, runtime/session/config/settings,
 trust/auth UI, `pi.ai`, `pi.tui`, `pi.fs`, `pi.exec`, or `pi.http` compatibility
@@ -39,6 +40,32 @@ Actions/effects publish only after a successful dispatch. Snapshots contain
 `pi.roots.v1.register(definition)` accepts `kind = "application" | "agent" |
 "frontend"`; `action`, `cancellation`, and `module` are the same canonical
 kernel operations.
+
+## Package composition
+
+`pi.packages.v1` lets one package compose others. Rust chooses no location,
+order, name, or reload policy: the caller passes an explicit request, so
+discovery, precedence, and swap order stay in Lua.
+
+- `load{path=...}` or `load{name=..., source=...}` resolves bytes through the
+  same provenance path as the host package API and returns a handle with
+  `source()`, `scope()`, `dispose()`, and `disposed()`;
+- `list()` returns the still-loaded packages in load order (`source`, `scope`,
+  `owner`);
+- `api_version`, `max_depth` (4 nested loads), `max_packages` (64 at once), and
+  `max_source_bytes` (4 MiB) describe the bounds.
+
+A loaded package is one disposable resource of its loader, registered through
+the same path as `pi.kernel.v1.resource`: disposing the composing package
+disposes everything it composed, transitively, and runs each composed package's
+own disposers. A package may not dispose the package currently running or one
+whose load has not finished, and the same source cannot be loaded twice at once.
+
+A nested load inherits the caller's watchdog budget, so composition stays inside
+the one bounded dispatch. The caller's publication queue is stacked for the
+duration: a loaded chunk cannot append to the loading dispatch's batch. Atomic
+replacement is Lua policy — load the new generation, then dispose the old — so a
+failed load leaves the previous generation selected.
 
 ## Terminal
 
