@@ -623,7 +623,7 @@ none may edit the default manifest, root binding indexes, or `flake.nix`.
   `package_root()` plus this package tree; the distribution manifest, package
   indexes, and embedding remain 3.6's.
 
-- [ ] **3.4 — Minimal application/frontend package** (**Wave U**, path owner:
+- [x] **3.4 — Minimal application/frontend package** (**Wave U**, path owner:
   `crates/pi-rs-builtins/frontend/**`; depends on 3.2).
 
   Implement the Lua application/frontend roots, retained component tree, basic
@@ -635,6 +635,40 @@ none may edit the default manifest, root binding indexes, or `flake.nix`.
   **Accept:** fixture journeys reach an input-ready frame, submit a prompt, show
   incremental assistant/tool output, cancel, and exit; file-backed roots can
   replace the application or frontend and wrap the render middleware.
+
+  **Landed:** `crates/pi-rs-builtins/frontend/{keys,editor,transcript,chrome,
+  view,init,application}.lua` is an ordinary file-backed package graph over the
+  public spine only (`pi.roots.v1`, `pi.terminal.v1`, `pi.kernel.v1.module`)
+  with no persistence dependency. `init.lua` registers the frontend root
+  `pi.builtins.frontend` (sole owner of the retained display and bounded input
+  buffer) and `application.lua` registers the coordinator root
+  `pi.builtins.application`, which republishes only `ansi`/`shutdown` to Rust
+  and keeps every product action inside the Lua roots. Editor, transcript, and
+  chrome stay separate modules; `pi.frontend.view@1` builds one display batch
+  with stable node identities (header/transcript/guidance/editor/footer), so an
+  unchanged region is retained and only changed cells paint. Key routing goes
+  through the focused component, resize repaints via `reset_presentation`, and
+  each transcript change renders, so assistant text and tool rows appear
+  incrementally. `crates/pi-rs-builtins/tests/frontend_package.rs` drives 12
+  deterministic journeys through the application root with a registered fixture
+  api — input-ready startup frame, typed prompt with ≥4 incremental frames,
+  tool start/result rows, interrupt then cancelled turn, ctrl+d shutdown,
+  resize repaint at a new size, missing-model guidance, rejected-credential
+  guidance with bounded retry, multiline editing (alt+enter, backspace),
+  file-backed frontend replacement, file-backed application replacement driving
+  the shipped frontend, and file-backed render middleware wrapping the shipped
+  frame. `docs/lua-frontend-package.md` records the module, event, action, and
+  intent vocabulary. `cargo fmt --check`, `cargo test --workspace` (64 suites,
+  0 failures), and `nix flake check` (workspace tests, clippy, raw no-package
+  guidance, file-backed application, model-catalog update) pass.
+
+  **Decisions for later items:** (a) terminal size is not a public mechanism
+  yet, so the frontend starts at 80×24 and adopts real dimensions from a
+  `resize` event; the launcher gains that event when the size/resize mechanism
+  lands. (b) Transcript rows are clipped, not wrapped, and there is no
+  scrollback command surface — richer presentation is 5.1–5.3. (c) The
+  application root reads its model from a `configure`/`startup` event payload;
+  configuration files and provider selection UX remain 4.2/6.4.
 
 - [ ] **3.5 — Minimal core-tool package** (**Wave U**, path owner:
   `crates/pi-rs-builtins/tools/**`; depends on 3.2).
