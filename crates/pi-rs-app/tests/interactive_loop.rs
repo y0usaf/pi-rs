@@ -3,7 +3,8 @@
 //! PTY-driven acceptance test for the interactive product loop.
 //!
 //! Spawns `pi` behind a real pseudo-terminal, types input, and verifies the
-//! loop renders ANSI frames and exits on a shutdown action.
+//! loop renders ANSI frames, executes bounded effects, diagnoses a missing
+//! model, cancels in-flight work, and exits on a shutdown action.
 
 use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
@@ -127,6 +128,33 @@ fn pty_loop_renders_input_frames_and_exits_on_shutdown() {
     assert!(
         !echo_output.is_empty(),
         "typed input should produce ANSI output"
+    );
+
+    // Type 'r' — the skeleton should run a bounded process effect and
+    // render its stdout through the retained display.
+    pty.master.write_all(b"r").unwrap();
+    let effect_output = read_available(&mut pty.master, Duration::from_secs(5));
+    assert!(
+        !effect_output.is_empty(),
+        "effect key should produce ANSI output"
+    );
+
+    // Type 'm' — the skeleton should diagnose a missing model without a
+    // private API.
+    pty.master.write_all(b"m").unwrap();
+    let model_output = read_available(&mut pty.master, Duration::from_secs(5));
+    assert!(
+        !model_output.is_empty(),
+        "missing-model key should produce ANSI output"
+    );
+
+    // Type 't' — the skeleton should cancel an in-flight timer effect and
+    // return to an input-ready frame.
+    pty.master.write_all(b"t").unwrap();
+    let timer_output = read_available(&mut pty.master, Duration::from_secs(5));
+    assert!(
+        !timer_output.is_empty(),
+        "cancellation key should produce ANSI output"
     );
 
     // Type 'q' — the skeleton should shut down.
