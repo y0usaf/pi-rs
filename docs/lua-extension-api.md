@@ -10,7 +10,8 @@ The complete top-level surface after PLAN 4.1's record slice is:
 - `pi.roots.v1`: application/agent/frontend root facade;
 - `pi.terminal.v1`: batched terminal input + retained display submission;
 - `pi.models.v1`: catalog lookup + bounded provider event streaming;
-- `pi.effects.v1`: bounded filesystem, process, timer, and cancellation effects;
+- `pi.effects.v1`: bounded filesystem/path/environment, process, timer, and
+  cancellation effects;
 - `pi.records.v1`: durable append-only record stores at Lua-chosen destinations.
 
 No top-level event bus, command/tool registry, runtime/session/config/settings,
@@ -56,7 +57,24 @@ returns the final message. `options.max_events` defaults to 256 and is limited t
 ## Effects
 
 `pi.effects.v1.fs.read(path[, max_bytes])` and `write(path, contents)` are capped
-at 8 MiB. `process.run(program[, args][, options])` caps timeout at five minutes
+at 8 MiB. `exists(path)`, `stat(path)` (`type`, `size`, `modified_ms`),
+`list(path[, max_entries])`, `make_directory(path)` (recursive), and
+`remove_file(path)` cover path metadata; listings default to 1024 entries and
+are limited to `1..=16384` (`default_max_entries`, `max_entries`). `stat` on a
+missing path raises; `exists` does not.
+
+`pi.effects.v1.path` is pure POSIX path arithmetic — `join`, `normalize`,
+`dirname`, `basename`, `extname`, `is_absolute`, `resolve`, `relative`, and
+`separator`. It computes locations; it never chooses one.
+
+`pi.effects.v1.env` is an immutable snapshot of the process environment taken
+when the host starts: `get(name)` returns one value or `nil`, and `names()`
+returns the sorted variable names. Values never cross in bulk, the snapshot
+cannot be written, and no variable has a meaning in Rust — XDG/legacy
+precedence, credential variables, and defaults are Lua policy. Embedders may
+supply an explicit environment through `HostConfig::environment`.
+
+`process.run(program[, args][, options])` caps timeout at five minutes
 and output at 8 MiB. `timer.sleep(milliseconds[, signal])` is scope-owned.
 `cancellation.new()` returns a signal with `abort`, `is_aborted`, and `wait`.
 All queued work is cancelled and settled before package disposal completes.

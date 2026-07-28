@@ -27,6 +27,7 @@ local shape = {
   models = keys(pi.models),
   effects = keys(pi.effects),
   records = keys(pi.records),
+  effects_v1 = keys(pi.effects.v1),
 }
 
 roots.register({
@@ -101,6 +102,20 @@ fn file_and_embedded_packages_see_only_the_same_compact_surface() {
     ] {
         assert_eq!(payload["shape"][member], serde_json::json!(["v1"]));
     }
+    // The effect families are pinned too: filesystem, path arithmetic,
+    // environment snapshot, processes, timers, and cancellation.
+    assert_eq!(
+        payload["shape"]["effects_v1"],
+        serde_json::json!([
+            "api_version",
+            "cancellation",
+            "env",
+            "fs",
+            "path",
+            "process",
+            "timer"
+        ])
+    );
     assert_eq!(
         payload["input"],
         serde_json::json!({"text":"same input", "events":10})
