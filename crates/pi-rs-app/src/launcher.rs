@@ -5,6 +5,7 @@
 //! immutable startup snapshot to the active `application` root.
 
 use std::ffi::OsString;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 use pi_rs_host::kernel::{DispatchBatch, DispatchRequest, RootKind};
@@ -306,7 +307,13 @@ fn package_selection(
     Ok(PackageSelection { manifest, packages })
 }
 
-fn dispatch(options: &Options, manifest: Option<&Path>) -> Result<DispatchBatch, LauncherError> {
+struct Session {
+    host: Host,
+    context: serde_json::Value,
+    startup_batch: DispatchBatch,
+}
+
+fn create_session(options: &Options, manifest: Option<&Path>) -> Result<Session, LauncherError> {
     let startup = StartupContext::discover()?;
     let root = canonical_root(options.package_root.as_deref())?;
     let selection = package_selection(&root, manifest, &options.packages)?;
@@ -345,8 +352,22 @@ fn dispatch(options: &Options, manifest: Option<&Path>) -> Result<DispatchBatch,
             .collect::<Vec<_>>(),
         "storage": startup,
     });
-    host.dispatch(DispatchRequest::new(RootKind::Application, event, context))
-        .map_err(LauncherError::Dispatch)
+    let startup_batch = host
+        .dispatch(DispatchRequest::new(
+            RootKind::Application,
+            event,
+            context.clone(),
+        ))
+        .map_err(LauncherError::Dispatch)?;
+    Ok(Session {
+        host,
+        context,
+        startup_batch,
+    })
+}
+
+fn has_shutdown(batch: &DispatchBatch) -> bool {
+    batch.actions.iter().any(|action| action.kind == "shutdown")
 }
 
 #[must_use]
@@ -362,16 +383,43 @@ pub fn run(options: &Options, output: &mut dyn std::io::Write) -> Result<(), Lau
             .write_all(no_selection_text().as_bytes())
             .map_err(LauncherError::Output);
     }
-    let batch = dispatch(options, manifest.as_deref())?;
-    let document = ResultDocument {
-        version: batch.version,
-        generation: batch.generation.get(),
-        source: &batch.source,
-        actions: &batch.actions,
-        effects: &batch.effects,
-    };
-    serde_json::to_writer(&mut *output, &document).map_err(LauncherError::Encode)?;
-    output.write_all(b"\n").map_err(LauncherError::Output)
+    let session = create_session(options, manifest.as_deref())?;
+    let batch = &session.startup_batch;
+
+    // When the startup batch settles with a shutdown action, serialize the
+    // batch as the one-shot result and exit. This is the non-interactive
+    // path used by tests and scripting.
+    if has_shutdown(batch) {
+        let document = ResultDocument {
+            version: batch.version,
+            generation: batch.generation.get(),
+            source: &batch.source,
+            actions: &batch.actions,
+            effects: &batch.effects,
+        };
+        serde_json::to_writer(&mut *output, &document).map_err(LauncherError::Encode)?;
+        return output.write_all(b"\n").map_err(LauncherError::Output);
+    }
+
+    // No shutdown: serialize the batch when stdin is not a terminal (pipe,
+    // test harness, or scripting context). When stdin is a TTY, enter the
+    // interactive product loop instead.
+    if !std::io::stdin().is_terminal() {
+        let document = ResultDocument {
+            version: batch.version,
+            generation: batch.generation.get(),
+            source: &batch.source,
+            actions: &batch.actions,
+            effects: &batch.effects,
+        };
+        serde_json::to_writer(&mut *output, &document).map_err(LauncherError::Encode)?;
+        return output.write_all(b"\n").map_err(LauncherError::Output);
+    }
+
+    // Interactive: present startup ANSI, then cycle stdin → dispatch →
+    // settle until a shutdown action or stdin EOF.
+    crate::interactive::settle_batch(batch, output)?;
+    crate::interactive::run_loop(&session.host, &session.context, output)
 }
 
 pub fn write_help(output: &mut dyn std::io::Write) -> Result<(), LauncherError> {

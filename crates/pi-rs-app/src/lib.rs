@@ -2,5 +2,6 @@
 //!
 //! Product policy is not embedded, linked, discovered, or selected here.
 
+pub mod interactive;
 pub mod launcher;
 pub mod startup;

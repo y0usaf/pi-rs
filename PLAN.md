@@ -465,6 +465,27 @@ consumer.
   If the loop cannot be composed from the public snapshot/action/effect
   contracts without privileged escapes, stop: amend `DESIGN.md` and this plan
   before any Wave U work begins.
+  **Landed slice (loop mechanism):** the generic product loop composes the
+  proven mechanisms end to end: terminal bytes → bounded input batches → root
+  dispatch → action settlement → ANSI frames → shutdown, repeated until a
+  shutdown action or stdin EOF. `crates/pi-rs-app/src/interactive.rs` owns the
+  loop; `launcher.rs` splits one-shot (non-TTY or startup shutdown) from
+  interactive (TTY, no startup shutdown) paths. The loop interprets two
+  mechanism action kinds (`ansi` → present, `shutdown` → exit); all other
+  action kinds remain Lua policy. `examples/walking-skeleton/application.lua`
+  proves the loop from an ordinary file-backed package: startup renders an
+  input-ready frame, typed input echoes through the retained display, and 'q'
+  emits shutdown. The PTY acceptance test
+  (`crates/pi-rs-app/tests/interactive_loop.rs`) spawns `pi` behind a real
+  pseudo-terminal, verifies the startup frame, typed echo, and clean shutdown
+  exit. Existing one-shot JSON mode is preserved for non-TTY use and startup-
+  shutdown batches.
+
+  **Remainder:** the walking skeleton does not yet include a fixture provider
+  stream, a representative tool effect (filesystem/process), cancellation of
+  in-flight work, missing-model/auth diagnostics, root replacement, or
+  middleware composition. The example is a single flat application root, not
+  yet coordinated agent+frontend roots.
 
 After 3.2, `/orchestrate` may run **Wave U**. Workers own disjoint package trees;
 none may edit the default manifest, root binding indexes, or `flake.nix`.
