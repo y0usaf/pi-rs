@@ -2,6 +2,7 @@
 
 mod effects;
 mod models;
+mod records;
 mod roots;
 mod terminal;
 
@@ -24,6 +25,7 @@ pub(crate) fn build(
     let pi = lua.create_table()?;
     let module_api = crate::module_api::install(lua)?;
     crate::kernel_api::install(lua, &pi, &module_api, control.clone())?;
+    records::install(lua, &pi, control.clone())?;
     roots::install(lua, &pi, control, config)?;
     crate::middleware::install(lua, &pi)?;
     terminal::install(lua, &pi)?;

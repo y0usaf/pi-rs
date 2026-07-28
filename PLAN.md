@@ -808,6 +808,41 @@ package paths, but shared binding indexes/default manifests remain serial.
   arbitrary record persistence; every dispatch is bounded; generated concise API
   docs cover the actual demonstrated surface; embedded sources have no extra API.
 
+  **Landed slice (records):** `pi.records.v1` is the sixth public module and the
+  first consumer-demonstrated 4.1 addition, closing the "arbitrary record
+  persistence" criterion. `crates/pi-rs-host/src/bindings/records.rs` exposes the
+  2.3 record store as `create`/`open`/`list` plus store
+  (`path`, `record_count`, `append`, `cursor`, `copy`, `close`, `closed`) and
+  cursor (`next_sequence`, `next`) operations, all snake_case and versioned;
+  destinations, names, limits, and schema stay entirely in Lua, so no resource
+  path or session meaning entered Rust. Bounds: windows are capped by
+  `default_limits` (1 MiB record, 256 records, 4 MiB per window), oversize
+  records are rejected, and listings report locked/corrupt files as explicit
+  diagnostics. `crates/pi-rs-host/src/kernel_api.rs` extracts
+  `register_scoped_resource` so host mechanisms use the same registration and
+  disposal path as `pi.kernel.v1.resource`: every open store is a scope resource
+  whose disposer closes the file lock at package disposal instead of at Lua GC.
+  Records observe the innermost dispatch cancellation (`current_cancellation`) or
+  an explicit kernel token; operations are synchronous, so a cancelled token
+  fails the call before blocking work. Evidence:
+  `crates/pi-rs-host/tests/records_store.rs` (2 tests) drives the whole journey
+  from an ordinary file-backed package — persist three arbitrary-schema records
+  at a destination read from `snapshot.context`, atomic prefix copy, bounded
+  cursor window, listing diagnostics for locked stores, limit and closed-store
+  rejection, on-disk format bytes, an untouched read-only legacy resource, and
+  scope-resource accounting where a second host may take the lock only after
+  `dispose_package`. `crates/pi-rs-host/tests/public_surface.rs` now pins the
+  six-module shape and keeps embedded/file provenance identical.
+  `docs/lua-extension-api.md` documents the module. `cargo fmt --all -- --check`,
+  `cargo test --workspace`, and `nix flake check` pass.
+
+  **Remaining for 4.1:** package/module composition and lifecycle/reload members,
+  richer display structures beyond the retained tree, provider declarations and
+  auth operations (`pi.models.v1` still only finds and streams), the environment
+  mechanism deferred by 3.6 decision (b) if 4.2 needs it, and the generated
+  concise API doc covering the demonstrated surface. Each still needs its own
+  file-backed consumer before it is added.
+
 After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
 
 - [ ] **4.2 — Config/resource package** (**Wave P1**, path owner:

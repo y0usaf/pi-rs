@@ -20,7 +20,7 @@ const CURRENT_SCOPE_KEY: &str = "kernel_scope";
 const DECLARATION_SEQUENCE_KEY: &str = "kernel_declaration_sequence";
 
 #[derive(Clone)]
-struct LuaCancellation(CancellationToken);
+pub(crate) struct LuaCancellation(pub(crate) CancellationToken);
 
 impl UserData for LuaCancellation {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
@@ -166,31 +166,7 @@ pub(crate) fn install(
     version.set(
         "resource",
         lua.create_function(move |lua, callback: Function| {
-            let registry = crate::api::registry_table(lua)?;
-            let scope = current_scope(lua).map_err(|_| {
-                mlua::Error::runtime("resource registration requires a package or dispatch scope")
-            })?;
-            let id = resource_control
-                .register_resource(scope)
-                .map_err(mlua::Error::external)?;
-            let resources: Table = registry.get(RESOURCES_KEY)?;
-            let scope_key = scope.get();
-            let list = resources
-                .get::<Option<Table>>(scope_key)?
-                .unwrap_or(lua.create_table()?);
-            let entry = lua.create_table()?;
-            entry.set("id", id.get())?;
-            entry.set("source", crate::api::current_source(lua))?;
-            entry.set("callback", callback)?;
-            entry.set("active", true)?;
-            list.push(entry.clone())?;
-            resources.set(scope_key, list)?;
-            lua.create_userdata(LuaResource {
-                scope,
-                id,
-                entry,
-                control: Arc::clone(&resource_control),
-            })
+            register_scoped_resource(lua, &resource_control, callback)
         })?,
     )?;
 
@@ -411,6 +387,54 @@ fn current_scope(lua: &mlua::Lua) -> mlua::Result<ScopeId> {
 
 pub(crate) fn scope_for_current_entry(lua: &mlua::Lua) -> mlua::Result<ScopeId> {
     current_scope(lua)
+}
+
+/// Register one disposable resource on the current package or dispatch scope.
+/// Host mechanisms use the same registration and disposal path as
+/// `pi.kernel.v1.resource`, so scope disposal runs their cleanup callback.
+pub(crate) fn register_scoped_resource(
+    lua: &mlua::Lua,
+    control: &Arc<Control>,
+    callback: Function,
+) -> mlua::Result<AnyUserData> {
+    let registry = crate::api::registry_table(lua)?;
+    let scope = current_scope(lua).map_err(|_| {
+        mlua::Error::runtime("resource registration requires a package or dispatch scope")
+    })?;
+    let id = control
+        .register_resource(scope)
+        .map_err(mlua::Error::external)?;
+    let resources: Table = registry.get(RESOURCES_KEY)?;
+    let scope_key = scope.get();
+    let list = resources
+        .get::<Option<Table>>(scope_key)?
+        .unwrap_or(lua.create_table()?);
+    let entry = lua.create_table()?;
+    entry.set("id", id.get())?;
+    entry.set("source", crate::api::current_source(lua))?;
+    entry.set("callback", callback)?;
+    entry.set("active", true)?;
+    list.push(entry.clone())?;
+    resources.set(scope_key, list)?;
+    lua.create_userdata(LuaResource {
+        scope,
+        id,
+        entry,
+        control: Arc::clone(control),
+    })
+}
+
+/// Cancellation token of the innermost active dispatch, when one is running.
+/// Package load runs outside a transaction and observes `None`.
+pub(crate) fn current_cancellation(lua: &mlua::Lua) -> mlua::Result<Option<CancellationToken>> {
+    let Some(transaction) =
+        crate::api::registry_table(lua)?.get::<Option<Table>>(TRANSACTION_KEY)?
+    else {
+        return Ok(None);
+    };
+    let cancellation: AnyUserData = transaction.get("cancellation")?;
+    let token = cancellation.borrow::<LuaCancellation>()?.0.clone();
+    Ok(Some(token))
 }
 
 fn copy_table(lua: &mlua::Lua, source: &Table) -> mlua::Result<Table> {

@@ -26,6 +26,7 @@ local shape = {
   terminal = keys(pi.terminal),
   models = keys(pi.models),
   effects = keys(pi.effects),
+  records = keys(pi.records),
 }
 
 roots.register({
@@ -91,9 +92,13 @@ fn file_and_embedded_packages_see_only_the_same_compact_surface() {
     let payload = &embedded.actions[0].payload;
     assert_eq!(
         payload["shape"]["top"],
-        serde_json::json!(["effects", "kernel", "models", "roots", "terminal"])
+        serde_json::json!([
+            "effects", "kernel", "models", "records", "roots", "terminal"
+        ])
     );
-    for member in ["kernel", "roots", "terminal", "models", "effects"] {
+    for member in [
+        "kernel", "roots", "terminal", "models", "effects", "records",
+    ] {
         assert_eq!(payload["shape"][member], serde_json::json!(["v1"]));
     }
     assert_eq!(
