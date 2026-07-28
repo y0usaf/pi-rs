@@ -13,3 +13,12 @@ use std::path::{Path, PathBuf};
 pub fn package_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
 }
+
+/// The shipped distribution manifest: one declarative index selecting every
+/// shipped package file in load order. It is an ordinary versioned launcher
+/// manifest — the same one a user may copy, edit, or replace — and its paths
+/// resolve relative to its own directory.
+#[must_use]
+pub fn manifest_path() -> PathBuf {
+    package_root().join("default.json")
+}

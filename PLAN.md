@@ -721,7 +721,7 @@ none may edit the default manifest, root binding indexes, or `flake.nix`.
   boundaries; a silent command is bounded only by its timeout until an async
   effect handle exists (same limit as 3.3's parallel settlement).
 
-- [ ] **3.6 — Assemble defaults and restore `nix run`** (**serial after Wave U**).
+- [x] **3.6 — Assemble defaults and restore `nix run`** (**serial after Wave U**).
 
   Add the dedicated builtins layer and one declarative distribution manifest for
   the agent, frontend/application, and tool packages. Integrate package indexes
@@ -739,6 +739,53 @@ none may edit the default manifest, root binding indexes, or `flake.nix`.
   source copied to disk behaves identically; `nix run .#pi-core` remains clean and
   its explicit file-backed journey passes. From this commit onward, default
   usability is a required check, not deferred release work.
+
+  **Landed:** `crates/pi-rs-builtins/default.json` is the one declarative
+  distribution manifest — an ordinary version 1 launcher manifest whose 20
+  package paths resolve from its own directory, so the repository copy, the
+  Nix-store copy, and a user's copy are the same file. Nothing is embedded or
+  concatenated: `pi-rs-builtins` still ships only Lua plus `package_root()`/
+  `manifest_path()`. `crates/pi-rs-builtins/defaults/init.lua` is the only
+  added policy, as two public application event middleware stages —
+  `pi.builtins.defaults.model` injects the first catalog model of a declared
+  candidate list (`anthropic/claude-sonnet-4-5`, `openai/gpt-5.1`,
+  `openrouter/anthropic/claude-sonnet-4.5`) into a startup event that carries
+  none, and `pi.builtins.defaults.tool-root` re-declares the shipped tool
+  suite with `root = snapshot.context.root` on the first dispatch (this closes
+  3.5's open question (c)). Both are replaceable by id, and neither reads a
+  credential: `pi.models.v1.stream` resolves the provider's supported key
+  itself. `flake.nix` gained `mkPiPackages`/`mkPiRs`: the default package
+  copies the package trees plus the manifest to `share/pi/packages` and wraps
+  `pi-core` with `--set-default PI_PACKAGE_MANIFEST`, so `--package`,
+  `--manifest`, and an explicit env selection all still win; `pi-core` remains
+  the unwrapped zero-builtin target.
+  `crates/pi-rs-app/tests/default_distribution.rs` (6 tests) covers manifest ↔
+  package-tree agreement, the installed-launcher startup batch (ansi-only, no
+  shutdown, shipped application root as `source`), default model selection
+  without configuration, byte-identical frames from a copied-to-disk
+  distribution, the offline fixture journey (prompt → shipped `read` tool row
+  → assistant follow-up → idle), and credential guidance.
+  `docs/default-distribution.md` records the manifest, selection precedence,
+  defaults, and the replacement recipe. New Nix check `default-distribution`
+  runs the installed wrapper: `--help`, an input-ready frame carrying the
+  default model, and an explicit `--package` override beating the manifest.
+  `cargo fmt --check`, `cargo test --workspace`, and `nix flake check`
+  (workspace tests, clippy, default distribution, raw no-package guidance,
+  file-backed application, model-catalog update) pass.
+
+  **Decisions for later items:** (a) the default model list is Lua constants
+  in the defaults package; file-backed configuration and provider selection UX
+  stay 4.2/6.4, which should replace this stage rather than add a Rust
+  default. (b) Lua still has no public environment mechanism, so the
+  distribution cannot key defaults off env vars; add it in 4.1 if 4.2 needs
+  it. (c) The Nix check exercises the non-TTY startup batch (the same batch an
+  interactive session presents first); the TTY input loop stays covered by
+  `crates/pi-rs-app/tests/interactive_loop.rs`, not by Nix. (d) **Unrun live
+  check:** a real provider round trip needs a supported credential and network
+  and was not executed; only the offline fixture journey is evidence. (e)
+  There are still no embedded package sources at all, so "embedded copied to
+  disk behaves identically" is proven by copying the shipped files; if an
+  embedded source is ever added, that test must compare both loads.
 
 ## 4 — Complete the replaceable product vertically
 

@@ -22,5 +22,7 @@ crossterm = { workspace = true }
 [dev-dependencies]
 pi-rs-ai = { workspace = true }
 pi-rs-ai-auth = { workspace = true }
+pi-rs-ai-types = { workspace = true }
+pi-rs-builtins = { workspace = true }
 tempfile = "3"
 libc = { workspace = true }

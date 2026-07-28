@@ -1,0 +1,25 @@
+{
+	"version": 1,
+	"packages": [
+		"agent/queue.lua",
+		"agent/tools.lua",
+		"agent/turn.lua",
+		"agent/init.lua",
+		"tools/paths.lua",
+		"tools/render.lua",
+		"tools/locks.lua",
+		"tools/read.lua",
+		"tools/write.lua",
+		"tools/edit.lua",
+		"tools/bash.lua",
+		"tools/init.lua",
+		"frontend/keys.lua",
+		"frontend/editor.lua",
+		"frontend/transcript.lua",
+		"frontend/chrome.lua",
+		"frontend/view.lua",
+		"frontend/init.lua",
+		"frontend/application.lua",
+		"defaults/init.lua"
+	]
+}
