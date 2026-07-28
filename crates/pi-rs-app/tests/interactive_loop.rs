@@ -4,7 +4,8 @@
 //!
 //! Spawns `pi` behind a real pseudo-terminal, types input, and verifies the
 //! loop renders ANSI frames, executes bounded effects, diagnoses a missing
-//! model, cancels in-flight work, and exits on a shutdown action.
+//! model, streams a deterministic fixture provider incrementally, cancels
+//! in-flight work, and exits on a shutdown action.
 
 use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
@@ -76,6 +77,75 @@ fn read_available(master: &mut std::fs::File, timeout: Duration) -> String {
 #[test]
 fn pty_loop_renders_input_frames_and_exits_on_shutdown() {
     let scratch = tempfile::tempdir().unwrap();
+
+    // Deterministic fixture provider: an ordinary local HTTP server serving
+    // a canned OpenAI-completions SSE stream. The Lua package discovers the
+    // port through the public filesystem effect; no private channel exists.
+    let fixture = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let fixture_port = fixture.local_addr().unwrap().port();
+    std::fs::write(
+        scratch.path().join("fixture_port.txt"),
+        fixture_port.to_string(),
+    )
+    .unwrap();
+    std::thread::spawn(move || {
+        const CHUNKS: [&str; 3] = ["Hello", ", fixture", " world"];
+        let Ok((mut socket, _)) = fixture.accept() else {
+            return;
+        };
+        // Drain the request head; the body is irrelevant to the fixture.
+        let mut request = Vec::new();
+        let mut buf = [0_u8; 1024];
+        loop {
+            match socket.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    request.extend_from_slice(&buf[..n]);
+                    if request.windows(4).any(|w| w == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                Err(_) => return,
+            }
+            if request.len() > 64 * 1024 {
+                return;
+            }
+        }
+        let mut body = String::new();
+        for delta in CHUNKS {
+            let chunk = serde_json::json!({
+                "id": "fixture-completion",
+                "model": "fixture-model",
+                "choices": [{
+                    "index": 0,
+                    "delta": { "content": delta },
+                    "finish_reason": serde_json::Value::Null,
+                }],
+            });
+            body.push_str(&format!("data: {chunk}\n\n"));
+        }
+        let done = serde_json::json!({
+            "id": "fixture-completion",
+            "model": "fixture-model",
+            "choices": [{
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop",
+            }],
+            "usage": {
+                "prompt_tokens": 3,
+                "completion_tokens": 5,
+                "total_tokens": 8,
+            },
+        });
+        body.push_str(&format!("data: {done}\n\n"));
+        body.push_str("data: [DONE]\n\n");
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len(),
+        );
+        let _ = socket.write_all(response.as_bytes());
+    });
     std::fs::copy(
         concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -155,6 +225,29 @@ fn pty_loop_renders_input_frames_and_exits_on_shutdown() {
     assert!(
         !timer_output.is_empty(),
         "cancellation key should produce ANSI output"
+    );
+
+    // Type 's' — the skeleton should stream the fixture provider and render
+    // incremental text-delta frames before the final result frame. The
+    // retained display emits minimal cell diffs, so later deltas appear as
+    // their changed cells; each delta must arrive as its own frame.
+    pty.master.write_all(b"s").unwrap();
+    let stream_output = read_available(&mut pty.master, Duration::from_secs(10));
+    assert!(
+        stream_output.contains("stream> Hello"),
+        "first incremental delta frame missing: {stream_output:?}"
+    );
+    assert!(
+        stream_output.contains(", fixture"),
+        "second incremental delta cells missing: {stream_output:?}"
+    );
+    assert!(
+        stream_output.contains(" world"),
+        "third incremental delta cells missing: {stream_output:?}"
+    );
+    assert!(
+        stream_output.contains("stream done: Hello, fixture world"),
+        "final streamed frame missing: {stream_output:?}"
     );
 
     // Type 'q' — the skeleton should shut down.
