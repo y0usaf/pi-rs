@@ -768,3 +768,49 @@ pub(crate) fn dispose_callbacks(
     crate::api::set_current_source(lua, "<host>");
     first_error.map_or(Ok(()), Err)
 }
+
+/// Same disposal walk as `dispose_callbacks`, for execution already inside the
+/// VM runtime (nested package disposal): the caller's watchdog hook and budget
+/// apply and no nested `block_on` is started.
+pub(crate) async fn dispose_callbacks_async(
+    lua: &mlua::Lua,
+    control: &Control,
+    scope: ScopeId,
+) -> Result<(), HostError> {
+    let disposers =
+        take_resource_disposers(lua, scope).map_err(|error| HostError::Lua(error.to_string()))?;
+    let mut first_error = None;
+    for disposer in disposers {
+        crate::api::set_current_source(lua, &disposer.source);
+        let outcome = crate::vm::nested_function(lua, disposer.callback, ()).await;
+        if let Err(error) = outcome
+            && first_error.is_none()
+        {
+            first_error = Some(error);
+        }
+        control.release_resource(scope, disposer.id);
+    }
+    crate::api::set_current_source(lua, "<host>");
+    first_error.map_or(Ok(()), Err)
+}
+
+/// Scope currently owning Lua execution, when one is set.
+pub(crate) fn current_scope_id(lua: &mlua::Lua) -> Option<ScopeId> {
+    crate::api::registry_table(lua)
+        .and_then(|registry| registry.get::<u64>(CURRENT_SCOPE_KEY))
+        .ok()
+        .filter(|raw| *raw != 0)
+        .map(ScopeId::from_raw)
+}
+
+/// Stack the active transaction and leave none active.
+///
+/// A package loaded from inside a dispatch must not append to the loading
+/// dispatch's publication queue; `clear_transaction` restores the caller's.
+pub(crate) fn suspend_transaction(lua: &mlua::Lua) -> mlua::Result<()> {
+    let registry = crate::api::registry_table(lua)?;
+    let stack: Table = registry.get(TRANSACTION_STACK_KEY)?;
+    let previous: Value = registry.get(TRANSACTION_KEY)?;
+    stack.push(previous)?;
+    registry.set(TRANSACTION_KEY, Value::Nil)
+}

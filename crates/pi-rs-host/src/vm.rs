@@ -138,6 +138,97 @@ fn remove_scope(lua: &mlua::Lua, scope: ScopeId) -> Result<(), HostError> {
         .map_err(|error| HostError::Lua(error.to_string()))
 }
 
+/// Run one Lua function from inside an active dispatch or package load.
+///
+/// The caller's watchdog hook, budget, and runtime are inherited: nested work
+/// never installs a second hook and never starts a nested `block_on`.
+pub(crate) async fn nested_function(
+    lua: &mlua::Lua,
+    function: mlua::Function,
+    args: impl mlua::IntoLuaMulti,
+) -> Result<mlua::Value, HostError> {
+    let thread = lua
+        .create_thread(function)
+        .map_err(|error| HostError::Lua(error.to_string()))?;
+    let future = thread
+        .into_async::<mlua::Value>(args)
+        .map_err(|error| HostError::Lua(error.to_string()))?;
+    future
+        .await
+        .map_err(|error| HostError::from_lua_message(error.to_string(), 0))
+}
+
+/// Load one package from inside an active dispatch or package load.
+///
+/// Used by the public `packages.v1.load` binding. The child chunk runs through
+/// the same scope creation, mechanism table, attribution, and failure cleanup
+/// as a host-loaded package; only the transport differs. The caller's
+/// transaction is stacked so a loaded chunk cannot append to the loading
+/// dispatch's batch, and the caller's scope/current-source are restored
+/// afterwards.
+pub(crate) async fn load_nested(
+    lua: &mlua::Lua,
+    control: &Control,
+    effects: &crate::effects::EffectHub,
+    source_key: &str,
+    source: &str,
+) -> Result<ScopeId, HostError> {
+    let pi = crate::bindings::mechanism_table(lua)?;
+    let (scope, _) = control.create_scope(source_key.to_owned())?;
+    let outer_scope = crate::kernel_api::current_scope_id(lua);
+    let outer_source = crate::api::current_source(lua);
+    crate::kernel_api::suspend_transaction(lua)
+        .map_err(|error| HostError::Lua(error.to_string()))?;
+    crate::kernel_api::set_scope(lua, Some(scope))
+        .map_err(|error| HostError::Lua(error.to_string()))?;
+    crate::api::set_current_source(lua, source_key);
+    let loaded = lua
+        .load(source)
+        .set_name(format!("@{source_key}"))
+        .into_function()
+        .map_err(|error| HostError::Lua(error.to_string()));
+    let outcome = match loaded {
+        Ok(function) => nested_function(lua, function, mlua::Value::Table(pi))
+            .await
+            .map(|_| ()),
+        Err(error) => Err(error),
+    };
+    if outcome.is_err() {
+        let _ = dispose_nested(lua, control, effects, scope).await;
+    }
+    crate::api::set_current_source(lua, &outer_source);
+    let _ = crate::kernel_api::set_scope(lua, outer_scope);
+    crate::kernel_api::clear_transaction(lua);
+    outcome.map(|()| scope)
+}
+
+/// Dispose one package scope from inside an active dispatch or package load.
+///
+/// Same order as the host disposal path: cancel the scope, settle its queued
+/// effects, run its disposers under a fresh cleanup scope, then drop its
+/// roots, declarations, modules, and middleware.
+pub(crate) async fn dispose_nested(
+    lua: &mlua::Lua,
+    control: &Control,
+    effects: &crate::effects::EffectHub,
+    scope: ScopeId,
+) -> Result<(), HostError> {
+    let _ = control.dispose(scope);
+    effects.settle_scope(scope).await;
+    let cleanup_source = format!("<cleanup:{}>", scope.get());
+    let (cleanup_scope, _) = control.create_scope(cleanup_source)?;
+    let outer_scope = crate::kernel_api::current_scope_id(lua);
+    let outer_source = crate::api::current_source(lua);
+    crate::kernel_api::set_scope(lua, Some(cleanup_scope))
+        .map_err(|error| HostError::Lua(error.to_string()))?;
+    let callbacks = crate::kernel_api::dispose_callbacks_async(lua, control, scope).await;
+    let removal = remove_scope(lua, scope);
+    let _ = control.dispose(cleanup_scope);
+    crate::api::set_current_source(lua, &outer_source);
+    let _ = crate::kernel_api::set_scope(lua, outer_scope);
+    callbacks.and(removal)
+}
+
 fn dispose_scope(
     lua: &mlua::Lua,
     runtime: &tokio::runtime::Runtime,

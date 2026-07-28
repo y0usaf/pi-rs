@@ -867,11 +867,47 @@ package paths, but shared binding indexes/default manifests remain serial.
   default distribution, raw no-package guidance, file-backed application,
   model-catalog update) pass.
 
-  **Remaining for 4.1:** package/module composition and lifecycle/reload members,
-  richer display structures beyond the retained tree, provider declarations and
-  auth operations (`pi.models.v1` still only finds and streams), and the
-  generated concise API doc covering the demonstrated surface. Each still needs
-  its own file-backed consumer before it is added.
+  **Landed slice (package composition and lifecycle):** `pi.packages.v1` is the
+  seventh public module and the third consumer-demonstrated 4.1 addition. A
+  package may now compose other packages:
+  `crates/pi-rs-host/src/bindings/packages.rs` exposes `load{path=...}` /
+  `load{name=..., source=...}`, `list()`, and a handle with `source`, `scope`,
+  `dispose`, `disposed`. Rust names no location, order, generation, or reload
+  policy: requests are explicit, `PackageSource::resolve` does the byte loading,
+  so provenance stays the only difference between a host-loaded and a
+  Lua-loaded package. Mechanism: `crate::vm::load_nested` /`dispose_nested`
+  reuse the canonical scope creation, attribution, failure cleanup, and
+  disposal order; `crate::vm::nested_function` runs nested chunks and disposers
+  under the caller's watchdog hook, so composition consumes the one bounded
+  dispatch budget and never starts a nested `block_on`
+  (`kernel_api::dispose_callbacks_async`). `kernel_api::suspend_transaction`
+  stacks the caller's publication queue for the duration, so a loaded chunk
+  cannot append to the loading dispatch's batch. Every loaded package is
+  registered as one disposable resource of its loader through
+  `register_scoped_resource`, so disposing a composing package disposes what it
+  composed, transitively. Bounds: 4 nested loads, 64 simultaneous Lua-loaded
+  packages, 4 MiB per source, pruned records, refusal to dispose the running or
+  still-loading package, and the existing duplicate-source conflict.
+  Evidence: `crates/pi-rs-host/tests/package_lifecycle.rs` (3 tests) drives the
+  journey from ordinary file-backed packages — a supervisor composes a child
+  read from an env-supplied directory and serves its declaration; disposing the
+  supervisor cascades into the child's own disposer and leaves no root; a swap
+  to a failing package publishes the failure and keeps the previous generation
+  selected, a swap to a good package selects the new generation and disposes
+  the old, and re-composing a loaded source is refused; a six-level chain stops
+  at the fourth nested load with the bound named in the diagnostic.
+  `crates/pi-rs-host/tests/public_surface.rs` pins the seven-module shape and
+  the exact `pi.packages.v1` member list. `docs/lua-extension-api.md` documents
+  the module, its bounds, and that atomic replacement is Lua policy (load the
+  new generation, then dispose the old). `cargo fmt --all -- --check`, `cargo
+  test --workspace`, and `nix flake check` (8 checks) pass.
+
+  **Remaining for 4.1:** module lifecycle/reload members (`pi.kernel.v1.module`
+  still only defines, requires, and lists; redefinition needs package
+  disposal), richer display structures beyond the retained tree, provider
+  declarations and auth operations (`pi.models.v1` still only finds and
+  streams), and the generated concise API doc covering the demonstrated
+  surface. Each still needs its own file-backed consumer before it is added.
 
 After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
 

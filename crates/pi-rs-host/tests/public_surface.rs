@@ -27,7 +27,9 @@ local shape = {
   models = keys(pi.models),
   effects = keys(pi.effects),
   records = keys(pi.records),
+  packages = keys(pi.packages),
   effects_v1 = keys(pi.effects.v1),
+  packages_v1 = keys(pi.packages.v1),
 }
 
 roots.register({
@@ -94,14 +96,26 @@ fn file_and_embedded_packages_see_only_the_same_compact_surface() {
     assert_eq!(
         payload["shape"]["top"],
         serde_json::json!([
-            "effects", "kernel", "models", "records", "roots", "terminal"
+            "effects", "kernel", "models", "packages", "records", "roots", "terminal"
         ])
     );
     for member in [
-        "kernel", "roots", "terminal", "models", "effects", "records",
+        "kernel", "roots", "terminal", "models", "effects", "records", "packages",
     ] {
         assert_eq!(payload["shape"][member], serde_json::json!(["v1"]));
     }
+    // Package composition exposes exactly load, list, and its bounds.
+    assert_eq!(
+        payload["shape"]["packages_v1"],
+        serde_json::json!([
+            "api_version",
+            "list",
+            "load",
+            "max_depth",
+            "max_packages",
+            "max_source_bytes"
+        ])
+    );
     // The effect families are pinned too: filesystem, path arithmetic,
     // environment snapshot, processes, timers, and cancellation.
     assert_eq!(
