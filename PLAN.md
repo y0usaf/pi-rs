@@ -934,10 +934,50 @@ package paths, but shared binding indexes/default manifests remain serial.
   distribution, raw no-package guidance, file-backed application, pi-core
   package, model-catalog update) pass.
 
+  **Landed slice (provider inventory and model-row validation):** the fifth
+  consumer-demonstrated 4.1 addition closes the *provider declaration* half of
+  the provider/auth criterion. `pi.models.v1` gained `providers()`,
+  `catalog(provider[, {offset=, limit=}])`, `apis()`, `validate(row)`, and its
+  bound constants (`default_max_models` 64, `max_models` 512,
+  `default_max_events` 256, `max_events` 1024);
+  `crates/pi-rs-host/src/bindings/models.rs` owns the window bounds and
+  `crates/pi-rs-host/src/ai.rs` owns the catalog/api/validation bridge. No new
+  declaration path appeared: a provider declaration is
+  `pi.kernel.v1.declare("provider", ...)` read back through
+  `registered("provider")`, so Rust names no provider, endpoint, order, or
+  selection rule — it only reports which reviewed catalog rows exist, which
+  wire-protocol families can dispatch, and whether a package-authored row is
+  wire-valid. `validate` stores nothing and a catalog row validates to itself,
+  so a custom endpoint and a catalog row are the same kind of value.
+  `pi_rs_ai::registry::ensure_builtin_api_providers` (was the private
+  `ensure_builtins` in `crates/pi-rs-ai/src/registry/stream.rs`) is now public
+  so inspecting the api families sees the same registry a stream dispatches
+  through, without streaming first. Bounds: windows are `1..=512` rows and
+  return the full row count as a second value, so paging never copies the
+  969-row catalog. Evidence:
+  `crates/pi-rs-host/tests/provider_declarations.rs` (2 tests) drives both
+  journeys from ordinary file-backed packages — one package reads the
+  inventory, declares a catalog-backed provider and a custom-endpoint provider
+  through the generic declaration path, selects by its own declared order, and
+  streams `Hello, declared provider` from a local fixture endpoint whose port
+  arrives through the public environment/filesystem effects; the other pins
+  every declaration-time refusal (zero/oversize window, unregistered api naming
+  the supported families, empty `id`/`provider`/`baseUrl`, an incomplete row's
+  missing-field diagnostic) and that an unknown provider is an empty window,
+  not an error. `crates/pi-rs-host/tests/public_surface.rs` now also pins the
+  exact `pi.models.v1` member list. `docs/lua-extension-api.md` documents the
+  inventory, validation, and the declaration split. `cargo fmt --all --
+  --check`, `cargo test --workspace` (71 suites, 0 failures), and `nix flake
+  check` (8 checks: workspace tests, clippy, default distribution, raw
+  no-package guidance, file-backed application, pi-core package, model-catalog
+  update) pass.
+
   **Remaining for 4.1:** richer display structures beyond the retained tree,
-  provider declarations and auth operations (`pi.models.v1` still only finds and
-  streams), and the generated concise API doc covering the demonstrated
-  surface. Each still needs its own file-backed consumer before it is added.
+  auth operations (credential resolution/storage and subscription login are
+  still absent from the Lua surface; `pi.models.v1.stream` resolves an env key
+  itself and nothing else is reachable), and the generated concise API doc
+  covering the demonstrated surface. Each still needs its own file-backed
+  consumer before it is added.
 
 After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
 

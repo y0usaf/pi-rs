@@ -187,7 +187,10 @@ pub fn reset_api_providers() {
 /// The spec's module-import side effect (`import "./register-builtins"`),
 /// made explicit: runs once, ever — a later `clear_api_providers` is
 /// respected, exactly as in the spec.
-fn ensure_builtins() {
+///
+/// Public so a host that only *inspects* the advertised api families sees the
+/// same registry a stream would dispatch through, without streaming first.
+pub fn ensure_builtin_api_providers() {
     static INIT: Once = Once::new();
     INIT.call_once(register_builtin_api_providers);
 }
@@ -240,7 +243,7 @@ pub fn stream(
     context: &Context,
     options: Option<StreamOptions>,
 ) -> Result<AssistantMessageEventStream, ProtocolError> {
-    ensure_builtins();
+    ensure_builtin_api_providers();
     let provider = resolve_api_provider(&model.api)?;
     (provider.stream)(model, context, with_env_api_key(model, options))
 }
@@ -263,7 +266,7 @@ pub fn stream_simple(
     context: &Context,
     options: Option<SimpleStreamOptions>,
 ) -> Result<AssistantMessageEventStream, ProtocolError> {
-    ensure_builtins();
+    ensure_builtin_api_providers();
     let provider = resolve_api_provider(&model.api)?;
     (provider.stream_simple)(model, context, with_env_api_key_simple(model, options))
 }
