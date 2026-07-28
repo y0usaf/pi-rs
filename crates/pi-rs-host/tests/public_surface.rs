@@ -32,6 +32,7 @@ local shape = {
   module = keys(pi.kernel.v1.module),
   effects_v1 = keys(pi.effects.v1),
   packages_v1 = keys(pi.packages.v1),
+  models_v1 = keys(pi.models.v1),
 }
 
 roots.register({
@@ -151,6 +152,24 @@ fn file_and_embedded_packages_see_only_the_same_compact_surface() {
             "path",
             "process",
             "timer"
+        ])
+    );
+    // The provider surface is inventory, validation, and bounded streaming;
+    // provider declarations themselves ride `pi.kernel.v1.declare`.
+    assert_eq!(
+        payload["shape"]["models_v1"],
+        serde_json::json!([
+            "api_version",
+            "apis",
+            "catalog",
+            "default_max_events",
+            "default_max_models",
+            "find",
+            "max_events",
+            "max_models",
+            "providers",
+            "stream",
+            "validate"
         ])
     );
     assert_eq!(

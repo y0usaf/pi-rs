@@ -4,12 +4,13 @@ The inherited Pi-compatibility extension API is not part of pi-rs. Ordinary Lua
 packages receive one compact, versioned mechanism table; embedded provenance
 adds no members or privileges.
 
-The complete top-level surface after PLAN 4.1's package-composition slice is:
+The complete top-level surface after PLAN 4.1's provider-inventory slice is:
 
 - `pi.kernel.v1`: package transaction primitives;
 - `pi.roots.v1`: application/agent/frontend root facade;
 - `pi.terminal.v1`: batched terminal input + retained display submission;
-- `pi.models.v1`: catalog lookup + bounded provider event streaming;
+- `pi.models.v1`: catalog inventory/lookup, model-row validation, and bounded
+  provider event streaming;
 - `pi.effects.v1`: bounded filesystem/path/environment, process, timer, and
   cancellation effects;
 - `pi.records.v1`: durable append-only record stores at Lua-chosen destinations;
@@ -103,10 +104,33 @@ using `display_schema_version`; no callback occurs per byte or cell.
 
 ## Models
 
-`pi.models.v1.find(provider, id)` returns a catalog model or `nil`.
+`pi.models.v1.find(provider, id)` returns a catalog model row or `nil`.
 `stream(model, context, options, on_event)` streams complete provider events and
-returns the final message. `options.max_events` defaults to 256 and is limited to
-`1..=1024`; transport cancellation uses `options.signal`.
+returns the final message. `options.max_events` defaults to `default_max_events`
+(256) and is limited to `1..=max_events` (1024); transport cancellation uses
+`options.signal`.
+
+Inventory is mechanism data, so a package can present or validate providers
+without streaming first:
+
+- `providers()` — every provider name in the reviewed catalog, catalog order;
+- `catalog(provider[, {offset=, limit=}])` — a bounded window of that
+  provider's model rows plus the full row count as a second return value;
+  `limit` defaults to `default_max_models` (64) and is limited to
+  `1..=max_models` (512). An unknown provider is an empty window, not an error;
+- `apis()` — the advertised wire-protocol families a row's `api` may name;
+- `validate(row)` — check a package-authored row against the provider wire
+  schema and return the canonical row. It refuses an unregistered `api`
+  (naming the supported families) and an empty `id`, `provider`, or `baseUrl`.
+  A catalog row validates to itself, so custom endpoints and catalog rows are
+  the same kind of value.
+
+`validate` stores nothing. Provider declarations use the one generic
+declaration path, `pi.kernel.v1.declare("provider", definition)`, and
+`registered("provider")` reads them back in the declaring package's chosen
+order. Which providers exist, their endpoints, their ordering, and which one a
+dispatch streams through are Lua policy; Rust only says which rows the reviewed
+catalog holds and which wire protocols it can dispatch.
 
 ## Effects
 

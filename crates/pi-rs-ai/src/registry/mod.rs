@@ -26,6 +26,6 @@ pub use api_registry::{
 pub use catalog::{get_model, get_models, get_providers};
 pub use env_api_keys::{env_api_key_names, find_env_keys, get_env_api_key};
 pub use stream::{
-    complete, complete_simple, register_builtin_api_providers, reset_api_providers, stream,
-    stream_simple,
+    complete, complete_simple, ensure_builtin_api_providers, register_builtin_api_providers,
+    reset_api_providers, stream, stream_simple,
 };

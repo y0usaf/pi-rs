@@ -63,6 +63,67 @@ pub(crate) fn install(lua: &Lua, bridge: &Table) -> mlua::Result<()> {
             }
         })?,
     )?;
+    // Catalog inventory. The catalog is reviewed mechanism data: which rows
+    // exist, and which of them a package selects, are two different questions,
+    // and only the first one is answered here.
+    ai.set(
+        "list_providers",
+        lua.create_function(|lua, ()| {
+            lua.create_sequence_from(pi_rs_ai::registry::get_providers())
+        })?,
+    )?;
+    ai.set(
+        "list_models",
+        lua.create_function(|lua, (provider, offset, limit): (String, usize, usize)| {
+            let models = pi_rs_ai::registry::get_models(&provider);
+            let window = models
+                .iter()
+                .skip(offset)
+                .take(limit)
+                .map(|model| to_lua_json(lua, model))
+                .collect::<mlua::Result<Vec<Value>>>()?;
+            Ok((lua.create_sequence_from(window)?, models.len()))
+        })?,
+    )?;
+    // The advertised wire-protocol families a model row may dispatch through.
+    ai.set(
+        "list_apis",
+        lua.create_function(|lua, ()| {
+            pi_rs_ai::registry::ensure_builtin_api_providers();
+            lua.create_sequence_from(
+                pi_rs_ai::registry::get_api_providers()
+                    .into_iter()
+                    .map(|provider| provider.api),
+            )
+        })?,
+    )?;
+    // Wire-schema validation for a package-authored model row: the same shape
+    // `find_model` returns, checked once at declaration time instead of failing
+    // mid-stream. No row is stored here; where declarations live is Lua policy.
+    ai.set(
+        "validate_model",
+        lua.create_function(|lua, value: Value| {
+            pi_rs_ai::registry::ensure_builtin_api_providers();
+            let model: Model = from_lua_json(value, "model")?;
+            if pi_rs_ai::registry::get_api_provider(&model.api).is_none() {
+                let supported = pi_rs_ai::registry::get_api_providers()
+                    .into_iter()
+                    .map(|provider| provider.api)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(mlua::Error::runtime(format!(
+                    "invalid model: unsupported api {}; supported: {supported}",
+                    model.api
+                )));
+            }
+            if model.id.is_empty() || model.provider.is_empty() || model.base_url.is_empty() {
+                return Err(mlua::Error::runtime(
+                    "invalid model: id, provider, and baseUrl must be non-empty".to_owned(),
+                ));
+            }
+            to_lua_json(lua, &model)
+        })?,
+    )?;
     ai.set(
         "stream_simple",
         lua.create_async_function(
