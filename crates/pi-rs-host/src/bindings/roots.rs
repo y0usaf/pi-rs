@@ -4,6 +4,7 @@ pub(crate) fn install(
     lua: &mlua::Lua,
     pi: &mlua::Table,
     control: std::sync::Arc<crate::kernel::Control>,
+    config: crate::HostConfig,
 ) -> mlua::Result<()> {
     let kernel: mlua::Table = pi.get("kernel")?;
     let kernel_v1: mlua::Table = kernel.get("v1")?;
@@ -36,11 +37,13 @@ pub(crate) fn install(
     // shares the caller's runtime and watchdog budget, is depth-capped, and
     // rejects direct recursion into a root kind already on the nest stack.
     let dispatch_control = control;
+    let dispatch_config = config;
     v1.set(
         "dispatch",
         lua.create_async_function(
             move |lua, (kind, event, context): (String, mlua::Value, Option<mlua::Value>)| {
                 let control = std::sync::Arc::clone(&dispatch_control);
+                let config = dispatch_config.clone();
                 async move {
                     let kind =
                         crate::kernel::RootKind::parse(&kind).map_err(mlua::Error::external)?;
@@ -59,9 +62,10 @@ pub(crate) fn install(
                         Some(value) => crate::convert::lua_to_json_strict(value)?,
                         None => serde_json::Value::Null,
                     };
-                    let batch = crate::vm::dispatch_nested(&lua, &control, kind, event, context)
-                        .await
-                        .map_err(mlua::Error::external)?;
+                    let batch =
+                        crate::vm::dispatch_nested(&lua, &config, &control, kind, event, context)
+                            .await
+                            .map_err(mlua::Error::external)?;
                     // Batches cross back as ordinary mutable tables: they are
                     // data the caller may republish through roots.action.
                     let actions = lua.create_table()?;

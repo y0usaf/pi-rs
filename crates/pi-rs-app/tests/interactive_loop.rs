@@ -146,7 +146,12 @@ fn pty_loop_renders_input_frames_and_exits_on_shutdown() {
         );
         let _ = socket.write_all(response.as_bytes());
     });
-    for package in ["application.lua", "agent.lua", "frontend.lua"] {
+    for package in [
+        "application.lua",
+        "agent.lua",
+        "frontend.lua",
+        "middleware.lua",
+    ] {
         std::fs::copy(
             format!(
                 "{}/../../examples/walking-skeleton/{package}",
@@ -158,7 +163,7 @@ fn pty_loop_renders_input_frames_and_exits_on_shutdown() {
     }
     std::fs::write(
         scratch.path().join("packages.json"),
-        r#"{"version":1,"packages":["frontend.lua","agent.lua","application.lua"]}"#,
+        r#"{"version":1,"packages":["frontend.lua","agent.lua","application.lua","middleware.lua"]}"#,
     )
     .unwrap();
 
@@ -187,11 +192,17 @@ fn pty_loop_renders_input_frames_and_exits_on_shutdown() {
         .spawn()
         .expect("spawn pi behind PTY");
 
-    // Wait for the startup frame.
+    // Wait for the startup frame. The render middleware stage appends its
+    // marker to any batch that presented a frame, so composition is visible
+    // from outside the process.
     let startup_output = read_available(&mut pty.master, Duration::from_secs(5));
     assert!(
         !startup_output.is_empty(),
         "startup frame should produce ANSI output"
+    );
+    assert!(
+        startup_output.contains("[mw]"),
+        "render middleware marker missing from startup frame: {startup_output:?}"
     );
 
     // Type 'h' — the skeleton should echo it.
@@ -202,13 +213,14 @@ fn pty_loop_renders_input_frames_and_exits_on_shutdown() {
         "typed input should produce ANSI output"
     );
 
-    // Type 'r' — the skeleton should run a bounded process effect and
-    // render its stdout through the retained display.
-    pty.master.write_all(b"r").unwrap();
+    // Type 'R' — the event middleware stage lowercases the key the agent
+    // root sees, so the uppercase key still runs the bounded process effect
+    // and renders its stdout. Without the stage 'R' would only echo.
+    pty.master.write_all(b"R").unwrap();
     let effect_output = read_available(&mut pty.master, Duration::from_secs(5));
     assert!(
-        !effect_output.is_empty(),
-        "effect key should produce ANSI output"
+        effect_output.contains("effect: hello-from-effect"),
+        "event middleware should normalise 'R' into the effect turn: {effect_output:?}"
     );
 
     // Type 'm' — the skeleton should diagnose a missing model without a

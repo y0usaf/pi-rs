@@ -425,7 +425,7 @@ consumer.
   artifacts `/tmp/perf-run{1,2,3}.json` (uncommitted per
   `tests/performance/README.md`).
 
-- [ ] **3.2 — Prove a file-backed coding walking skeleton** (**serial**; depends
+- [x] **3.2 — Prove a file-backed coding walking skeleton** (**serial**; depends
   on 3.1).
 
   The launcher is currently one-shot: it dispatches a single synthetic startup
@@ -516,11 +516,43 @@ consumer.
   pseudo-terminal. Focused host tests (17), PTY test, `cargo fmt --check`,
   `cargo test --workspace`, and `nix flake check` pass.
 
-  **Remaining:** event/render middleware composition, module version
-  conflicts, watchdog isolation, and rollback evidence on this surface.
-  Root replacement through priority resolution, cross-root coordination,
-  fixture streaming, process effects, missing-model diagnosis, and
-  cancellation are now proven.
+  **Landed slice 5 (middleware composition and isolation invariants):** a new
+  generic `crates/pi-rs-host/src/middleware.rs` mechanism adds
+  `pi.roots.v1.middleware.register`, the sole declaration path for bounded
+  stages around a root kind. An `event` stage runs before the resolved root
+  and may replace the event, replace the queued actions, or `stop` the chain
+  (the queued actions then become the batch); a `render` stage transforms the
+  settled action list after the root succeeds, and a failing transform rolls
+  the whole dispatch back so nothing publishes. Rust owns ordering (ascending
+  `order`, then registration sequence), the per-stage watchdog, the 64-stage
+  cap, and short-circuit semantics; every payload's meaning stays Lua policy.
+  Stages are scope-owned like roots, so disposal and failed loads remove them,
+  and identical `kind/phase/id` from a different source conflicts
+  deterministically. Nested `roots.v1.dispatch` composes the same pipelines.
+  `examples/walking-skeleton/middleware.lua` is an ordinary file-backed package
+  that composes one event stage (lowercases the agent turn key, so typed `R`
+  runs the effect demo) and one render stage (appends a `[mw]` marker action to
+  any application batch that presented a frame) around roots it does not own;
+  the PTY acceptance test asserts both from outside the process.
+  `crates/pi-rs-host/tests/middleware_composition.rs` adds eight invariants:
+  ordered event transform plus short-circuit, render transform, failing-render
+  rollback, registration conflict plus load rollback, disposal cleanup,
+  per-stage watchdog isolation, deterministic module version conflicts with
+  exact-version resolution, and nested-dispatch composition.
+  `cargo fmt --check`, `cargo test --workspace`, and `nix flake check` (which
+  runs the workspace tests, clippy, the raw no-package guidance check, and the
+  file-backed application check) pass.
+
+  **Closed 2026-07-29:** every acceptance criterion is landed and integrated.
+  The PTY harness drives the file-backed skeleton over a real pseudo-terminal:
+  startup frame, typed echo, bounded process effect, missing-model diagnosis,
+  cancellation of in-flight work, fixture-provider streaming with incremental
+  frames, and clean shutdown with all scopes disposed. Application, agent, and
+  frontend roots are independently replaceable, one event and one render
+  middleware compose over them, and priority/conflict rules, module versions,
+  watchdog isolation, rollback, and scope cleanup are proven on this surface.
+  The falsifier did not fire: the loop is composed entirely from the public
+  snapshot/action/effect contracts with no privileged escape.
 
   **Landed slice (loop mechanism):** the generic product loop composes the
   proven mechanisms end to end: terminal bytes → bounded input batches → root
@@ -538,12 +570,10 @@ consumer.
   exit. Existing one-shot JSON mode is preserved for non-TTY use and startup-
   shutdown batches.
 
-  **Remainder:** the walking skeleton does not yet include event/render
-  middleware composition, module version conflicts, watchdog isolation, or
-  rollback evidence. Root replacement and agent/frontend coordination landed
-  in slice 4 above; the example is no longer a single flat application root.
-  Process effect execution, missing-model diagnosis, and cancellation landed
-  in slice 2 above; fixture provider streaming landed in slice 3 above.
+  **Remainder:** none. Root replacement and agent/frontend coordination landed
+  in slice 4; process effects, missing-model diagnosis, and cancellation in
+  slice 2; fixture streaming in slice 3; middleware composition, module version
+  conflicts, watchdog isolation, and rollback in slice 5.
 
 After 3.2, `/orchestrate` may run **Wave U**. Workers own disjoint package trees;
 none may edit the default manifest, root binding indexes, or `flake.nix`.
