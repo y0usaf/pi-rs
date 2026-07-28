@@ -670,7 +670,7 @@ none may edit the default manifest, root binding indexes, or `flake.nix`.
   application root reads its model from a `configure`/`startup` event payload;
   configuration files and provider selection UX remain 4.2/6.4.
 
-- [ ] **3.5 — Minimal core-tool package** (**Wave U**, path owner:
+- [x] **3.5 — Minimal core-tool package** (**Wave U**, path owner:
   `crates/pi-rs-builtins/tools/**`; depends on 3.2).
 
   Ship `read`, `write`, `edit`, and `bash` as Lua declarations over public
@@ -681,6 +681,45 @@ none may edit the default manifest, root binding indexes, or `flake.nix`.
   **Accept:** each tool is independently suppressible/replaceable from disk;
   concurrent mutations are safe; path errors, bounded output, process-tree
   cancellation, and representative render data are covered.
+
+  **Landed:** `crates/pi-rs-builtins/tools/{paths,render,locks,read,write,edit,
+  bash,init}.lua` is an ordinary file-backed package graph over the public
+  spine only (`pi.effects.v1`, `pi.roots.v1`, `pi.kernel.v1.module`) plus the
+  one tool declaration path `pi.agent.tools@1`. No privileged executor: each
+  tool is a module exposing `execute/declare/unregister`, and `init.lua` only
+  declares them through `pi.tools.suite@1`
+  (`suppress`/`tools`/`shared` options). `pi.tools.paths@1` owns lexical path
+  policy (workspace root, `..` escape and absolute-path rejection),
+  `pi.tools.render@1` owns line windows, byte-bounded clipping with an explicit
+  truncation notice, and bounded line diffs, and `pi.tools.locks@1` owns
+  file-mutation serialization (per-path `guard` for `write`/`edit`, one
+  workspace slot for `bash`, plus a per-path revision used by `edit`'s
+  `expected_revision` guard). `bash` runs its command as a `set -m` job in its
+  own process group, learns the group id from a marker it strips from output,
+  and kills that group on cancellation or timeout, so backgrounded grandchildren
+  die with the command. `crates/pi-rs-builtins/tests/tools_package.rs` drives 15
+  deterministic scenarios through a file-backed driver root — numbered reads,
+  line windows plus truncation, four path-error shapes, create/update writes
+  with diff render rows, oversize rejection, unique/ambiguous/missing/
+  `replace_all` edits, the stale-revision guard, shell exit codes and stderr,
+  bounded output, timeout kill, process-tree cancellation (a backgrounded
+  grandchild never lands its marker file), declared serialization plus a busy
+  path lock, and per-tool suppression/replacement from disk.
+  `docs/lua-tools-package.md` records the modules, arguments, result data, and
+  replacement recipe. `cargo fmt --check`, `cargo test --workspace` (65 suites,
+  0 failures), and `nix flake check` (workspace tests, clippy, raw no-package
+  guidance, file-backed application, model-catalog update) pass.
+
+  **Decisions for later items:** (a) there is no public diff effect; diffs are
+  Lua render policy in `pi.tools.render@1`, which needs no new mechanism. (b)
+  Tool results carry a `details` render table, but the shipped agent forwards
+  only `output`/`is_error`; promoting `details` to a public tool-result seam is
+  4.1 work (Wave U may not touch `agent/**`). (c) Relative paths in
+  `pi.effects.v1.fs` resolve against the host process directory, not the host
+  `cwd` config, so tools take an explicit `root` option; 3.6/4.2 decide who
+  supplies it by default. (d) Cancellation is observed at command output
+  boundaries; a silent command is bounded only by its timeout until an async
+  effect handle exists (same limit as 3.3's parallel settlement).
 
 - [ ] **3.6 — Assemble defaults and restore `nix run`** (**serial after Wave U**).
 
