@@ -578,7 +578,7 @@ consumer.
 After 3.2, `/orchestrate` may run **Wave U**. Workers own disjoint package trees;
 none may edit the default manifest, root binding indexes, or `flake.nix`.
 
-- [ ] **3.3 — Minimal ephemeral agent package** (**Wave U**, path owner:
+- [x] **3.3 — Minimal ephemeral agent package** (**Wave U**, path owner:
   `crates/pi-rs-builtins/agent/**`; depends on 3.2).
 
   Implement the Lua agent reducer needed for a useful coding turn: prompt and
@@ -589,6 +589,39 @@ none may edit the default manifest, root binding indexes, or `flake.nix`.
   **Accept:** deterministic fixtures cover text, tool use, cancellation, retry,
   malformed provider events, steering, and follow-up; replacing the agent root
   changes transition policy without a frontend fork.
+
+  **Landed:** `crates/pi-rs-builtins/agent/{queue,tools,turn,init}.lua` is an
+  ordinary file-backed package graph over the public spine only
+  (`pi.roots.v1`, `pi.models.v1`, `pi.effects.v1`, `pi.kernel.v1.module`) with
+  no persistence dependency. `init.lua` registers the `agent` root
+  `pi.builtins.agent`; `pi.agent.turn@1` owns prompt/stream consumption,
+  incremental `agent_text_delta` rendering, bounded retry (`max_retries = 2`,
+  non-retryable missing model), tool settlement, interrupt cancellation,
+  steering drained into the next request of the active turn, and follow-up
+  turns bounded by `max_follow_ups`. `pi.agent.tools@1` is the one tool
+  declaration path (`serialize` marks non-interleaving tools);
+  `pi.agent.queue@1` supplies the bounded FIFOs.
+  `crates/pi-rs-builtins/tests/agent_package.rs` drives 11 deterministic
+  scenarios through a registered fixture api — text turn, parallel/serial tool
+  groups, failing tool, missing model, transport retry recovery, retry-bound
+  exhaustion, queued interrupt plus resumed turn, malformed provider events
+  (undeclared tool call, empty delta, tool-use stop with no calls), steering +
+  follow-up queues, and a higher-priority replacement agent root that changes
+  transition policy with no frontend involved. `docs/lua-agent-package.md`
+  records the event/action vocabulary for the 3.4/3.5 packages.
+  `cargo fmt --check`, `cargo test --workspace` (63 suites, 0 failures), and
+  `nix flake check` (workspace tests, clippy, raw no-package guidance,
+  file-backed application) pass.
+
+  **Decisions for later items:** (a) tool declarations live in the Lua module
+  `pi.agent.tools@1` rather than a Rust declaration registry, because Wave U
+  may not touch root binding indexes; 4.1 may promote it to a public
+  declaration seam. (b) A "parallel" group is a bounded ordered settlement
+  group, not concurrent execution: the public effect surface exposes no async
+  handle yet, so concurrency needs a new mechanism seam before the wording can
+  strengthen. (c) `crates/pi-rs-builtins` currently carries only
+  `package_root()` plus this package tree; the distribution manifest, package
+  indexes, and embedding remain 3.6's.
 
 - [ ] **3.4 — Minimal application/frontend package** (**Wave U**, path owner:
   `crates/pi-rs-builtins/frontend/**`; depends on 3.2).

@@ -1,0 +1,17 @@
+[package]
+name = "pi-rs-builtins"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+pi-rs-ai = { workspace = true }
+pi-rs-ai-types = { workspace = true }
+pi-rs-host = { workspace = true }
+serde_json = { workspace = true }
+tempfile = "3"
