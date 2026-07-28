@@ -4,7 +4,7 @@
 //! event/context snapshot and publishes one validated batch after Lua returns.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use serde_json::Value;
@@ -275,6 +275,8 @@ pub(crate) struct Control {
     next_scope: AtomicU64,
     next_resource: AtomicU64,
     scopes: Mutex<BTreeMap<ScopeId, ScopeState>>,
+    dispatch_nest_depth: AtomicUsize,
+    dispatch_nest_stack: Mutex<Vec<RootKind>>,
 }
 
 impl Control {
@@ -284,6 +286,8 @@ impl Control {
             next_scope: AtomicU64::new(1),
             next_resource: AtomicU64::new(1),
             scopes: Mutex::new(BTreeMap::new()),
+            dispatch_nest_depth: AtomicUsize::new(0),
+            dispatch_nest_stack: Mutex::new(Vec::new()),
         })
     }
 
@@ -409,5 +413,42 @@ impl Control {
             });
         }
         Ok((*handle.value).clone())
+    }
+
+    /// Enter one nested dispatch level, enforcing a bounded depth and
+    /// rejecting direct recursion into a root kind already on the stack.
+    pub(crate) fn enter_nested_dispatch(&self, kind: RootKind) -> Result<(), HostError> {
+        const MAX_NEST_DEPTH: usize = 8;
+        let depth = self.dispatch_nest_depth.load(Ordering::Acquire);
+        if depth >= MAX_NEST_DEPTH {
+            return Err(HostError::Conflict(format!(
+                "nested root dispatch exceeds depth {MAX_NEST_DEPTH}"
+            )));
+        }
+        let mut stack = self
+            .dispatch_nest_stack
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if stack.contains(&kind) {
+            return Err(HostError::Conflict(format!(
+                "recursive nested dispatch into {} root",
+                kind.as_str()
+            )));
+        }
+        stack.push(kind);
+        self.dispatch_nest_depth.store(depth + 1, Ordering::Release);
+        Ok(())
+    }
+
+    /// Leave one nested dispatch level. Must pair with a successful enter.
+    pub(crate) fn leave_nested_dispatch(&self) {
+        let mut stack = self
+            .dispatch_nest_stack
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        stack.pop();
+        let depth = self.dispatch_nest_depth.load(Ordering::Acquire);
+        self.dispatch_nest_depth
+            .store(depth.saturating_sub(1), Ordering::Release);
     }
 }

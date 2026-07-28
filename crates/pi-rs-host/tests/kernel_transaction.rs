@@ -450,3 +450,135 @@ fn embedded_and_file_packages_have_equal_capability_and_lifecycle() {
     });
     assert_eq!(embedded, file);
 }
+
+#[test]
+fn nested_root_dispatch_returns_batches_and_preserves_the_caller_transaction() {
+    let host = host(5_000);
+    host.load(
+        "memory://nested",
+        r#"
+local pi = ...
+local roots = pi.roots.v1
+roots.register({ kind = "frontend", id = "inner", dispatch = function(snapshot)
+  roots.action("inner", { saw = snapshot.event.kind })
+end })
+roots.register({ kind = "agent", id = "middle", dispatch = function(snapshot)
+  local batch = roots.dispatch("frontend", { kind = "from-agent" })
+  roots.action("middle", { inner_kind = batch.actions[1].kind, inner_saw = batch.actions[1].payload.saw })
+end })
+roots.register({ kind = "application", id = "outer", dispatch = function(snapshot)
+  roots.action("before", { ok = true })
+  local batch = roots.dispatch("agent", { kind = "from-app" })
+  roots.action("agent_result", { middle_kind = batch.actions[1].kind, middle_inner = batch.actions[1].payload.inner_saw })
+  roots.action("after", { ok = true })
+end })
+"#,
+    )
+    .expect("package");
+
+    let batch = host
+        .dispatch(request(RootKind::Application))
+        .expect("dispatch");
+    let kinds: Vec<&str> = batch.actions.iter().map(|a| a.kind.as_str()).collect();
+    assert_eq!(kinds, ["before", "agent_result", "after"]);
+    assert_eq!(batch.actions[1].payload["middle_kind"], "middle");
+    assert_eq!(batch.actions[1].payload["middle_inner"], "from-agent");
+}
+
+#[test]
+fn nested_root_dispatch_rejects_direct_recursion() {
+    let host = host(5_000);
+    host.load(
+        "memory://nested-recursion",
+        r#"
+local pi = ...
+local roots = pi.roots.v1
+roots.register({ kind = "agent", id = "recursive", dispatch = function(snapshot)
+  local ok, err = pcall(function()
+    roots.dispatch("agent", { kind = "again" })
+  end)
+  roots.action("recursion", { rejected = not ok, message = tostring(err) })
+end })
+roots.register({ kind = "application", id = "outer", dispatch = function(snapshot)
+  local batch = roots.dispatch("agent", { kind = "start" })
+  roots.action("result", { rejected = batch.actions[1].payload.rejected })
+end })
+"#,
+    )
+    .expect("package");
+
+    let batch = host
+        .dispatch(request(RootKind::Application))
+        .expect("dispatch");
+    assert_eq!(batch.actions[0].payload["rejected"], true);
+}
+
+#[test]
+fn nested_root_dispatch_error_does_not_publish_and_preserves_caller() {
+    let host = host(5_000);
+    host.load(
+        "memory://nested-error",
+        r#"
+local pi = ...
+local roots = pi.roots.v1
+roots.register({ kind = "frontend", id = "failing", dispatch = function(snapshot)
+  roots.action("never", { published = true })
+  error("frontend boom")
+end })
+roots.register({ kind = "application", id = "outer", dispatch = function(snapshot)
+  local ok, err = pcall(function()
+    roots.dispatch("frontend", { kind = "go" })
+  end)
+  roots.action("survived", { failed = not ok })
+end })
+"#,
+    )
+    .expect("package");
+
+    let batch = host
+        .dispatch(request(RootKind::Application))
+        .expect("dispatch");
+    let kinds: Vec<&str> = batch.actions.iter().map(|a| a.kind.as_str()).collect();
+    // The nested batch must not leak; the outer transaction still publishes.
+    assert_eq!(kinds, ["survived"]);
+    assert_eq!(batch.actions[0].payload["failed"], true);
+}
+
+#[test]
+fn nested_root_dispatch_resolves_priority_replacement() {
+    let host = host(5_000);
+    // A later package replaces the agent root by registering a strictly
+    // higher priority; nested dispatch resolves the replacement without any
+    // frontend or application fork.
+    host.load(
+        "memory://replace-base",
+        r#"
+local pi = ...
+local roots = pi.roots.v1
+roots.register({ kind = "agent", id = "base", priority = 0, dispatch = function(snapshot)
+  roots.action("agent", { which = "base" })
+end })
+roots.register({ kind = "application", id = "outer", dispatch = function(snapshot)
+  local batch = roots.dispatch("agent", { kind = "go" })
+  roots.action("result", { which = batch.actions[1].payload.which })
+end })
+"#,
+    )
+    .expect("base package");
+    host.load(
+        "memory://replace-override",
+        r#"
+local pi = ...
+local roots = pi.roots.v1
+roots.register({ kind = "agent", id = "replacement", priority = 10, dispatch = function(snapshot)
+  roots.action("agent", { which = "replacement" })
+end })
+"#,
+    )
+    .expect("override package");
+
+    let batch = host
+        .dispatch(request(RootKind::Application))
+        .expect("dispatch");
+    assert_eq!(batch.actions[0].payload["which"], "replacement");
+}

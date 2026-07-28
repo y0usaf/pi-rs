@@ -22,8 +22,8 @@ pub(crate) fn build(
 
     let pi = lua.create_table()?;
     let module_api = crate::module_api::install(lua)?;
-    crate::kernel_api::install(lua, &pi, &module_api, control)?;
-    roots::install(lua, &pi)?;
+    crate::kernel_api::install(lua, &pi, &module_api, control.clone())?;
+    roots::install(lua, &pi, control)?;
     terminal::install(lua, &pi)?;
     models::install(lua, &pi)?;
     effects::install(lua, &pi, cwd, effects)?;
