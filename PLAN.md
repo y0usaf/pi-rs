@@ -902,10 +902,40 @@ package paths, but shared binding indexes/default manifests remain serial.
   new generation, then dispose the old). `cargo fmt --all -- --check`, `cargo
   test --workspace`, and `nix flake check` (8 checks) pass.
 
-  **Remaining for 4.1:** module lifecycle/reload members (`pi.kernel.v1.module`
-  still only defines, requires, and lists; redefinition needs package
-  disposal), richer display structures beyond the retained tree, provider
-  declarations and auth operations (`pi.models.v1` still only finds and
+  **Landed slice (module lifecycle/reload):** the fourth consumer-demonstrated
+  4.1 addition removes "redefinition needs package disposal".
+  `crates/pi-rs-host/src/module_api.rs` adds `remove(name, version)` and
+  `reset(name, version)` to `pi.kernel.v1.module`. `define` is unchanged and
+  still refuses a duplicate identity, so there stays exactly one declaration
+  path per kind: replacement is explicitly `remove` then `define` (the shape
+  `pi.packages.v1` already uses for generation swaps), and re-running a factory
+  without changing its declaration is `reset`. `remove` prunes the order index,
+  so a redefined identity is listed once in its new position; `reset` drops only
+  the cached value, so the same factory and dependency aliases run again. Both
+  are scope-local through the shared `scope_for_current_entry` owner check: a
+  sibling package gets an error naming the owning source and keeps read access,
+  and a factory that is mid-resolution is refused rather than silently unwound.
+  Rust invalidates nothing else and offers no module cleanup hook — dependent
+  reload order is Lua policy, and a module that owns something disposable
+  exposes an ordinary `pi.kernel.v1.resource` handle its owner disposes before
+  reloading. Evidence: `crates/pi-rs-host/tests/module_lifecycle.rs` (2 tests)
+  drives both journeys from ordinary file-backed packages — a running package
+  caches one factory run, disposes its module's resource, resets to re-run the
+  same factory, then swaps the implementation of a live identity with
+  `remove` + `define` while `list()` still reports it once, and the package's
+  scope ends with zero live resources; a sibling's `remove`/`reset` is refused
+  by owner while `require` still works, a self-removing factory is refused as
+  loading, and package disposal remains the other lifecycle path.
+  `crates/pi-rs-host/tests/public_surface.rs` now also pins the exact
+  `pi.kernel.v1` and `pi.kernel.v1.module` member lists.
+  `docs/lua-extension-api.md` gains a module-lifecycle section.
+  `cargo fmt --all -- --check`, `cargo test --workspace` (71 suites, 0
+  failures), and `nix flake check` (8 checks: workspace tests, clippy, default
+  distribution, raw no-package guidance, file-backed application, pi-core
+  package, model-catalog update) pass.
+
+  **Remaining for 4.1:** richer display structures beyond the retained tree,
+  provider declarations and auth operations (`pi.models.v1` still only finds and
   streams), and the generated concise API doc covering the demonstrated
   surface. Each still needs its own file-backed consumer before it is added.
 

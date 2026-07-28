@@ -100,6 +100,35 @@ fn require_module(lua: &mlua::Lua, name: &str, version: &str) -> mlua::Result<ml
     }
 }
 
+/// Resolve one module entry the caller's own scope defined.
+///
+/// Lifecycle is deliberately scope-local: a package may reload only what it
+/// declared, so composition never reaches into a sibling's modules. A module
+/// whose factory is currently running is refused, because its dependents are
+/// mid-resolution.
+fn owned_entry(lua: &mlua::Lua, name: &str, version: &str) -> mlua::Result<Option<mlua::Table>> {
+    validate_module_identity(name, version)?;
+    let registry = registry_table(lua)?;
+    let modules: mlua::Table = registry.get("modules")?;
+    let Some(entry) = modules.get::<Option<mlua::Table>>(module_key(name, version).as_str())?
+    else {
+        return Ok(None);
+    };
+    let scope = crate::kernel_api::scope_for_current_entry(lua)?.get();
+    if entry.get::<u64>("scope")? != scope {
+        let owner: String = entry.get("source")?;
+        return Err(mlua::Error::runtime(format!(
+            "module {name}@{version} is owned by {owner}"
+        )));
+    }
+    if entry.get::<String>("state")? == "loading" {
+        return Err(mlua::Error::runtime(format!(
+            "module {name}@{version} is loading and cannot be changed"
+        )));
+    }
+    Ok(Some(entry))
+}
+
 /// Install and return the module table published only as
 /// `pi.kernel.v1.module` and `pi.roots.v1.module`.
 pub(crate) fn install(lua: &mlua::Lua) -> mlua::Result<mlua::Table> {
@@ -195,6 +224,47 @@ pub(crate) fn install(lua: &mlua::Lua) -> mlua::Result<mlua::Table> {
                 result.push(item)?;
             }
             Ok(result)
+        })?,
+    )?;
+    module_api.set(
+        "remove",
+        lua.create_function(|lua, (name, version): (String, String)| {
+            if owned_entry(lua, &name, &version)?.is_none() {
+                return Ok(false);
+            }
+            let registry = registry_table(lua)?;
+            let modules: mlua::Table = registry.get("modules")?;
+            let key = module_key(&name, &version);
+            modules.set(key.as_str(), mlua::Nil)?;
+            // Prune the order index so a later redefinition of the same
+            // identity is listed once, in its new position.
+            let order: mlua::Table = registry.get("module_order")?;
+            let kept = lua.create_table()?;
+            for existing in order.sequence_values::<String>() {
+                let existing = existing?;
+                if existing != key {
+                    kept.push(existing)?;
+                }
+            }
+            registry.set("module_order", kept)?;
+            Ok(true)
+        })?,
+    )?;
+    module_api.set(
+        "reset",
+        lua.create_function(|lua, (name, version): (String, String)| {
+            let Some(entry) = owned_entry(lua, &name, &version)? else {
+                return Ok(false);
+            };
+            if entry.get::<String>("state")? != "loaded" {
+                return Ok(false);
+            }
+            // Only the cached value is dropped: the declaration, its factory,
+            // and its dependency aliases are unchanged, so the next require
+            // re-runs the same factory.
+            entry.set("state", "defined")?;
+            entry.set("value", mlua::Nil)?;
+            Ok(true)
         })?,
     )?;
     Ok(module_api)
