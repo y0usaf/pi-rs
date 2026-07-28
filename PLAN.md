@@ -465,6 +465,23 @@ consumer.
   If the loop cannot be composed from the public snapshot/action/effect
   contracts without privileged escapes, stop: amend `DESIGN.md` and this plan
   before any Wave U work begins.
+  **Landed slice 2 (effect/model/cancellation through the loop):** the
+  walking-skeleton example extends to bounded process effect execution
+  (`effects.v1.process.run` renders `echo` stdout), missing-model
+  diagnosis (`models.v1.find` returns `nil` for an unknown provider/model
+  pair, and the Lua root renders a useful diagnostic frame), and
+  cancellation (`effects.cancellation.new` + `AbortSignal:abort()`
+  interrupting an in-flight `timer.sleep`, returning to an input-ready
+  frame). The PTY acceptance test drives all three keys (`r`, `m`, `t`)
+  through the public Lua surface over a real pseudo-terminal and verifies
+  ANSI output for each before the shutdown exit. Lua 5.4 numeric literals
+  avoid `_` separators (loader rejects them).
+
+  **Remaining:** fixture provider streaming through `models.v1.stream`
+  with incremental rendered frames, root replacement (agent/frontend
+  coordination), event/render middleware composition, module version
+  conflicts, watchdog isolation, and rollback evidence on this surface.
+
   **Landed slice (loop mechanism):** the generic product loop composes the
   proven mechanisms end to end: terminal bytes → bounded input batches → root
   dispatch → action settlement → ANSI frames → shutdown, repeated until a
@@ -482,10 +499,11 @@ consumer.
   shutdown batches.
 
   **Remainder:** the walking skeleton does not yet include a fixture provider
-  stream, a representative tool effect (filesystem/process), cancellation of
-  in-flight work, missing-model/auth diagnostics, root replacement, or
-  middleware composition. The example is a single flat application root, not
-  yet coordinated agent+frontend roots.
+  stream with incremental rendered frames, root replacement (agent/frontend
+  coordination), middleware composition, module version conflicts, watchdog
+  isolation, or rollback evidence. The example is a single flat application
+  root, not yet coordinated agent+frontend roots. Process effect execution,
+  missing-model diagnosis, and cancellation landed in slice 2 above.
 
 After 3.2, `/orchestrate` may run **Wave U**. Workers own disjoint package trees;
 none may edit the default manifest, root binding indexes, or `flake.nix`.

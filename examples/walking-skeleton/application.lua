@@ -2,11 +2,15 @@
 --
 -- This package demonstrates the generic product loop end to end: startup
 -- renders an input-ready frame, typed input echoes through a retained
--- display, and a shutdown action exits cleanly.
+-- display, and a shutdown action exits cleanly. It also proves the public
+-- effect and model bindings: process execution, missing-model diagnosis,
+-- and cancellation through the versioned effect surface.
 
 local pi = ...
 local roots = pi.roots.v1
 local terminal = pi.terminal.v1
+local effects = pi.effects.v1
+local models = pi.models.v1
 
 -- Shared display and input buffer survive across dispatches via the
 -- package's Lua upvalues (standard Lua closure semantics).
@@ -43,6 +47,47 @@ local function render_frame(text, ready)
   return frame
 end
 
+-- Run a bounded process effect and render its output.
+local function run_effect_demo()
+  render_frame("[running echo effect]", false)
+  local result = effects.process.run("echo", { "hello-from-effect" }, {
+    timeout_ms = 5000,
+  })
+  if result and result.stdout then
+    local trimmed = result.stdout:gsub("%s+$", "")
+    render_frame("effect: " .. trimmed, true)
+  else
+    render_frame("effect: no output", true)
+  end
+end
+
+-- Attempt to find a model that does not exist; diagnose the miss.
+local function run_missing_model_demo()
+  render_frame("[looking up model]", false)
+  local found = models.find("nonexistent-provider", "nonexistent-model")
+  if found == nil then
+    render_frame("model: not found (expected)", true)
+  else
+    render_frame("model: unexpectedly found", true)
+  end
+end
+
+-- Start a timer and cancel it before it fires.
+local function run_cancellation_demo()
+  render_frame("[starting timer]", false)
+  local signal = effects.cancellation.new()
+  -- Abort immediately; the sleep should observe the cancellation.
+  signal:abort()
+  local ok, err = pcall(function()
+    effects.timer.sleep(60000, { signal = signal })
+  end)
+  if not ok or (signal and signal:is_aborted()) then
+    render_frame("timer: cancelled", true)
+  else
+    render_frame("timer: completed (unexpected)", true)
+  end
+end
+
 roots.register({
   kind = "application",
   id = "walking-skeleton",
@@ -60,12 +105,19 @@ roots.register({
       local events = input:feed(data)
       for _, event in ipairs(events) do
         if event.kind == "data" then
-          -- Echo the input back through the display.
-          render_frame(event.data, true)
-          -- Quit on 'q'.
-          if event.data == "q" then
+          local ch = event.data
+          if ch == "q" then
             roots.action("shutdown", { reason = "user quit" })
             return
+          elseif ch == "r" then
+            run_effect_demo()
+          elseif ch == "m" then
+            run_missing_model_demo()
+          elseif ch == "t" then
+            run_cancellation_demo()
+          else
+            -- Echo any other input back through the display.
+            render_frame(ch, true)
           end
         end
       end
