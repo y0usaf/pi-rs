@@ -146,17 +146,19 @@ fn pty_loop_renders_input_frames_and_exits_on_shutdown() {
         );
         let _ = socket.write_all(response.as_bytes());
     });
-    std::fs::copy(
-        concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../examples/walking-skeleton/application.lua"
-        ),
-        scratch.path().join("application.lua"),
-    )
-    .unwrap();
+    for package in ["application.lua", "agent.lua", "frontend.lua"] {
+        std::fs::copy(
+            format!(
+                "{}/../../examples/walking-skeleton/{package}",
+                env!("CARGO_MANIFEST_DIR"),
+            ),
+            scratch.path().join(package),
+        )
+        .unwrap();
+    }
     std::fs::write(
         scratch.path().join("packages.json"),
-        r#"{"version":1,"packages":["application.lua"]}"#,
+        r#"{"version":1,"packages":["frontend.lua","agent.lua","application.lua"]}"#,
     )
     .unwrap();
 

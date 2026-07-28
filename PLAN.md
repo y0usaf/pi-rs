@@ -495,10 +495,32 @@ consumer.
   `cargo fmt --check`, `cargo test --workspace` (59 suites, 0 failures), and
   `nix flake check` pass.
 
-  **Remaining:** root replacement (agent/frontend coordination), event/render
-  middleware composition, module version conflicts, watchdog isolation, and
-  rollback evidence on this surface. Fixture streaming, process effects,
-  missing-model diagnosis, and cancellation are now proven.
+  **Landed slice 4 (agent/frontend root coordination):** the walking skeleton
+  splits into three independently replaceable roots. `application.lua` owns
+  only routing: startup frames come from the frontend root, raw bytes are
+  decoded by the frontend root, and each key becomes one turn through the
+  agent root, which renders through the frontend root. Every cross-root call
+  uses the new public `roots.v1.dispatch(kind, event[, context])` seam: the
+  nested root runs with its own bounded transaction and returns its settled
+  batch to Lua as ordinary data; nothing publishes implicitly — the caller
+  explicitly republishes chosen actions into its own batch. Nested execution
+  shares the caller's runtime and watchdog budget, is depth-capped (8), and
+  rejects direct recursion into a root kind already on the nest stack. The
+  kernel transaction is now a stack so a nested dispatch restores the
+  caller's transaction on success or error. Four focused invariants prove
+  batch return/caller preservation, recursion rejection, nested-error
+  non-publication, and priority-based root replacement through nested
+  dispatch. The PTY acceptance test now loads `frontend.lua`, `agent.lua`,
+  and `application.lua` in dependency order and drives the same key journey
+  (`h`, `r`, `m`, `t`, `s`, `q`) through the coordinated roots over a real
+  pseudo-terminal. Focused host tests (17), PTY test, `cargo fmt --check`,
+  `cargo test --workspace`, and `nix flake check` pass.
+
+  **Remaining:** event/render middleware composition, module version
+  conflicts, watchdog isolation, and rollback evidence on this surface.
+  Root replacement through priority resolution, cross-root coordination,
+  fixture streaming, process effects, missing-model diagnosis, and
+  cancellation are now proven.
 
   **Landed slice (loop mechanism):** the generic product loop composes the
   proven mechanisms end to end: terminal bytes → bounded input batches → root
@@ -516,10 +538,10 @@ consumer.
   exit. Existing one-shot JSON mode is preserved for non-TTY use and startup-
   shutdown batches.
 
-  **Remainder:** the walking skeleton does not yet include root replacement
-  (agent/frontend coordination), middleware composition, module version
-  conflicts, watchdog isolation, or rollback evidence. The example is a
-  single flat application root, not yet coordinated agent+frontend roots.
+  **Remainder:** the walking skeleton does not yet include event/render
+  middleware composition, module version conflicts, watchdog isolation, or
+  rollback evidence. Root replacement and agent/frontend coordination landed
+  in slice 4 above; the example is no longer a single flat application root.
   Process effect execution, missing-model diagnosis, and cancellation landed
   in slice 2 above; fixture provider streaming landed in slice 3 above.
 

@@ -219,6 +219,91 @@ fn dispatch_root(
     batch
 }
 
+/// Dispatch one root kind from inside an active dispatch.
+///
+/// Used by the public `roots.v1.dispatch` binding: the calling root keeps its
+/// own transaction; the nested root runs with its own transaction and returns
+/// its batch to Lua as data. Nested execution shares the caller's runtime and
+/// watchdog hook, so the outer dispatch budget bounds the whole nest; depth
+/// and direct recursion are capped by the control guard. The caller's
+/// scope/current-source are restored afterwards.
+pub(crate) async fn dispatch_nested(
+    lua: &mlua::Lua,
+    control: &Control,
+    kind: crate::kernel::RootKind,
+    event: serde_json::Value,
+    context: serde_json::Value,
+) -> Result<DispatchBatch, HostError> {
+    control.enter_nested_dispatch(kind)?;
+    let outcome = dispatch_nested_inner(lua, control, kind, event, context).await;
+    control.leave_nested_dispatch();
+    outcome
+}
+
+async fn dispatch_nested_inner(
+    lua: &mlua::Lua,
+    control: &Control,
+    kind: crate::kernel::RootKind,
+    event: serde_json::Value,
+    context: serde_json::Value,
+) -> Result<DispatchBatch, HostError> {
+    let request = DispatchRequest::new(kind, event, context);
+    let root = crate::kernel_api::resolve_root(lua, request.root)?;
+    let cancellation = control.token(root.scope)?;
+    if cancellation.is_cancelled() {
+        return Err(HostError::Cancelled);
+    }
+    let generation = control.generation();
+    let outer_scope = crate::api::registry_table(lua)
+        .and_then(|registry| registry.get::<u64>("kernel_scope"))
+        .unwrap_or(0);
+    let outer_source = crate::api::current_source(lua);
+    crate::kernel_api::set_scope(lua, Some(root.scope))
+        .map_err(|error| HostError::Lua(error.to_string()))?;
+    crate::kernel_api::begin_transaction(lua, generation, root.scope, cancellation.clone())
+        .map_err(|error| HostError::Lua(error.to_string()))?;
+    crate::api::set_current_source(lua, &root.source);
+    let result = crate::kernel_api::snapshot(lua, &request, generation, root.scope)
+        .map_err(|error| HostError::Lua(error.to_string()))
+        .and_then(|snapshot| {
+            lua.create_thread(root.handler)
+                .map_err(|error| HostError::Lua(error.to_string()))
+                .map(|thread| (thread, snapshot))
+        });
+    let batch = match result {
+        Ok((thread, snapshot)) => {
+            match thread
+                .into_async::<mlua::Value>(snapshot)
+                .map_err(|error| HostError::Lua(error.to_string()))
+            {
+                Ok(future) => match future.await {
+                    Ok(_) => crate::kernel_api::finish_transaction(lua, root.source),
+                    Err(error) => {
+                        crate::kernel_api::clear_transaction(lua);
+                        Err(HostError::from_lua_message(error.to_string(), 0))
+                    }
+                },
+                Err(error) => {
+                    crate::kernel_api::clear_transaction(lua);
+                    Err(error)
+                }
+            }
+        }
+        Err(error) => {
+            crate::kernel_api::clear_transaction(lua);
+            Err(error)
+        }
+    };
+    crate::api::set_current_source(lua, &outer_source);
+    let restore = if outer_scope == 0 {
+        None
+    } else {
+        Some(ScopeId::from_raw(outer_scope))
+    };
+    let _ = crate::kernel_api::set_scope(lua, restore);
+    batch
+}
+
 pub(crate) fn dispatch_function(
     lua: &mlua::Lua,
     runtime: &tokio::runtime::Runtime,

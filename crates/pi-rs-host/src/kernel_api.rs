@@ -15,6 +15,7 @@ const ROOTS_KEY: &str = "kernel_roots";
 const DECLARATIONS_KEY: &str = "kernel_declarations";
 const RESOURCES_KEY: &str = "kernel_resources";
 const TRANSACTION_KEY: &str = "kernel_transaction";
+const TRANSACTION_STACK_KEY: &str = "kernel_transaction_stack";
 const CURRENT_SCOPE_KEY: &str = "kernel_scope";
 const DECLARATION_SEQUENCE_KEY: &str = "kernel_declaration_sequence";
 
@@ -108,6 +109,7 @@ pub(crate) fn install(
     registry.set(DECLARATION_SEQUENCE_KEY, 0_u64)?;
     registry.set(RESOURCES_KEY, lua.create_table()?)?;
     registry.set(TRANSACTION_KEY, Value::Nil)?;
+    registry.set(TRANSACTION_STACK_KEY, lua.create_table()?)?;
     registry.set(CURRENT_SCOPE_KEY, 0_u64)?;
 
     let version = lua.create_table()?;
@@ -515,6 +517,13 @@ pub(crate) fn begin_transaction(
     scope: ScopeId,
     cancellation: CancellationToken,
 ) -> mlua::Result<()> {
+    let registry = crate::api::registry_table(lua)?;
+    // Nested root dispatch (roots.v1.dispatch) begins a child transaction
+    // inside the caller's dispatch: stack the caller's transaction so
+    // finish/clear can restore it after the child settles.
+    let stack: Table = registry.get(TRANSACTION_STACK_KEY)?;
+    let previous: Value = registry.get(TRANSACTION_KEY)?;
+    stack.push(previous)?;
     let transaction = lua.create_table()?;
     transaction.set("generation", generation.get())?;
     transaction.set("scope", scope.get())?;
@@ -523,7 +532,7 @@ pub(crate) fn begin_transaction(
         "cancellation",
         lua.create_userdata(LuaCancellation(cancellation))?,
     )?;
-    crate::api::registry_table(lua)?.set(TRANSACTION_KEY, transaction)
+    registry.set(TRANSACTION_KEY, transaction)
 }
 
 fn active_transaction(lua: &mlua::Lua) -> mlua::Result<Table> {
@@ -640,7 +649,15 @@ pub(crate) fn finish_transaction(
 
 pub(crate) fn clear_transaction(lua: &mlua::Lua) {
     if let Ok(registry) = crate::api::registry_table(lua) {
-        let _ = registry.set(TRANSACTION_KEY, Value::Nil);
+        // Pop the transaction stack: after a nested dispatch settles, the
+        // caller's transaction becomes active again. With no nesting the
+        // stack is empty and the active transaction clears to nil.
+        let restored = registry
+            .get::<Table>(TRANSACTION_STACK_KEY)
+            .ok()
+            .and_then(|stack| stack.pop().ok())
+            .unwrap_or(Value::Nil);
+        let _ = registry.set(TRANSACTION_KEY, restored);
     }
 }
 
