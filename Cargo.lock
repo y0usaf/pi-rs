@@ -1010,6 +1010,8 @@ dependencies = [
 name = "pi-rs-app"
 version = "0.1.0"
 dependencies = [
+ "crossterm",
+ "libc",
  "pi-rs-ai",
  "pi-rs-ai-auth",
  "pi-rs-host",

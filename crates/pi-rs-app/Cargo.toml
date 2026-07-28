@@ -17,8 +17,10 @@ pi-rs-tui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+crossterm = { workspace = true }
 
 [dev-dependencies]
 pi-rs-ai = { workspace = true }
 pi-rs-ai-auth = { workspace = true }
 tempfile = "3"
+libc = { workspace = true }
