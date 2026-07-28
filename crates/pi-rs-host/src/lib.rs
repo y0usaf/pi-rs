@@ -38,6 +38,9 @@ pub struct HostConfig {
     /// Default working directory for filesystem and process effects.
     /// `None` resolves the process working directory at startup.
     pub cwd: Option<String>,
+    /// Environment visible to `pi.effects.v1.env`. `None` snapshots the
+    /// process environment once, when the host starts.
+    pub environment: Option<std::collections::BTreeMap<String, String>>,
 }
 
 impl Default for HostConfig {
@@ -45,6 +48,7 @@ impl Default for HostConfig {
         Self {
             dispatch_timeout_ms: DEFAULT_DISPATCH_TIMEOUT_MS,
             cwd: None,
+            environment: None,
         }
     }
 }

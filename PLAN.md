@@ -836,12 +836,42 @@ package paths, but shared binding indexes/default manifests remain serial.
   `docs/lua-extension-api.md` documents the module. `cargo fmt --all -- --check`,
   `cargo test --workspace`, and `nix flake check` pass.
 
+  **Landed slice (environment, paths, filesystem metadata):** the second
+  consumer-demonstrated 4.1 addition closes 3.6 decision (b) and the effect
+  families a configuration/resource policy needs. `pi.effects.v1` gained three
+  members, all in `crates/pi-rs-host/src/bindings/effects.rs`: `env` is an
+  immutable startup snapshot read by name (`get`, sorted `names`) with no bulk
+  value dump and no write path; `path` is pure POSIX arithmetic (`join`,
+  `normalize`, `dirname`, `basename`, `extname`, `is_absolute`, `resolve`,
+  `relative`, `separator`); `fs` gained `exists`, `stat`, `list`,
+  `make_directory`, and `remove_file`. Bounds: listings default to 1024 entries
+  and are capped at 16384 (`default_max_entries`/`max_entries`); every operation
+  keeps the existing effect-hub cancellation and scope ownership. Rust names no
+  directory, precedence, or variable meaning: `HostConfig::environment`
+  (`crates/pi-rs-host/src/lib.rs`, snapshotted once in
+  `crates/pi-rs-host/src/bindings.rs`) only chooses which environment the VM
+  sees, defaulting to the process environment at host start, which also keeps
+  tests deterministic without mutating process state. Evidence:
+  `crates/pi-rs-host/tests/configuration_paths.rs` (5 tests) drives the whole
+  XDG/legacy matrix from an ordinary file-backed package whose resolution chain
+  is Lua — explicit `XDG_CONFIG_HOME` wins, an unset variable falls back to the
+  conventional `HOME/.config` location, legacy is used only as an untouched
+  read-only fallback that never creates the preferred path, and an absent
+  configuration leaves Lua constants and creates nothing — plus state-directory
+  creation/write/list/stat/re-read/removal, listing-bound and missing-path
+  failures, and the inherited process snapshot.
+  `crates/pi-rs-host/tests/public_surface.rs` now also pins the exact
+  `pi.effects.v1` family list. `docs/lua-extension-api.md` documents the three
+  members and their bounds. `cargo fmt --all -- --check`, `cargo test
+  --workspace`, and `nix flake check` (8 checks: workspace tests, clippy,
+  default distribution, raw no-package guidance, file-backed application,
+  model-catalog update) pass.
+
   **Remaining for 4.1:** package/module composition and lifecycle/reload members,
   richer display structures beyond the retained tree, provider declarations and
-  auth operations (`pi.models.v1` still only finds and streams), the environment
-  mechanism deferred by 3.6 decision (b) if 4.2 needs it, and the generated
-  concise API doc covering the demonstrated surface. Each still needs its own
-  file-backed consumer before it is added.
+  auth operations (`pi.models.v1` still only finds and streams), and the
+  generated concise API doc covering the demonstrated surface. Each still needs
+  its own file-backed consumer before it is added.
 
 After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
 

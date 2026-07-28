@@ -1,7 +1,10 @@
-//! Versioned bounded filesystem/process effects and explicit cancellation.
+//! Versioned bounded filesystem/process/environment effects and explicit
+//! cancellation.
 
 const DEFAULT_FILE_BYTES: usize = 1024 * 1024;
 const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
+const DEFAULT_LIST_ENTRIES: usize = 1_024;
+const MAX_LIST_ENTRIES: usize = 16_384;
 const DEFAULT_PROCESS_BYTES: usize = 1024 * 1024;
 const MAX_PROCESS_BYTES: usize = crate::effects::DEFAULT_MAX_OUTPUT_BYTES;
 const DEFAULT_PROCESS_TIMEOUT_MS: u64 = 30_000;
@@ -12,6 +15,7 @@ pub(crate) fn install(
     pi: &mlua::Table,
     cwd: &str,
     hub: crate::effects::EffectHub,
+    environment: std::collections::BTreeMap<String, String>,
 ) -> mlua::Result<()> {
     let bridge = lua.create_table()?;
     crate::os::install(lua, &bridge, cwd, hub.clone())?;
@@ -19,6 +23,11 @@ pub(crate) fn install(
     crate::effects::install(lua, &bridge, hub)?;
     let fs: mlua::Table = bridge.get("fs")?;
     let stat: mlua::Function = fs.get("stat")?;
+    let stat_entry: mlua::Function = fs.get("stat")?;
+    let exists: mlua::Function = fs.get("exists")?;
+    let read_dir: mlua::Function = fs.get("read_dir")?;
+    let mkdir: mlua::Function = fs.get("mkdir")?;
+    let remove_file: mlua::Function = fs.get("remove_file")?;
     let read_file: mlua::Function = fs.get("read_file")?;
     let write_file: mlua::Function = fs.get("write_file")?;
     let exec: mlua::Function = bridge.get("exec")?;
@@ -69,6 +78,36 @@ pub(crate) fn install(
             }
         })?,
     )?;
+    // Metadata operations a file-backed configuration/resource policy needs:
+    // probe, describe, enumerate, create, and remove paths it chose itself.
+    // Rust never names a directory, a precedence, or a fallback.
+    filesystem.set("default_max_entries", DEFAULT_LIST_ENTRIES)?;
+    filesystem.set("max_entries", MAX_LIST_ENTRIES)?;
+    filesystem.set("exists", exists)?;
+    filesystem.set("stat", stat_entry)?;
+    filesystem.set(
+        "list",
+        lua.create_async_function(move |_, (path, limit): (String, Option<usize>)| {
+            let read_dir = read_dir.clone();
+            async move {
+                let limit = limit.unwrap_or(DEFAULT_LIST_ENTRIES);
+                if !(1..=MAX_LIST_ENTRIES).contains(&limit) {
+                    return Err(mlua::Error::runtime(format!(
+                        "effects.v1.fs.list limit must be in 1..={MAX_LIST_ENTRIES}"
+                    )));
+                }
+                let names: mlua::Table = read_dir.call_async(path).await?;
+                if names.raw_len() > limit {
+                    return Err(mlua::Error::runtime(format!(
+                        "directory listing exceeds {limit} entries"
+                    )));
+                }
+                Ok(names)
+            }
+        })?,
+    )?;
+    filesystem.set("make_directory", mkdir)?;
+    filesystem.set("remove_file", remove_file)?;
 
     let process = lua.create_table()?;
     process.set("default_timeout_ms", DEFAULT_PROCESS_TIMEOUT_MS)?;
@@ -131,9 +170,49 @@ pub(crate) fn install(
         })?,
     )?;
 
+    // Pure path arithmetic beside the filesystem effects it addresses: Lua
+    // composes its own resource paths instead of asking Rust for a location.
+    let bridge_path: mlua::Table = bridge.get("path")?;
+    let path = lua.create_table()?;
+    for member in [
+        "join",
+        "normalize",
+        "dirname",
+        "basename",
+        "extname",
+        "is_absolute",
+        "resolve",
+        "relative",
+    ] {
+        path.set(member, bridge_path.get::<mlua::Function>(member)?)?;
+    }
+    path.set("separator", bridge_path.get::<String>("sep")?)?;
+
+    // One immutable startup snapshot, read by name. Values never cross in
+    // bulk, the table cannot be written, and nothing here knows what any
+    // variable means.
+    let names: Vec<String> = environment.keys().cloned().collect();
+    let env = lua.create_table()?;
+    env.set(
+        "get",
+        lua.create_function(move |_, name: String| Ok(environment.get(&name).cloned()))?,
+    )?;
+    env.set(
+        "names",
+        lua.create_function(move |lua, ()| {
+            let result = lua.create_table_with_capacity(names.len(), 0)?;
+            for name in &names {
+                result.push(name.as_str())?;
+            }
+            Ok(result)
+        })?,
+    )?;
+
     let v1 = lua.create_table()?;
     v1.set("api_version", 1_u32)?;
     v1.set("fs", filesystem)?;
+    v1.set("path", path)?;
+    v1.set("env", env)?;
     v1.set("process", process)?;
     v1.set("timer", timer)?;
     v1.set("cancellation", cancellation)?;

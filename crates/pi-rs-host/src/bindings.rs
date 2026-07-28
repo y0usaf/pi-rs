@@ -22,6 +22,13 @@ pub(crate) fn build(
     registry.set("source", "<host>")?;
     lua.set_named_registry_value(REGISTRY_KEY, registry)?;
 
+    // The environment crosses as one immutable startup snapshot: Lua reads
+    // names and values from it, so no dispatch observes a mutating process
+    // environment and no policy default lives in Rust.
+    let environment = config
+        .environment
+        .clone()
+        .unwrap_or_else(|| std::env::vars().collect());
     let pi = lua.create_table()?;
     let module_api = crate::module_api::install(lua)?;
     crate::kernel_api::install(lua, &pi, &module_api, control.clone())?;
@@ -30,6 +37,6 @@ pub(crate) fn build(
     crate::middleware::install(lua, &pi)?;
     terminal::install(lua, &pi)?;
     models::install(lua, &pi)?;
-    effects::install(lua, &pi, cwd, effects)?;
+    effects::install(lua, &pi, cwd, effects, environment)?;
     Ok(pi)
 }
