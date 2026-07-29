@@ -1522,7 +1522,7 @@ After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
   acceptance row for `crates/pi-rs-builtins/tests/**`, now covering the agent,
   frontend, tool, configuration, and session package suites.
 
-- [ ] **4.4 — Integrate configuration/session and close replacement composition**
+- [x] **4.4 — Integrate configuration/session and close replacement composition**
   (**serial after Wave P1**).
 
   Extend the declarative default manifest once, then independently suppress and
@@ -1697,22 +1697,75 @@ After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
   new block rather than reusing the cached output), and `nix run .` under a
   private `HOME` (input-ready frame, no state root written).
 
-  **Remaining for 4.4 (nothing dropped):**
-  1. Independent replacement is now proven for `application` (Nix
-     `--package` override), `agent` (distribution level, configured),
-     `frontend` (package level in `config_package.rs`, and distribution level
-     in the Nix check), and `session` by omission. What is still unproven is
-     *simultaneous* independence — replacing two roots at once and showing the
-     other packages still compose — which folds naturally into item 2.
-  2. Untouched by every slice so far, and the last acceptance criterion left:
-     two composing extensions without privileged ordering, deterministic
-     conflict/module-version matrices, lifecycle cleanup, reload rollback, and
-     watchdog isolation across the expanded graph.
-  3. Carried forward from 4.2/4.3: `tests/README.md` still has no acceptance
-     row for `crates/pi-rs-builtins/tests/**` (agent, frontend, tool,
-     configuration, and session package suites). Left alone deliberately —
-     that file has unrelated uncommitted user edits.
-  4. `pi.roots.v1` registers, lists, and selects `application`, `agent`, and
+  **Landed slice (composition across the expanded graph — the last acceptance
+  criterion, closed here).** Every earlier slice proved *replacement*; what was
+  never asserted is that two packages nobody shipped compose over the whole
+  distribution, and that the shipped packages hold no privileged position in
+  that composition. `crates/pi-rs-app/tests/default_distribution.rs` grew from
+  12 to 21 tests, all through the public surface: a `config.lua` in the pinned
+  `$XDG_CONFIG_HOME` naming file-backed packages under the canonical
+  `$XDG_DATA_HOME/pi/packages` resource, over the *whole* shipped index.
+
+  Two extensions, each one `agent`/`render` stage that marks the settled
+  assistant message, compose in `order` (`[a]` then `[b]`), and the shipped
+  session package's own recording stage at order `100` records what they
+  produced — it reads the public action vocabulary and never asks which source
+  emitted an action. Swapping *only* the two `order` numbers, with the same
+  files, names, and `packages` order, flips the composition, so nothing about
+  load order, file name, or provenance decides the chain. A third extension at
+  order `300` runs after the shipped `100`: its mark reaches the frame while
+  the persisted record keeps the untransformed text, which is the sharpest
+  statement that a shipped stage is ordered rather than final.
+
+  The rest of the matrix, at distribution level rather than on a bare kernel:
+  **deterministic conflict** — two sources claiming one `kind`/`phase`/`id` are
+  refused in *either* declared order, and because the refusal rolls the whole
+  reload back, the extension that had already loaded composes no more either;
+  **module versions** — an extension requiring `pi.config.paths@1` receives the
+  real shipped path policy (it refuses to load unless the module resolves a
+  `sessions` destination), while `@2` fails that package and rolls the reload
+  back, the same pair proving the source is valid; **lifecycle cleanup** —
+  dropping one entry from `packages` and dispatching `config_reload` disposes
+  exactly that package and drops its stage, while the retained package is kept
+  rather than reloaded and keeps its place; **reload rollback** — a package
+  that raises at load leaves the previous generation composing unchanged;
+  **watchdog isolation** — a stage that never returns costs one refused
+  dispatch under a 400 ms budget, after which the shipped session command still
+  answers and the shipped frontend still repaints. Because the runaway sits
+  under a *nested* root dispatch (the coordinator asking the agent root), the
+  watchdog's stop arrives as a Lua error carrying the traceback, not the
+  host-level `Timeout` a top-level dispatch returns; both are the same bound.
+
+  **Simultaneous independence** closed with it: one configuration replaces the
+  `agent` and `frontend` roots at once (both registered at priority `-10`,
+  below the shipped `0`, so only being *named* resolves them), the replacement
+  frontend renders the replacement agent's message, the shipped footer never
+  paints, and the shipped session package still folds the turn into
+  `header, model, message, message` and answers `session status`.
+
+  Two harness additions were needed and are small: a `plain` fixture that
+  settles without deltas (the shipped transcript deliberately keeps an
+  already-streamed row as streamed, so a render transform is only observable in
+  the frame on a non-streamed turn), and an explicit dispatch-timeout
+  constructor plus a non-panicking `try_dispatch` for the watchdog budget.
+
+  This work also corrected `docs/default-distribution.md`, which claimed a
+  shipped stage could be replaced by registering the same `kind`/`phase`/`id`
+  from your own package. The host refuses exactly that as a conflict; the doc
+  now says so and gains a `Composing extensions` section for the rules above.
+
+  Checks: `cargo fmt --all -- --check`, `cargo clippy --workspace
+  --all-targets` (8 pre-existing warnings, none in the touched file),
+  `cargo test --workspace` (80 test targets, 400 tests, 0 failures),
+  `nix flake check --print-build-logs` (6 checks, all passed), and `nix run .`
+  under a private `HOME`/XDG set (input-ready frame, nothing written).
+
+  **Standing notes carried past 4.4 (deliberate, not dropped):**
+  1. `tests/README.md` still has no acceptance row for
+     `crates/pi-rs-builtins/tests/**` (agent, frontend, tool, configuration,
+     and session package suites). Left alone again: that file has unrelated
+     uncommitted user edits, and touching it would mix them into a commit.
+  2. `pi.roots.v1` registers, lists, and selects `application`, `agent`, and
      `frontend` only, while `RootKind` and `DESIGN.md` also name `session`. A
      session root is therefore registrable only through `pi.kernel.v1.root`.
      Left as is: nothing dispatches a session root today, and widening the

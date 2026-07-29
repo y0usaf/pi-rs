@@ -81,9 +81,44 @@ both as public application event middleware:
   tool paths resolve against the launcher root rather than the process
   directory. (This closes the open question from the tool package.)
 
-Both stages are replaceable: register the same `kind`/`phase`/`id` from your
-own package, configure another model with a `configure` event, or drop the
-defaults package from a copied manifest.
+Both stages are replaceable, but *not* by claiming their identity: a
+`kind`/`phase`/`id` already registered by another source is a deterministic
+conflict, and the refusal fails the package that raised it. Replace one by
+dropping the defaults package from a copied manifest, by configuring another
+model (the configuration's `-200` stage sets it, so the `-100` default finds
+one and stops), or by ordering your own stage ahead of it.
+
+## Composing extensions
+
+An extension is an ordinary file-backed package a configuration loads:
+
+```lua
+-- $XDG_CONFIG_HOME/pi/config.lua
+return { packages = { "mark.lua" } }   -- resolved from $XDG_DATA_HOME/pi/packages
+```
+
+Two of them compose with each other and with the shipped packages under one
+rule and no privilege:
+
+- **`order` decides, nothing else.** Not load order, not the file name, not
+  whether a package is shipped or file-backed. The shipped session package's
+  `agent`/`render` stage at `100` is simply a number in the same chain: a stage
+  at `10` feeds it, and a stage at `300` changes what the frame shows without
+  changing what was recorded.
+- **Identity is owned.** Two sources claiming one `kind`/`phase`/`id` conflict
+  the same way in either declared order.
+- **Lifecycle is reconciled, not restarted.** Dropping an entry from `packages`
+  and dispatching `config_reload` disposes exactly that package and drops its
+  stages; every retained package is kept as it is rather than reloaded. A
+  package that fails to load rolls the reload back and leaves the previous
+  generation composing.
+- **A stage is bounded.** A handler that never returns is stopped by the
+  per-dispatch watchdog and costs one refused dispatch, not the session.
+
+Roots follow the same rule with one addition: a replacement is *named*
+(`roots = { agent = "..." }`), never won by outbidding a priority. Two roots
+may be replaced at once, and the packages that were not replaced keep composing
+over both.
 
 ## Replacing the distribution
 
