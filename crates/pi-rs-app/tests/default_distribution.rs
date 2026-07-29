@@ -8,6 +8,7 @@
 
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -48,7 +49,9 @@ fn manifest_packages(manifest: &Path) -> Vec<PathBuf> {
 fn shipped_lua_files() -> Vec<PathBuf> {
     let root = pi_rs_builtins::package_root();
     let mut found = Vec::new();
-    for tree in ["agent", "tools", "frontend", "defaults"] {
+    for tree in [
+        "config", "agent", "tools", "frontend", "session", "defaults",
+    ] {
         let directory = root.join(tree);
         for entry in std::fs::read_dir(&directory).expect("read package tree") {
             let path = entry.expect("directory entry").path();
@@ -84,21 +87,99 @@ fn the_manifest_indexes_every_shipped_package_exactly_once() {
 }
 
 // ---------------------------------------------------------------------------
+// Private storage roots
+// ---------------------------------------------------------------------------
+
+/// One scenario's private HOME, XDG roots, and workspace.
+///
+/// The shipped distribution now carries the configuration and session
+/// packages, so a run reads `<config>/pi/config.lua` and may write session
+/// records under `<state>/pi/sessions`. A test that inherited the developer's
+/// real environment would read their configuration and write their session
+/// directory, so every root is pinned here and nothing outside the temporary
+/// directory is reachable.
+struct Sandbox {
+    directory: tempfile::TempDir,
+}
+
+impl Sandbox {
+    fn new() -> Self {
+        let directory = tempfile::tempdir().expect("sandbox");
+        for entry in ["home", "config", "data", "state", "cache", "workspace"] {
+            std::fs::create_dir_all(directory.path().join(entry)).expect("sandbox directory");
+        }
+        Self { directory }
+    }
+
+    fn path(&self, entry: &str) -> PathBuf {
+        self.directory.path().join(entry)
+    }
+
+    fn workspace(&self) -> PathBuf {
+        self.path("workspace")
+    }
+
+    /// Canonical session destination: `$XDG_STATE_HOME/pi/sessions`.
+    fn sessions(&self) -> PathBuf {
+        self.path("state").join("pi").join("sessions")
+    }
+
+    /// Canonical user configuration: `$XDG_CONFIG_HOME/pi/config.lua`.
+    fn write_configuration(&self, text: &str) {
+        let directory = self.path("config").join("pi");
+        std::fs::create_dir_all(&directory).expect("configuration directory");
+        std::fs::write(directory.join("config.lua"), text).expect("configuration file");
+    }
+
+    /// Exactly the variables `pi.config.paths@1` reads, and nothing else.
+    fn environment(&self) -> BTreeMap<String, String> {
+        BTreeMap::from([
+            ("HOME".to_owned(), text(&self.path("home"))),
+            ("XDG_CONFIG_HOME".to_owned(), text(&self.path("config"))),
+            ("XDG_DATA_HOME".to_owned(), text(&self.path("data"))),
+            ("XDG_STATE_HOME".to_owned(), text(&self.path("state"))),
+            ("XDG_CACHE_HOME".to_owned(), text(&self.path("cache"))),
+        ])
+    }
+}
+
+fn text(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+/// Every `.jsonl` session log written under the sandbox's state root.
+fn session_logs(sandbox: &Sandbox) -> Vec<PathBuf> {
+    let directory = sandbox.sessions();
+    let Ok(entries) = std::fs::read_dir(&directory) else {
+        return Vec::new();
+    };
+    let mut found = entries
+        .map(|entry| entry.expect("session entry").path())
+        .filter(|path| path.extension().is_some_and(|value| value == "jsonl"))
+        .collect::<Vec<_>>();
+    found.sort();
+    found
+}
+
+// ---------------------------------------------------------------------------
 // Installed launcher journey
 // ---------------------------------------------------------------------------
 
-/// Runs the built `pi` binary with an explicit manifest. stdin is not a
-/// terminal here, so the launcher serializes the startup batch — the same
-/// batch an interactive session presents as its first frame.
-fn run_launcher(manifest: &Path, root: &Path) -> Value {
-    let output = Command::new(env!("CARGO_BIN_EXE_pi"))
+/// Runs the built `pi` binary with an explicit manifest inside a sandbox.
+/// stdin is not a terminal here, so the launcher serializes the startup batch
+/// — the same batch an interactive session presents as its first frame.
+fn run_launcher(sandbox: &Sandbox, manifest: &Path) -> Value {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pi"));
+    command
         .arg("--root")
-        .arg(root)
+        .arg(sandbox.workspace())
         .arg("--manifest")
         .arg(manifest)
-        .env_remove("PI_PACKAGE_MANIFEST")
-        .output()
-        .expect("run pi");
+        .env_remove("PI_PACKAGE_MANIFEST");
+    for (name, value) in sandbox.environment() {
+        command.env(name, value);
+    }
+    let output = command.output().expect("run pi");
     assert!(
         output.status.success(),
         "launcher failed: {}",
@@ -139,10 +220,32 @@ fn action_kinds(batch: &Value) -> Vec<String> {
         .collect()
 }
 
+/// Writes a private manifest that selects every shipped package except one
+/// tree. Manifest entries are absolute, so the copy behaves exactly like the
+/// shipped index while living in the sandbox.
+fn manifest_without(sandbox: &Sandbox, tree: &str) -> PathBuf {
+    let selected = manifest_packages(&pi_rs_builtins::manifest_path())
+        .into_iter()
+        .filter(|path| {
+            path.parent()
+                .and_then(Path::file_name)
+                .is_none_or(|name| name != tree)
+        })
+        .map(|path| Value::String(text(&path)))
+        .collect::<Vec<_>>();
+    let path = sandbox.path("workspace").join(format!("no-{tree}.json"));
+    std::fs::write(
+        &path,
+        serde_json::to_vec(&json!({"version": 1, "packages": selected})).expect("manifest"),
+    )
+    .expect("write manifest");
+    path
+}
+
 #[test]
 fn the_default_distribution_starts_input_ready() {
-    let scratch = tempfile::tempdir().unwrap();
-    let batch = run_launcher(&pi_rs_builtins::manifest_path(), scratch.path());
+    let sandbox = Sandbox::new();
+    let batch = run_launcher(&sandbox, &pi_rs_builtins::manifest_path());
     let screen = frame(&batch);
 
     assert!(screen.contains("pi · "), "header missing: {screen}");
@@ -157,15 +260,23 @@ fn the_default_distribution_starts_input_ready() {
     for kind in action_kinds(&batch) {
         assert_eq!(kind, "ansi", "unexpected host action {kind}");
     }
+    // Persistence is policy over a conversation, not a startup side effect:
+    // a launch that says nothing leaves the state root untouched.
+    assert!(
+        session_logs(&sandbox).is_empty(),
+        "startup wrote a session log: {:?}",
+        session_logs(&sandbox)
+    );
+    assert!(
+        !sandbox.path("state").join("pi").exists(),
+        "startup created a state root"
+    );
 }
 
 #[test]
 fn the_default_distribution_selects_a_model_without_configuration() {
-    let scratch = tempfile::tempdir().unwrap();
-    let screen = frame(&run_launcher(
-        &pi_rs_builtins::manifest_path(),
-        scratch.path(),
-    ));
+    let sandbox = Sandbox::new();
+    let screen = frame(&run_launcher(&sandbox, &pi_rs_builtins::manifest_path()));
 
     assert!(
         screen.contains("claude-sonnet-4-5"),
@@ -177,10 +288,48 @@ fn the_default_distribution_selects_a_model_without_configuration() {
     );
 }
 
+/// The shipped configuration package is part of the distribution, so an
+/// ordinary `config.lua` outranks the distribution default without replacing
+/// or forking anything: its stage runs at order `-200`, before the
+/// distribution's own `-100` model stage.
+#[test]
+fn a_user_configuration_outranks_the_distribution_model() {
+    let sandbox = Sandbox::new();
+    sandbox.write_configuration("return { model = { provider = 'openai', id = 'gpt-5.1' } }\n");
+
+    let screen = frame(&run_launcher(&sandbox, &pi_rs_builtins::manifest_path()));
+
+    assert!(
+        screen.contains("gpt-5.1"),
+        "configured model missing from the header: {screen}"
+    );
+    assert!(
+        !screen.contains("claude-sonnet-4-5"),
+        "distribution default still applied: {screen}"
+    );
+}
+
+/// Sessions are optional: a distribution index without the session tree is
+/// still the same input-ready product, and nothing degrades to a diagnostic.
+#[test]
+fn a_distribution_without_the_session_package_starts_input_ready() {
+    let sandbox = Sandbox::new();
+    let suppressed = manifest_without(&sandbox, "session");
+
+    let shipped = frame(&run_launcher(&sandbox, &pi_rs_builtins::manifest_path()));
+    let without = frame(&run_launcher(&sandbox, &suppressed));
+
+    assert_eq!(
+        shipped, without,
+        "suppressing the session package changed the first frame"
+    );
+    assert!(without.contains("idle"), "not input-ready: {without}");
+}
+
 #[test]
 fn every_shipped_source_copied_to_disk_behaves_identically() {
-    let scratch = tempfile::tempdir().unwrap();
-    let copy = scratch.path().join("distribution");
+    let sandbox = Sandbox::new();
+    let copy = sandbox.path("distribution");
     let manifest = pi_rs_builtins::manifest_path();
     let base = manifest.parent().expect("manifest directory");
 
@@ -193,10 +342,8 @@ fn every_shipped_source_copied_to_disk_behaves_identically() {
         std::fs::copy(&path, &target).unwrap();
     }
 
-    let workspace = scratch.path().join("workspace");
-    std::fs::create_dir_all(&workspace).unwrap();
-    let shipped = run_launcher(&manifest, &workspace);
-    let copied = run_launcher(&copy.join("default.json"), &workspace);
+    let shipped = run_launcher(&sandbox, &manifest);
+    let copied = run_launcher(&sandbox, &copy.join("default.json"));
 
     assert_eq!(
         frame(&shipped),
@@ -359,38 +506,40 @@ fn fixture_model(api: &str, id: &str) -> Value {
 // ---------------------------------------------------------------------------
 
 /// The whole shipped distribution, loaded exactly as the launcher loads it,
-/// inside one workspace directory.
+/// inside one sandbox: private XDG roots, private workspace.
 struct Distribution {
     host: Host,
-    _directory: tempfile::TempDir,
+    sandbox: Sandbox,
 }
 
 impl Distribution {
     fn new() -> Self {
-        let directory = tempfile::tempdir().unwrap();
+        Self::from_packages(&manifest_packages(&pi_rs_builtins::manifest_path()))
+    }
+
+    fn from_packages(packages: &[PathBuf]) -> Self {
+        let sandbox = Sandbox::new();
         let host = Host::new(HostConfig {
-            cwd: Some(directory.path().to_string_lossy().into_owned()),
+            cwd: Some(text(&sandbox.workspace())),
+            environment: Some(sandbox.environment()),
             ..HostConfig::default()
         })
         .unwrap();
-        for path in manifest_packages(&pi_rs_builtins::manifest_path()) {
-            host.load_package(PackageSource::File { path: &path })
+        for path in packages {
+            host.load_package(PackageSource::File { path })
                 .unwrap_or_else(|error| panic!("load {}: {error}", path.display()));
         }
-        Self {
-            host,
-            _directory: directory,
-        }
+        Self { host, sandbox }
     }
 
-    fn workspace(&self) -> &Path {
-        self._directory.path()
+    fn workspace(&self) -> PathBuf {
+        self.sandbox.workspace()
     }
 
     /// The launcher publishes the resolved root on every application
     /// dispatch; the in-process journey mirrors that context exactly.
     fn dispatch(&self, event: Value) -> DispatchBatch {
-        let context = json!({"root": self.workspace().to_string_lossy()});
+        let context = json!({"root": text(&self.workspace())});
         self.host
             .dispatch(DispatchRequest::new(RootKind::Application, event, context))
             .unwrap_or_else(|error| panic!("application dispatch failed: {error}"))
@@ -405,6 +554,18 @@ impl Distribution {
             .filter(|action| action.kind == "ansi")
             .filter_map(|action| action.payload.get("data").and_then(Value::as_str))
             .collect()
+    }
+
+    /// One `session` command, answered by the shipped session package's
+    /// application stage and returned as its `session_result` payload.
+    fn session(&self, command: &str) -> Value {
+        let batch = self.dispatch(json!({"kind": "session", "command": command}));
+        batch
+            .actions
+            .iter()
+            .find(|action| action.kind == "session_result")
+            .map(|action| action.payload.clone())
+            .unwrap_or(Value::Null)
     }
 
     fn start_with_fixture(&self, api: &str, id: &str) {
@@ -450,5 +611,110 @@ fn the_default_distribution_reports_missing_credentials() {
     assert!(
         screen.contains("provider credentials missing or rejected"),
         "credential guidance absent: {screen}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Optional persistence
+// ---------------------------------------------------------------------------
+
+fn records(path: &Path) -> Vec<Value> {
+    std::fs::read_to_string(path)
+        .expect("read session log")
+        .lines()
+        .skip(1) // the store's own format header
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            serde_json::from_str::<Value>(line)
+                .expect("record")
+                .get("value")
+                .cloned()
+                .expect("record value")
+        })
+        .collect()
+}
+
+/// The shipped distribution persists a real conversation: one log under the
+/// canonical XDG state entry, carrying the same public agent vocabulary the
+/// session package folds, and the `session` command answers from inside the
+/// distribution rather than from a test driver.
+#[test]
+fn a_conversation_persists_one_session_log_under_the_state_root() {
+    let _fixture = Fixture::install("distribution-session");
+    let distribution = Distribution::new();
+
+    distribution.start_with_fixture("distribution-session", "tools");
+    assert!(
+        session_logs(&distribution.sandbox).is_empty(),
+        "configuring a model started a log before the conversation"
+    );
+
+    std::fs::write(distribution.workspace().join("note.txt"), "alpha\n").unwrap();
+    distribution.dispatch(json!({"kind": "input", "data": "read the note\r"}));
+
+    let logs = session_logs(&distribution.sandbox);
+    assert_eq!(logs.len(), 1, "expected exactly one session log: {logs:?}");
+    let written = records(&logs[0]);
+    let kinds = written
+        .iter()
+        .filter_map(|record| record.get("kind").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kinds,
+        vec![
+            "header", "model", "message", "message", "message", "message"
+        ],
+        "unexpected persisted vocabulary: {written:#?}"
+    );
+    assert_eq!(written[2]["role"], "user");
+    assert_eq!(written[2]["text"], "read the note");
+    assert_eq!(written[4]["role"], "tool");
+    assert_eq!(written[4]["name"], "read");
+
+    let status = distribution.session("status");
+    assert_eq!(status["ok"], true, "session status refused: {status}");
+    // user prompt, the tool-calling assistant turn, its tool result, and the
+    // assistant's follow-up.
+    assert_eq!(status["session"]["messages"], 4);
+    assert_eq!(status["directory"], text(&distribution.sandbox.sessions()));
+}
+
+/// Removing the session package from the index leaves exactly the ephemeral
+/// product: the same completed turn, nothing written, and the unanswered
+/// `session` command reported by the application root instead.
+#[test]
+fn suppressing_the_session_package_leaves_an_ephemeral_conversation() {
+    let _fixture = Fixture::install("distribution-ephemeral");
+    let selected = manifest_packages(&pi_rs_builtins::manifest_path())
+        .into_iter()
+        .filter(|path| {
+            path.parent()
+                .and_then(Path::file_name)
+                .is_none_or(|name| name != "session")
+        })
+        .collect::<Vec<_>>();
+    let distribution = Distribution::from_packages(&selected);
+
+    distribution.start_with_fixture("distribution-ephemeral", "tools");
+    std::fs::write(distribution.workspace().join("note.txt"), "alpha\n").unwrap();
+    distribution.dispatch(json!({"kind": "input", "data": "read the note\r"}));
+
+    let screen = distribution.screen();
+    assert!(
+        screen.contains("pi   note read"),
+        "the conversation still completes: {screen}"
+    );
+    assert!(
+        session_logs(&distribution.sandbox).is_empty(),
+        "a suppressed session package wrote records"
+    );
+    assert!(
+        !distribution.sandbox.path("state").join("pi").exists(),
+        "a suppressed session package created the state root"
+    );
+    assert_eq!(
+        distribution.session("status"),
+        Value::Null,
+        "a suppressed session package still answered a command"
     );
 }

@@ -47,6 +47,9 @@ local RESOURCE = "sessions"
 local live = nil
 local locations = nil
 local model_id = nil
+-- A model record built before any conversation existed: held here until the
+-- first real record starts the log (see `record_batch`).
+local deferred_model = nil
 local last_error = nil
 
 local function first_line(value)
@@ -123,8 +126,9 @@ end
 -- ---------------------------------------------------------------------------
 
 --- Turn one settled agent batch into ordered steps. A step is either a record
---- to append or the one control step this vocabulary has: `agent_reset` ends
---- the log, because a cleared conversation is a different conversation.
+--- to append, a *deferred* record that must not by itself start a log, or the
+--- one control step this vocabulary has: `agent_reset` ends the log, because a
+--- cleared conversation is a different conversation.
 local function steps_for(actions)
   local steps = {}
   local function record(built, value)
@@ -160,7 +164,15 @@ local function steps_for(actions)
       local id = payload.model
       if type(id) == "string" and id ~= model_id then
         model_id = id
-        record(pcall(schema.model, id))
+        -- Selecting a model is not a conversation: the shipped distribution
+        -- configures one on every startup, so recording it eagerly would
+        -- create a durable log for a launch that never says anything. The
+        -- record is deferred instead — it is appended when the conversation
+        -- actually starts, keeping the written order identical.
+        local built, value = pcall(schema.model, id)
+        if built then
+          steps[#steps + 1] = { record = value, deferred = true }
+        end
       end
     elseif kind == "agent_reset" then
       steps[#steps + 1] = { reset = true }
@@ -177,13 +189,31 @@ local function record_batch(actions)
   for _, step in ipairs(steps) do
     if step.reset then
       close_live()
+      -- The next log's header carries the model, so a deferred record left
+      -- over from the closed conversation would only repeat it.
+      deferred_model = nil
+    elseif step.deferred and (live == nil or live:closed()) then
+      deferred_model = step.record
     else
       local session, reason = ensure_live()
       if session == nil then
         last_error = reason
         return
       end
-      local appended, failure = session:append(step.record)
+      local queued = step.record
+      if deferred_model ~= nil then
+        local carried = deferred_model
+        deferred_model = nil
+        if carried ~= queued then
+          local appended, failure = session:append(carried)
+          if appended == nil then
+            last_error = failure
+            live = nil
+            return
+          end
+        end
+      end
+      local appended, failure = session:append(queued)
       if appended == nil then
         -- A closed or unwritable store is dropped rather than retried in a
         -- loop; the next batch starts a fresh log.

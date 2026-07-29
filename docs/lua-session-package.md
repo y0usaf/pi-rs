@@ -38,13 +38,19 @@ agent that emits the same actions is persisted with no change here.
 | `agent_steered` | `message` (`user`) |
 | `agent_message` | `message` (`assistant`) |
 | `agent_tool_result` | `message` (`tool`) with `call_id`, `name`, `ok` |
-| `agent_configured` | `model`, when the model id changes |
+| `agent_configured` | `model`, when the model id changes — *deferred* |
 | `agent_error`, `agent_cancelled` | `note` |
 | `agent_reset` | ends the log; the next turn opens a new one |
 
 `agent_message` publishes the settled text and a tool-call count, not the
 provider content blocks, so a persisted assistant turn carries its text and the
 tool results that follow carry their own id, name, and output.
+
+Selecting a model is not a conversation. The shipped distribution configures
+one on every startup, so a `model` record never starts a log by itself: it is
+held until the first real record arrives and appended immediately before it.
+A launch that says nothing therefore writes no session file at all, while a
+conversation is persisted in exactly the order it happened.
 
 ## Records
 
