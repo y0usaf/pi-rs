@@ -40,6 +40,7 @@ local json = module.require("pi.config.json", "1")
 local trust = module.require("pi.config.trust", "1")
 local defaults = module.require("pi.config.defaults", "1")
 local apply = module.require("pi.config.apply", "1")
+local tool_policy = module.require("pi.config.tools", "1")
 
 local SECTIONS = schema.schema.fields
 
@@ -84,6 +85,7 @@ local state = {
   generation = {},
   declarations = nil,
   plan = {},
+  tools = nil,
   modules = {},
   options = {},
   errors = {},
@@ -401,6 +403,22 @@ local function compose(options)
     end
   end
 
+  -- 6. The tool policy, validated against the live suite for the same
+  --    reason: a suppressed tool that does not exist is a typo, and a typo
+  --    must fail the reload rather than quietly change nothing. Applying it
+  --    happens later, in the `-50` stage, because the distribution's own
+  --    tool-root stage runs after publication.
+  local tools = nil
+  if #errors == 0 then
+    local policy, tool_errors = tool_policy.plan(settings)
+    for _, message in ipairs(tool_errors) do
+      errors[#errors + 1] = message
+    end
+    if #tool_errors == 0 then
+      tools = policy
+    end
+  end
+
   return {
     ok = #errors == 0,
     settings = settings,
@@ -409,6 +427,7 @@ local function compose(options)
     context = context,
     package_sources = package_sources,
     plan = plan,
+    tools = tools,
     errors = errors,
   }
 end
@@ -603,6 +622,7 @@ local function reload(options)
   state.package_sources = report.package_sources
   state.generation = generation
   state.plan = report.plan
+  state.tools = report.tools
   state.modules = resolved
   state.revision = state.revision + 1
   state.loaded = true
@@ -705,6 +725,14 @@ module.define({
         result[index] = identity
       end
       return result
+    end
+
+    --- The live tool declaration, as the configuration sees it: the root the
+    --- shipped suite runs with, the suppressed names, the per-tool settings,
+    --- and the revision behind them. `nil` while the distribution's own tool
+    --- policy is in force, which is also the zero-configuration answer.
+    function api.tools()
+      return tool_policy.report(state.tools)
     end
 
     function api.errors()
@@ -814,5 +842,36 @@ roots.middleware.register({
       end
     end
     return { event = next_event }
+  end,
+})
+
+-- Applying the tool policy is a *second* stage, deliberately ordered after the
+-- distribution's own `pi.builtins.defaults.tool-root` (order `-99`). The
+-- shipped tool suite is declared when its package loads and re-declared when
+-- the launcher root first appears, so a configuration that re-declared it
+-- during publication (order `-200`) would be overwritten later in the same
+-- dispatch. Configuration outranks a distribution default, so it runs last and
+-- wins by ordering rather than by privilege.
+--
+-- The stage is a comparison first: it re-declares only when the published
+-- revision or the launcher root changes.
+roots.middleware.register({
+  kind = "application",
+  phase = "event",
+  id = "pi.builtins.config.tools",
+  order = -50,
+  handler = function(snapshot)
+    if not state.loaded then
+      return nil
+    end
+    local context = snapshot.context
+    local root = type(context) == "table" and context.root or nil
+    local ok, message = tool_policy.reconcile(state.tools, root, state.revision)
+    if not ok and message ~= nil then
+      -- Publication already happened, so this cannot roll anything back; it
+      -- becomes an inspectable diagnostic instead of a broken dispatch.
+      state.errors[#state.errors + 1] = "tools: " .. tostring(message)
+    end
+    return nil
   end,
 })

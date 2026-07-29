@@ -4,7 +4,7 @@
 public surface only (`pi.effects.v1`, `pi.records.v1`, `pi.packages.v1`,
 `pi.models.v1`, `pi.kernel.v1.module`, `pi.roots.v1.middleware`). Loading order
 is `json.lua`, `paths.lua`, `schema.lua`, `trust.lua`, `defaults.lua`,
-`apply.lua`, `init.lua`; only `init.lua` registers anything.
+`apply.lua`, `tools.lua`, `init.lua`; only `init.lua` registers anything.
 
 No directory name, precedence rule, fallback, trust concept, merge rule, or
 default lives in Rust. The host contributes an immutable environment snapshot,
@@ -49,16 +49,19 @@ configuration trap.
 | `packages` | list of package paths |
 | `modules` | list of `{name, version}` |
 | `providers` | map of provider name to `{api, base_url, models}` |
-| `tools` | `{root, suppress, settings}` |
+| `tools` | `{root, suppress, settings}`; each `settings.<tool>` value may be any scalar |
 | `roots` | `{application, agent, frontend, session}` |
 
 Merge policy: records and maps merge key by key; lists and scalars replace
 wholesale. Lists replace rather than concatenate, so a lower layer can never
-force back an entry a higher layer removed.
+force back an entry a higher layer removed. A tool's own option values are the
+tool's business — `max_lines` is a number and `serialize` is a boolean — so
+`tools.settings` accepts any scalar rather than making a configuration quote
+numbers.
 
 Validating a section proves the file is well formed; **applying** it is a
-separate step, and `pi.config.apply@1` owns it. Two mechanisms carry
-everything:
+separate step. `pi.config.apply@1` owns the declaration sections and
+`pi.config.tools@1` owns the tool suite:
 
 | Section | Applied through | Result |
 |---|---|---|
@@ -66,6 +69,7 @@ everything:
 | `theme` | `pi.kernel.v1.declare("theme", ...)` | `pi.config.theme` |
 | `keymaps` | `pi.kernel.v1.declare("keymap", ...)` | `pi.config.keymap:<binding>`, one per binding, sorted |
 | `providers` | `pi.kernel.v1.declare("provider", ...)` | `pi.config.provider:<name>`, sorted |
+| `tools` | `pi.tools.suite@1` re-declared into `pi.agent.tools@1` | the shipped tools run with the configured root, suppression, and settings |
 
 Declaration ids live in a `pi.config.` namespace, so a configured provider
 never silently collides with one a package declared and a consumer can tell
@@ -80,10 +84,36 @@ The plan is built during composition, before anything is published, so a
 section the product cannot accept rolls the whole reload back rather than half
 applying after the settings already changed.
 
-`tools` and `roots` validate, merge, and publish with everything else, but
-nothing acts on them yet: handing `tools` to the shipped suite has to be
-reconciled with `defaults/init.lua`'s `pi.builtins.defaults.tool-root`
-middleware, and root selection is part of the manifest work in PLAN 4.4.
+### Tools
+
+The shipped suite declares its tools when its package loads, and the
+distribution re-declares them from `defaults/init.lua`
+(`pi.builtins.defaults.tool-root`, order `-99`) once the launcher context first
+names a root. A configuration is a *higher* layer than a distribution default,
+so it applies **after** that stage — `init.lua` registers a second application
+event middleware, `pi.builtins.config.tools`, at order `-50`, and the last
+stage to run owns the registry. That is ordering, not privilege: a package that
+wants the final word registers a later stage the same way.
+
+| Key | Effect |
+|---|---|
+| `tools.root` | absolute workspace root the shipped tools resolve relative paths against; without it they follow the launcher root |
+| `tools.suppress` | tool names the suite does not declare |
+| `tools.settings.<tool>` | that tool's own options, merged over the workspace root |
+
+The section is validated during composition against the live suite, so an
+unknown tool name, a relative `tools.root`, settings for a tool the same file
+suppresses, a `name` key (the suite retracts a tool by its default name, so a
+rename would leak a declaration), or a `tools` section in a distribution with
+no `pi.tools.suite@1` at all fails the reload and rolls back with everything
+else. Applying it costs one unregister plus one declare and happens only when
+the published revision or the launcher root changes; removing the section hands
+the tools back to the distribution rather than freezing the last answer.
+
+`roots` still validates, merges, and publishes without acting: the host picks
+the highest-priority active root per kind and exposes no way for a
+configuration to change that, so root selection is part of the replacement
+work in PLAN 4.4.
 
 ## Trust
 
@@ -109,7 +139,10 @@ revoking is an ordinary later record that leaves the history readable.
 - `resources()`, `roots()` — the resource matrix and the storage roots;
 - `trust(directory, decision)`, `trust_decision(directory)`, `trust_list()`;
 - `declarations()`, `modules()` — what the published configuration applied:
-  the declaration rows it produced and the module identities it resolved.
+  the declaration rows it produced and the module identities it resolved;
+- `tools()` — the live tool declaration (root, suppressed names, per-tool
+  settings, and the revision behind them), or `nil` while the distribution's
+  own tool policy is in force.
 
 Publication is atomic: discovery, evaluation, validation, merging, and package
 loading all complete before anything visible changes. Any failure leaves the
@@ -167,9 +200,14 @@ event already carries one, so a later package may still choose its own.
 A broken configuration file never blocks startup: it publishes diagnostics and
 leaves the event untouched.
 
+It registers a second stage, `pi.builtins.config.tools` (order `-50`), which
+applies the `tools` section after the distribution's own tool-root stage. It
+compares before it acts, so a dispatch that changes neither the revision nor
+the launcher root does nothing.
+
 ## Acceptance
 
-`crates/pi-rs-builtins/tests/config_package.rs` drives 19 deterministic
+`crates/pi-rs-builtins/tests/config_package.rs` drives 26 deterministic
 scenarios through the public kernel transaction: canonical-over-legacy
 precedence, legacy-only fallback with reported unknown keys, no fall-through
 from a broken canonical file, the trust matrix (undecided, trusted, repeated,
@@ -184,3 +222,15 @@ through `pi.kernel.v1.registered`, declaration replacement and retraction
 across reloads with exactly one declaration package alive, an unknown
 configured model failing the reload with its declarations intact, and module
 pinning with its own rollback.
+
+Seven of those scenarios cover the `tools` section. Six carry the shipped tool
+distribution (the agent's tool declaration path, the four core tools, and
+`defaults/init.lua`), so they exercise the real suite against the real
+distribution stage: a configuration-free run leaving the distribution's own
+policy alone, a configured root outranking the launcher root and being handed
+back when the section is removed, suppression disappearing and returning,
+per-tool settings reaching the tool while the configured root still applies, a
+new launcher root not losing the configured policy, and four refusals (unknown
+tool, settings for a suppressed tool, a relative root, a rename) that each keep
+the live declaration. The seventh proves that a `tools` section in a
+distribution carrying no suite is refused rather than silently ignored.

@@ -1247,7 +1247,7 @@ package paths, but shared binding indexes/default manifests remain serial.
 
 After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
 
-- [ ] **4.2 — Config/resource package** (**Wave P1**, path owner:
+- [x] **4.2 — Config/resource package** (**Wave P1**, path owner:
   `crates/pi-rs-builtins/config/**`; depends on 4.1).
 
   Implement `config.lua` declarations, package/module selection, themes, keymaps,
@@ -1348,20 +1348,66 @@ After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
   clippy, default distribution, raw no-package guidance, file-backed
   application, pi-core package, model-catalog update) pass.
 
-  **Remaining for 4.2 (next session):** `tools` and `roots` validate, merge,
-  and publish, but nothing acts on them. Hand `tools` (`root`, `suppress`,
-  `settings`) to the shipped suite through `pi.tools.suite@1`, and act on
-  `roots` selection/suppression; each needs its own matrix row. Both were
-  deliberately deferred rather than half-landed: `tools` would be clobbered by
-  `defaults/init.lua`'s `pi.builtins.defaults.tool-root` middleware (order
-  `-99`, after this package's `-200`), and root selection/suppression is
-  entangled with 4.4's manifest work — the host picks the highest-priority
-  active root per kind, which a configuration cannot influence without a
-  decision about how a selected package wins. The package is deliberately
-  **not** in `crates/pi-rs-builtins/default.json`: 4.4 extends the declarative
-  manifest once and reconciles the overlap with `pi.builtins.defaults.model`
-  (order `-100`) and `pi.builtins.defaults.tool-root` (order `-99`).
-  `tests/README.md` still has no acceptance row for
+  **Landed slice (applying the tools section) — closes 4.2:**
+  `crates/pi-rs-builtins/config/tools.lua` (`pi.config.tools@1`) hands
+  `tools.root`, `tools.suppress`, and `tools.settings` to the shipped suite
+  through `pi.tools.suite@1` and the one tool declaration path
+  `pi.agent.tools@1`. The clobber the previous session parked is resolved by
+  **ordering, not privilege**: the distribution re-declares the suite from
+  `defaults/init.lua` (`pi.builtins.defaults.tool-root`, order `-99`) after this
+  package publishes at `-200`, so `init.lua` now registers a *second*
+  application event stage, `pi.builtins.config.tools`, at order `-50`. A
+  configuration is a higher layer than a distribution default, so it runs last
+  and the last stage to run owns the registry; any package wanting the final
+  word registers a later stage the same way. The split matches the rest of the
+  package: `plan()` validates during composition (so a refusal rolls the whole
+  reload back), and `reconcile()` re-declares in the `-50` stage. Re-declaring
+  costs one unregister plus one declare, so it happens only when the published
+  revision or the launcher root changes — the launcher root is tracked
+  precisely because a root change is what makes the distribution's stage
+  re-declare and drop the configured suppression. The applied memo lives at
+  `tools.lua` file scope for the same reason `apply.lua` stages its plan there:
+  disposing any package clears every module's cached value. Refusals are
+  fail-closed and name their dotted path: an unknown tool, settings for a tool
+  the same file suppresses, a relative `tools.root`, a `name` key (the suite
+  retracts a tool by its default name, so a rename would leak a declaration),
+  and a `tools` section in a distribution carrying no `pi.tools.suite@1`.
+  `pi.config.schema@1` gained one node kind, `scalar` (any string, number, or
+  boolean), so `tools.settings.<tool>` carries a tool's own option values
+  without making a configuration quote numbers; `settings.tools()` reports the
+  live declaration. Evidence:
+  `crates/pi-rs-builtins/tests/config_package.rs` grows to 26 tests with seven
+  new rows — six carry the shipped tool distribution (agent tool path, the four
+  core tools, `defaults/init.lua`) so the real suite meets the real
+  distribution stage: a configuration-free run leaving the distribution's
+  policy alone, a configured root outranking the launcher root and being handed
+  back when the section is removed, suppression disappearing and returning, a
+  numeric per-tool setting reaching `read` while the configured root still
+  applies, a new launcher root not losing the configured policy, and the four
+  refusals each keeping the live declaration; the seventh refuses a `tools`
+  section with no suite loaded. The pre-existing provenance row now carries the
+  tool distribution too, because its project layer configures `tools`.
+  `docs/lua-config-package.md` documents the section, the ordering, and the
+  inspection surface. `cargo fmt --all -- --check`, `cargo test --workspace`
+  (78 test targets, 350 tests, 0 failures), and `nix flake check` (8 checks:
+  workspace tests, clippy, default distribution, raw no-package guidance,
+  file-backed application, pi-core package, model-catalog update) pass.
+
+  **Moved to 4.4 (not dropped):** the `roots` section still validates, merges,
+  and publishes without acting, and it cannot act from this item's owned paths.
+  `kernel_api::resolve_root` picks the highest-priority *active* root per kind,
+  a root entry is keyed `kind\0id` and refuses re-registration from another
+  source, `DeclarationKind` has no `root` member, and no public Lua surface
+  lists, deactivates, or re-prioritises a root — so a configuration can only
+  select a root once 4.4 decides how a selected package wins. That decision and
+  the acceptance row for it belong to 4.4, which already owns root suppression
+  and replacement.
+
+  **Known gaps carried forward:** the package is deliberately **not** in
+  `crates/pi-rs-builtins/default.json` — 4.4 extends the declarative manifest
+  once and reconciles the overlap with `pi.builtins.defaults.model` (order
+  `-100`) and `pi.builtins.defaults.tool-root` (order `-99`), which the new
+  `-50` stage now sits after. `tests/README.md` still has no acceptance row for
   `crates/pi-rs-builtins/tests/**` (a pre-existing gap covering the agent,
   frontend, tool, and configuration package suites).
 
@@ -1386,6 +1432,12 @@ After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
   event/render middleware and config declarations. Prove deterministic conflicts,
   module versions, lifecycle cleanup, reload rollback, watchdog isolation, and
   copied-to-disk reproduction across the expanded graph.
+
+  Inherited from 4.2: make the configuration's `roots` section act. Selecting or
+  suppressing a root from `<config>/config.lua` needs the mechanism this item
+  decides — the host resolves a root by highest priority among active
+  registrations and exposes no Lua way to list, deactivate, or re-prioritise
+  one — so the section validates and publishes today but changes nothing.
 
   **Accept:** `nix run` remains input-ready with and without persistent sessions;
   each package/root is suppressible or replaceable; two extensions compose without

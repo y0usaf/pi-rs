@@ -36,11 +36,36 @@ fn package_files() -> Vec<PathBuf> {
         "trust.lua",
         "defaults.lua",
         "apply.lua",
+        "tools.lua",
         "init.lua",
     ]
     .into_iter()
     .map(|file| root.join(file))
     .collect()
+}
+
+/// The shipped tool distribution: the agent's tool declaration path, the core
+/// tools, and the distribution defaults whose `pi.builtins.defaults.tool-root`
+/// stage (order `-99`) re-declares the suite with the launcher root. The
+/// configuration's own tool stage runs after it, which is exactly what the
+/// scenarios below check.
+fn tool_distribution_files() -> Vec<PathBuf> {
+    let root = pi_rs_builtins::package_root();
+    let mut files = vec![root.join("agent").join("tools.lua")];
+    for file in [
+        "paths.lua",
+        "render.lua",
+        "locks.lua",
+        "read.lua",
+        "write.lua",
+        "edit.lua",
+        "bash.lua",
+        "init.lua",
+    ] {
+        files.push(root.join("tools").join(file));
+    }
+    files.push(root.join("defaults").join("init.lua"));
+    files
 }
 
 /// Driver root: performs one optional command per dispatch and republishes
@@ -52,6 +77,7 @@ local pi = ...
 local roots = pi.roots.v1
 local fs = pi.effects.v1.fs
 local settings = pi.kernel.v1.module.require("pi.config.settings", "1")
+local module = pi.kernel.v1.module
 
 local function clone(value)
   if type(value) ~= "table" then
@@ -82,6 +108,52 @@ local function registered(kind)
   return out
 end
 
+-- Tool observations are optional: most scenarios load no tool package at all,
+-- and a distribution without one must report nothing rather than fail.
+local function tool_registry()
+  local ok, registry = pcall(module.require, "pi.agent.tools", "1")
+  if not ok or type(registry) ~= "table" then
+    return nil
+  end
+  return registry
+end
+
+local function tool_names()
+  local registry = tool_registry()
+  if registry == nil then
+    return nil
+  end
+  local out = {}
+  for index, entry in ipairs(registry.list()) do
+    out[index] = entry.name
+  end
+  return out
+end
+
+local function call_tool(name, arguments)
+  local registry = tool_registry()
+  local entry = registry ~= nil and registry.find(name) or nil
+  if entry == nil then
+    roots.action("tool_result", { name = name, missing = true })
+    return
+  end
+  local ok, result = pcall(entry.execute, {
+    id = "call-1",
+    name = name,
+    arguments = clone(arguments) or {},
+  })
+  if not ok then
+    roots.action("tool_result", { name = name, raised = tostring(result) })
+    return
+  end
+  roots.action("tool_result", {
+    name = name,
+    output = result.output,
+    is_error = result.is_error == true,
+    details = clone(result.details),
+  })
+end
+
 roots.register({
   kind = "application",
   id = "config-driver",
@@ -106,6 +178,8 @@ roots.register({
       fs.write(event.path, event.contents)
     elseif event.kind == "remove" then
       fs.remove_file(event.path)
+    elseif event.kind == "tool_call" then
+      call_tool(event.name, event.arguments)
     end
 
     roots.action("report", {
@@ -122,6 +196,8 @@ roots.register({
       trust_list = settings.trust_list(),
       declarations = settings.declarations(),
       modules = settings.modules(),
+      tool_policy = settings.tools(),
+      tool_names = tool_names(),
       themes = registered("theme"),
       keymaps = registered("keymap"),
       providers = registered("provider"),
@@ -163,6 +239,7 @@ impl Fixture {
             fixture.cache_root(),
             fixture.packages_directory(),
             fixture.project(),
+            fixture.workspace(),
         ] {
             std::fs::create_dir_all(directory).expect("fixture directory");
         }
@@ -213,6 +290,13 @@ impl Fixture {
         self.path("project")
     }
 
+    /// A second directory, so "which root do the tools run with" has a
+    /// visible answer: the launcher publishes `project()`, and a
+    /// configuration may point the tools at this one instead.
+    fn workspace(&self) -> PathBuf {
+        self.path("workspace")
+    }
+
     fn project_config(&self) -> PathBuf {
         self.project().join(".pi/config.lua")
     }
@@ -248,15 +332,15 @@ fn text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn start(environment: BTreeMap<String, String>) -> Host {
+fn start_with(environment: BTreeMap<String, String>, extra: Vec<PathBuf>) -> Host {
     let host = Host::new(HostConfig {
         environment: Some(environment),
         ..HostConfig::default()
     })
     .expect("host starts");
-    for file in package_files() {
+    for file in extra.into_iter().chain(package_files()) {
         host.load_package(PackageSource::File { path: &file })
-            .unwrap_or_else(|error| panic!("configuration package {}: {error}", file.display()));
+            .unwrap_or_else(|error| panic!("package {}: {error}", file.display()));
     }
     let directory = tempfile::tempdir().expect("driver directory");
     let driver = directory.path().join("config-driver.lua");
@@ -265,6 +349,17 @@ fn start(environment: BTreeMap<String, String>) -> Host {
         .expect("driver package loads");
     std::mem::forget(directory);
     host
+}
+
+fn start(environment: BTreeMap<String, String>) -> Host {
+    start_with(environment, Vec::new())
+}
+
+/// A host that also carries the shipped tool distribution, so the tool
+/// scenarios exercise the real suite and the real distribution stage rather
+/// than a stand-in.
+fn start_with_tools(environment: BTreeMap<String, String>) -> Host {
+    start_with(environment, tool_distribution_files())
 }
 
 /// Every dispatch carries the project root the launcher publishes, which is
@@ -647,7 +742,10 @@ fn every_effective_key_reports_the_layer_and_file_that_produced_it() {
         r#"return { theme = "project", tools = { root = "/workspace" } }"#,
     );
 
-    let host = start(fixture.environment());
+    // The project layer configures `tools`, and a `tools` section is refused
+    // in a distribution that has no tool suite to apply it to, so this
+    // scenario carries the shipped tool distribution.
+    let host = start_with_tools(fixture.environment());
     dispatch(
         &host,
         &fixture,
@@ -1085,6 +1183,272 @@ fn the_configuration_pins_the_module_identities_it_names() {
     assert_eq!(payload["revision"], 1);
     assert_eq!(rows(&payload["modules"]), vec![json!("pi.test.extra@1")]);
     assert_eq!(package_sources(payload), vec![text(&selected)]);
+}
+
+// ---------------------------------------------------------------------------
+// Tools
+// ---------------------------------------------------------------------------
+
+/// Names in the order the shipped suite declares them.
+fn tool_names(payload: &Value) -> Vec<String> {
+    rows(&payload["tool_names"])
+        .into_iter()
+        .map(|value| value.as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+fn read_note(host: &Host, fixture: &Fixture, file: &str) -> Value {
+    let batch = dispatch(
+        host,
+        fixture,
+        json!({ "kind": "tool_call", "name": "read", "arguments": { "path": file } }),
+    );
+    action(&batch, "tool_result").clone()
+}
+
+/// A dispatch from a launcher root other than the fixture's project.
+fn dispatch_from(host: &Host, root: &Path, event: Value) -> DispatchBatch {
+    host.dispatch(DispatchRequest::new(
+        RootKind::Application,
+        event,
+        json!({ "root": text(root) }),
+    ))
+    .expect("dispatch succeeds")
+}
+
+#[test]
+fn a_new_launcher_root_does_not_lose_the_configured_tool_policy() {
+    let fixture = Fixture::new();
+    fixture.write_config(r#"return { tools = { suppress = { "bash" } } }"#);
+
+    let host = start_with_tools(fixture.environment());
+    let payload = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+    assert_eq!(tool_names(&payload), ["read", "write", "edit"]);
+    // No configured root, so the tools follow the launcher root exactly as
+    // the distribution intends.
+    assert_eq!(payload["tool_policy"]["root"], text(&fixture.project()));
+
+    // A dispatch from a different root makes `pi.builtins.defaults.tool-root`
+    // re-declare the whole suite, which would put the suppressed tool back.
+    // The configuration's stage runs after it and re-applies, so the
+    // suppression survives a root change without a reload.
+    let batch = dispatch_from(&host, &fixture.workspace(), json!({ "kind": "report" }));
+    let payload = report(&batch).clone();
+    assert_eq!(tool_names(&payload), ["read", "write", "edit"]);
+    assert_eq!(payload["tool_policy"]["root"], text(&fixture.workspace()));
+    assert_eq!(payload["revision"], 1);
+}
+
+#[test]
+fn without_a_tools_section_the_distribution_keeps_its_own_tool_policy() {
+    let fixture = Fixture::new();
+    fixture.write(&fixture.project().join("note.txt"), "project note\n");
+    fixture.write(&fixture.workspace().join("note.txt"), "workspace note\n");
+
+    let host = start_with_tools(fixture.environment());
+    let payload = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+
+    // The configuration applied no tool policy at all, so `pi.builtins.
+    // defaults.tool-root` still owns the declaration and every shipped tool
+    // is present.
+    assert_eq!(payload["tool_policy"], Value::Null);
+    assert_eq!(tool_names(&payload), ["read", "write", "edit", "bash"]);
+
+    // The launcher root is what a relative tool path resolves against.
+    let result = read_note(&host, &fixture, "note.txt");
+    assert_eq!(result["is_error"], false);
+    assert!(
+        result["output"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("project note"),
+        "{result}"
+    );
+}
+
+#[test]
+fn a_configured_workspace_root_outranks_the_launcher_root_and_is_given_back() {
+    let fixture = Fixture::new();
+    fixture.write(&fixture.project().join("note.txt"), "project note\n");
+    fixture.write(&fixture.workspace().join("note.txt"), "workspace note\n");
+    fixture.write_config(&format!(
+        "return {{ tools = {{ root = {:?} }} }}",
+        text(&fixture.workspace())
+    ));
+
+    let host = start_with_tools(fixture.environment());
+    let payload = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+
+    // The distribution's stage runs first (order -99) and the configuration's
+    // runs after it (-50), so the configured root is what survives the
+    // dispatch.
+    assert_eq!(payload["tool_policy"]["root"], text(&fixture.workspace()));
+    assert_eq!(payload["tool_policy"]["revision"], 1);
+    let result = read_note(&host, &fixture, "note.txt");
+    assert_eq!(result["details"]["path"], "note.txt");
+    assert!(
+        result["output"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("workspace note"),
+        "{result}"
+    );
+
+    // Removing the section hands the tools back to the distribution rather
+    // than freezing the configuration's last answer.
+    std::fs::remove_file(fixture.config_file()).expect("remove configuration");
+    let payload = report(&dispatch(
+        &host,
+        &fixture,
+        json!({ "kind": "config_reload" }),
+    ))
+    .clone();
+    assert_eq!(payload["revision"], 2);
+    assert_eq!(payload["tool_policy"], Value::Null);
+    let result = read_note(&host, &fixture, "note.txt");
+    assert!(
+        result["output"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("project note"),
+        "{result}"
+    );
+}
+
+#[test]
+fn a_suppressed_tool_disappears_and_returns_when_the_file_changes() {
+    let fixture = Fixture::new();
+    fixture.write_config(r#"return { tools = { suppress = { "bash", "edit" } } }"#);
+
+    let host = start_with_tools(fixture.environment());
+    let payload = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+
+    assert_eq!(tool_names(&payload), ["read", "write"]);
+    assert_eq!(
+        rows(&payload["tool_policy"]["suppress"]),
+        vec![json!("bash"), json!("edit")]
+    );
+    let batch = dispatch(
+        &host,
+        &fixture,
+        json!({ "kind": "tool_call", "name": "bash", "arguments": { "command": "true" } }),
+    );
+    assert_eq!(action(&batch, "tool_result")["missing"], true);
+
+    // Suppression is reversible, and the suite's own order comes back with
+    // the tools.
+    fixture.write_config("return {}");
+    let payload = report(&dispatch(
+        &host,
+        &fixture,
+        json!({ "kind": "config_reload" }),
+    ))
+    .clone();
+    assert_eq!(payload["revision"], 2);
+    assert_eq!(payload["tool_policy"], Value::Null);
+    assert_eq!(tool_names(&payload), ["read", "write", "edit", "bash"]);
+}
+
+#[test]
+fn per_tool_settings_reach_the_tool_and_keep_the_configured_root() {
+    let fixture = Fixture::new();
+    fixture.write(
+        &fixture.workspace().join("three.txt"),
+        "first\nsecond\nthird\n",
+    );
+    // `max_lines` is a number, not a quoted number: a tool's option values are
+    // the tool's business, so this map accepts any scalar.
+    fixture.write_config(&format!(
+        "return {{ tools = {{ root = {:?}, settings = {{ read = {{ max_lines = 1 }} }} }} }}",
+        text(&fixture.workspace())
+    ));
+
+    let host = start_with_tools(fixture.environment());
+    let payload = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+    assert_eq!(payload["tool_policy"]["settings"]["read"]["max_lines"], 1);
+
+    // The per-tool table replaces the shared one inside the suite, so the
+    // configured root has to be merged into it — which is why the relative
+    // path still resolves.
+    let result = read_note(&host, &fixture, "three.txt");
+    assert_eq!(result["is_error"], false);
+    assert_eq!(result["details"]["path"], "three.txt");
+    assert_eq!(result["details"]["lines"], 3);
+    assert_eq!(result["details"]["shown"], 1);
+    assert_eq!(result["details"]["truncated"], true);
+}
+
+#[test]
+fn a_tools_section_the_suite_cannot_accept_fails_the_reload_and_keeps_the_declaration() {
+    let fixture = Fixture::new();
+    fixture.write_config(r#"return { tools = { suppress = { "bash" } } }"#);
+
+    let host = start_with_tools(fixture.environment());
+    let payload = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+    assert_eq!(tool_names(&payload), ["read", "write", "edit"]);
+
+    // Each refusal names its dotted path, and each leaves the live
+    // declaration exactly as the published configuration left it.
+    for (contents, expected) in [
+        (
+            r#"return { tools = { suppress = { "banish" } } }"#.to_owned(),
+            "tools.suppress[1]: no tool named 'banish'".to_owned(),
+        ),
+        (
+            r#"return { tools = { suppress = { "bash" }, settings = { bash = { timeout_ms = 10 } } } }"#
+                .to_owned(),
+            "tools.settings.bash: 'bash' is suppressed by tools.suppress".to_owned(),
+        ),
+        (
+            r#"return { tools = { root = "relative/workspace" } }"#.to_owned(),
+            "tools.root: must be an absolute path, got 'relative/workspace'".to_owned(),
+        ),
+        (
+            r#"return { tools = { settings = { read = { name = "peek" } } } }"#.to_owned(),
+            "tools.settings.read.name: a tool cannot be renamed by configuration".to_owned(),
+        ),
+    ] {
+        fixture.write_config(&contents);
+        let payload =
+            report(&dispatch(&host, &fixture, json!({ "kind": "config_reload" }))).clone();
+        let errors = rows(&payload["errors"])
+            .into_iter()
+            .map(|value| value.as_str().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>();
+        assert!(errors.contains(&expected), "{errors:?}");
+        assert_eq!(payload["revision"], 1);
+        assert_eq!(tool_names(&payload), ["read", "write", "edit"]);
+        assert_eq!(
+            rows(&payload["tool_policy"]["suppress"]),
+            vec![json!("bash")]
+        );
+    }
+}
+
+#[test]
+fn configuring_tools_without_a_tool_suite_fails_the_reload() {
+    let fixture = Fixture::new();
+    fixture.write_config(r#"return { tools = { suppress = { "bash" } } }"#);
+
+    // No tool package in this distribution: a section that cannot be applied
+    // is refused rather than silently doing nothing.
+    let host = start(fixture.environment());
+    let payload = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+
+    assert_eq!(payload["loaded"], false);
+    assert_eq!(payload["revision"], 0);
+    assert_eq!(payload["tool_policy"], Value::Null);
+    assert_eq!(payload["tool_names"], Value::Null);
+    let errors = rows(&payload["errors"])
+        .into_iter()
+        .map(|value| value.as_str().unwrap_or_default().to_owned())
+        .collect::<Vec<_>>();
+    assert!(
+        errors
+            .iter()
+            .any(|message| message == "tools: no tool suite (pi.tools.suite@1) is loaded"),
+        "{errors:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
