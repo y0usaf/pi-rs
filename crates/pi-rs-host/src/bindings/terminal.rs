@@ -21,6 +21,7 @@ pub(crate) fn install(lua: &mlua::Lua, pi: &mlua::Table) -> mlua::Result<()> {
             lua.create_userdata(crate::tui_api::runtime::LuaRetainedDisplay::new(limits)?)
         })?,
     )?;
+    crate::tui_api::text::install(lua, &v1)?;
 
     let terminal = lua.create_table()?;
     terminal.set("v1", v1)?;
