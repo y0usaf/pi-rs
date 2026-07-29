@@ -123,6 +123,100 @@ roots.register({
 })
 "#;
 
+// A package whose only job is to publish its own dispatch cancellation. A
+// scope token is cancelled by disposal, so this is the one public way for
+// another package to hold a *cancelled* kernel cancellation while it still
+// runs: capture the token during a dispatch, then dispose this package.
+const TOKEN_SOURCE: &str = r#"
+local pi = ...
+local kernel = pi.kernel.v1
+local roots = pi.roots.v1
+local shared = {}
+
+kernel.module.define({
+  name = "test.cancellation",
+  version = "1",
+  factory = function()
+    return shared
+  end,
+})
+
+roots.register({
+  kind = "agent",
+  id = "cancellation-source",
+  dispatch = function()
+    shared.token = kernel.cancellation()
+    roots.action("captured", { cancelled = shared.token:is_cancelled() })
+  end,
+})
+"#;
+
+const CANCEL: &str = r#"
+local pi = ...
+local records = pi.records.v1
+local roots = pi.roots.v1
+local kernel = pi.kernel.v1
+local effects = pi.effects.v1
+local shared = nil
+
+roots.register({
+  kind = "application",
+  id = "record-cancel",
+  dispatch = function(snapshot)
+    if snapshot.event.kind == "capture" then
+      shared = kernel.module.require("test.cancellation", "1")
+      roots.action("captured", { cancelled = shared.token:is_cancelled() })
+      return
+    end
+
+    local destination = snapshot.context.storage.destination
+    local store = records.create({ directory = destination, name = "cancelled" })
+    store:append({ schema = "journey/v1", index = 1 })
+    store:append({ schema = "journey/v1", index = 2 })
+    local settled = store:record_count()
+
+    local appended, append_error = pcall(function()
+      store:append({ schema = "journey/v1", index = 3 }, { cancellation = shared.token })
+    end)
+    local copied, copy_error = pcall(function()
+      store:copy({ directory = destination, name = "copy", cancellation = shared.token })
+    end)
+    local read, read_error = pcall(function()
+      store:cursor():next({ cancellation = shared.token })
+    end)
+    local foreign, foreign_error = pcall(function()
+      store:append({ schema = "journey/v1", index = 4 }, {
+        cancellation = effects.cancellation.new(),
+      })
+    end)
+
+    local after = store:record_count()
+    local survived, survived_error = pcall(function()
+      store:append({ schema = "journey/v1", index = 5 })
+    end)
+    local final = store:record_count()
+    store:close()
+
+    roots.action("attempted", {
+      cancelled = shared.token:is_cancelled(),
+      settled = settled,
+      after = after,
+      final = final,
+      appended = appended,
+      append_error = tostring(append_error),
+      copied = copied,
+      copy_error = tostring(copy_error),
+      read = read,
+      read_error = tostring(read_error),
+      foreign = foreign,
+      foreign_error = tostring(foreign_error),
+      survived = survived,
+      survived_error = tostring(survived_error),
+    })
+  end,
+})
+"#;
+
 struct Fixture {
     _directory: tempfile::TempDir,
     destination: std::path::PathBuf,
@@ -290,4 +384,91 @@ fn open_stores_are_scope_resources_released_by_package_disposal() {
     );
     assert_eq!(reopened.actions[0].payload["count"], 0);
     assert_eq!(reopened.actions[0].payload["done"], true);
+}
+
+#[test]
+fn a_cancelled_kernel_token_refuses_record_work_before_it_starts() {
+    let fixture = Fixture::new();
+    let host = Host::new(HostConfig::default()).expect("host starts");
+    let source = load(&host, "cancellation-source", TOKEN_SOURCE);
+    load(&host, "record-cancel", CANCEL);
+
+    // The token belongs to the publishing package's scope, so it is live while
+    // that package is loaded.
+    let captured = host
+        .dispatch(DispatchRequest::new(
+            RootKind::Agent,
+            serde_json::json!({ "kind": "capture" }),
+            serde_json::json!({}),
+        ))
+        .expect("agent dispatch succeeds");
+    assert_eq!(captured.actions[0].payload["cancelled"], false);
+    let held = dispatch(
+        &host,
+        serde_json::json!({ "kind": "capture" }),
+        fixture.context(),
+    );
+    assert_eq!(held.actions[0].payload["cancelled"], false);
+
+    // Disposing the publishing package cancels its scope token; the recording
+    // package still holds it through an ordinary module value.
+    host.dispose_package(&source).expect("package disposes");
+
+    let batch = dispatch(
+        &host,
+        serde_json::json!({ "kind": "attempt" }),
+        fixture.context(),
+    );
+    let payload = &batch.actions[0].payload;
+    assert_eq!(payload["cancelled"], true);
+
+    // Every operation observing the cancelled token fails; none of them
+    // commits, publishes, or partially applies.
+    assert_eq!(payload["appended"], false);
+    assert_eq!(payload["copied"], false);
+    assert_eq!(payload["read"], false);
+    for field in ["append_error", "copy_error", "read_error"] {
+        let message = payload[field].as_str().expect("cancellation diagnostic");
+        assert!(
+            message.contains("record-store operation cancelled"),
+            "expected a cancellation diagnostic in {field}: {message}"
+        );
+    }
+
+    // A cancellation the kernel did not issue is refused by name rather than
+    // silently ignored or honoured.
+    assert_eq!(payload["foreign"], false);
+    assert!(
+        payload["foreign_error"]
+            .as_str()
+            .expect("foreign cancellation diagnostic")
+            .contains("kernel cancellation"),
+        "expected a kernel-cancellation diagnostic in {}",
+        payload["foreign_error"]
+    );
+
+    // The store is refused, not broken: the settled records are intact and an
+    // uncancelled append still lands.
+    assert_eq!(payload["settled"], 2);
+    assert_eq!(payload["after"], 2);
+    assert_eq!(payload["survived"], true);
+    assert_eq!(payload["final"], 3);
+
+    // Nothing torn on disk: header plus three whole records, and the cancelled
+    // copy published no destination at all.
+    let written = std::fs::read_to_string(fixture.destination.join("cancelled.jsonl"))
+        .expect("read the recorded store");
+    assert_eq!(written.lines().count(), 4);
+    assert!(
+        !written.contains("\"index\":3"),
+        "cancelled record reached disk"
+    );
+    assert!(
+        !written.contains("\"index\":4"),
+        "foreign record reached disk"
+    );
+    assert!(
+        !fixture.destination.join("copy.jsonl").exists(),
+        "a cancelled copy published a destination"
+    );
 }
