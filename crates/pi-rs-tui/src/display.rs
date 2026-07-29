@@ -15,9 +15,14 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::utils::grapheme_width;
 
-pub const DISPLAY_SCHEMA_VERSION: u16 = 1;
+pub const DISPLAY_SCHEMA_VERSION: u16 = 2;
 const SYNC_START: &str = "\x1b[?2026h";
 const SYNC_END: &str = "\x1b[?2026l";
+/// OSC 8 with an empty parameter field. The target follows, then `ST`.
+const LINK_OPEN: &str = "\x1b]8;;";
+const LINK_TERMINATOR: &str = "\x1b\\";
+/// OSC 8 with an empty parameter field and an empty target ends the link.
+const LINK_CLOSE: &str = "\x1b]8;;\x1b\\";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DisplayLimits {
@@ -27,6 +32,8 @@ pub struct DisplayLimits {
     pub max_text_runs: usize,
     pub max_text_bytes: usize,
     pub max_cells: usize,
+    /// Total bytes of hyperlink targets in one batch.
+    pub max_link_bytes: usize,
 }
 
 impl Default for DisplayLimits {
@@ -38,6 +45,7 @@ impl Default for DisplayLimits {
             max_text_runs: 16_384,
             max_text_bytes: 1_048_576,
             max_cells: 262_144,
+            max_link_bytes: 65_536,
         }
     }
 }
@@ -193,6 +201,9 @@ pub struct TextRun {
     pub text: String,
     #[serde(default)]
     pub style: CellStyle,
+    /// OSC 8 hyperlink target for every cell this run paints.
+    #[serde(default)]
+    pub link: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -275,6 +286,8 @@ pub struct Cell {
     pub grapheme: Option<Arc<str>>,
     pub style: CellStyle,
     pub continuation: bool,
+    /// OSC 8 hyperlink target, shared with the run that painted this cell.
+    pub link: Option<Arc<str>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -349,7 +362,15 @@ impl Frame {
         self.cells[index] = Cell::default();
     }
 
-    fn paint(&mut self, row: u16, column: u16, grapheme: &str, width: u16, style: CellStyle) {
+    fn paint(
+        &mut self,
+        row: u16,
+        column: u16,
+        grapheme: &str,
+        width: u16,
+        style: CellStyle,
+        link: Option<&Arc<str>>,
+    ) {
         for offset in 0..width {
             self.clear_footprint(row, column + offset);
         }
@@ -360,6 +381,7 @@ impl Frame {
             grapheme: Some(Arc::from(grapheme)),
             style,
             continuation: false,
+            link: link.cloned(),
         };
         for offset in 1..width {
             if let Some(index) = self.index(row, column + offset) {
@@ -367,6 +389,7 @@ impl Frame {
                     grapheme: None,
                     style,
                     continuation: true,
+                    link: link.cloned(),
                 };
             }
         }
@@ -432,6 +455,10 @@ pub enum DisplayError {
     LayoutOverflow(NodeId),
     #[error("text run count {actual} exceeds limit {limit}")]
     TextRunLimit { actual: usize, limit: usize },
+    #[error("hyperlink byte count {actual} exceeds limit {limit}")]
+    LinkByteLimit { actual: usize, limit: usize },
+    #[error("node {0:?} has an empty or control-bearing hyperlink target")]
+    InvalidLink(NodeId),
     #[error("text byte count {actual} exceeds limit {limit}")]
     TextByteLimit { actual: usize, limit: usize },
     #[error("node {0:?} contains terminal control data")]
@@ -576,6 +603,7 @@ fn changed_span(
 
 fn write_cells(output: &mut String, cells: &[Cell], start: usize, end: usize) {
     let mut active_style = None;
+    let mut active_link: Option<&str> = None;
     let mut column = start;
     while column <= end {
         let cell = &cells[column];
@@ -587,12 +615,32 @@ fn write_cells(output: &mut String, cells: &[Cell], start: usize, end: usize) {
             cell.style.write_ansi(output);
             active_style = Some(cell.style);
         }
+        // A hyperlink is out-of-band state, not an SGR attribute, so the style
+        // reset above never ends it: an open target stays open until this
+        // writer closes it explicitly.
+        let link = cell.link.as_deref();
+        if active_link != link {
+            if active_link.is_some() {
+                output.push_str(LINK_CLOSE);
+            }
+            if let Some(link) = link {
+                output.push_str(LINK_OPEN);
+                output.push_str(link);
+                output.push_str(LINK_TERMINATOR);
+            }
+            active_link = link;
+        }
         output.push_str(cell.grapheme.as_deref().unwrap_or(" "));
         if column + 1 < cells.len() && cells[column + 1].continuation {
             column += 2;
         } else {
             column += 1;
         }
+    }
+    // Spans are per-row and partial, so a link never escapes the cells it was
+    // painted on.
+    if active_link.is_some() {
+        output.push_str(LINK_CLOSE);
     }
 }
 
@@ -749,6 +797,7 @@ fn validate_batch(
     let mut index = BTreeMap::new();
     let mut text_runs = 0usize;
     let mut text_bytes = 0usize;
+    let mut link_bytes = 0usize;
     for (position, node) in batch.nodes.iter().enumerate() {
         if node.id.0 == 0 {
             return Err(DisplayError::ZeroNodeId);
@@ -789,6 +838,16 @@ fn validate_batch(
                 }) {
                     return Err(DisplayError::TerminalControl(node.id));
                 }
+                if let Some(link) = &run.link {
+                    // An OSC 8 target is terminated by ST, so any control byte
+                    // would end the sequence early and hand the rest of the
+                    // target to the terminal as commands. An empty target is
+                    // the close sequence itself, so it can never open a link.
+                    if link.is_empty() || link.chars().any(char::is_control) {
+                        return Err(DisplayError::InvalidLink(node.id));
+                    }
+                    link_bytes = link_bytes.saturating_add(link.len());
+                }
             }
         }
     }
@@ -802,6 +861,12 @@ fn validate_batch(
         return Err(DisplayError::TextByteLimit {
             actual: text_bytes,
             limit: limits.max_text_bytes,
+        });
+    }
+    if link_bytes > limits.max_link_bytes {
+        return Err(DisplayError::LinkByteLimit {
+            actual: link_bytes,
+            limit: limits.max_link_bytes,
         });
     }
 
@@ -1128,13 +1193,23 @@ fn rasterize(batch: &DisplayBatch, validated: &ValidatedBatch) -> Result<Rasteri
     })
 }
 
+/// Per-run cell attributes carried unchanged through the shared text walker.
+///
+/// The link is borrowed rather than owned so one `Arc` per run is shared by
+/// every cell that run paints, instead of one allocation per cell.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct RunAttributes<'a> {
+    style: CellStyle,
+    link: Option<&'a Arc<str>>,
+}
+
 /// One grapheme placement produced by the shared text walker.
 struct TextPlacement<'a> {
     row: u16,
     column: u16,
     grapheme: &'a str,
     width: u16,
-    style: CellStyle,
+    attributes: RunAttributes<'a>,
 }
 
 /// Walk a text node's graphemes exactly the way the rasterizer paints them and
@@ -1150,12 +1225,12 @@ fn walk_text<'a, I>(
     visit: &mut dyn FnMut(TextPlacement<'a>),
 ) -> (u16, u16)
 where
-    I: IntoIterator<Item = (&'a str, CellStyle)>,
+    I: IntoIterator<Item = (&'a str, RunAttributes<'a>)>,
 {
     let tab_width = u16::from(tab_width.max(1));
     let mut row = 0u16;
     let mut column = 0u16;
-    for (text, style) in segments {
+    for (text, attributes) in segments {
         for grapheme in text.graphemes(true) {
             if grapheme == "\n" {
                 row = row.saturating_add(1);
@@ -1170,7 +1245,7 @@ where
                         column,
                         grapheme: " ",
                         width: 1,
-                        style,
+                        attributes,
                     });
                     column = column.saturating_add(1);
                 }
@@ -1194,7 +1269,7 @@ where
                 column,
                 grapheme,
                 width: cells,
-                style,
+                attributes,
             });
             column = column.saturating_add(cells);
         }
@@ -1210,9 +1285,24 @@ fn paint_text(
     wrap: WrapMode,
     tab_width: u8,
 ) -> usize {
+    // One `Arc` per linked run, cloned per cell: every cell a run paints shares
+    // the same target, so the presenter can compare links by value and the
+    // frame never allocates per cell.
+    let links: Vec<Option<Arc<str>>> = runs
+        .iter()
+        .map(|run| run.link.as_deref().map(Arc::from))
+        .collect();
     let mut painted = 0;
     walk_text(
-        runs.iter().map(|run| (run.text.as_str(), run.style)),
+        runs.iter().zip(&links).map(|(run, link)| {
+            (
+                run.text.as_str(),
+                RunAttributes {
+                    style: run.style,
+                    link: link.as_ref(),
+                },
+            )
+        }),
         rect.width,
         wrap,
         tab_width,
@@ -1220,32 +1310,20 @@ fn paint_text(
             if placement.row >= rect.height {
                 return;
             }
-            painted += paint_one(
-                frame,
-                rect,
-                clip,
-                placement.grapheme,
-                placement.width,
-                placement.style,
-                placement.row,
-                placement.column,
-            );
+            painted += paint_one(frame, rect, clip, &placement);
         },
     );
     painted
 }
 
-#[allow(clippy::too_many_arguments)]
-fn paint_one(
-    frame: &mut Frame,
-    rect: Rect,
-    clip: Rect,
-    grapheme: &str,
-    width: u16,
-    style: CellStyle,
-    row: u16,
-    column: u16,
-) -> usize {
+fn paint_one(frame: &mut Frame, rect: Rect, clip: Rect, placement: &TextPlacement<'_>) -> usize {
+    let TextPlacement {
+        row,
+        column,
+        grapheme,
+        width,
+        attributes,
+    } = *placement;
     if width > rect.width || column.saturating_add(width) > rect.width {
         return 0;
     }
@@ -1264,7 +1342,14 @@ fn paint_one(
     let (Ok(row), Ok(column)) = (u16::try_from(y), u16::try_from(x)) else {
         return 0;
     };
-    frame.paint(row, column, grapheme, width, style);
+    frame.paint(
+        row,
+        column,
+        grapheme,
+        width,
+        attributes.style,
+        attributes.link,
+    );
     usize::from(width)
 }
 
@@ -1364,7 +1449,7 @@ pub fn measure_text(
     let mut max_width = 0u16;
     let mut cells = 0usize;
     let (row, column) = walk_text(
-        std::iter::once((text, CellStyle::default())),
+        std::iter::once((text, RunAttributes::default())),
         width,
         wrap,
         tab_width,
@@ -1396,7 +1481,7 @@ pub fn wrap_text(
     let mut rows: Vec<String> = Vec::new();
     let mut overflow = false;
     let (last_row, _) = walk_text(
-        std::iter::once((text, CellStyle::default())),
+        std::iter::once((text, RunAttributes::default())),
         width,
         WrapMode::Grapheme,
         tab_width,
@@ -1534,6 +1619,7 @@ mod tests {
                 runs: vec![TextRun {
                     text: value.to_owned(),
                     style: CellStyle::default(),
+                    link: None,
                 }],
                 wrap: WrapMode::Grapheme,
                 tab_width: 4,
@@ -2035,5 +2121,155 @@ mod tests {
                 offset: 3,
             }]
         );
+    }
+
+    fn linked_row(id: u64, rect: Rect, target: &str) -> DisplayNode {
+        DisplayNode {
+            id: NodeId(id),
+            rect,
+            clip_children: true,
+            focusable: false,
+            content: DisplayNodeContent::Text {
+                runs: vec![
+                    TextRun {
+                        text: "see ".to_owned(),
+                        style: CellStyle::default(),
+                        link: None,
+                    },
+                    TextRun {
+                        text: "docs".to_owned(),
+                        style: CellStyle::default(),
+                        link: Some(target.to_owned()),
+                    },
+                    TextRun {
+                        text: " now".to_owned(),
+                        style: CellStyle::default(),
+                        link: None,
+                    },
+                ],
+                wrap: WrapMode::Clip,
+                tab_width: 4,
+            },
+            children: Vec::new(),
+        }
+    }
+
+    fn row_batch(id: u64, target: &str) -> DisplayBatch {
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width: 12,
+            height: 1,
+        };
+        batch(
+            12,
+            1,
+            vec![
+                group(1, rect, vec![NodeId(2)]),
+                linked_row(id, rect, target),
+            ],
+        )
+    }
+
+    #[test]
+    fn hyperlinked_runs_wrap_exactly_their_own_cells_in_osc8() {
+        let mut display = RetainedDisplay::default();
+        let first = display
+            .submit(row_batch(2, "https://example.test/a"))
+            .unwrap();
+
+        // The link opens on the first cell of its run and closes on the first
+        // cell that does not carry it, so the unlinked text on either side is
+        // outside the sequence.
+        assert!(
+            first
+                .ansi
+                .contains("\x1b]8;;https://example.test/a\x1b\\docs\x1b]8;;\x1b\\")
+        );
+        let frame = display.frame().unwrap();
+        assert_eq!(frame.cell(0, 3).unwrap().link, None);
+        assert_eq!(
+            frame.cell(0, 4).unwrap().link.as_deref(),
+            Some("https://example.test/a")
+        );
+        // Every cell of the run shares one allocation.
+        assert!(Arc::ptr_eq(
+            frame.cell(0, 4).unwrap().link.as_ref().unwrap(),
+            frame.cell(0, 7).unwrap().link.as_ref().unwrap()
+        ));
+        assert_eq!(frame.cell(0, 8).unwrap().link, None);
+
+        // A target change with identical text is still a cell change, so the
+        // differential update repaints exactly the linked span.
+        let second = display
+            .submit(row_batch(2, "https://example.test/b"))
+            .unwrap();
+        assert_eq!(second.changed_cells, 4);
+        assert!(!second.full_redraw);
+        assert!(
+            second
+                .ansi
+                .contains("\x1b]8;;https://example.test/b\x1b\\docs\x1b]8;;\x1b\\")
+        );
+
+        // Resubmitting the same tree changes nothing and emits nothing.
+        let third = display
+            .submit(row_batch(2, "https://example.test/b"))
+            .unwrap();
+        assert!(third.ansi.is_empty());
+    }
+
+    #[test]
+    fn hyperlink_targets_are_validated_and_bounded() {
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width: 12,
+            height: 1,
+        };
+        let refuse = |target: &str| {
+            let mut display = RetainedDisplay::default();
+            display
+                .submit(batch(
+                    12,
+                    1,
+                    vec![group(1, rect, vec![NodeId(2)]), linked_row(2, rect, target)],
+                ))
+                .unwrap_err()
+        };
+        // An empty target is the OSC 8 close sequence, and any control byte
+        // would terminate the sequence early.
+        assert_eq!(refuse(""), DisplayError::InvalidLink(NodeId(2)));
+        assert_eq!(
+            refuse("https://example.test/\x07evil"),
+            DisplayError::InvalidLink(NodeId(2))
+        );
+        assert_eq!(
+            refuse("https://example.test/\x1b]0;title"),
+            DisplayError::InvalidLink(NodeId(2))
+        );
+
+        let mut bounded = RetainedDisplay::new(DisplayLimits {
+            max_link_bytes: 8,
+            ..DisplayLimits::default()
+        });
+        assert_eq!(
+            bounded
+                .submit(batch(
+                    12,
+                    1,
+                    vec![
+                        group(1, rect, vec![NodeId(2)]),
+                        linked_row(2, rect, "https://example.test/a"),
+                    ],
+                ))
+                .unwrap_err(),
+            DisplayError::LinkByteLimit {
+                actual: 22,
+                limit: 8,
+            }
+        );
+        // A refused batch leaves no retained frame behind.
+        assert!(bounded.frame().is_none());
     }
 }

@@ -4,12 +4,12 @@ The inherited Pi-compatibility extension API is not part of pi-rs. Ordinary Lua
 packages receive one compact, versioned mechanism table; embedded provenance
 adds no members or privileges.
 
-The complete top-level surface after PLAN 4.1's text-measurement slice is:
+The complete top-level surface after PLAN 4.1's hyperlink slice is:
 
 - `pi.kernel.v1`: package transaction primitives;
 - `pi.roots.v1`: application/agent/frontend root facade;
-- `pi.terminal.v1`: batched terminal input, retained display submission, and
-  Unicode cell measurement;
+- `pi.terminal.v1`: batched terminal input, retained display submission,
+  hyperlink styling, and Unicode cell measurement;
 - `pi.models.v1`: catalog inventory/lookup, model-row validation, and bounded
   provider event streaming;
 - `pi.effects.v1`: bounded filesystem/path/environment, process, timer, and
@@ -104,6 +104,26 @@ failed load leaves the previous generation selected.
 `clear`, and `buffer`. `display([limits])` returns a retained display handle with
 `submit`, `revision`, and `reset_presentation`. Submit complete versioned trees
 using `display_schema_version`; no callback occurs per byte or cell.
+
+### Hyperlinks
+
+A text run may carry `link="<target>"` beside its `text` and `style`. Every cell
+that run paints is presented inside one OSC 8 sequence, and the sequence closes
+on the first cell that does not carry the same target, so a link covers its own
+run and nothing else. The target is out-of-band terminal state, not glyphs: it
+occupies no cell, changes no measurement, and never appears as painted text.
+
+Hyperlink state and SGR state are independent, so the style reset that ends an
+underlined label does not end its link, and a run may be linked without being
+styled. Changing only the target is still a cell change, so the differential
+presenter repaints exactly that span.
+
+A target is refused when it is empty (the empty OSC 8 target is the close
+sequence) or contains any control character (it would terminate the sequence
+early and hand the rest to the terminal as commands). `max_link_bytes`
+(`display({max_link_bytes=...})`, default 65536) bounds the total target bytes in
+one batch. Whether something is a link, what the target is, and how a link looks
+are Lua policy; the host adds no underline, no color, and no `id` grouping.
 
 ### Text measurement
 

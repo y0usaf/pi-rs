@@ -116,7 +116,7 @@ fn input_is_batched_and_retained_display_is_transactional() {
     );
 
     let display = &result["display"];
-    assert_eq!(display["schema_version"], 1);
+    assert_eq!(display["schema_version"], 2);
     assert_eq!(display["initial"]["revision"], 1);
     assert_eq!(display["initial"]["painted_cells"], 3);
     assert_eq!(

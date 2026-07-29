@@ -301,6 +301,7 @@ fn display_batch(
                 runs: vec![TextRun {
                     text: line,
                     style: Default::default(),
+                    link: None,
                 }],
                 wrap: WrapMode::Clip,
                 tab_width: 4,
