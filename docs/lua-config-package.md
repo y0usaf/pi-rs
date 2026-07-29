@@ -2,9 +2,10 @@
 
 `crates/pi-rs-builtins/config/` is an ordinary Lua package graph over the
 public surface only (`pi.effects.v1`, `pi.records.v1`, `pi.packages.v1`,
-`pi.models.v1`, `pi.kernel.v1.module`, `pi.roots.v1.middleware`). Loading order
-is `json.lua`, `paths.lua`, `schema.lua`, `trust.lua`, `defaults.lua`,
-`apply.lua`, `tools.lua`, `init.lua`; only `init.lua` registers anything.
+`pi.models.v1`, `pi.kernel.v1.module`, `pi.roots.v1`). Loading order is
+`json.lua`, `paths.lua`, `schema.lua`, `trust.lua`, `defaults.lua`,
+`apply.lua`, `tools.lua`, `roots.lua`, `init.lua`; only `init.lua` registers
+anything.
 
 No directory name, precedence rule, fallback, trust concept, merge rule, or
 default lives in Rust. The host contributes an immutable environment snapshot,
@@ -70,6 +71,7 @@ separate step. `pi.config.apply@1` owns the declaration sections and
 | `keymaps` | `pi.kernel.v1.declare("keymap", ...)` | `pi.config.keymap:<binding>`, one per binding, sorted |
 | `providers` | `pi.kernel.v1.declare("provider", ...)` | `pi.config.provider:<name>`, sorted |
 | `tools` | `pi.tools.suite@1` re-declared into `pi.agent.tools@1` | the shipped tools run with the configured root, suppression, and settings |
+| `roots` | `pi.roots.v1.select(kind, id)` | the named registration resolves that root kind, whatever its priority |
 
 Declaration ids live in a `pi.config.` namespace, so a configured provider
 never silently collides with one a package declared and a consumer can tell
@@ -110,10 +112,41 @@ else. Applying it costs one unregister plus one declare and happens only when
 the published revision or the launcher root changes; removing the section hands
 the tools back to the distribution rather than freezing the last answer.
 
-`roots` still validates, merges, and publishes without acting: the host picks
-the highest-priority active root per kind and exposes no way for a
-configuration to change that, so root selection is part of the replacement
-work in PLAN 4.4.
+### Roots
+
+Without a selection the host resolves a root kind by the highest priority among
+the active registrations and fails on a tie, so replacing the shipped frontend
+meant outbidding it. `roots.<kind> = "<id>"` names it instead:
+
+```lua
+return {
+  packages = { "my-frontend.lua" },
+  roots = { frontend = "my-frontend" },
+}
+```
+
+The kinds are `application`, `agent`, and `frontend` — exactly the kinds
+`pi.roots.v1.register` accepts. `roots.session` is answered with a diagnostic
+rather than applied: the shipped session package integrates as two middleware
+stages and registers no root, so it is replaced through the package index or
+`packages`, not here.
+
+Selection is validated **after** the configuration's own `packages` load,
+because the usual reason to name a root is that one of those packages registers
+it; an id no active registration carries fails the reload and rolls back with
+everything else, listing the ids that do exist. Applying it is a third
+application event stage, `pi.builtins.config.roots` at order `-49`. The host
+resolves a root *before* running that dispatch's middleware, so a selection
+reaches the registry on the next dispatch of that kind — immediate for the
+`agent` and `frontend` roots, which the application dispatches later, and on the
+next application dispatch for `application` itself.
+
+A selection is owned by the source and scope that made it: a second package
+selecting the same kind is a deterministic conflict, disposing the configuration
+hands the kind back to priority resolution, and removing the section clears the
+selection rather than freezing the last answer. `settings.root_selection()`
+reports the live ids and the revision behind them, `nil` while every kind is
+resolved by priority.
 
 ## Trust
 
@@ -142,7 +175,10 @@ revoking is an ordinary later record that leaves the history readable.
   the declaration rows it produced and the module identities it resolved;
 - `tools()` — the live tool declaration (root, suppressed names, per-tool
   settings, and the revision behind them), or `nil` while the distribution's
-  own tool policy is in force.
+  own tool policy is in force;
+- `root_selection()` — the registration id this configuration named per root
+  kind and the revision behind it, or `nil` while every kind is resolved by
+  priority.
 
 Publication is atomic: discovery, evaluation, validation, merging, and package
 loading all complete before anything visible changes. Any failure leaves the

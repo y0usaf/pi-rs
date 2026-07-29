@@ -137,7 +137,9 @@ fn file_and_embedded_packages_see_only_the_same_compact_surface() {
             "read_handle",
             "registered",
             "resource",
-            "root"
+            "root",
+            "roots",
+            "select_root"
         ])
     );
     assert_eq!(

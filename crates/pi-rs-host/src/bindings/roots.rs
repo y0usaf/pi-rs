@@ -9,19 +9,37 @@ pub(crate) fn install(
     let kernel: mlua::Table = pi.get("kernel")?;
     let kernel_v1: mlua::Table = kernel.get("v1")?;
     let register: mlua::Function = kernel_v1.get("root")?;
+    let list: mlua::Function = kernel_v1.get("roots")?;
+    let select: mlua::Function = kernel_v1.get("select_root")?;
 
     let v1 = lua.create_table()?;
     v1.set("api_version", 1_u32)?;
     v1.set(
         "register",
         lua.create_function(move |_, definition: mlua::Table| {
-            let kind: String = definition.get("kind")?;
-            if !matches!(kind.as_str(), "application" | "agent" | "frontend") {
-                return Err(mlua::Error::runtime(
-                    "roots.v1 supports application, agent, and frontend roots",
-                ));
-            }
+            check_kind(&definition.get::<String>("kind")?)?;
             register.call::<()>(definition)
+        })?,
+    )?;
+
+    // Listing and selection cover exactly the kinds `register` accepts. A kind
+    // no package can register a root for cannot be selected either: the
+    // selection would be permanently unsatisfiable, and a configuration naming
+    // it deserves that answer at the call rather than a silent no-op.
+    v1.set(
+        "list",
+        lua.create_function(move |_, kind: Option<String>| {
+            if let Some(kind) = kind.as_deref() {
+                check_kind(kind)?;
+            }
+            list.call::<mlua::Table>(kind)
+        })?,
+    )?;
+    v1.set(
+        "select",
+        lua.create_function(move |_, (kind, id): (String, Option<String>)| {
+            check_kind(&kind)?;
+            select.call::<()>((kind, id))
         })?,
     )?;
     v1.set("action", kernel_v1.get::<mlua::Function>("action")?)?;
@@ -102,4 +120,14 @@ pub(crate) fn install(
     let roots = lua.create_table()?;
     roots.set("v1", v1)?;
     pi.set("roots", roots)
+}
+
+/// The root kinds this facade registers, lists, and selects.
+fn check_kind(kind: &str) -> mlua::Result<()> {
+    if matches!(kind, "application" | "agent" | "frontend") {
+        return Ok(());
+    }
+    Err(mlua::Error::runtime(
+        "roots.v1 supports application, agent, and frontend roots",
+    ))
 }

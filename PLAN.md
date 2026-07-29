@@ -1531,11 +1531,13 @@ After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
   module versions, lifecycle cleanup, reload rollback, watchdog isolation, and
   copied-to-disk reproduction across the expanded graph.
 
-  Inherited from 4.2: make the configuration's `roots` section act. Selecting or
-  suppressing a root from `<config>/config.lua` needs the mechanism this item
-  decides — the host resolves a root by highest priority among active
-  registrations and exposes no Lua way to list, deactivate, or re-prioritise
-  one — so the section validates and publishes today but changes nothing.
+  Inherited from 4.2 and **closed by the second landed slice below**: make the
+  configuration's `roots` section act. Selecting a root from
+  `<config>/config.lua` needed a mechanism the host did not have — it resolved
+  a root by highest priority among active registrations and exposed no Lua way
+  to list or override that — so the section validated and published without
+  changing anything. `pi.roots.v1.list`/`select` and `pi.config.roots@1` are
+  that mechanism and its policy.
 
   **Accept:** `nix run` remains input-ready with and without persistent sessions;
   each package/root is suppressible or replaceable; two extensions compose without
@@ -1588,28 +1590,88 @@ After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
   (80 test targets, 374 tests, 0 failures), `nix flake check` (9 checks), and
   `nix run .` under a private `HOME` (input-ready, nothing written) all pass.
 
+  **Landed slice (the `roots` section acts: selection instead of outbidding).**
+  A root kind resolved to the highest-priority *active* registration and failed
+  on a tie, so replacing the shipped frontend meant outbidding it and a
+  configuration naming one could change nothing. The kernel now carries a
+  per-kind **selection** beside the registrations
+  (`ROOT_SELECTIONS_KEY` in `crates/pi-rs-host/src/kernel_api.rs`):
+  `pi.kernel.v1.roots([kind])` reports registrations as data (`kind`, `id`,
+  `source`, `priority`, `active`, `selected` — never the `dispatch` function,
+  so listing grants no ability to run one), and
+  `pi.kernel.v1.select_root(kind[, id])` names the row a kind resolves to.
+  `pi.roots.v1.list`/`select` are the facade, restricted to exactly the kinds
+  `register` accepts, so a selection that validates can always be applied.
+  A selection outranks priority entirely and cannot revive an absent or
+  inactive registration — a stale one fails the next dispatch of that kind with
+  `HostError::UnknownSelectedRoot` (kind, id, selecting source) rather than
+  silently falling back to the bidding. It is owned like a registration: a
+  second source selecting the same kind is the same deterministic conflict, and
+  `remove_scope` drops selections of the disposed scope, so disposal or reload
+  rollback restores priority resolution instead of leaving a dangling choice.
+
+  Policy stays in Lua. `crates/pi-rs-builtins/config/roots.lua`
+  (`pi.config.roots@1`, eleventh entry in `default.json`) is the same
+  `plan`/`reconcile` split `pi.config.tools@1` uses, with one deliberate
+  difference: **`plan` runs after the configuration's own `packages` load**,
+  inside `reload` beside `apply.pin`, because the usual reason to name a root
+  is that one of those packages registers it. An id no active registration
+  carries fails the whole reload, rolls the loaded generation back, and lists
+  the ids that do exist. `reconcile` is a third application event stage,
+  `pi.builtins.config.roots` at order `-49`, a comparison first and an action
+  second; removing a kind from the section clears it rather than freezing the
+  last answer. `roots.session` is answered with the replacement path (package
+  index or `packages`) instead of applied: the shipped session package is two
+  middleware stages and registers no root.
+
+  Evidence: `crates/pi-rs-host/tests/root_selection.rs` (10 tests, new) drives
+  the mechanism through the public surface only — a named root beating a
+  higher-priority registration, listing without the dispatch handle, a stale
+  and an inactive selection failing the dispatch by name, a second source
+  refused, the owner reselecting and clearing, disposal restoring priority, a
+  blank id refused, an unregisterable kind refused by both `list` and `select`,
+  and a priority tie decided by selection instead of renumbering.
+  `crates/pi-rs-builtins/tests/config_package.rs` grew to 31 tests with the
+  configuration journey: a config-loaded package's root selected over a
+  priority-10 shipped root, the section removed (including the one-dispatch lag
+  that follows from the host resolving a root *before* that dispatch's
+  middleware), an unknown id rolling the reload back and disposing what it
+  loaded, `roots.session` diagnosed, and no selection at all without the
+  section. `docs/lua-config-package.md` gains a `Roots` section and
+  `root_selection()`; `docs/lua-extension-api.md` documents list/select; the
+  generated `docs/lua-api-reference.md` and the pinned `public_surface`
+  key list cover the four new members. `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets` (pre-existing warnings only; the one
+  `pi-rs-host` lib warning is the untouched `register_root` collapsible `if`),
+  `cargo test --workspace` (80 test targets, 389 tests, 0 failures),
+  `nix flake check --print-build-logs` (6 checks, all passed), and `nix run .`
+  under a private `HOME` (input-ready frame, nothing written) all pass.
+  Note for the next session: a new Lua package file must be `git add`ed before
+  any Nix check runs — the flake sees only tracked files, so an untracked
+  `config/roots.lua` failed `default-distribution` with "package 8 is absent".
+
   **Remaining for 4.4 (nothing dropped):**
-  1. The `roots` section still validates and publishes without acting. The
-     mechanism question is unchanged: `kernel_api::resolve_root`
-     (`crates/pi-rs-host/src/kernel_api.rs`) takes the highest-priority
-     *active* root per kind and fails on a tie, a root entry is keyed
-     `kind\0id` and refuses re-registration from another source,
-     `DeclarationKind` has no `root` member, and `pi.roots.v1` exposes no way
-     to list, deactivate, or re-prioritise a registration. Suppression by
-     copying the manifest works today and is checked; *selection from
-     configuration* still needs the decision.
-  2. Independent replacement of the application, agent, frontend, and session
-     roots is proven only for `application` (the Nix override check) and for
-     session-by-omission. The other three, plus a replacement that is chosen
-     rather than omitted, are unproven.
-  3. Untouched by this slice: two composing extensions without privileged
+  1. Independent replacement of the application, agent, frontend, and session
+     roots is proven for `application` (the Nix override check), for
+     session-by-omission, and now for a `frontend` root *chosen* from
+     configuration in `config_package.rs`. Still unproven: an `agent`
+     replacement, and any of them at distribution level (the
+     `default-distribution` check and `crates/pi-rs-app/tests/default_distribution.rs`
+     still only override the application root).
+  2. Untouched by this slice: two composing extensions without privileged
      ordering, deterministic conflict/module-version matrices, lifecycle
      cleanup, reload rollback, and watchdog isolation across the expanded
      graph.
-  4. Carried forward from 4.2/4.3: `tests/README.md` still has no acceptance
+  3. Carried forward from 4.2/4.3: `tests/README.md` still has no acceptance
      row for `crates/pi-rs-builtins/tests/**` (agent, frontend, tool,
      configuration, and session package suites). Left alone deliberately —
      that file has unrelated uncommitted user edits.
+  4. `pi.roots.v1` registers, lists, and selects `application`, `agent`, and
+     `frontend` only, while `RootKind` and `DESIGN.md` also name `session`. A
+     session root is therefore registrable only through `pi.kernel.v1.root`.
+     Left as is: nothing dispatches a session root today, and widening the
+     facade would ship a public kind with no consumer.
+
 ## 5 — Close the Pi-feeling interactive experience
 
 After 4.4, `/orchestrate` may run **Wave P2** by separate Lua module trees and

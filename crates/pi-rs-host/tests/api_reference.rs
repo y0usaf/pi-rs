@@ -392,6 +392,16 @@ const MEMBERS: &[(&str, &str, &str)] = &[
         "root(definition)",
         "Registers one root; `pi.roots.v1.register` is the facade over it.",
     ),
+    (
+        "pi.kernel.v1.roots",
+        "roots([kind]) -> rows",
+        "Root registrations as data — `kind`, `id`, `source`, `priority`, `active`, `selected` — never the `dispatch` function.",
+    ),
+    (
+        "pi.kernel.v1.select_root",
+        "select_root(kind[, id])",
+        "Resolves one kind to one registration id regardless of priority; omitting `id` clears the selection.",
+    ),
     // -------------------------------------------------------------- models
     (
         "pi.models.v1",
@@ -567,6 +577,11 @@ const MEMBERS: &[(&str, &str, &str)] = &[
         "The same dispatch token as `pi.kernel.v1.cancellation`.",
     ),
     (
+        "pi.roots.v1.list",
+        "list([kind]) -> rows",
+        "The same registry rows as `pi.kernel.v1.roots`, restricted to the kinds this facade registers.",
+    ),
+    (
         "pi.roots.v1.dispatch",
         "dispatch(kind, event[, context]) -> batch",
         "Runs one root dispatch from Lua and returns its published `generation`, `source`, `actions`, and `effects`.",
@@ -590,6 +605,11 @@ const MEMBERS: &[(&str, &str, &str)] = &[
         "pi.roots.v1.register",
         "register(definition)",
         "Registers one `application`, `agent`, or `frontend` root with its `id`, `dispatch`, `active`, and `priority`.",
+    ),
+    (
+        "pi.roots.v1.select",
+        "select(kind[, id])",
+        "Names the registration one kind resolves to, outranking priority; the selection is owned by the selecting source and scope.",
     ),
     // ------------------------------------------------------------ terminal
     (

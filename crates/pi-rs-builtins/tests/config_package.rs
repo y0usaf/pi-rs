@@ -37,6 +37,7 @@ fn package_files() -> Vec<PathBuf> {
         "defaults.lua",
         "apply.lua",
         "tools.lua",
+        "roots.lua",
         "init.lua",
     ]
     .into_iter()
@@ -197,6 +198,7 @@ roots.register({
       declarations = settings.declarations(),
       modules = settings.modules(),
       tool_policy = settings.tools(),
+      root_selection = settings.root_selection(),
       tool_names = tool_names(),
       themes = registered("theme"),
       keymaps = registered("keymap"),
@@ -1449,6 +1451,214 @@ fn configuring_tools_without_a_tool_suite_fails_the_reload() {
             .any(|message| message == "tools: no tool suite (pi.tools.suite@1) is loaded"),
         "{errors:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Root selection
+// ---------------------------------------------------------------------------
+
+/// A package that registers one frontend root. The distribution's own root
+/// registers at priority 10 and a replacement at 0, so nothing a
+/// configuration selects can be explained by outbidding.
+const ROOT_PACKAGE: &str = r#"
+local pi = ...
+local roots = pi.roots.v1
+roots.register({
+  kind = "frontend",
+  id = "__ID__",
+  active = true,
+  priority = __PRIORITY__,
+  dispatch = function()
+    roots.action("answered", { by = "__ID__" })
+  end,
+})
+"#;
+
+impl Fixture {
+    /// Write a package that registers one frontend root under the packages
+    /// directory a configuration may name.
+    fn write_root_package(&self, name: &str, id: &str, priority: i64) -> PathBuf {
+        let path = self.packages_directory().join(name);
+        self.write(
+            &path,
+            &ROOT_PACKAGE
+                .replace("__ID__", id)
+                .replace("__PRIORITY__", &priority.to_string()),
+        );
+        path
+    }
+}
+
+/// The shipped frontend root, loaded like any other distribution package.
+fn shipped_frontend(fixture: &Fixture) -> PathBuf {
+    let path = fixture.path("distribution/frontend.lua");
+    fixture.write(
+        &path,
+        &ROOT_PACKAGE
+            .replace("__ID__", "shipped")
+            .replace("__PRIORITY__", "10"),
+    );
+    path
+}
+
+/// Which frontend root the host resolves right now, by dispatching it.
+fn frontend_answer(host: &Host) -> String {
+    let batch = host
+        .dispatch(DispatchRequest::new(
+            RootKind::Frontend,
+            json!({ "kind": "probe" }),
+            json!({}),
+        ))
+        .expect("frontend dispatch succeeds");
+    action(&batch, "answered")["by"]
+        .as_str()
+        .expect("answering root")
+        .to_owned()
+}
+
+#[test]
+fn a_configured_root_selection_replaces_a_higher_priority_registration() {
+    let fixture = Fixture::new();
+    fixture.write_root_package("replacement.lua", "replacement", 0);
+    fixture.write_config(
+        r#"
+return {
+  packages = { "replacement.lua" },
+  roots = { frontend = "replacement" },
+}
+"#,
+    );
+
+    let host = start_with(fixture.environment(), vec![shipped_frontend(&fixture)]);
+    assert_eq!(
+        frontend_answer(&host),
+        "shipped",
+        "before any application dispatch the configuration has not been composed"
+    );
+
+    let payload = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+    assert!(rows(&payload["errors"]).is_empty(), "{payload:?}");
+    assert_eq!(
+        payload["root_selection"]["selected"]["frontend"],
+        "replacement"
+    );
+    assert_eq!(payload["root_selection"]["revision"], payload["revision"]);
+    assert_eq!(
+        frontend_answer(&host),
+        "replacement",
+        "the configuration named the root instead of outbidding it"
+    );
+}
+
+#[test]
+fn removing_the_section_hands_the_kind_back_to_priority_resolution() {
+    let fixture = Fixture::new();
+    fixture.write_root_package("replacement.lua", "replacement", 0);
+    fixture.write_config(
+        r#"
+return {
+  packages = { "replacement.lua" },
+  roots = { frontend = "replacement" },
+}
+"#,
+    );
+    let host = start_with(fixture.environment(), vec![shipped_frontend(&fixture)]);
+    dispatch(&host, &fixture, json!({ "kind": "report" }));
+    assert_eq!(frontend_answer(&host), "replacement");
+
+    fixture.write_config(r#"return { packages = { "replacement.lua" } }"#);
+    // The reload runs inside the driver root, after this dispatch's middleware
+    // stages already reconciled, so the cleared section reaches the registry on
+    // the *next* application dispatch. That one-dispatch lag is the mechanism,
+    // not an accident: policy is applied by an ordinary middleware stage.
+    let published = report(&dispatch(&host, &fixture, json!({ "kind": "reload" }))).clone();
+    assert_eq!(published["effective"]["roots"], json!({}));
+    assert_eq!(
+        published["root_selection"]["selected"]["frontend"], "replacement",
+        "the live selection still describes what is actually resolving the kind"
+    );
+
+    let payload = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+    assert_eq!(payload["root_selection"], Value::Null);
+    assert_eq!(
+        frontend_answer(&host),
+        "shipped",
+        "a kind that leaves the section is cleared, not frozen"
+    );
+}
+
+#[test]
+fn a_root_id_no_package_registers_fails_the_reload_and_changes_nothing() {
+    let fixture = Fixture::new();
+    fixture.write_root_package("replacement.lua", "replacement", 0);
+    fixture.write_config(
+        r#"
+return {
+  packages = { "replacement.lua" },
+  roots = { frontend = "typo" },
+}
+"#,
+    );
+
+    let host = start_with(fixture.environment(), vec![shipped_frontend(&fixture)]);
+    let payload = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+
+    assert_eq!(payload["loaded"], false, "the whole reload rolled back");
+    let errors = rows(&payload["errors"]);
+    assert!(
+        errors.iter().any(|message| {
+            let text = message.as_str().unwrap_or_default();
+            text.contains("roots.frontend: no active frontend root named 'typo'")
+                && text.contains("registered: replacement, shipped")
+        }),
+        "the diagnostic lists what is actually registered: {errors:?}"
+    );
+    assert!(
+        package_sources(&payload).is_empty(),
+        "the package the failed reload loaded is disposed again"
+    );
+    assert_eq!(
+        frontend_answer(&host),
+        "shipped",
+        "nothing was selected, so priority still resolves the kind"
+    );
+}
+
+#[test]
+fn selecting_a_session_root_is_answered_with_how_the_session_is_replaced() {
+    let fixture = Fixture::new();
+    fixture.write_config(r#"return { roots = { session = "mine" } }"#);
+
+    let host = start(fixture.environment());
+    let payload = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+
+    assert_eq!(payload["loaded"], false);
+    let errors = rows(&payload["errors"]);
+    assert!(
+        errors.iter().any(|message| {
+            let text = message.as_str().unwrap_or_default();
+            text.contains("registers no root")
+                && text.contains("replace it through the package index or `packages`")
+        }),
+        "a section that can never act says so, and says what does: {errors:?}"
+    );
+}
+
+#[test]
+fn without_a_roots_section_nothing_is_selected_at_all() {
+    let fixture = Fixture::new();
+    fixture.write_config(r#"return { theme = "plain" }"#);
+
+    let host = start_with(fixture.environment(), vec![shipped_frontend(&fixture)]);
+    let payload = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+
+    assert_eq!(payload["loaded"], true);
+    assert_eq!(
+        payload["root_selection"],
+        Value::Null,
+        "the zero-configuration answer is no selection, not an empty one"
+    );
+    assert_eq!(frontend_answer(&host), "shipped");
 }
 
 // ---------------------------------------------------------------------------
