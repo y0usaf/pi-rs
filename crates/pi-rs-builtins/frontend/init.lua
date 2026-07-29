@@ -222,6 +222,15 @@ local function apply_agent_action(current, action)
     render(false)
     return
   end
+  if kind == "agent_tool_delta" then
+    -- The call is still having its arguments streamed. Showing it now is
+    -- what makes a slow call visible before it runs; the row is keyed by
+    -- id, so starting it later refines this block instead of adding one.
+    current.transcript:tool_delta(payload.id, payload.name, payload.arguments)
+    invalidate()
+    render(false)
+    return
+  end
   if kind == "agent_tool_start" then
     current.transcript:tool_start(payload.id, payload.name, payload.arguments)
     invalidate()

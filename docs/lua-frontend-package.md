@@ -27,15 +27,26 @@ that half of the product without forking the other.
   control bytes never enter the buffer.
 - `pi.frontend.transcript@1` — `new(limits)` returns the bounded entry list and
   the presentation policy over it: `user`, `assistant_delta`, `assistant_done`,
-  `thinking_delta`, `thinking`, `tool_start`, `tool_result`, `notice`,
-  `status(key, level, text)`, `queue(name, text)`, `unqueue(name, text)`,
-  `queued`, `clear_queue`, `set_option`, `option`, `lines(width, limit)`,
-  `rows`, `len`, `clear`. Limits are `max_entries = 200`,
-  `max_entry_bytes = 4096`, `max_argument = 120`, `max_output = 120`,
-  `max_block_rows = 64`, `max_queue_rows = 16`. A streaming assistant or
-  reasoning entry grows in place, so deltas update one retained block.
+  `thinking_delta`, `thinking`, `tool_delta`, `tool_start`, `tool_result`,
+  `tool_entry(id)`, `notice`, `status(key, level, text)`, `queue(name, text)`,
+  `unqueue(name, text)`, `queued`, `clear_queue`, `set_option`, `option`,
+  `lines(width, limit)`, `rows`, `len`, `clear`. Limits are
+  `max_entries = 200`, `max_entry_bytes = 4096`, `max_argument = 120`,
+  `max_output = 120`, `max_block_rows = 64`, `max_queue_rows = 16`. A
+  streaming assistant or reasoning entry grows in place, so deltas update one
+  retained block; an open answer grows only while it is still the newest
+  entry, so a streaming tool call between deltas starts a new answer block
+  rather than rewriting a row that is no longer at the bottom.
   `status` is a keyed notice: re-announcing the same key rewrites the row
   already in the transcript instead of appending a second one.
+
+  A call is one block from its first announcement to its result. `tool_delta`
+  (fed by `agent_tool_delta`) opens the row while the provider is still
+  streaming the call's arguments and refines it in place, `tool_start` claims
+  the same row by `id`, and `tool_result` settles it. `tool_entry(id)` is the
+  keyed lookup all three share: an entry the bounded history has already
+  dropped is detached from the list, so its key is forgotten and the caller
+  starts a fresh block rather than rewriting a row nothing will paint.
 
   `lines(width, limit)` is the whole appearance of the transcript. Each entry
   becomes a **block** of full-width display lines, blocks are separated by one
@@ -186,11 +197,14 @@ Those journeys assert what the frame *says*, with styling stripped.
 `crates/pi-rs-app/tests/transcript_presentation.rs` asserts what the transcript
 *looks like*: it replays the shipped frontend's ANSI into a terminal emulator
 and compares the transcript region of the screen, cell by cell, with the
-canonical `tool-pending`, `cancelled`, `thinking-hidden`, `thinking-visible`,
-`steering-queued`, and `follow-up-queued` checkpoints in
-`tests/experience/canonical-v1.json`. It also holds the two presentation
-budgets: a streamed delta repaints only its own row, and a 400-turn transcript
-still costs one viewport per frame.
+canonical `tool-streaming`, `tool-pending`, `cancelled`, `thinking-hidden`,
+`thinking-visible`, `steering-queued`, and `follow-up-queued` checkpoints in
+`tests/experience/canonical-v1.json`. `tool-streaming` is the same strip as
+`tool-pending` with only the argument text that had arrived so far, and
+reaching `tool-pending` through the streaming path is what proves the two are
+one refining block rather than two rows for one call. It also holds the two
+presentation budgets: a streamed delta repaints only its own row, and a
+400-turn transcript still costs one viewport per frame.
 
 ## Known gaps
 
