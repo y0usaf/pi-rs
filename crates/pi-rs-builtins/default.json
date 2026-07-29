@@ -1,6 +1,14 @@
 {
 	"version": 1,
 	"packages": [
+		"config/json.lua",
+		"config/paths.lua",
+		"config/schema.lua",
+		"config/trust.lua",
+		"config/defaults.lua",
+		"config/apply.lua",
+		"config/tools.lua",
+		"config/init.lua",
 		"agent/queue.lua",
 		"agent/tools.lua",
 		"agent/turn.lua",
@@ -20,6 +28,9 @@
 		"frontend/view.lua",
 		"frontend/init.lua",
 		"frontend/application.lua",
+		"session/records.lua",
+		"session/store.lua",
+		"session/init.lua",
 		"defaults/init.lua"
 	]
 }

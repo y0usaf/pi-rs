@@ -1541,6 +1541,75 @@ After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
   each package/root is suppressible or replaceable; two extensions compose without
   privileged ordering; zero-builtin/file-backed checks remain green.
 
+  **Landed slice (the manifest extension, and persistence made optional in
+  fact):** the shipped index now carries the whole product.
+  `crates/pi-rs-builtins/default.json` gained eleven entries — the eight
+  configuration modules first (nothing requires them, and `config/init.lua`
+  requires the other seven) and the three session modules between the
+  application coordinator and `defaults/init.lua` — and `flake.nix`'s
+  `mkPiPackages` copies both trees, so `nix run` ships them. Load order only
+  satisfies `module.require` at load time; what runs when is decided by
+  middleware `order`, which is why the configuration's `-200` model stage wins
+  over the distribution's `-100` candidate list and its `-50` tool stage wins
+  over `-99`, with no privilege anywhere.
+
+  Shipping the session package exposed one real integration bug, fixed here in
+  `crates/pi-rs-builtins/session/init.lua`: the distribution configures a model
+  on *every* startup, and `agent_configured` was a recordable step, so a bare
+  launch created a durable log (header + `model`) and its lock before anything
+  was said — 20 launches left 16 files. A `model` record is now **deferred**:
+  `steps_for` marks it, `record_batch` holds it at file scope, and it is
+  appended immediately before the first real record instead of starting a log.
+  A conversation is therefore persisted in exactly the previous order (the 19
+  session tests are unchanged and green), while a launch that says nothing
+  writes nothing at all. `store.start` already carried `model_id` into the
+  header, so nothing is lost when a deferred record is dropped by a reset.
+
+  Evidence: `crates/pi-rs-app/tests/default_distribution.rs` is the manifest's
+  acceptance owner and grew to 10 tests. Its harness became hermetic first —
+  a `Sandbox` pins `HOME` and all four `XDG_*_HOME` variables for both the
+  subprocess launcher and the in-process host, because a distribution that now
+  reads `<config>/pi/config.lua` and writes `<state>/pi/sessions` would
+  otherwise read the developer's configuration and write their sessions. New
+  rows: startup writes no session log and creates no state root; a user
+  `config.lua` selecting `openai/gpt-5.1` outranks the distribution default in
+  the rendered header; an index without the session tree renders a
+  byte-identical first frame; a real offline turn persists exactly one log
+  under the canonical XDG entry with
+  `header, model, message×4` and answers `session status` from inside the
+  distribution; and the same turn with the session tree removed still
+  completes, writes nothing, and leaves the `session` command unanswered.
+  The tree-equality assertion now covers `config` and `session`, so neither
+  can drift out of the index. The Nix `default-distribution` check gained the
+  same three claims at distribution level (no state root after startup, a
+  `config.lua` changing the header, and a session-free manifest diffing equal).
+  `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets` (8
+  pre-existing warnings, none in the touched files), `cargo test --workspace`
+  (80 test targets, 374 tests, 0 failures), `nix flake check` (9 checks), and
+  `nix run .` under a private `HOME` (input-ready, nothing written) all pass.
+
+  **Remaining for 4.4 (nothing dropped):**
+  1. The `roots` section still validates and publishes without acting. The
+     mechanism question is unchanged: `kernel_api::resolve_root`
+     (`crates/pi-rs-host/src/kernel_api.rs`) takes the highest-priority
+     *active* root per kind and fails on a tie, a root entry is keyed
+     `kind\0id` and refuses re-registration from another source,
+     `DeclarationKind` has no `root` member, and `pi.roots.v1` exposes no way
+     to list, deactivate, or re-prioritise a registration. Suppression by
+     copying the manifest works today and is checked; *selection from
+     configuration* still needs the decision.
+  2. Independent replacement of the application, agent, frontend, and session
+     roots is proven only for `application` (the Nix override check) and for
+     session-by-omission. The other three, plus a replacement that is chosen
+     rather than omitted, are unproven.
+  3. Untouched by this slice: two composing extensions without privileged
+     ordering, deterministic conflict/module-version matrices, lifecycle
+     cleanup, reload rollback, and watchdog isolation across the expanded
+     graph.
+  4. Carried forward from 4.2/4.3: `tests/README.md` still has no acceptance
+     row for `crates/pi-rs-builtins/tests/**` (agent, frontend, tool,
+     configuration, and session package suites). Left alone deliberately —
+     that file has unrelated uncommitted user edits.
 ## 5 — Close the Pi-feeling interactive experience
 
 After 4.4, `/orchestrate` may run **Wave P2** by separate Lua module trees and

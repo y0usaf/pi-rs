@@ -10,16 +10,46 @@ a file copied into a scratch directory.
 `crates/pi-rs-builtins/default.json` is a version 1 launcher manifest:
 
 ```json
-{ "version": 1, "packages": ["agent/queue.lua", "…", "defaults/init.lua"] }
+{ "version": 1, "packages": ["config/json.lua", "…", "defaults/init.lua"] }
 ```
 
 Package paths resolve relative to the manifest's own directory, so the same
 manifest works in the repository, in the Nix store, and in a user's copy. Load
-order is the manifest's order: agent modules, the tool suite, the frontend
-components, the application coordinator, then distribution defaults.
+order is the manifest's order: the configuration package, agent modules, the
+tool suite, the frontend components, the application coordinator, the session
+package, then distribution defaults. A module is listed after the modules it
+requires; nothing else in load order is significant, because what runs when is
+decided by middleware `order`, not by position in the index.
 
 `crates/pi-rs-app/tests/default_distribution.rs` fails if the manifest and the
 shipped package trees ever disagree, so a new module cannot land unindexed.
+
+## Stage order
+
+Five shipped stages compose on the application root's event phase. Lower runs
+first, and the last stage to touch a registry owns it — ordering, not
+privilege, is what makes a configuration outrank a distribution default.
+
+| Order | Stage | Job |
+|---:|---|---|
+| `-200` | `pi.builtins.config` | composes/publishes configuration, republishes it into the event, applies the configured model |
+| `-100` | `pi.builtins.defaults.model` | picks the first available catalog candidate *when the event still carries no model* |
+| `-99` | `pi.builtins.defaults.tool-root` | re-declares the shipped tool suite with the launcher root |
+| `-60` | `pi.builtins.session.command` | answers `session` events with a queued `session_result` |
+| `-50` | `pi.builtins.config.tools` | re-declares the tool suite from the configured `tools` section |
+
+One further shipped stage runs elsewhere: `pi.builtins.session.record`
+(`agent`/`render`, order `100`) folds the settled agent batch into records and
+returns it untouched.
+
+## Optional persistence
+
+The session package owns no root and registers only stages, so removing its
+three entries from a copied manifest leaves exactly the ephemeral product: the
+same frame, the same conversation, no state root, and `session` commands
+falling through to the application root's unhandled-event notice. A launch that
+never says anything writes no session record either, with or without the
+package: a model selection alone does not open a log.
 
 ## Selection precedence
 

@@ -111,9 +111,11 @@
         pkgs.runCommand "pi-rs-packages" { } ''
           mkdir -p $out
           cp ${./crates/pi-rs-builtins/default.json} $out/default.json
+          cp -r ${./crates/pi-rs-builtins/config} $out/config
           cp -r ${./crates/pi-rs-builtins/agent} $out/agent
           cp -r ${./crates/pi-rs-builtins/tools} $out/tools
           cp -r ${./crates/pi-rs-builtins/frontend} $out/frontend
+          cp -r ${./crates/pi-rs-builtins/session} $out/session
           cp -r ${./crates/pi-rs-builtins/defaults} $out/defaults
         '';
 
@@ -148,6 +150,7 @@
         let
           pkgs = mkPkgs system;
           pi = mkPiRs system;
+          piPackages = mkPiPackages system;
         in
         pkgs.runCommand "pi-default-distribution"
           {
@@ -180,6 +183,40 @@
             grep -q 'claude-sonnet-4-5' frame.txt
             grep -q 'enter send' frame.txt
             grep -q 'ctrl+d exit' frame.txt
+
+            # Persistent sessions are optional policy over a conversation, not
+            # a startup side effect: a launch that says nothing writes no
+            # session record and creates no state root.
+            test ! -e $HOME/.local/state/pi
+
+            # The shipped configuration package is part of the distribution:
+            # an ordinary config.lua outranks the distribution's default model
+            # without replacing or forking any package.
+            mkdir -p $HOME/.config/pi
+            cat > $HOME/.config/pi/config.lua <<'LUA'
+            return { model = { provider = "openai", id = "gpt-5.1" } }
+            LUA
+            pi > configured.json 2> configured-error.txt
+            test ! -s configured-error.txt
+            jq -r '[.actions[] | select(.kind == "ansi") | .payload.data] | join("")' \
+              configured.json > configured-frame.txt
+            grep -q 'gpt-5.1' configured-frame.txt
+            ! grep -q 'claude-sonnet-4-5' configured-frame.txt
+            rm -r $HOME/.config/pi
+
+            # ... and sessions stay optional: the same declarative index
+            # without the session tree is the same input-ready product.
+            jq --arg base "${piPackages}" '{
+              version: 1,
+              packages: [.packages[] | select(startswith("session/") | not) | $base + "/" + .]
+            }' ${piPackages}/default.json > ephemeral.json
+            jq -e '.packages | length > 0' ephemeral.json >/dev/null
+            pi --manifest ephemeral.json > ephemeral-startup.json 2> ephemeral-error.txt
+            test ! -s ephemeral-error.txt
+            jq -r '[.actions[] | select(.kind == "ansi") | .payload.data] | join("")' \
+              ephemeral-startup.json > ephemeral-frame.txt
+            diff frame.txt ephemeral-frame.txt
+            test ! -e $HOME/.local/state/pi
 
             # The shipped manifest is a default, not a lock: an explicit
             # package still registers the active application root.
