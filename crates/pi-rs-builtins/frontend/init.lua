@@ -144,6 +144,20 @@ local function handle_key(current, key)
     return true
   end
 
+  if kind == "toggle_thinking" then
+    -- Thinking visibility is presentation policy, so it is one transcript
+    -- option read by the block renderer plus one keyed status row. Nothing
+    -- about it reaches the agent or the host.
+    local visible = current.transcript:option("thinking_visible") ~= false
+    current.transcript:set_option("thinking_visible", not visible)
+    current.transcript:status(
+      "thinking_visibility",
+      "info",
+      "Thinking blocks: " .. (visible and "hidden" or "visible")
+    )
+    return true
+  end
+
   if current.focus == "editor" then
     return route_editor_key(current, key)
   end
@@ -165,6 +179,18 @@ local function apply_agent_action(current, action)
   end
   if kind == "agent_message" then
     current.transcript:assistant_done(payload.text)
+    invalidate()
+    render(false)
+    return
+  end
+  if kind == "agent_thinking_delta" then
+    current.transcript:thinking_delta(payload.text)
+    invalidate()
+    render(false)
+    return
+  end
+  if kind == "agent_thinking" then
+    current.transcript:thinking(payload.text)
     invalidate()
     render(false)
     return

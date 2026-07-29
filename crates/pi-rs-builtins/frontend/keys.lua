@@ -30,6 +30,7 @@ module.define({
       [8] = "backspace",
       [10] = "submit",
       [13] = "submit",
+      [20] = "toggle_thinking", -- ctrl-t
       [21] = "clear_line", -- ctrl-u
       [127] = "backspace",
     }

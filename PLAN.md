@@ -1894,12 +1894,76 @@ other workers contribute modules through interfaces already merged.
   under a private `HOME`/XDG set (startup frame renders, nothing written
   outside Nix's own cache).
 
+  **Landed slice (thinking blocks get a producer, a toggle, and the two
+  canonical checkpoints).** `transcript:thinking` is no longer unreachable
+  presentation. Reasoning now has a source, a collapse control, and cell-exact
+  acceptance:
+
+  1. **Producer.** `crates/pi-rs-builtins/agent/turn.lua` maps the provider's
+     `thinking_delta`/`thinking_end` stream events to `agent_thinking_delta`
+     and `agent_thinking`. Reasoning is named separately from the answer and
+     is deliberately *not* folded into `streamed`, which stays the partial
+     reply a cancellation reports.
+  2. **One block per reasoning turn.** `transcript:thinking_delta` grows one
+     open entry exactly like `assistant_delta`, and `transcript:thinking`
+     closes it, so N provider events are one row. `Transcript:push` now closes
+     an open reasoning block whenever any other kind lands, and marks a
+     history-evicted entry `removed`, so a retained reference cannot rewrite a
+     row that is no longer in the list.
+  3. **Collapse is a generic option, not a thinking branch.** The transcript
+     carries a bounded scalar option bag (`set_option`/`option`, at most 32
+     keys) copied into every renderer's per-frame `context.options`. The
+     shipped thinking renderer shows `Thinking...` when
+     `context.options.thinking_visible == false`, so a replacement renderer
+     reads the same option and a package may add its own. Nothing
+     block-specific reached Rust or the host surface.
+  4. **The toggle is one keyed row.** ctrl-t (byte 20) decodes to
+     `toggle_thinking` in `frontend/keys.lua`; the frontend root flips the
+     option and announces the new state through the new
+     `transcript:status(key, level, text)` — a keyed notice that *rewrites* the
+     row already in the transcript instead of appending a second one. That is
+     what the canonical frames record: two presses leave one status row.
+
+  Evidence: three new tests in
+  `crates/pi-rs-app/tests/transcript_presentation.rs` (7 total). Two match the
+  previously unmatched canonical `thinking-and-queues/thinking-hidden` and
+  `thinking-visible` checkpoints cell by cell — rows 10..=12 (collapsed or
+  full reasoning row, untouched separator, status row), bottom anchored on
+  each side's last transcript row, glyph plus foreground/background/bold/dim/
+  italic/underline/inverse. The third proves two deltas plus a completion are
+  one block and that the reply after it is its own block. Negative controls
+  run by hand: shortening the placeholder to `Thinking..` fails
+  `thinking-hidden` at `canonical row 10, pi-rs row 19, column 11`, and making
+  `status` append instead of rewrite fails `thinking-visible` at column 1
+  (`" Thinking blocks: hidden"` where the reasoning row is owed). Agent-side:
+  `crates/pi-rs-builtins/tests/agent_package.rs` gains a `reasoning` fixture
+  stream (thinking deltas, thinking end, text delta) and asserts the exact
+  action order `agent_thinking_delta` x2, `agent_thinking`,
+  `agent_text_delta`, `agent_message`.
+
+  Docs: `docs/lua-frontend-package.md` gains the new transcript methods, the
+  `options` contract, the ctrl-t binding, and the two extra matched
+  checkpoints; `docs/lua-agent-package.md` gains the two reasoning actions.
+  `docs/lua-api-reference.md` is unchanged and still generated: this slice
+  added no public host member.
+
+  Checks: `cargo fmt --all -- --check`, `cargo clippy --workspace
+  --all-targets` (pre-existing warnings only; the one in
+  `tests/agent_package.rs:581` predates this change and is outside the touched
+  hunks), `cargo test --workspace` (82 test targets, 410 tests, 0 failures),
+  `nix flake check --print-build-logs` (all checks passed), and `nix run .`
+  under a private `HOME`/XDG set (one-shot action dump renders the startup
+  frame, nothing written under the private `HOME`).
+
   **Remaining for 5.1 (this box stays open):**
-  1. **Rows without a producer or a checkpoint.** `transcript:thinking` exists
-     but no agent action emits it, and warning/retry/compaction/custom blocks
-     still reuse the notice styling. The canonical thinking rows
-     (`thinking-and-queues/thinking-hidden|thinking-visible`, italic `#808080`)
-     are therefore unmatched, and so are the queue meta rows.
+  1. **Rows that still have no producer or checkpoint.** Thinking is done
+     (producer, toggle, and both canonical checkpoints matched). Still open:
+     warning/retry/compaction/custom blocks reuse the notice styling instead
+     of having their own, and the queue meta rows
+     (`thinking-and-queues/steering-queued|follow-up-queued`: `Steering: ...`,
+     `Follow-up: ...`, and the `↳ Alt+Up to edit all queued messages` hint,
+     all `#666666`, one block with no internal separators) have no
+     presentation at all. Those two checkpoints stay unmatched.
   2. **Wrapping is unpinned.** Text wraps at the block width through
      `pi.terminal.v1.text.wrap`, but no canonical checkpoint records a wrapped
      transcript line, so the wrap points are pi-rs policy, not a matched
@@ -1918,6 +1982,12 @@ other workers contribute modules through interfaces already merged.
      above, the header, working indicator, prompt chrome, and status line are
      still the minimal 3.x ones, so no canonical frame matches in full. That
      is 5.2/5.3 work by design.
+  6. **Two keyed-reference guards are asymmetric.** `Transcript:push` now
+     marks an evicted entry `removed` and `status` honours it, but
+     `Transcript.tools` still holds raw references: a tool result arriving
+     after its start scrolled out of a 200-entry history rewrites a detached
+     table and the row is silently lost. One condition fixes it; it is left
+     out of this slice because no canonical checkpoint or budget covers it.
 
   **Standing notes carried past 4.4 and still true:** `tests/README.md` has no
   acceptance row for `crates/pi-rs-builtins/tests/**` and now none for
