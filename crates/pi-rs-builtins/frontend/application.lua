@@ -90,6 +90,17 @@ end
 
 local function handle_intent(intent)
   if intent.kind == "frontend_submit" then
+    -- A submitted line reaches the agent as a prompt when it is idle and as
+    -- a queue event while it works. The frontend names which one it meant;
+    -- the agent decides whether the queue accepts it.
+    local queue = tostring(intent.payload.queue or "")
+    if queue == "steer" or queue == "follow_up" then
+      show_agent(roots.dispatch("agent", {
+        kind = queue,
+        text = tostring(intent.payload.text or ""),
+      }))
+      return false
+    end
     run_prompt(tostring(intent.payload.text or ""))
     return false
   end

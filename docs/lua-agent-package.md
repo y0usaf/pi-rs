@@ -43,6 +43,11 @@ the whole transition policy without touching the frontend.
 `agent_cancelled`, `agent_steered`, `agent_follow_up`, `agent_queued`,
 `agent_configured`, `agent_reset`, `agent_diagnostic`.
 
+`agent_queued` carries `queue` (`steer`, `follow_up`, or `interrupt`), the
+accepted `text`, `accepted`, `depth`, and a `reason` when it was refused. The
+text travels with the acceptance so a frontend can show what is pending
+without reading the agent's queues.
+
 Actions are data. Rendering, transcript shape, and user messaging belong to the
 frontend package; the agent never submits display batches.
 

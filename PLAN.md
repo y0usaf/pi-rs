@@ -1955,15 +1955,85 @@ other workers contribute modules through interfaces already merged.
   under a private `HOME`/XDG set (one-shot action dump renders the startup
   frame, nothing written under the private `HOME`).
 
+  **Landed slice (queued messages are one pinned block, matched against both
+  canonical queue checkpoints).** The last two unmatched `thinking-and-queues`
+  frames now match cell by cell, and the rows have a real producer:
+
+  1. **The agent says what it accepted.** `agent/turn.lua` carries the
+     accepted `text` on `agent_queued` beside `queue`/`accepted`/`depth`, so
+     a frontend can show what is pending without reading the agent's queues.
+  2. **Enter and alt+enter mean something else during a turn.** While the
+     agent last reported `streaming`, `frontend/init.lua` offers a submitted
+     line as `frontend_submit { queue = "steer" }` and alt+enter as
+     `queue = "follow_up"`; `frontend/application.lua` routes those to the
+     agent's existing `steer`/`follow_up` events instead of `prompt`. Idle,
+     both keys keep their old meaning, so alt+enter still inserts a line and
+     the shipped hint row stays true. `frontend/keys.lua` therefore decodes
+     alt+enter as one named `follow_up` key and leaves the choice to the root.
+  3. **Nothing is shown optimistically.** A pending row appears only when the
+     agent answers `agent_queued` with `accepted = true`; a refusal becomes a
+     warning notice rather than a silently dropped message.
+  4. **The queue block is not history.** `transcript.lua` gained
+     `queue`/`unqueue`/`queued`/`clear_queue` and a `queue` entry kind pinned
+     under the newest entry: steering rows first, then follow-ups, then the
+     `↳ Alt+Up to edit all queued messages` hint, all `#666666`, one block
+     with no internal separators, truncated rather than wrapped, bounded by
+     the new `max_queue_rows = 16`. `agent_steered`/`agent_follow_up` unqueue
+     the drained text as the ordinary user block arrives, so the same message
+     is never on screen twice. The block is declared through the same
+     `pi.kernel.v1.declare("renderer", ...)` seam as every other block, so it
+     added no Rust and no new public host member.
+
+  Steering-before-follow-up ordering is not visible in the frames (the
+  canonical journey queues them in that order anyway); it comes from the
+  focused oracle, `ref/pi` `interactive-mode.ts:updatePendingMessagesDisplay`,
+  which emits all steering rows, then all follow-ups, then the hint.
+
+  Evidence: three new tests in
+  `crates/pi-rs-app/tests/transcript_presentation.rs` (10 total). Two match
+  the canonical `steering-queued` (rows 10..=15) and `follow-up-queued`
+  (rows 9..=15) checkpoints cell by cell — the user block that started the
+  turn, the untouched separator, the queued rows, and the hint — bottom
+  anchored on each side's last transcript row. The third proves a drained
+  message becomes the ordinary user block and leaves no queued row behind.
+  Negative controls run by hand: shortening the label to `Steer: ` fails both
+  checkpoints at `column 6`, and painting follow-ups before steering fails
+  `follow-up-queued` at `canonical row 13, column 1` — that control is what
+  pins the oracle's ordering rule. Two new package journeys in
+  `crates/pi-rs-builtins/tests/frontend_package.rs` (16 total) drive the whole
+  distribution: a line typed during a turn travels frontend intent →
+  application → **real agent** → `agent_queued` → pending row (proving the
+  round trip, not a local echo), and a file-backed package claiming
+  `entry = "queue"` replaces the block. `agent_package.rs` asserts the
+  accepted text on both queue kinds.
+
+  The existing canonical replays gained the turn-final
+  `agent_status { state = "idle" }` the shipped agent already emits
+  (`turn.lua:419`); without it a replay left the frontend believing a turn was
+  still running, and the next typed line would have been steering. That makes
+  those replays more faithful, not less: the `tool-pending` and `cancelled`
+  checkpoints still match cell by cell.
+
+  Docs: `docs/lua-frontend-package.md` gains the queue block row, the queue
+  methods and their bound, the working-state key meanings, the queue journey
+  through the application root, and two new known gaps;
+  `docs/lua-agent-package.md` documents the `agent_queued` payload.
+  `docs/lua-api-reference.md` is unchanged and still generated.
+
+  Checks: `cargo fmt --all -- --check`, `cargo clippy --workspace
+  --all-targets` (8 pre-existing warnings; the only one in a touched file is
+  `tests/agent_package.rs:581`, which predates this change and is outside the
+  touched hunks), `cargo test --workspace` (82 test targets, 415 tests, 0
+  failures), `nix flake check --print-build-logs` (all checks passed), and
+  `nix run .` under a private `HOME`/XDG set (one-shot action dump renders the
+  startup frame, nothing written under the private `HOME`).
+
   **Remaining for 5.1 (this box stays open):**
-  1. **Rows that still have no producer or checkpoint.** Thinking is done
-     (producer, toggle, and both canonical checkpoints matched). Still open:
-     warning/retry/compaction/custom blocks reuse the notice styling instead
-     of having their own, and the queue meta rows
-     (`thinking-and-queues/steering-queued|follow-up-queued`: `Steering: ...`,
-     `Follow-up: ...`, and the `↳ Alt+Up to edit all queued messages` hint,
-     all `#666666`, one block with no internal separators) have no
-     presentation at all. Those two checkpoints stay unmatched.
+  1. **Rows that still have no producer or checkpoint.** Thinking and the
+     queue meta rows are done (producers, keys, and all four canonical
+     checkpoints matched). Still open: warning/retry/compaction/custom blocks
+     reuse the notice styling instead of having their own, and no canonical
+     checkpoint records them.
   2. **Wrapping is unpinned.** Text wraps at the block width through
      `pi.terminal.v1.text.wrap`, but no canonical checkpoint records a wrapped
      transcript line, so the wrap points are pi-rs policy, not a matched
@@ -1988,6 +2058,18 @@ other workers contribute modules through interfaces already merged.
      after its start scrolled out of a 200-entry history rewrites a detached
      table and the row is silently lost. One condition fixes it; it is left
      out of this slice because no canonical checkpoint or budget covers it.
+  7. **The queue hint names a key nothing decodes.** The canonical hint row
+     is `↳ Alt+Up to edit all queued messages`, and alt+up is not in
+     `frontend/keys.lua`: restoring queued messages to the editor needs a
+     parameterised CSI decode plus an agent-side drain event, which is 5.2
+     keymap work. The row is canonical text, so it is painted; the
+     affordance it advertises does not exist yet.
+  8. **Queueing cannot be reached by typing in the shipped loop.**
+     `crates/pi-rs-app/src/interactive.rs` reads stdin, dispatches, and
+     settles a whole turn inside one dispatch, so no input arrives while the
+     agent is `streaming`. The policy, the wire, and the presentation are all
+     in place and exercised end to end through the action stream; turns that
+     span dispatches are 5.4's integration, by design.
 
   **Standing notes carried past 4.4 and still true:** `tests/README.md` has no
   acceptance row for `crates/pi-rs-builtins/tests/**` and now none for
