@@ -81,14 +81,16 @@ process exit.
 - `display([limits])` → retained display handle. `submit(batch)` validates and
   submits one complete display tree, returning revision, ANSI diff, identity
   delta, and bounded work counters.
-- `display_schema_version` → currently `2`; use it as `batch.version`.
+- `display_schema_version` → currently `3`; use it as `batch.version`.
 
 A display batch contains `viewport`, `root`, and a flat `nodes` array. Each node
 has stable numeric `id`, `rect`, and `content={kind="group"}` or
-`content={kind="text", runs={{text=...}}, ...}`. A run may add `style` and
-`link="<target>"`, which presents that run's cells inside one OSC 8 hyperlink.
-Optional child, focus, cursor, clip, style, link, and wrapping fields are display
-data, not Rust UI policy.
+`content={kind="text", runs={{text=...}}, ...}`, or
+`content={kind="image", data="<base64>", protocol="kitty"|"iterm2"}`. A run may
+add `style` and `link="<target>"`, which presents that run's cells inside one OSC
+8 hyperlink. An image node's `rect` is its placement, in cells, and is emitted as
+one out-of-band escape rather than as glyphs. Optional child, focus, cursor,
+clip, style, link, and wrapping fields are display data, not Rust UI policy.
 
 ## Models: `pi.models.v1`
 

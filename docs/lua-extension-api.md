@@ -4,12 +4,12 @@ The inherited Pi-compatibility extension API is not part of pi-rs. Ordinary Lua
 packages receive one compact, versioned mechanism table; embedded provenance
 adds no members or privileges.
 
-The complete top-level surface after PLAN 4.1's hyperlink slice is:
+The complete top-level surface after PLAN 4.1's inline-image slice is:
 
 - `pi.kernel.v1`: package transaction primitives;
 - `pi.roots.v1`: application/agent/frontend root facade;
 - `pi.terminal.v1`: batched terminal input, retained display submission,
-  hyperlink styling, and Unicode cell measurement;
+  hyperlink styling, inline images, and Unicode cell measurement;
 - `pi.models.v1`: catalog inventory/lookup, model-row validation, and bounded
   provider event streaming;
 - `pi.effects.v1`: bounded filesystem/path/environment, process, timer, and
@@ -124,6 +124,38 @@ early and hand the rest to the terminal as commands). `max_link_bytes`
 (`display({max_link_bytes=...})`, default 65536) bounds the total target bytes in
 one batch. Whether something is a link, what the target is, and how a link looks
 are Lua policy; the host adds no underline, no color, and no `id` grouping.
+
+### Inline images
+
+A node's content may be `{kind="image", data="<base64>", protocol="kitty"}` or
+`protocol="iterm2"`. The node's own `rect` is the placement: the image is
+addressed at its absolute top-left cell and sized by its width and height in
+cells. An image is not glyphs — it enters no cell, paints nothing, and counts in
+`placed_images` rather than `painted_cells` — so a package that wants a caption,
+a border, or a text fallback under the image submits ordinary text nodes for
+them.
+
+Placement is out of band and per frame, not per cell. Each accepted image node
+gets a terminal-side identity that is stable for the life of that display
+handle, so replacing the payload of the same node deletes that identity before
+transmitting the replacement, and dropping the node deletes it outright.
+Blanking the cells an image covered does not remove the graphic, which is why
+removal is by identity. Because repainting cells does draw text over a graphic,
+any placement whose rows the cell pass rewrote is emitted again even when it did
+not change; an unchanged image over untouched rows emits nothing.
+
+A terminal image is placed whole or not at all: an image node whose rectangle is
+not fully inside its clip is skipped rather than partially drawn. Rust names no
+terminal, so protocol selection is Lua policy — `pi.effects.v1.env` already
+exposes the environment a package needs to decide. Rust also names no scaling,
+aspect ratio, z-order, or overlap rule; a package that puts text and an image on
+the same cells decides what that means.
+
+A payload is refused when it is empty or contains any byte outside the standard
+base64 alphabet, because the payload is spliced verbatim into an escape sequence
+and a stray control byte would terminate it early. `max_images` (default 16) and
+`max_image_bytes` (default 4194304), both settable through `display({...})`,
+bound one batch.
 
 ### Text measurement
 

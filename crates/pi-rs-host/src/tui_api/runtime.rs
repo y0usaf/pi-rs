@@ -4,6 +4,7 @@ use pi_rs_tui::display::{
     DisplayNodeContent, IdentityDelta, NodeId, Rect, RetainedDisplay, SubmitResult, TextRun,
     Viewport, WrapMode,
 };
+use pi_rs_tui::terminal_image::ImageProtocol;
 
 fn parse_color(value: mlua::Value) -> mlua::Result<Color> {
     match value {
@@ -84,9 +85,21 @@ fn parse_node(table: mlua::Table) -> mlua::Result<DisplayNode> {
                 tab_width: content.get::<Option<u8>>("tab_width")?.unwrap_or(4),
             }
         }
+        "image" => DisplayNodeContent::Image {
+            data: content.get("data")?,
+            protocol: match content.get::<String>("protocol")?.as_str() {
+                "kitty" => ImageProtocol::Kitty,
+                "iterm2" => ImageProtocol::ITerm2,
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "display image protocol must be kitty or iterm2",
+                    ));
+                }
+            },
+        },
         _ => {
             return Err(mlua::Error::runtime(
-                "display node content kind must be group or text",
+                "display node content kind must be group, text, or image",
             ));
         }
     };
@@ -181,6 +194,7 @@ fn submit_result(lua: &mlua::Lua, value: SubmitResult) -> mlua::Result<mlua::Tab
     result.set("painted_cells", value.painted_cells)?;
     result.set("changed_cells", value.changed_cells)?;
     result.set("full_redraw", value.full_redraw)?;
+    result.set("placed_images", value.placed_images)?;
     Ok(result)
 }
 
@@ -211,6 +225,12 @@ fn parse_limits(table: Option<mlua::Table>) -> mlua::Result<DisplayLimits> {
         max_link_bytes: table
             .get::<Option<usize>>("max_link_bytes")?
             .unwrap_or(defaults.max_link_bytes),
+        max_images: table
+            .get::<Option<usize>>("max_images")?
+            .unwrap_or(defaults.max_images),
+        max_image_bytes: table
+            .get::<Option<usize>>("max_image_bytes")?
+            .unwrap_or(defaults.max_image_bytes),
     })
 }
 
