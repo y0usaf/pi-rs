@@ -327,6 +327,9 @@ module.define({
           emit("agent_tool_start", {
             id = call.id,
             name = call.name,
+            -- The call's own arguments travel with the start action so a
+            -- frontend can say what is running without asking the agent.
+            arguments = call.arguments,
             group = group.index,
             mode = group.mode,
           })

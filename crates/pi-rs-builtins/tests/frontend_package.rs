@@ -266,13 +266,28 @@ impl Harness {
         self.dispatch(json!({"kind": "input", "data": data}))
     }
 
-    /// A full repaint of the current retained frame, as plain text.
+    /// A full repaint of the current retained frame, as readable text.
     ///
     /// Incremental frames only paint changed cells, so the readable screen is
     /// recovered by forcing one repaint through the ordinary resize path.
+    /// Styling is dropped here because these journeys assert what the frame
+    /// says; `crates/pi-rs-app/tests/transcript_presentation.rs` owns what the
+    /// cells look like.
     fn screen(&self) -> String {
         let batch = self.dispatch(json!({"kind": "resize", "columns": 80, "rows": 24}));
-        ansi(&batch)
+        strip_ansi(&ansi(&batch))
+    }
+
+    /// The frontend's own status word, as it reports it.
+    fn status_word(&self) -> String {
+        let batch = self.frontend(json!({"kind": "status"}));
+        batch
+            .actions
+            .iter()
+            .find(|action| action.kind == "frontend_status")
+            .and_then(|action| action.payload.get("status").and_then(Value::as_str))
+            .unwrap_or_default()
+            .to_owned()
     }
 
     fn start(&self, model_id: Option<&str>, api: &str) {
@@ -314,6 +329,45 @@ fn ansi(batch: &DispatchBatch) -> String {
         .filter(|action| action.kind == "ansi")
         .filter_map(|action| action.payload.get("data").and_then(Value::as_str))
         .collect()
+}
+
+/// The same bytes with every escape sequence removed.
+///
+/// A styled run is split by SGR sequences, so a phrase that reads as one
+/// string on screen is not one substring of the raw stream.
+fn strip_ansi(data: &str) -> String {
+    let mut out = String::with_capacity(data.len());
+    let mut bytes = data.chars().peekable();
+    while let Some(character) = bytes.next() {
+        if character != '\u{1b}' {
+            out.push(character);
+            continue;
+        }
+        match bytes.next() {
+            // CSI: parameters, then intermediates, then one final byte.
+            Some('[') => {
+                for byte in bytes.by_ref() {
+                    if ('\u{40}'..='\u{7e}').contains(&byte) {
+                        break;
+                    }
+                }
+            }
+            // OSC: terminated by BEL or ST.
+            Some(']') => {
+                while let Some(byte) = bytes.next() {
+                    if byte == '\u{7}' {
+                        break;
+                    }
+                    if byte == '\u{1b}' && bytes.peek() == Some(&'\\') {
+                        bytes.next();
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 fn count(batch: &DispatchBatch, kind: &str) -> usize {
@@ -369,9 +423,10 @@ fn typed_prompt_streams_assistant_output_incrementally() {
     );
 
     let screen = harness.screen();
-    assert!(screen.contains("you  hi"), "user row missing: {screen}");
+    // Rows carry no author prefix: a block's colors say who spoke.
+    assert!(screen.contains(" hi"), "user row missing: {screen}");
     assert!(
-        screen.contains("pi   Hello world"),
+        screen.contains(" Hello world"),
         "assistant row missing: {screen}"
     );
     assert!(screen.contains("idle"), "status not settled: {screen}");
@@ -386,12 +441,14 @@ fn tool_calls_render_start_and_result_rows() {
     harness.type_keys("check\r");
 
     let screen = harness.screen();
+    // A settled call collapses to what ran; the shipped tool block shows the
+    // tool name and its arguments rather than the returned output.
     assert!(
-        screen.contains("+ read_note → note:alpha"),
-        "tool result row missing: {screen}"
+        screen.contains("read_note") && screen.contains("alpha"),
+        "tool block missing: {screen}"
     );
     assert!(
-        screen.contains("pi   settled"),
+        screen.contains(" settled"),
         "assistant follow-up missing: {screen}"
     );
 }
@@ -410,7 +467,14 @@ fn interrupt_cancels_the_next_turn_and_reports_it() {
 
     harness.type_keys("go\r");
     let screen = harness.screen();
-    assert!(screen.contains("cancelled"), "cancel row missing: {screen}");
+    assert!(
+        screen.contains("Operation aborted"),
+        "cancel row missing: {screen}"
+    );
+    assert!(
+        harness.status_word().contains("cancelled"),
+        "status not cancelled"
+    );
 }
 
 #[test]

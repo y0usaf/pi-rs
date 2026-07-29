@@ -58,7 +58,9 @@ local function render(force)
     header = current.chrome:header(),
     footer = current.chrome:footer(),
     guidance = current.chrome:guidance_row(),
-    transcript = current.transcript:rows(),
+    -- Presentation builds at most one viewport of lines, so a long
+    -- conversation costs the same per frame as a short one.
+    transcript = current.transcript:lines(current.columns, current.rows),
     editor_lines = current.editor:lines(),
     cursor = current.editor:cursor(),
   }))
@@ -168,7 +170,7 @@ local function apply_agent_action(current, action)
     return
   end
   if kind == "agent_tool_start" then
-    current.transcript:tool_start(payload.id, payload.name)
+    current.transcript:tool_start(payload.id, payload.name, payload.arguments)
     invalidate()
     render(false)
     return
@@ -195,7 +197,9 @@ local function apply_agent_action(current, action)
   end
   if kind == "agent_cancelled" then
     current.chrome:set_status("cancelled")
-    current.transcript:notice("info", "cancelled")
+    -- The canonical set records this state as one failure-coloured row, so
+    -- the wording and the level are the reviewed ones.
+    current.transcript:notice("error", "Operation aborted")
     invalidate()
     render(false)
     return

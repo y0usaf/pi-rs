@@ -1788,6 +1788,85 @@ other workers contribute modules through interfaces already merged.
   transcripts remain within render and memory budgets; renderers are replaceable;
   the simpler 3.6 journey remains green.
 
+  **Landed slice (block presentation matched cell-exactly against the canonical
+  transcript region).** The shipped transcript stopped being one prefixed line
+  per row and became Pi's block rhythm, authored entirely in
+  `crates/pi-rs-builtins/frontend/transcript.lua`: every entry is a block of
+  full-width display lines, blocks are separated by one *untouched* row, text
+  starts at column 1, and a filled block paints its background across the whole
+  width with one padded row above and below. User blocks are `#343541` with
+  `#d4d4d4` text; assistant blocks are unstyled; a tool block is `#282832` while
+  running, `#283228` once it succeeds and `#3c2828` when it fails, with a bold
+  `#d4d4d4` name, `#8abeb7` arguments, and output kept only on failure; a
+  cancellation is the canonical failure-coloured `Operation aborted` row.
+  `view.lua` bottom-anchors the region so the newest block sits against the
+  prompt, and a separator emits no node at all, which is what keeps that row
+  untouched rather than painted.
+
+  Two small supporting changes: `agent/turn.lua` now carries the call's own
+  `arguments` on `agent_tool_start`, so the frontend can say what is running
+  without asking the agent, and the transcript summarises a call as its name
+  plus its scalar arguments in key order.
+
+  The acceptance evidence is `crates/pi-rs-app/tests/transcript_presentation.rs`
+  (4 tests). It drives the shipped frontend root through the public host at
+  72x24, replays its ANSI into `pi_rs_tui::ui_harness::FrameRecorder`, and
+  compares the **transcript region** of the emulated screen cell by cell
+  (glyph, foreground, background, bold/dim/italic/underline/inverse) against the
+  canonical `stream-tool-cancel/tool-pending` and `stream-tool-cancel/cancelled`
+  checkpoints in `tests/experience/canonical-v1.json` — 15 rows each, bottom
+  anchored on each side's last transcript row. Untouched cells and written
+  spaces are normalised to the same glyph because they are the same screen;
+  style is not normalised, so a background-filled space stays distinct from an
+  empty one. Negative control run by hand: changing the user background by one
+  bit fails both checkpoints at the first differing cell
+  (`canonical row 1, pi-rs row 7, column 0`). The same file holds the two
+  presentation budgets: a one-character streamed delta repaints only its own row
+  (no unchanged block in the payload, under 200 bytes), and a 400-turn
+  transcript still repaints in one viewport (under 32 KiB) with the newest
+  answer against the prompt, because `transcript:lines(width, limit)` only ever
+  builds the newest `limit` lines.
+
+  Because a block line is several styled runs, a phrase on screen is no longer
+  one substring of the raw stream: `frontend_package.rs` and
+  `default_distribution.rs` now strip escapes in their `screen()` helpers and
+  assert what the frame *says*, leaving cell-exactness to the new suite.
+
+  Checks: `cargo fmt --all -- --check`, `cargo clippy --workspace
+  --all-targets` (pre-existing warnings only; none in the touched files),
+  `cargo test --workspace` (73 test binaries, 404 tests, 0 failures),
+  `nix flake check --print-build-logs` (6 checks, all passed), and `nix run .`
+  under a private `HOME`/XDG set (startup frame renders, nothing written).
+
+  **Remaining for 5.1 (this box stays open):**
+  1. **Rows without a producer or a checkpoint.** `transcript:thinking` exists
+     but no agent action emits it, and warning/retry/compaction/custom blocks
+     still reuse the notice styling. The canonical thinking rows
+     (`thinking-and-queues/thinking-hidden|thinking-visible`, italic `#808080`)
+     are therefore unmatched, and so are the queue meta rows.
+  2. **Wrapping is unpinned.** Text wraps at the block width through
+     `pi.terminal.v1.text.wrap`, but no canonical checkpoint records a wrapped
+     transcript line, so the wrap points are pi-rs policy, not a matched
+     observation. A checkpoint or an explicit divergence note is owed.
+  3. **Renderers are not yet replaceable.** Presentation lives in one module a
+     second source cannot claim; there is no public seam for replacing a block
+     renderer short of replacing the whole frontend root. Deciding that seam is
+     the next slice of 5.1.
+  4. **Memory budget unmeasured.** The render budget is asserted as painted
+     bytes per frame; RSS over a long transcript is only bounded by
+     construction (`max_entries`), not measured. The 0.2 release harness is the
+     honest instrument and has not been run for this item.
+  5. **Only the transcript strip is claimed.** Header, working indicator,
+     prompt chrome, and status line are still the minimal 3.x ones, so no
+     canonical frame matches in full. That is 5.2/5.3 work by design.
+
+  **Standing notes carried past 4.4 and still true:** `tests/README.md` has no
+  acceptance row for `crates/pi-rs-builtins/tests/**` and now none for
+  `crates/pi-rs-app/tests/transcript_presentation.rs` either — that file still
+  has unrelated uncommitted user edits, and touching it would mix them into a
+  commit. `pi.roots.v1` still registers/lists/selects `application`, `agent`,
+  and `frontend` only, while `RootKind` and `DESIGN.md` also name `session`.
+
 - [ ] **5.2 — Editor, completion, and keymaps** (**Wave P2**; depends on 4.4).
 
   Complete Lua editor policy over terminal/text primitives: multiline edits,
