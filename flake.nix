@@ -235,6 +235,37 @@
             pi --package replacement.lua > override.json
             jq -e '.actions[0].kind == "overridden"' override.json >/dev/null
 
+            # ... and a shipped root is replaceable from ordinary user
+            # configuration, without an explicit package argument: the
+            # replacement registers *below* the shipped frontend's priority,
+            # so it can only be resolved because `roots.frontend` names it.
+            mkdir -p $HOME/.local/share/pi/packages $HOME/.config/pi
+            cat > $HOME/.local/share/pi/packages/frontend-root.lua <<'LUA'
+            local roots = (...).roots.v1
+            roots.register({
+              kind = "frontend",
+              id = "acceptance-frontend",
+              active = true,
+              priority = -10,
+              dispatch = function()
+                roots.action("ansi", { data = "replacement frontend" })
+              end,
+            })
+            LUA
+            cat > $HOME/.config/pi/config.lua <<'LUA'
+            return {
+              packages = { "frontend-root.lua" },
+              roots = { frontend = "acceptance-frontend" },
+            }
+            LUA
+            pi > replaced.json 2> replaced-error.txt
+            test ! -s replaced-error.txt
+            jq -r '[.actions[] | select(.kind == "ansi") | .payload.data] | join("")' \
+              replaced.json > replaced-frame.txt
+            grep -q 'replacement frontend' replaced-frame.txt
+            ! grep -q 'enter send' replaced-frame.txt
+            rm -r $HOME/.config/pi $HOME/.local/share/pi
+
             touch $out
           '';
 

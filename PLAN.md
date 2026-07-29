@@ -1650,18 +1650,64 @@ After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
   any Nix check runs — the flake sees only tracked files, so an untracked
   `config/roots.lua` failed `default-distribution` with "package 8 is absent".
 
+  **Landed slice (replacement proven at distribution level, on the agent and
+  on the installed binary).** The two earlier slices proved replacement at
+  package level; a distribution is where it has to hold, because the shipped
+  index registers a root for every kind. Two claims landed, both by *naming*
+  a root rather than outbidding one — each replacement registers at priority
+  `-10`, below the shipped `0`, so priority resolution alone would keep the
+  shipped root.
+
+  `crates/pi-rs-app/tests/default_distribution.rs` (12 tests) replaces the
+  **agent**. The whole shipped index is loaded, and an ordinary
+  `<config>/pi/config.lua` loads one file-backed package from the canonical
+  packages resource (`<data>/pi/packages/agent.lua`) and names its root with
+  `roots = { agent = "acceptance.agent" }`. The replacement is 20 lines with
+  no provider, no tool loop, and no module shared with the shipped agent: it
+  answers `configure` and `prompt` — the two events the shipped application
+  coordinator dispatches — with `agent_configured`, `agent_turn_start`,
+  `agent_message`, and `agent_status`. The rest of the distribution keeps
+  working over it unchanged: the shipped frontend renders its own chrome, user
+  row, assistant row, and idle status, and the shipped session package folds
+  the replacement's batch into `header, model, message, message` under the
+  canonical XDG state entry and answers `session status` with two messages —
+  the `agent`/`render` middleware stage reads the public action vocabulary and
+  never asks which root produced it. The control test is the same package
+  loaded by the same configuration with only `roots.agent` removed: the
+  shipped agent runs the turn (fixture `401`, credential guidance rendered)
+  and the replacement never appears, so nothing above is explained by
+  registration order or priority. The harness change that made this possible
+  is small: `Sandbox` gained `write_package`, and `Distribution::from_packages`
+  now takes the sandbox, because a configuration must exist on disk *before*
+  the host loads the index.
+
+  The Nix `default-distribution` check makes the same claim about the
+  installed binary and a root the launcher itself dispatches: `pi` with no
+  arguments, a `config.lua` naming a replacement **frontend** root, and the
+  startup frame is the replacement's output with the shipped footer
+  (`enter send`) absent. That closes the gap the old block left — it only
+  overrode the application root through an explicit `--package`, which is a
+  command-line selection rather than a configured one.
+
+  Checks: `cargo fmt --all -- --check`, `cargo clippy --workspace
+  --all-targets` (pre-existing warnings only; none in the touched files),
+  `cargo test --workspace` (80 test targets, 391 tests, 0 failures),
+  `nix flake check --print-build-logs` (6 checks, all passed),
+  `nix build --rebuild .#checks.x86_64-linux.default-distribution` (re-ran the
+  new block rather than reusing the cached output), and `nix run .` under a
+  private `HOME` (input-ready frame, no state root written).
+
   **Remaining for 4.4 (nothing dropped):**
-  1. Independent replacement of the application, agent, frontend, and session
-     roots is proven for `application` (the Nix override check), for
-     session-by-omission, and now for a `frontend` root *chosen* from
-     configuration in `config_package.rs`. Still unproven: an `agent`
-     replacement, and any of them at distribution level (the
-     `default-distribution` check and `crates/pi-rs-app/tests/default_distribution.rs`
-     still only override the application root).
-  2. Untouched by this slice: two composing extensions without privileged
-     ordering, deterministic conflict/module-version matrices, lifecycle
-     cleanup, reload rollback, and watchdog isolation across the expanded
-     graph.
+  1. Independent replacement is now proven for `application` (Nix
+     `--package` override), `agent` (distribution level, configured),
+     `frontend` (package level in `config_package.rs`, and distribution level
+     in the Nix check), and `session` by omission. What is still unproven is
+     *simultaneous* independence — replacing two roots at once and showing the
+     other packages still compose — which folds naturally into item 2.
+  2. Untouched by every slice so far, and the last acceptance criterion left:
+     two composing extensions without privileged ordering, deterministic
+     conflict/module-version matrices, lifecycle cleanup, reload rollback, and
+     watchdog isolation across the expanded graph.
   3. Carried forward from 4.2/4.3: `tests/README.md` still has no acceptance
      row for `crates/pi-rs-builtins/tests/**` (agent, frontend, tool,
      configuration, and session package suites). Left alone deliberately —
