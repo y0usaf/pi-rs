@@ -91,6 +91,30 @@ module.define({
       return calls
     end
 
+    -- The one call a streaming tool-call event is about, read straight out of
+    -- the partial message the host already built. `contentIndex` is a 0-based
+    -- index into that message's content, so parallel calls stay distinct
+    -- without the agent keeping a scratch copy of the stream.
+    local function streaming_call(event)
+      local partial = event.partial
+      if type(partial) ~= "table" or type(partial.content) ~= "table" then
+        return nil
+      end
+      local index = event.contentIndex
+      if type(index) ~= "number" then
+        return nil
+      end
+      local block = partial.content[math.floor(index) + 1]
+      if type(block) ~= "table" or block.type ~= "toolCall" or type(block.id) ~= "string" then
+        return nil
+      end
+      return {
+        id = block.id,
+        name = type(block.name) == "string" and block.name or "",
+        arguments = type(block.arguments) == "table" and block.arguments or {},
+      }
+    end
+
     -- Consecutive parallel-eligible calls settle as one bounded group; a
     -- serializing tool (or an unknown name) always settles alone, in call
     -- order, so file mutations cannot interleave.
@@ -252,6 +276,19 @@ module.define({
           local content = event.content
           if type(content) == "string" and #content > 0 then
             emit("agent_thinking", { text = content })
+          end
+        elseif
+          event.type == "toolcall_start"
+          or event.type == "toolcall_delta"
+          or event.type == "toolcall_end"
+        then
+          -- A provider names a call and then streams its arguments. Saying so
+          -- while they arrive is what lets a frontend show the call before it
+          -- is runnable. Settlement still reads the finished message, so a
+          -- truncated stream can announce a call but never start one.
+          local call = streaming_call(event)
+          if call ~= nil then
+            emit("agent_tool_delta", call)
           end
         elseif event.type == "error" then
           emit("agent_diagnostic", { reason = "stream_error_event" })

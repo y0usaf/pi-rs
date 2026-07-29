@@ -39,14 +39,23 @@ the whole transition policy without touching the frontend.
 
 `agent_turn_start`, `agent_status`, `agent_text_delta`, `agent_message`,
 `agent_thinking_delta`, `agent_thinking`, `agent_tool_group`,
-`agent_tool_start`, `agent_tool_result`, `agent_retry`, `agent_error`,
-`agent_cancelled`, `agent_steered`, `agent_follow_up`, `agent_queued`,
-`agent_configured`, `agent_reset`, `agent_diagnostic`.
+`agent_tool_delta`, `agent_tool_start`, `agent_tool_result`, `agent_retry`,
+`agent_error`, `agent_cancelled`, `agent_steered`, `agent_follow_up`,
+`agent_queued`, `agent_configured`, `agent_reset`, `agent_diagnostic`.
 
 `agent_queued` carries `queue` (`steer`, `follow_up`, or `interrupt`), the
 accepted `text`, `accepted`, `depth`, and a `reason` when it was refused. The
 text travels with the acceptance so a frontend can show what is pending
 without reading the agent's queues.
+
+`agent_tool_delta` carries the `id`, `name`, and the `arguments` parsed so
+far for a call the provider is still streaming. Providers name a tool first
+and stream its arguments after, so a call can be visible for a while before
+it is runnable; the same `id` then arrives as `agent_tool_start`, and a
+frontend keyed by `id` refines one row instead of painting two. The action
+announces a call, it never starts one: settlement still reads the finished
+message, so a truncated stream can leave a partial announcement but cannot
+run a partial call.
 
 Actions are data. Rendering, transcript shape, and user messaging belong to the
 frontend package; the agent never submits display batches.
