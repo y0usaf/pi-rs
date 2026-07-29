@@ -972,12 +972,56 @@ package paths, but shared binding indexes/default manifests remain serial.
   no-package guidance, file-backed application, pi-core package, model-catalog
   update) pass.
 
+  **Landed slice (credential storage and resolution):** `pi.auth.v1` is the
+  eighth public module and the sixth consumer-demonstrated 4.1 addition,
+  closing the *credential* half of the provider/auth criterion.
+  `crates/pi-rs-host/src/bindings/auth.rs` exposes `providers()` (the
+  subscription identities that can refresh a stored OAuth row) and
+  `store{canonical=[, legacy=]}`, whose handle offers `snapshot`, `describe`,
+  `set_api_key`, `set_oauth`, `remove`, and `resolve`. Both file locations are
+  arguments, so Rust names no path, no product provider, and no precedence
+  rule; the only refusals are ones Rust cannot implement (a relative path, a
+  legacy fallback equal to the canonical file, a blank provider id). Secrets
+  leave Rust through exactly one member: `snapshot` reports provenance
+  (`canonical`/`legacy`/`absent`) and provider names, `describe` reports kind,
+  expiry, and provider-defined extra-field names, and only `resolve` returns
+  `{api_key, refreshed}`. Mechanism reused unchanged from
+  `pi_rs_ai_auth::CredentialStore`: canonical-first selection with a read-only
+  legacy fallback, inter-process locking, atomic owner-private replacement,
+  stored-value expansion (`$NAME` from the process environment, `!command`
+  through the shell with its own hard timeout and cache), and OAuth refresh
+  written back under the same lock. Bounds: 64 KiB per stored or resolved
+  secret (`max_secret_bytes`), 256 providers per snapshot (`max_providers`).
+  Every mutating member is async and races the innermost dispatch cancellation
+  (`current_cancellation`); the store owns no OS resource between calls, so
+  there is nothing to register as a scope resource and the canonical write
+  itself is synchronous and atomic. Evidence:
+  `crates/pi-rs-host/tests/credential_store.rs` (2 tests) drives the whole
+  journey from ordinary file-backed packages whose locations come from the
+  public environment/path effects — legacy selected and resolved while
+  canonical is absent, the first write promoting to canonical and migrating the
+  legacy rows forward while leaving the legacy file byte-identical, a
+  command-backed api-key expression expanded only at `resolve`, an OAuth row
+  keeping its extra fields with expiry reported but no token exposed, removal,
+  owner-private canonical mode bits, and the subscription inventory; the other
+  pins absence-as-data and every refusal (relative path, identical paths, blank
+  provider, oversize secret, unknown OAuth provider, incomplete OAuth row).
+  `crates/pi-rs-host/tests/public_surface.rs` now pins the eight-module shape
+  and the exact `pi.auth.v1` member list. `docs/lua-extension-api.md` gains a
+  credentials section recording the surface, the bounds, and the deliberate
+  divergence that stored-value expansion reads the live process environment
+  while `pi.effects.v1.env` is the immutable startup snapshot.
+  `cargo fmt --all -- --check`, `cargo test --workspace` (72 suites, 0
+  failures), and `nix flake check` (8 checks: workspace tests, clippy, default
+  distribution, raw no-package guidance, file-backed application, pi-core
+  package, model-catalog update) pass.
+
   **Remaining for 4.1:** richer display structures beyond the retained tree,
-  auth operations (credential resolution/storage and subscription login are
-  still absent from the Lua surface; `pi.models.v1.stream` resolves an env key
-  itself and nothing else is reachable), and the generated concise API doc
-  covering the demonstrated surface. Each still needs its own file-backed
-  consumer before it is added.
+  subscription login (browser/PKCE and device-code flows are still absent from
+  the Lua surface; storage, refresh, and resolution are now reachable, so a
+  login slice only needs the flow plus its UI callbacks), and the generated
+  concise API doc covering the demonstrated surface. Each still needs its own
+  file-backed consumer before it is added.
 
 After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
 

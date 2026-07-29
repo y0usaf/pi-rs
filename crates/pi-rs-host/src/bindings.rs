@@ -1,5 +1,6 @@
 //! Assembly of the compact, versioned Lua mechanism surface.
 
+mod auth;
 mod effects;
 mod models;
 mod packages;
@@ -49,6 +50,7 @@ pub(crate) fn build(
     crate::middleware::install(lua, &pi)?;
     terminal::install(lua, &pi)?;
     models::install(lua, &pi)?;
+    auth::install(lua, &pi)?;
     effects::install(lua, &pi, cwd, effects, environment)?;
     registry.set(MECHANISM_KEY, pi.clone())?;
     Ok(pi)

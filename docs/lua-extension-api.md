@@ -4,7 +4,7 @@ The inherited Pi-compatibility extension API is not part of pi-rs. Ordinary Lua
 packages receive one compact, versioned mechanism table; embedded provenance
 adds no members or privileges.
 
-The complete top-level surface after PLAN 4.1's provider-inventory slice is:
+The complete top-level surface after PLAN 4.1's credential-storage slice is:
 
 - `pi.kernel.v1`: package transaction primitives;
 - `pi.roots.v1`: application/agent/frontend root facade;
@@ -14,10 +14,12 @@ The complete top-level surface after PLAN 4.1's provider-inventory slice is:
 - `pi.effects.v1`: bounded filesystem/path/environment, process, timer, and
   cancellation effects;
 - `pi.records.v1`: durable append-only record stores at Lua-chosen destinations;
-- `pi.packages.v1`: bounded package composition, listing, and disposal.
+- `pi.packages.v1`: bounded package composition, listing, and disposal;
+- `pi.auth.v1`: credential storage and resolution at Lua-chosen locations, plus
+  the subscription-provider inventory.
 
 No top-level event bus, command/tool registry, runtime/session/config/settings,
-trust/auth UI, `pi.ai`, `pi.tui`, `pi.fs`, `pi.exec`, or `pi.http` compatibility
+trust/login UI, `pi.ai`, `pi.tui`, `pi.fs`, `pi.exec`, or `pi.http` compatibility
 member is installed. Product declarations and richer capabilities return only
 with a demonstrated file-backed consumer.
 
@@ -188,3 +190,47 @@ and releases its lock without waiting for Lua garbage collection. Operations are
 synchronous and observe the innermost dispatch cancellation unless an explicit
 `cancellation` is passed; an already-cancelled token fails the call before any
 blocking work.
+
+## Credentials
+
+`pi.auth.v1` stores and resolves provider credentials. Both file locations are
+passed in, so no path, provider name, or precedence rule exists in Rust:
+
+- `store{canonical=[, legacy=]}` returns a credential store. Both paths must be
+  absolute and must differ. `canonical` is the only file ever written; `legacy`
+  is a read-only fallback used only while `canonical` is absent;
+- `providers()` — the subscription identities that can refresh a stored OAuth
+  row (`id`, `name`, `uses_callback_server`), in registry order;
+- `api_version`, `max_secret_bytes` (64 KiB), and `max_providers` (256).
+
+A store provides `snapshot()`, `describe(provider)`, `set_api_key(provider,
+value)`, `set_oauth(provider, credentials)`, `remove(provider)`, and
+`resolve(provider)`.
+
+`snapshot()` reports `source` (`canonical`, `legacy`, or `absent`) and the
+stored provider names. `describe(provider)` reports `kind` (`api_key` or
+`oauth`) plus, for an OAuth row, `expires`, `expired`, and the provider-defined
+`extra_fields` names. Neither ever returns a secret, so credential state can be
+rendered without holding one.
+
+`resolve(provider)` is the only member that yields a secret, as `{api_key,
+refreshed}` or `nil`. A stored api-key row is an expression: `$NAME` expands
+from the process environment and a leading `!` runs the rest through the shell
+with its own hard timeout and a process-wide result cache. This expansion is the
+provider subsystem's stored-value mechanism and deliberately reads the live
+process environment, unlike `pi.effects.v1.env`, which is the immutable startup
+snapshot. An expired OAuth row is refreshed through its subscription provider
+and written back under the same lock; `refreshed` reports whether that happened.
+
+`set_oauth` requires `refresh`, `access`, and `expires` (epoch milliseconds) and
+preserves every other field verbatim as provider-defined extra data. The first
+write promotes storage to `canonical` and migrates the selected legacy rows
+forward; the legacy file is never modified. Writes are lock-serialized, replace
+the canonical file atomically, and keep it owner-private.
+
+Mutating members are asynchronous and observe the innermost dispatch
+cancellation. The store holds no operating-system resource between calls, so
+there is nothing to dispose: each operation takes the canonical lock, completes
+or is cancelled at a lock retry, stored-value command, or token refresh, and
+releases it. Login flows (browser/PKCE and device code) are not yet on the
+surface.
