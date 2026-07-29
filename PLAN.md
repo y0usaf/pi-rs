@@ -1016,12 +1016,57 @@ package paths, but shared binding indexes/default manifests remain serial.
   distribution, raw no-package guidance, file-backed application, pi-core
   package, model-catalog update) pass.
 
-  **Remaining for 4.1:** richer display structures beyond the retained tree,
-  subscription login (browser/PKCE and device-code flows are still absent from
-  the Lua surface; storage, refresh, and resolution are now reachable, so a
-  login slice only needs the flow plus its UI callbacks), and the generated
-  concise API doc covering the demonstrated surface. Each still needs its own
-  file-backed consumer before it is added.
+  **Landed slice (subscription login):** the seventh consumer-demonstrated 4.1
+  addition closes the *login* half of the provider/auth criterion, so
+  `pi.auth.v1` now covers the whole credential lifecycle. `login(provider,
+  callbacks[, options])` in `crates/pi-rs-host/src/bindings/auth/login.rs` runs
+  one subscription OAuth flow and returns the credential row — the same shape
+  `set_oauth` accepts — instead of storing it, so which store receives the row
+  stays the same Lua decision as every other credential location. Rust names no
+  login step: it runs the wire flow only (PKCE, the loopback callback server,
+  authorization-code exchange, RFC 8628 polling), and every user-visible step is
+  an ordinary Lua function — `on_auth`, `on_device_code`, `on_prompt`,
+  `on_select` (required), plus optional `on_progress`, `on_manual_code_input`
+  (its presence is what enables the manual-entry race), and `model_ids`. No new
+  declaration path appeared: the flows are the existing registry rows already
+  reported by `providers()`. Mechanism: a `Send + Sync` bridge holding no Lua
+  value turns each callback into a queued request with a `oneshot` reply, which
+  is what lets a non-`Send` Lua VM drive a `Send` provider flow; a second future
+  serves that queue in arrival order with at most one Lua call in flight, and is
+  polled concurrently with the flow, so a pending manual-code prompt does not
+  stop the callback server from settling. Reply channels carry successes only —
+  a raising Lua callback ends the login through the driver. Bounds: `timeout_ms`
+  (`default_login_timeout_ms` 900000, `max_login_timeout_ms` 3600000), 128
+  `model_ids` entries, and the existing 64 KiB secret bound applied to pasted
+  codes and prompt answers. Every step races the innermost dispatch cancellation
+  (`current_cancellation`), and the cancel branch carries `error::CANCEL_MARKER`
+  so a cancelled login reports as `HostError::Cancelled` like any other
+  cancelled dispatch; the callback server is owned by the flow future, so
+  dropping the login releases its port. Evidence:
+  `crates/pi-rs-host/tests/subscription_login.rs` (4 tests) drives every journey
+  from ordinary file-backed packages against fixture provider rows pointed at a
+  local HTTP socket, so the whole thing runs offline — a browser login where Lua
+  picks the method from the flow's options, shows the authorization URL, pastes
+  the code back, then stores and resolves the returned row (extras such as
+  `accountId` preserved); a headless device-code login where Lua answers the
+  enterprise prompt, renders the code with its polling parameters, and supplies
+  the catalog rows enabled afterwards; every pre-flight refusal (unknown
+  provider, missing required callback, zero/oversize timeout, oversize
+  `model_ids`); and a login parked on an endpoint that never answers, ended by
+  `dispose_package` and reported as a cancelled dispatch.
+  `crates/pi-rs-host/tests/public_surface.rs` now pins the nine-member
+  `pi.auth.v1` list. `docs/lua-extension-api.md` gains a subscription-login
+  section recording the callbacks, the bounds, and the callback-ordering rule.
+  `cargo fmt --all -- --check`, `cargo test --workspace` (74 suites, 0
+  failures), and `nix flake check` (8 checks: workspace tests, clippy, default
+  distribution, raw no-package guidance, file-backed application, pi-core
+  package, model-catalog update) pass. **Unrun live check:** a real subscription
+  login against Anthropic, GitHub, or OpenAI needs an account and network and
+  was not executed; only the fixture-endpoint journeys are evidence.
+
+  **Remaining for 4.1:** richer display structures beyond the retained tree, and
+  the generated concise API doc covering the demonstrated surface. Each still
+  needs its own file-backed consumer before it is added.
 
 After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
 
