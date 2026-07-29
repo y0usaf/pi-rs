@@ -1128,6 +1128,80 @@ fn rasterize(batch: &DisplayBatch, validated: &ValidatedBatch) -> Result<Rasteri
     })
 }
 
+/// One grapheme placement produced by the shared text walker.
+struct TextPlacement<'a> {
+    row: u16,
+    column: u16,
+    grapheme: &'a str,
+    width: u16,
+    style: CellStyle,
+}
+
+/// Walk a text node's graphemes exactly the way the rasterizer paints them and
+/// return the cursor left after the last one.
+///
+/// Painting and measurement share this traversal, so a caller that measures a
+/// string can never disagree with the cells that string later occupies.
+fn walk_text<'a, I>(
+    segments: I,
+    width: u16,
+    wrap: WrapMode,
+    tab_width: u8,
+    visit: &mut dyn FnMut(TextPlacement<'a>),
+) -> (u16, u16)
+where
+    I: IntoIterator<Item = (&'a str, CellStyle)>,
+{
+    let tab_width = u16::from(tab_width.max(1));
+    let mut row = 0u16;
+    let mut column = 0u16;
+    for (text, style) in segments {
+        for grapheme in text.graphemes(true) {
+            if grapheme == "\n" {
+                row = row.saturating_add(1);
+                column = 0;
+                continue;
+            }
+            if grapheme == "\t" {
+                let spaces = tab_width - column % tab_width;
+                for _ in 0..spaces {
+                    visit(TextPlacement {
+                        row,
+                        column,
+                        grapheme: " ",
+                        width: 1,
+                        style,
+                    });
+                    column = column.saturating_add(1);
+                }
+                continue;
+            }
+            let cells = u16::try_from(grapheme_width(grapheme)).unwrap_or(u16::MAX);
+            if cells == 0 {
+                continue;
+            }
+            if column.saturating_add(cells) > width {
+                if wrap == WrapMode::Grapheme {
+                    row = row.saturating_add(1);
+                    column = 0;
+                } else {
+                    column = column.saturating_add(cells);
+                    continue;
+                }
+            }
+            visit(TextPlacement {
+                row,
+                column,
+                grapheme,
+                width: cells,
+                style,
+            });
+            column = column.saturating_add(cells);
+        }
+    }
+    (row, column)
+}
+
 fn paint_text(
     frame: &mut Frame,
     rect: Rect,
@@ -1136,44 +1210,28 @@ fn paint_text(
     wrap: WrapMode,
     tab_width: u8,
 ) -> usize {
-    let mut row = 0u16;
-    let mut column = 0u16;
     let mut painted = 0;
-    for run in runs {
-        for grapheme in run.text.graphemes(true) {
-            if grapheme == "\n" {
-                row = row.saturating_add(1);
-                column = 0;
-                continue;
+    walk_text(
+        runs.iter().map(|run| (run.text.as_str(), run.style)),
+        rect.width,
+        wrap,
+        tab_width,
+        &mut |placement| {
+            if placement.row >= rect.height {
+                return;
             }
-            if grapheme == "\t" {
-                let spaces = u16::from(tab_width) - column % u16::from(tab_width);
-                for _ in 0..spaces {
-                    painted += paint_one(frame, rect, clip, " ", 1, run.style, row, column);
-                    column = column.saturating_add(1);
-                }
-                continue;
-            }
-            let width = u16::try_from(grapheme_width(grapheme)).unwrap_or(u16::MAX);
-            if width == 0 {
-                continue;
-            }
-            if column.saturating_add(width) > rect.width {
-                if wrap == WrapMode::Grapheme {
-                    row = row.saturating_add(1);
-                    column = 0;
-                } else {
-                    column = column.saturating_add(width);
-                    continue;
-                }
-            }
-            if row >= rect.height {
-                continue;
-            }
-            painted += paint_one(frame, rect, clip, grapheme, width, run.style, row, column);
-            column = column.saturating_add(width);
-        }
-    }
+            painted += paint_one(
+                frame,
+                rect,
+                clip,
+                placement.grapheme,
+                placement.width,
+                placement.style,
+                placement.row,
+                placement.column,
+            );
+        },
+    );
     painted
 }
 
@@ -1210,6 +1268,225 @@ fn paint_one(
     usize::from(width)
 }
 
+/// Cells a string occupies when laid out in a text node of a given width.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TextMetrics {
+    /// Rows occupied, counting the empty row a trailing newline leaves. Always
+    /// at least one.
+    pub rows: u32,
+    /// Widest row, in cells.
+    pub max_width: u16,
+    /// Cursor column left after the last grapheme.
+    pub last_width: u16,
+    /// Cells the same text would paint.
+    pub cells: usize,
+}
+
+/// One extended grapheme cluster with its terminal cell width.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphemeCell {
+    pub text: String,
+    pub width: u16,
+    /// Zero-based byte offset of this cluster in the source string.
+    pub offset: usize,
+}
+
+/// A single-line string shortened to a cell budget.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TruncatedText {
+    pub text: String,
+    pub width: u16,
+    pub truncated: bool,
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum TextError {
+    #[error("text contains terminal control data")]
+    TerminalControl,
+    #[error("single-line text must not contain a newline or tab")]
+    MultilineText,
+    #[error("layout width must be non-zero")]
+    EmptyWidth,
+    #[error("invalid tab width {0}")]
+    InvalidTabWidth(u8),
+}
+
+/// Reject exactly the control data a display batch rejects, so text these
+/// primitives accept is text `RetainedDisplay::submit` also accepts.
+fn check_control(text: &str) -> Result<(), TextError> {
+    if text.chars().any(|character| {
+        character == '\x1b' || (character.is_control() && character != '\n' && character != '\t')
+    }) {
+        return Err(TextError::TerminalControl);
+    }
+    Ok(())
+}
+
+fn check_single_line(text: &str) -> Result<(), TextError> {
+    check_control(text)?;
+    if text.contains('\n') || text.contains('\t') {
+        return Err(TextError::MultilineText);
+    }
+    Ok(())
+}
+
+fn check_layout(width: u16, tab_width: u8) -> Result<(), TextError> {
+    if width == 0 {
+        return Err(TextError::EmptyWidth);
+    }
+    if !(1..=16).contains(&tab_width) {
+        return Err(TextError::InvalidTabWidth(tab_width));
+    }
+    Ok(())
+}
+
+fn cell_width(grapheme: &str) -> u16 {
+    u16::try_from(grapheme_width(grapheme)).unwrap_or(u16::MAX)
+}
+
+/// Terminal cell width of one single-line string.
+pub fn text_width(text: &str) -> Result<u16, TextError> {
+    check_single_line(text)?;
+    Ok(text.graphemes(true).fold(0u16, |width, grapheme| {
+        width.saturating_add(cell_width(grapheme))
+    }))
+}
+
+/// Rows and columns a string occupies in a text node `width` cells wide.
+pub fn measure_text(
+    text: &str,
+    width: u16,
+    wrap: WrapMode,
+    tab_width: u8,
+) -> Result<TextMetrics, TextError> {
+    check_control(text)?;
+    check_layout(width, tab_width)?;
+    let mut max_width = 0u16;
+    let mut cells = 0usize;
+    let (row, column) = walk_text(
+        std::iter::once((text, CellStyle::default())),
+        width,
+        wrap,
+        tab_width,
+        &mut |placement| {
+            max_width = max_width.max(placement.column.saturating_add(placement.width));
+            cells = cells.saturating_add(usize::from(placement.width));
+        },
+    );
+    Ok(TextMetrics {
+        rows: u32::from(row).saturating_add(1),
+        max_width,
+        last_width: column,
+        cells,
+    })
+}
+
+/// Break a string into the rows a text node `width` cells wide would paint.
+///
+/// Rows past `max_rows` are dropped; the returned flag reports that the text
+/// did not fit, so the caller can decide what to do about the remainder.
+pub fn wrap_text(
+    text: &str,
+    width: u16,
+    tab_width: u8,
+    max_rows: usize,
+) -> Result<(Vec<String>, bool), TextError> {
+    check_control(text)?;
+    check_layout(width, tab_width)?;
+    let mut rows: Vec<String> = Vec::new();
+    let mut overflow = false;
+    let (last_row, _) = walk_text(
+        std::iter::once((text, CellStyle::default())),
+        width,
+        WrapMode::Grapheme,
+        tab_width,
+        &mut |placement| {
+            let index = usize::from(placement.row);
+            if index >= max_rows {
+                overflow = true;
+                return;
+            }
+            while rows.len() <= index {
+                rows.push(String::new());
+            }
+            rows[index].push_str(placement.grapheme);
+        },
+    );
+    let occupied = usize::from(last_row).saturating_add(1);
+    if occupied > max_rows {
+        overflow = true;
+    }
+    while rows.len() < occupied.min(max_rows) {
+        rows.push(String::new());
+    }
+    Ok((rows, overflow))
+}
+
+/// Shorten a single-line string to `max_width` cells without splitting a
+/// grapheme or leaving half of a wide one, appending `ellipsis` when anything
+/// was dropped. An ellipsis wider than the budget is omitted.
+pub fn truncate_text(
+    text: &str,
+    max_width: u16,
+    ellipsis: &str,
+) -> Result<TruncatedText, TextError> {
+    let width = text_width(text)?;
+    let ellipsis_width = text_width(ellipsis)?;
+    if width <= max_width {
+        return Ok(TruncatedText {
+            text: text.to_owned(),
+            width,
+            truncated: false,
+        });
+    }
+    let keep_ellipsis = ellipsis_width <= max_width;
+    let budget = if keep_ellipsis {
+        max_width - ellipsis_width
+    } else {
+        max_width
+    };
+    let mut kept = String::new();
+    let mut kept_width = 0u16;
+    for grapheme in text.graphemes(true) {
+        let cells = cell_width(grapheme);
+        if kept_width.saturating_add(cells) > budget {
+            break;
+        }
+        kept.push_str(grapheme);
+        kept_width = kept_width.saturating_add(cells);
+    }
+    if keep_ellipsis {
+        kept.push_str(ellipsis);
+        kept_width = kept_width.saturating_add(ellipsis_width);
+    }
+    Ok(TruncatedText {
+        text: kept,
+        width: kept_width,
+        truncated: true,
+    })
+}
+
+/// Bounded grapheme-cluster window plus the total cluster count.
+pub fn text_graphemes(
+    text: &str,
+    offset: usize,
+    limit: usize,
+) -> Result<(Vec<GraphemeCell>, usize), TextError> {
+    check_control(text)?;
+    let mut total = 0usize;
+    let mut window = Vec::new();
+    for (byte, grapheme) in text.grapheme_indices(true) {
+        if total >= offset && window.len() < limit {
+            window.push(GraphemeCell {
+                text: grapheme.to_owned(),
+                width: cell_width(grapheme),
+                offset: byte,
+            });
+        }
+        total = total.saturating_add(1);
+    }
+    Ok((window, total))
+}
 fn identity_delta(
     previous: &BTreeMap<NodeId, DisplayNode>,
     current: &BTreeMap<NodeId, DisplayNode>,
@@ -1632,5 +1909,131 @@ mod tests {
             })
         );
         assert_eq!(display.revision(), 1);
+    }
+
+    #[test]
+    fn measurement_predicts_the_cells_the_same_text_paints() {
+        // Wide, combining, tab, and newline graphemes in one string, laid out
+        // at a width that forces a wrap mid-line.
+        let value = "ab\t界e\u{301}xyz\ntail";
+        let width = 6;
+        let metrics = measure_text(value, width, WrapMode::Grapheme, 4).unwrap();
+        let rows = u16::try_from(metrics.rows).unwrap();
+
+        let mut display = RetainedDisplay::default();
+        let result = display
+            .submit(batch(
+                width,
+                rows,
+                vec![
+                    group(
+                        1,
+                        Rect {
+                            x: 0,
+                            y: 0,
+                            width,
+                            height: rows,
+                        },
+                        vec![NodeId(2)],
+                    ),
+                    text(
+                        2,
+                        Rect {
+                            x: 0,
+                            y: 0,
+                            width,
+                            height: rows,
+                        },
+                        value,
+                    ),
+                ],
+            ))
+            .unwrap();
+        // A node sized from the measurement paints exactly the measured cells:
+        // nothing overflows its rows and nothing is clipped away.
+        assert_eq!(result.painted_cells, metrics.cells);
+
+        // The wrapped rows reproduce the painted frame row for row.
+        let (wrapped, overflow) = wrap_text(value, width, 4, 64).unwrap();
+        assert!(!overflow);
+        assert_eq!(wrapped.len(), usize::try_from(metrics.rows).unwrap());
+        let frame = display.frame().unwrap();
+        for (row, expected) in wrapped.iter().enumerate() {
+            let painted: String = (0..width)
+                .filter_map(|column| cell_text(frame, u16::try_from(row).unwrap(), column))
+                .collect();
+            assert_eq!(&painted, expected);
+        }
+    }
+
+    #[test]
+    fn text_primitives_refuse_control_data_and_respect_row_budgets() {
+        assert_eq!(text_width("a\tb"), Err(TextError::MultilineText));
+        assert_eq!(text_width("a\nb"), Err(TextError::MultilineText));
+        assert_eq!(text_width("a\x1b[0m"), Err(TextError::TerminalControl));
+        assert_eq!(text_width("a\r"), Err(TextError::TerminalControl));
+        assert_eq!(
+            measure_text("a", 0, WrapMode::Grapheme, 4),
+            Err(TextError::EmptyWidth)
+        );
+        assert_eq!(
+            measure_text("a", 4, WrapMode::Grapheme, 0),
+            Err(TextError::InvalidTabWidth(0))
+        );
+
+        // A trailing newline occupies the empty row it opens.
+        let metrics = measure_text("ab\n", 4, WrapMode::Grapheme, 4).unwrap();
+        assert_eq!(metrics.rows, 2);
+        assert_eq!(metrics.last_width, 0);
+        assert_eq!(metrics.cells, 2);
+
+        // Clip mode reports the columns it dropped instead of wrapping them.
+        let clipped = measure_text("abcdef", 4, WrapMode::Clip, 4).unwrap();
+        assert_eq!(clipped.rows, 1);
+        assert_eq!(clipped.cells, 4);
+        assert_eq!(clipped.last_width, 6);
+
+        let (rows, overflow) = wrap_text("abcdef", 4, 4, 1).unwrap();
+        assert_eq!(rows, vec!["abcd".to_owned()]);
+        assert!(overflow);
+
+        // Truncation fills the budget with whole clusters: the second wide
+        // cluster does not fit beside the ellipsis, so it is dropped entire.
+        assert_eq!(
+            truncate_text("a界界", 4, "…").unwrap(),
+            TruncatedText {
+                text: "a界…".to_owned(),
+                width: 4,
+                truncated: true,
+            }
+        );
+        // A budget too small for the first cluster keeps only the ellipsis.
+        assert_eq!(
+            truncate_text("界界", 2, "…").unwrap(),
+            TruncatedText {
+                text: "…".to_owned(),
+                width: 1,
+                truncated: true,
+            }
+        );
+        assert_eq!(
+            truncate_text("abc", 8, "…").unwrap(),
+            TruncatedText {
+                text: "abc".to_owned(),
+                width: 3,
+                truncated: false,
+            }
+        );
+
+        let (window, total) = text_graphemes("e\u{301}界x", 1, 1).unwrap();
+        assert_eq!(total, 3);
+        assert_eq!(
+            window,
+            vec![GraphemeCell {
+                text: "界".to_owned(),
+                width: 2,
+                offset: 3,
+            }]
+        );
     }
 }

@@ -1064,9 +1064,62 @@ package paths, but shared binding indexes/default manifests remain serial.
   login against Anthropic, GitHub, or OpenAI needs an account and network and
   was not executed; only the fixture-endpoint journeys are evidence.
 
-  **Remaining for 4.1:** richer display structures beyond the retained tree, and
-  the generated concise API doc covering the demonstrated surface. Each still
-  needs its own file-backed consumer before it is added.
+  **Landed slice (text measurement for Lua layout):** the eighth
+  consumer-demonstrated 4.1 addition adds the first display structure beyond the
+  retained tree — the cell arithmetic a package needs to decide what to put in
+  that tree. `pi.terminal.v1.text` offers `width`, `measure`, `wrap`,
+  `truncate`, and `graphemes` plus their bounds
+  (`max_bytes` 1 MiB, `default_max_graphemes` 1024 / `max_graphemes` 16384,
+  `default_max_rows` 1024 / `max_rows` 16384). Until now Lua could submit a
+  retained tree but could not compute a single Unicode cell width, so a package
+  had to guess with byte or codepoint counts — the shipped
+  `crates/pi-rs-builtins/frontend/view.lua` still measures its prompt with `#`,
+  which is correct only while that prompt stays ASCII. Mechanism: the paint
+  loop in `crates/pi-rs-tui/src/display.rs` is refactored into one shared
+  `walk_text` traversal that both `paint_text` and the new public
+  `text_width`/`measure_text`/`wrap_text`/`truncate_text`/`text_graphemes` use,
+  so measurement cannot drift from rasterization: a node sized from `measure`
+  paints exactly `measure(...).cells`, and `wrap` returns the rows the frame
+  actually holds. The primitives reject exactly the control data
+  `RetainedDisplay::submit` rejects, so text that measures is text that submits;
+  single-line members additionally refuse newline and tab, which change layout
+  rather than width. Rust names no appearance: grapheme wrapping breaks at the
+  last cluster that fits and never moves a word, the ellipsis and the budget are
+  arguments, row budgets clip and report overflow instead of allocating, and
+  where the caret sits is Lua summing cluster widths. Every call is synchronous
+  and bounded by input bytes and window size, so no dispatch, allocation, or
+  per-cell crossing grows with terminal size.
+  `crates/pi-rs-host/src/tui_api/text.rs` owns the Lua-facing bounds and
+  `crates/pi-rs-host/src/bindings/terminal.rs` installs the table. Evidence:
+  `crates/pi-rs-host/tests/text_layout.rs` (2 tests) drives the whole journey
+  from ordinary file-backed packages — one package wraps a mixed
+  wide/combining/tab/newline paragraph, truncates a footer with its own
+  ellipsis, places a caret from cluster widths, and predicts the submitted
+  frame's `painted_cells` (24) from measurement alone before submitting; the
+  other pins every refusal (tab/newline in single-line width, escape data in
+  both `width` and `submit`, zero width, zero tab width, missing width, unknown
+  wrap mode, out-of-range windows, oversize input) and the bounded behaviours
+  (row-budget clipping with an overflow flag, offset windows with the total
+  count, an ellipsis wider than the budget, and text that already fits).
+  `crates/pi-rs-tui/src/display.rs` gains two unit tests proving the
+  measure-equals-paint invariant against a real rasterized frame and the
+  primitive-level refusals. `crates/pi-rs-host/tests/public_surface.rs` now pins
+  the exact `pi.terminal.v1` and `pi.terminal.v1.text` member lists.
+  `docs/lua-extension-api.md` gains a text-measurement section.
+  `cargo fmt --all -- --check`, `cargo test --workspace` (74 test targets, 313
+  tests, 0 failures), and `nix flake check` (8 checks: workspace tests, clippy,
+  default distribution, raw no-package guidance, file-backed application,
+  pi-core package, model-catalog update) pass.
+
+  **Remaining for 4.1:** display node content beyond group/text — images
+  (`crates/pi-rs-tui/src/terminal_image.rs` has the kitty/iTerm2 encoders and
+  cell sizing, but `DisplayNodeContent` has no image variant and the
+  differential cell presenter has no out-of-band escape pass) and hyperlink
+  styling (OSC 8 cannot be expressed today because runs reject escape data) —
+  and the generated concise API doc covering the demonstrated surface. Each
+  still needs its own file-backed consumer before it is added. Note for the
+  image slice: adding a content kind changes `DISPLAY_SCHEMA_VERSION`, which
+  `pi.terminal.v1.display_schema_version` publishes to every package.
 
 After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
 

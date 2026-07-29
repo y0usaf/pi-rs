@@ -35,6 +35,8 @@ local shape = {
   packages_v1 = keys(pi.packages.v1),
   models_v1 = keys(pi.models.v1),
   auth_v1 = keys(pi.auth.v1),
+  terminal_v1 = keys(pi.terminal.v1),
+  text = keys(pi.terminal.v1.text),
 }
 
 roots.register({
@@ -190,6 +192,34 @@ fn file_and_embedded_packages_see_only_the_same_compact_surface() {
             "max_secret_bytes",
             "providers",
             "store"
+        ])
+    );
+    // The terminal surface is batched input, the retained display, and the
+    // measurement Lua needs to lay one out. Wrapping, truncation, and caret
+    // columns are cell arithmetic; where to wrap or truncate stays Lua policy.
+    assert_eq!(
+        payload["shape"]["terminal_v1"],
+        serde_json::json!([
+            "api_version",
+            "display",
+            "display_schema_version",
+            "input_buffer",
+            "text"
+        ])
+    );
+    assert_eq!(
+        payload["shape"]["text"],
+        serde_json::json!([
+            "default_max_graphemes",
+            "default_max_rows",
+            "graphemes",
+            "max_bytes",
+            "max_graphemes",
+            "max_rows",
+            "measure",
+            "truncate",
+            "width",
+            "wrap"
         ])
     );
     assert_eq!(

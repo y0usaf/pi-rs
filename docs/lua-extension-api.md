@@ -4,11 +4,12 @@ The inherited Pi-compatibility extension API is not part of pi-rs. Ordinary Lua
 packages receive one compact, versioned mechanism table; embedded provenance
 adds no members or privileges.
 
-The complete top-level surface after PLAN 4.1's credential-storage slice is:
+The complete top-level surface after PLAN 4.1's text-measurement slice is:
 
 - `pi.kernel.v1`: package transaction primitives;
 - `pi.roots.v1`: application/agent/frontend root facade;
-- `pi.terminal.v1`: batched terminal input + retained display submission;
+- `pi.terminal.v1`: batched terminal input, retained display submission, and
+  Unicode cell measurement;
 - `pi.models.v1`: catalog inventory/lookup, model-row validation, and bounded
   provider event streaming;
 - `pi.effects.v1`: bounded filesystem/path/environment, process, timer, and
@@ -103,6 +104,42 @@ failed load leaves the previous generation selected.
 `clear`, and `buffer`. `display([limits])` returns a retained display handle with
 `submit`, `revision`, and `reset_presentation`. Submit complete versioned trees
 using `display_schema_version`; no callback occurs per byte or cell.
+
+### Text measurement
+
+`pi.terminal.v1.text` answers "how many cells will this occupy" so a package can
+lay out before it submits. Every member walks graphemes with the same traversal
+the rasterizer paints with, so a measured string and the painted node agree by
+construction; a node sized from `measure` paints exactly `measure(...).cells`.
+
+- `width(text)` — cell width of one single-line string. A newline or tab is
+  refused, because both change layout rather than width; use `measure`/`wrap`;
+- `measure(text, {width=, wrap=, tab_width=})` — `{rows, max_width, last_width,
+  cells}` for that text in a node `width` cells wide. `wrap` is `"grapheme"`
+  (default) or `"clip"`; `tab_width` defaults to 4 and is limited to `1..=16`.
+  `rows` counts the empty row a trailing newline opens, so it is never zero. In
+  `"clip"` mode `last_width` reports the columns that were dropped;
+- `wrap(text, {width=, tab_width=, limit=})` — the row strings that node would
+  paint, plus an overflow flag as a second return value. `limit` defaults to
+  `default_max_rows` (1024) and is limited to `1..=max_rows` (16384); rows past
+  it are dropped and reported rather than allocated;
+- `truncate(text, {width=, ellipsis=})` — returns the shortened string, its
+  width, and whether anything was dropped. A grapheme is never split and a wide
+  cluster is never half-painted; an ellipsis wider than the whole budget is
+  omitted;
+- `graphemes(text[, {offset=, limit=}])` — a bounded window of
+  `{byte=, width=, text=}` clusters plus the total cluster count. `byte` is
+  one-based, so `string.sub(source, entry.byte, entry.byte + #entry.text - 1)`
+  is direct. `limit` defaults to `default_max_graphemes` (1024) and is limited
+  to `1..=max_graphemes` (16384).
+
+Input longer than `max_bytes` (1 MiB) is refused by every member, as is the
+control data `submit` refuses, so text that measures is text that submits.
+
+These are cell arithmetic only. Where to wrap, what an ellipsis looks like,
+whether words stay whole, which row is visible, and where the caret sits are Lua
+policy: grapheme wrapping breaks at the last cluster that fits and never moves a
+word, so word wrapping is a package that calls `width` per word.
 
 ## Models
 
