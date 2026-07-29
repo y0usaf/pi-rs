@@ -12,7 +12,7 @@
 -- |---|---|
 -- | `record`, `map` | merging key by key, recursively |
 -- | `list` | replacing the whole sequence |
--- | `string`, `number`, `boolean` | replacing the value |
+-- | `string`, `number`, `boolean`, `scalar` | replacing the value |
 --
 -- Lists replace rather than concatenate so a lower layer can never force an
 -- entry a higher layer removed. Every produced leaf carries the layer and the
@@ -68,7 +68,10 @@ module.define({
           fields = {
             root = scalar("string"),
             suppress = { kind = "list", of = scalar("string") },
-            settings = { kind = "map", of = { kind = "map", of = scalar("string") } },
+            -- A tool's own option values are its business: `max_lines` is a
+            -- number and `serialize` is a boolean, so this map accepts any
+            -- scalar rather than forcing a configuration to quote numbers.
+            settings = { kind = "map", of = { kind = "map", of = { kind = "scalar" } } },
           },
         },
 
@@ -185,6 +188,13 @@ module.define({
           return
         end
         validate_sequence(node, value, prefix, errors)
+      elseif node.kind == "scalar" then
+        local kind = type(value)
+        if kind ~= "string" and kind ~= "number" and kind ~= "boolean" then
+          errors[#errors + 1] = prefix .. " must be a string, number, or boolean, got " .. kind
+        elseif kind == "string" and value == "" then
+          errors[#errors + 1] = prefix .. " must not be empty"
+        end
       elseif type(value) ~= node.kind then
         errors[#errors + 1] = prefix .. " must be a " .. node.kind .. ", got " .. type(value)
       elseif node.kind == "string" and value == "" then
