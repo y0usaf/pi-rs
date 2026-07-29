@@ -131,6 +131,18 @@ impl Sandbox {
         std::fs::write(directory.join("config.lua"), text).expect("configuration file");
     }
 
+    /// A file-backed package under the canonical packages resource,
+    /// `$XDG_DATA_HOME/pi/packages`. This is exactly where a configuration's
+    /// `packages` entries resolve from, so nothing here is a test-only
+    /// loading path.
+    fn write_package(&self, name: &str, text: &str) -> PathBuf {
+        let directory = self.path("data").join("pi").join("packages");
+        std::fs::create_dir_all(&directory).expect("packages directory");
+        let path = directory.join(name);
+        std::fs::write(&path, text).expect("package file");
+        path
+    }
+
     /// Exactly the variables `pi.config.paths@1` reads, and nothing else.
     fn environment(&self) -> BTreeMap<String, String> {
         BTreeMap::from([
@@ -514,11 +526,16 @@ struct Distribution {
 
 impl Distribution {
     fn new() -> Self {
-        Self::from_packages(&manifest_packages(&pi_rs_builtins::manifest_path()))
+        Self::from_packages(
+            Sandbox::new(),
+            &manifest_packages(&pi_rs_builtins::manifest_path()),
+        )
     }
 
-    fn from_packages(packages: &[PathBuf]) -> Self {
-        let sandbox = Sandbox::new();
+    /// The sandbox is built by the caller so a scenario can write its
+    /// `config.lua` and its packages *before* the host loads anything: the
+    /// configuration is read on the first application dispatch.
+    fn from_packages(sandbox: Sandbox, packages: &[PathBuf]) -> Self {
         let host = Host::new(HostConfig {
             cwd: Some(text(&sandbox.workspace())),
             environment: Some(sandbox.environment()),
@@ -693,7 +710,7 @@ fn suppressing_the_session_package_leaves_an_ephemeral_conversation() {
                 .is_none_or(|name| name != "session")
         })
         .collect::<Vec<_>>();
-    let distribution = Distribution::from_packages(&selected);
+    let distribution = Distribution::from_packages(Sandbox::new(), &selected);
 
     distribution.start_with_fixture("distribution-ephemeral", "tools");
     std::fs::write(distribution.workspace().join("note.txt"), "alpha\n").unwrap();
@@ -716,5 +733,135 @@ fn suppressing_the_session_package_leaves_an_ephemeral_conversation() {
         distribution.session("status"),
         Value::Null,
         "a suppressed session package still answered a command"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Root replacement at distribution level
+// ---------------------------------------------------------------------------
+
+/// A file-backed agent root with no provider, no tool loop, and no shared
+/// module: everything it needs is the public event vocabulary the shipped
+/// application coordinator already dispatches (`configure`, `prompt`) and the
+/// public action vocabulary the shipped frontend and session package already
+/// read. Its priority is *below* the shipped agent's `0`, so nothing it does
+/// can be explained by outbidding a registration.
+const REPLACEMENT_AGENT: &str = r#"
+local pi = ...
+local roots = pi.roots.v1
+
+roots.register({
+  kind = "agent",
+  id = "acceptance.agent",
+  active = true,
+  priority = -10,
+  dispatch = function(snapshot)
+    local event = snapshot.event
+    local kind = type(event) == "table" and event.kind or nil
+    if kind == "configure" then
+      local model = type(event.model) == "table" and event.model.id or nil
+      roots.action("agent_configured", { model = model })
+      return
+    end
+    if kind == "prompt" then
+      local text = tostring(event.text or "")
+      roots.action("agent_turn_start", { prompt = text })
+      roots.action("agent_message", { text = "replacement agent: " .. text })
+      roots.action("agent_status", { state = "idle", messages = 2 })
+      return
+    end
+  end,
+})
+"#;
+
+/// The shipped agent is replaceable from ordinary configuration, at
+/// distribution level: the whole shipped index is loaded, a `config.lua`
+/// loads one file-backed package and names its agent root, and the rest of
+/// the distribution keeps working over it. Nothing is forked, suppressed, or
+/// outbid, and the replacement shares no module with the shipped agent.
+#[test]
+fn a_configured_package_replaces_the_shipped_agent_root() {
+    let sandbox = Sandbox::new();
+    sandbox.write_package("agent.lua", REPLACEMENT_AGENT);
+    sandbox.write_configuration(
+        r#"
+return {
+  packages = { "agent.lua" },
+  roots = { agent = "acceptance.agent" },
+}
+"#,
+    );
+    let distribution = Distribution::from_packages(
+        sandbox,
+        &manifest_packages(&pi_rs_builtins::manifest_path()),
+    );
+
+    distribution.dispatch(json!({"kind": "startup"}));
+    distribution.dispatch(json!({"kind": "input", "data": "who answers?\r"}));
+
+    // The shipped frontend still owns the whole presentation: its chrome, its
+    // user row, its assistant row, its idle status.
+    let screen = distribution.screen();
+    assert!(screen.contains("pi · "), "shipped chrome missing: {screen}");
+    assert!(
+        screen.contains("you  who answers?"),
+        "shipped user row missing: {screen}"
+    );
+    assert!(
+        screen.contains("pi   replacement agent: who answers?"),
+        "the replacement agent did not answer: {screen}"
+    );
+    assert!(screen.contains("idle"), "turn not settled: {screen}");
+
+    // ... and the shipped session package folds the replacement's batch
+    // through the same public action vocabulary, with no source check.
+    let logs = session_logs(&distribution.sandbox);
+    assert_eq!(logs.len(), 1, "expected exactly one session log: {logs:?}");
+    let written = records(&logs[0]);
+    let kinds = written
+        .iter()
+        .filter_map(|record| record.get("kind").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kinds,
+        vec!["header", "model", "message", "message"],
+        "a replacement agent was persisted differently: {written:#?}"
+    );
+    assert_eq!(written[2]["role"], "user");
+    assert_eq!(written[2]["text"], "who answers?");
+    assert_eq!(written[3]["role"], "assistant");
+    assert_eq!(written[3]["text"], "replacement agent: who answers?");
+
+    let status = distribution.session("status");
+    assert_eq!(status["ok"], true, "session status refused: {status}");
+    assert_eq!(status["session"]["messages"], 2);
+}
+
+/// The control for the claim above: the same package, loaded by the same
+/// configuration, with only `roots.agent` removed. Priority resolution keeps
+/// the shipped agent, so the replacement wins by being *named*, never by
+/// registering.
+#[test]
+fn a_loaded_replacement_agent_does_not_take_over_by_registering() {
+    let _fixture = Fixture::install("distribution-unselected");
+    let sandbox = Sandbox::new();
+    sandbox.write_package("agent.lua", REPLACEMENT_AGENT);
+    sandbox.write_configuration("return { packages = { 'agent.lua' } }\n");
+    let distribution = Distribution::from_packages(
+        sandbox,
+        &manifest_packages(&pi_rs_builtins::manifest_path()),
+    );
+
+    distribution.start_with_fixture("distribution-unselected", "unauthorized");
+    distribution.dispatch(json!({"kind": "input", "data": "who answers?\r"}));
+
+    let screen = distribution.screen();
+    assert!(
+        !screen.contains("replacement agent"),
+        "an unselected registration took over the kind: {screen}"
+    );
+    assert!(
+        screen.contains("provider credentials missing or rejected"),
+        "the shipped agent did not run the turn: {screen}"
     );
 }
