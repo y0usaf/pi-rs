@@ -22,7 +22,7 @@ use pi_rs_ai_types::{
     Model, StopReason, TextContent, ToolCall, ToolCallType, Usage, now_ms,
 };
 use pi_rs_host::kernel::{DispatchBatch, DispatchRequest, RootKind};
-use pi_rs_host::{Host, HostConfig, PackageSource};
+use pi_rs_host::{Host, HostConfig, HostError, PackageSource};
 use serde_json::{Value, json};
 
 // ---------------------------------------------------------------------------
@@ -409,6 +409,30 @@ fn text_stream(model: &Model, text: &str) -> AssistantMessageEventStream {
     stream
 }
 
+/// A provider response that settles without deltas: `Start` then `Done`.
+///
+/// The shipped transcript keeps an already-streamed row as it was streamed and
+/// repaints a non-streamed one from the settled `agent_message`, so a
+/// non-streaming response is where a render stage's transform is observable in
+/// the frame as well as in the persisted record.
+fn settled_stream(model: &Model, text: &str) -> AssistantMessageEventStream {
+    let stream = create_assistant_message_event_stream();
+    let message = assistant(
+        model,
+        vec![AssistantContent::Text(TextContent::new(text))],
+        StopReason::Stop,
+    );
+    stream.push(AssistantMessageEvent::Start {
+        partial: message.clone(),
+    });
+    stream.push(AssistantMessageEvent::Done {
+        reason: StopReason::Stop,
+        message,
+    });
+    stream.end();
+    stream
+}
+
 fn read_call(path: &str) -> ToolCall {
     let mut arguments = serde_json::Map::new();
     arguments.insert("path".to_owned(), Value::String(path.to_owned()));
@@ -462,6 +486,9 @@ fn fixture_stream(
                 Ok(tool_stream(model, read_call("note.txt")))
             }
         }
+        // One settled assistant message, no deltas and no tool loop: the
+        // shortest real turn a composition scenario can assert on.
+        "plain" => Ok(settled_stream(model, "plain answer")),
         "unauthorized" => Err(ProtocolError("401 unauthorized: invalid api key".into())),
         other => Err(ProtocolError(format!("unknown fixture {other}"))),
     }
@@ -536,10 +563,24 @@ impl Distribution {
     /// `config.lua` and its packages *before* the host loads anything: the
     /// configuration is read on the first application dispatch.
     fn from_packages(sandbox: Sandbox, packages: &[PathBuf]) -> Self {
+        Self::from_packages_with_timeout(
+            sandbox,
+            packages,
+            HostConfig::default().dispatch_timeout_ms,
+        )
+    }
+
+    /// The same distribution under an explicit per-dispatch watchdog budget,
+    /// so a scenario can observe the bound rather than wait for the default.
+    fn from_packages_with_timeout(
+        sandbox: Sandbox,
+        packages: &[PathBuf],
+        dispatch_timeout_ms: i64,
+    ) -> Self {
         let host = Host::new(HostConfig {
+            dispatch_timeout_ms,
             cwd: Some(text(&sandbox.workspace())),
             environment: Some(sandbox.environment()),
-            ..HostConfig::default()
         })
         .unwrap();
         for path in packages {
@@ -555,10 +596,14 @@ impl Distribution {
 
     /// The launcher publishes the resolved root on every application
     /// dispatch; the in-process journey mirrors that context exactly.
-    fn dispatch(&self, event: Value) -> DispatchBatch {
+    fn try_dispatch(&self, event: Value) -> Result<DispatchBatch, HostError> {
         let context = json!({"root": text(&self.workspace())});
         self.host
             .dispatch(DispatchRequest::new(RootKind::Application, event, context))
+    }
+
+    fn dispatch(&self, event: Value) -> DispatchBatch {
+        self.try_dispatch(event)
             .unwrap_or_else(|error| panic!("application dispatch failed: {error}"))
     }
 
@@ -864,4 +909,536 @@ fn a_loaded_replacement_agent_does_not_take_over_by_registering() {
         screen.contains("provider credentials missing or rejected"),
         "the shipped agent did not run the turn: {screen}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Composition across the whole distribution
+// ---------------------------------------------------------------------------
+
+/// One ordinary file-backed extension: a single public `agent`/`render` stage
+/// that marks every settled assistant message.
+///
+/// It owns no root, defines no module, shares no state with the distribution,
+/// and never asks who produced an action or who else is registered. `order` is
+/// the only thing that decides when it runs, which is what makes two of these
+/// composable without either one being aware of the other.
+fn marking_extension(id: &str, mark: &str, order: i64) -> String {
+    format!(
+        r#"
+local pi = ...
+local roots = pi.roots.v1
+
+-- Dispatch snapshots are immutable, so a stage that changes an action rebuilds
+-- it rather than writing through the read-only view.
+local function copy(value)
+  if type(value) ~= "table" then
+    return value
+  end
+  local out = {{}}
+  for key, item in pairs(value) do
+    out[key] = copy(item)
+  end
+  return out
+end
+
+roots.middleware.register({{
+  kind = "agent",
+  phase = "render",
+  id = "{id}",
+  order = {order},
+  handler = function(snapshot)
+    local replaced = {{}}
+    for index, action in ipairs(snapshot.actions) do
+      local next_action = copy(action)
+      if next_action.kind == "agent_message" then
+        local payload = next_action.payload or {{}}
+        payload.text = tostring(payload.text or "") .. "{mark}"
+        next_action.payload = payload
+      end
+      replaced[index] = next_action
+    end
+    return {{ actions = replaced }}
+  end,
+}})
+"#
+    )
+}
+
+/// The whole shipped distribution plus the extensions an ordinary user
+/// configuration loads from the canonical packages resource.
+fn distribution_with_extensions(
+    extensions: &[(&str, String)],
+    configuration: &str,
+) -> Distribution {
+    let sandbox = Sandbox::new();
+    for (name, source) in extensions {
+        sandbox.write_package(name, source);
+    }
+    sandbox.write_configuration(configuration);
+    Distribution::from_packages(
+        sandbox,
+        &manifest_packages(&pi_rs_builtins::manifest_path()),
+    )
+}
+
+/// Every assistant text the shipped session package persisted for this run,
+/// in turn order.
+fn persisted_assistant_texts(distribution: &Distribution) -> Vec<String> {
+    let logs = session_logs(&distribution.sandbox);
+    assert_eq!(logs.len(), 1, "expected exactly one session log: {logs:?}");
+    records(&logs[0])
+        .iter()
+        .filter(|record| record.get("role").and_then(Value::as_str) == Some("assistant"))
+        .map(|record| {
+            record
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect()
+}
+
+/// Two extensions compose over the whole distribution with no privileged
+/// ordering anywhere: neither is in the shipped manifest, neither outranks the
+/// other, and the *shipped* session package's recording stage (`agent`/`render`
+/// at order `100`) is simply the third stage in the same chain. It records what
+/// the two extensions produced, because it reads the public action vocabulary
+/// and never asks which source produced an action.
+#[test]
+fn two_configured_extensions_compose_without_privileged_ordering() {
+    let _fixture = Fixture::install("distribution-compose");
+    let distribution = distribution_with_extensions(
+        &[
+            (
+                "mark-a.lua",
+                marking_extension("acceptance.mark.a", " [a]", 10),
+            ),
+            (
+                "mark-b.lua",
+                marking_extension("acceptance.mark.b", " [b]", 20),
+            ),
+        ],
+        "return { packages = { 'mark-a.lua', 'mark-b.lua' } }\n",
+    );
+
+    distribution.start_with_fixture("distribution-compose", "plain");
+    distribution.dispatch(json!({"kind": "input", "data": "compose\r"}));
+
+    // Lower `order` runs first, so `[a]` is appended before `[b]`.
+    let screen = distribution.screen();
+    assert!(
+        screen.contains("pi   plain answer [a] [b]"),
+        "the two extensions did not compose in declared order: {screen}"
+    );
+    assert!(
+        screen.contains("pi \u{b7} "),
+        "the shipped frontend stopped rendering its chrome: {screen}"
+    );
+    assert_eq!(
+        persisted_assistant_texts(&distribution),
+        vec!["plain answer [a] [b]"],
+        "the shipped session package did not record the composed batch"
+    );
+}
+
+/// The control for the claim above: the same two files, the same names, the
+/// same `packages` order, the same registration order — only the two `order`
+/// numbers trade places, and the composition flips with them. Nothing about
+/// load order, file name, or source decides the chain.
+#[test]
+fn swapping_only_the_declared_order_swaps_the_composition() {
+    let _fixture = Fixture::install("distribution-swapped");
+    let distribution = distribution_with_extensions(
+        &[
+            (
+                "mark-a.lua",
+                marking_extension("acceptance.mark.a", " [a]", 20),
+            ),
+            (
+                "mark-b.lua",
+                marking_extension("acceptance.mark.b", " [b]", 10),
+            ),
+        ],
+        "return { packages = { 'mark-a.lua', 'mark-b.lua' } }\n",
+    );
+
+    distribution.start_with_fixture("distribution-swapped", "plain");
+    distribution.dispatch(json!({"kind": "input", "data": "compose\r"}));
+
+    let screen = distribution.screen();
+    assert!(
+        screen.contains("pi   plain answer [b] [a]"),
+        "the declared order did not decide the composition: {screen}"
+    );
+}
+
+/// A shipped stage holds no privileged *position* either. An extension at
+/// order `300` runs after the shipped session package's `100`, so the frame
+/// carries its mark while the persisted record does not: the shipped stage is
+/// ordered, not final.
+#[test]
+fn a_configured_extension_orders_itself_after_the_shipped_session_stage() {
+    let _fixture = Fixture::install("distribution-late");
+    let distribution = distribution_with_extensions(
+        &[(
+            "mark-late.lua",
+            marking_extension("acceptance.mark.late", " [late]", 300),
+        )],
+        "return { packages = { 'mark-late.lua' } }\n",
+    );
+
+    distribution.start_with_fixture("distribution-late", "plain");
+    distribution.dispatch(json!({"kind": "input", "data": "compose\r"}));
+
+    let screen = distribution.screen();
+    assert!(
+        screen.contains("pi   plain answer [late]"),
+        "a stage after the shipped one did not reach the frame: {screen}"
+    );
+    assert_eq!(
+        persisted_assistant_texts(&distribution),
+        vec!["plain answer"],
+        "the shipped session stage recorded a later stage's output"
+    );
+}
+
+/// Retiring one extension is ordinary lifecycle cleanup, and it holds across
+/// the whole graph: the configuration drops `mark-b.lua`, one public
+/// `config_reload` disposes exactly that package, and its stage stops running.
+/// `mark-a.lua` is *kept*, not reloaded — the configuration reconciles the live
+/// generation against the selected one — so the surviving extension keeps its
+/// registration and its place in the chain.
+#[test]
+fn a_retired_extension_stops_composing_after_a_reload() {
+    let _fixture = Fixture::install("distribution-retired");
+    let distribution = distribution_with_extensions(
+        &[
+            (
+                "mark-a.lua",
+                marking_extension("acceptance.mark.a", " [a]", 10),
+            ),
+            (
+                "mark-b.lua",
+                marking_extension("acceptance.mark.b", " [b]", 20),
+            ),
+        ],
+        "return { packages = { 'mark-a.lua', 'mark-b.lua' } }\n",
+    );
+
+    distribution.start_with_fixture("distribution-retired", "plain");
+    distribution.dispatch(json!({"kind": "input", "data": "first\r"}));
+
+    distribution
+        .sandbox
+        .write_configuration("return { packages = { 'mark-a.lua' } }\n");
+    distribution.dispatch(json!({"kind": "config_reload"}));
+    distribution.dispatch(json!({"kind": "input", "data": "second\r"}));
+
+    assert_eq!(
+        persisted_assistant_texts(&distribution),
+        vec!["plain answer [a] [b]", "plain answer [a]"],
+        "a disposed extension's stage kept running, or a kept one lost its place"
+    );
+}
+
+/// A package that refuses to load. Nothing in the distribution is special
+/// about the failure: `packages.load` raises, and the configuration's reload
+/// unwinds around it.
+const BROKEN_EXTENSION: &str = "error('acceptance: this extension refuses to load')\n";
+
+/// A failed reload rolls back to the previous generation and the distribution
+/// keeps composing: the broken package leaves no stage behind, and the
+/// extension that was already live is neither disposed nor reloaded.
+#[test]
+fn a_failed_reload_leaves_the_previous_composition_running() {
+    let _fixture = Fixture::install("distribution-rollback");
+    let distribution = distribution_with_extensions(
+        &[(
+            "mark-a.lua",
+            marking_extension("acceptance.mark.a", " [a]", 10),
+        )],
+        "return { packages = { 'mark-a.lua' } }\n",
+    );
+
+    distribution.start_with_fixture("distribution-rollback", "plain");
+    distribution.dispatch(json!({"kind": "input", "data": "first\r"}));
+
+    distribution
+        .sandbox
+        .write_package("broken.lua", BROKEN_EXTENSION);
+    distribution
+        .sandbox
+        .write_configuration("return { packages = { 'mark-a.lua', 'broken.lua' } }\n");
+    distribution.dispatch(json!({"kind": "config_reload"}));
+    distribution.dispatch(json!({"kind": "input", "data": "second\r"}));
+
+    let screen = distribution.screen();
+    assert!(
+        screen.contains("idle"),
+        "a refused reload left the distribution unusable: {screen}"
+    );
+    assert_eq!(
+        persisted_assistant_texts(&distribution),
+        vec!["plain answer [a]", "plain answer [a]"],
+        "a refused reload changed the live composition"
+    );
+}
+
+/// Two extensions claiming the same stage identity conflict deterministically,
+/// and the outcome does not depend on which one the configuration lists first:
+/// the host refuses the second registration by `kind/phase/id`, that package's
+/// load fails, and the whole reload unwinds. Neither declared order composes,
+/// so the conflict is decided by the identity, not by arrival.
+#[test]
+fn two_extensions_claiming_one_stage_identity_conflict_either_way() {
+    for order in [["mark-a.lua", "clash.lua"], ["clash.lua", "mark-a.lua"]] {
+        let _fixture = Fixture::install("distribution-conflict");
+        let listed = format!(
+            "return {{ packages = {{ '{}', '{}' }} }}\n",
+            order[0], order[1]
+        );
+        let distribution = distribution_with_extensions(
+            &[
+                (
+                    "mark-a.lua",
+                    marking_extension("acceptance.mark.a", " [a]", 10),
+                ),
+                // Same kind, same phase, same id, different source.
+                (
+                    "clash.lua",
+                    marking_extension("acceptance.mark.a", " [clash]", 20),
+                ),
+            ],
+            &listed,
+        );
+
+        distribution.start_with_fixture("distribution-conflict", "plain");
+        distribution.dispatch(json!({"kind": "input", "data": "compose\r"}));
+
+        assert_eq!(
+            persisted_assistant_texts(&distribution),
+            vec!["plain answer"],
+            "a conflicting pair composed anyway, listed as {order:?}"
+        );
+    }
+}
+
+/// A file-backed frontend root: the shipped application coordinator's public
+/// contract and nothing else. It turns `input` into one `frontend_submit`
+/// intent and renders the agent batch the coordinator hands back. Like the
+/// replacement agent above, it registers *below* the shipped frontend's `0`.
+const REPLACEMENT_FRONTEND: &str = r#"
+local pi = ...
+local roots = pi.roots.v1
+
+roots.register({
+  kind = "frontend",
+  id = "acceptance.frontend",
+  active = true,
+  priority = -10,
+  dispatch = function(snapshot)
+    local event = snapshot.event
+    local kind = type(event) == "table" and event.kind or nil
+    if kind == "input" then
+      local text = string.gsub(tostring(event.data or ""), "\r", "")
+      roots.action("frontend_submit", { text = text })
+      return
+    end
+    if kind == "agent" then
+      for _, action in ipairs(event.actions or {}) do
+        if action.kind == "agent_message" then
+          local payload = action.payload or {}
+          roots.action("ansi", {
+            data = "replacement frontend: " .. tostring(payload.text or ""),
+          })
+        end
+      end
+      return
+    end
+  end,
+})
+"#;
+
+/// The ANSI payloads one dispatch published, in order.
+fn ansi(batch: &DispatchBatch) -> String {
+    batch
+        .actions
+        .iter()
+        .filter(|action| action.kind == "ansi")
+        .filter_map(|action| action.payload.get("data").and_then(Value::as_str))
+        .collect()
+}
+
+/// Two roots replaced at once, from one configuration, and the rest of the
+/// distribution still composes over both. This is the claim package-level
+/// replacement cannot make: the shipped index registers a root for every kind,
+/// so replacing two of them at the same time is where a hidden dependency
+/// between shipped packages would show up. Neither replacement shares a module
+/// with the package it displaces, and both register below the shipped
+/// priority, so only `roots` naming them resolves them.
+#[test]
+fn two_roots_are_replaced_simultaneously_and_the_rest_composes() {
+    let sandbox = Sandbox::new();
+    sandbox.write_package("agent.lua", REPLACEMENT_AGENT);
+    sandbox.write_package("frontend.lua", REPLACEMENT_FRONTEND);
+    sandbox.write_configuration(
+        r#"
+return {
+  packages = { "agent.lua", "frontend.lua" },
+  roots = { agent = "acceptance.agent", frontend = "acceptance.frontend" },
+}
+"#,
+    );
+    let distribution = Distribution::from_packages(
+        sandbox,
+        &manifest_packages(&pi_rs_builtins::manifest_path()),
+    );
+
+    distribution.dispatch(json!({"kind": "startup"}));
+    let batch = distribution.dispatch(json!({"kind": "input", "data": "who answers?\r"}));
+
+    // The replacement frontend rendered the replacement agent's message, so
+    // both roots are live in the same turn.
+    let painted = ansi(&batch);
+    assert!(
+        painted.contains("replacement frontend: replacement agent: who answers?"),
+        "the two replacements did not compose: {painted}"
+    );
+    assert!(
+        !painted.contains("enter send"),
+        "the shipped frontend still painted its footer: {painted}"
+    );
+    assert!(
+        !distribution.screen().contains("pi \u{b7} "),
+        "the shipped frontend still painted its chrome"
+    );
+
+    // The shipped session package, untouched by either replacement, still
+    // folds the batch through the same public action vocabulary.
+    assert_eq!(
+        persisted_assistant_texts(&distribution),
+        vec!["replacement agent: who answers?"],
+        "the shipped session package stopped recording across two replacements"
+    );
+    let status = distribution.session("status");
+    assert_eq!(status["ok"], true, "session status refused: {status}");
+    assert_eq!(status["session"]["messages"], 2);
+}
+
+/// An extension whose stage never returns once a prompt reaches the agent.
+/// Everything before that is ordinary, so the package loads, registers, and
+/// composes exactly like any other — which is the point: a runaway stage is
+/// not detectable at load time.
+const RUNAWAY_EXTENSION: &str = r#"
+local pi = ...
+
+pi.roots.v1.middleware.register({
+  kind = "agent",
+  phase = "event",
+  id = "acceptance.runaway",
+  order = -10,
+  handler = function(snapshot)
+    local event = snapshot.event
+    if type(event) == "table" and event.kind == "prompt" then
+      while true do end
+    end
+    return nil
+  end,
+})
+"#;
+
+/// One extension cannot hang the product. The runaway stage is bounded by the
+/// per-dispatch watchdog, the dispatch that reached it fails by name, and the
+/// distribution keeps answering every dispatch that does not go through that
+/// stage — the shipped session command and the shipped frontend's repaint.
+#[test]
+fn a_runaway_extension_is_bounded_by_the_watchdog() {
+    let sandbox = Sandbox::new();
+    sandbox.write_package("runaway.lua", RUNAWAY_EXTENSION);
+    sandbox.write_configuration("return { packages = { 'runaway.lua' } }\n");
+    let distribution = Distribution::from_packages_with_timeout(
+        sandbox,
+        &manifest_packages(&pi_rs_builtins::manifest_path()),
+        400,
+    );
+
+    distribution.dispatch(json!({"kind": "startup"}));
+    let refused = distribution
+        .try_dispatch(json!({"kind": "input", "data": "hang\r"}))
+        .expect_err("a runaway stage must hit the watchdog");
+    // The runaway stage sits under a *nested* root dispatch — the shipped
+    // coordinator asking the agent root — so the watchdog's stop is raised
+    // into the calling Lua frame rather than returned as the host-level
+    // `Timeout` a top-level dispatch yields. Either way the bound is the same
+    // watchdog and the cost is one refused dispatch.
+    let message = refused.to_string();
+    assert!(
+        matches!(refused, HostError::Lua(_)) && message.contains("timed out (watchdog, 400ms"),
+        "the watchdog did not bound the runaway stage: {refused:?}"
+    );
+
+    // The dispatch failed; the product did not.
+    let status = distribution.session("status");
+    assert_eq!(
+        status["ok"], true,
+        "the shipped session command stopped answering: {status}"
+    );
+    let screen = distribution.screen();
+    assert!(
+        screen.contains("pi \u{b7} "),
+        "the shipped frontend stopped repainting: {screen}"
+    );
+}
+
+/// An extension that consumes a *shipped* module at an explicit version.
+///
+/// It registers nothing. Its whole behaviour is at load time: require
+/// `pi.config.paths` at `version`, then refuse to load unless the module that
+/// came back is the real path policy. A wrong version therefore fails the
+/// package, and a stub would fail it too.
+fn shipped_module_consumer(version: &str) -> String {
+    format!(
+        r#"
+local pi = ...
+local module = pi.kernel.v1.module
+local paths = module.require("pi.config.paths", "{version}")
+
+local row = ((paths.resolve({{}}) or {{}}).resources or {{}})["sessions"]
+if type(row) ~= "table" or type(row.destination) ~= "string" then
+  error("pi.config.paths@{version} did not resolve a sessions destination")
+end
+"#
+    )
+}
+
+/// A shipped module is versioned for an extension exactly like any other
+/// module: requiring `pi.config.paths@1` hands over the real path policy, and
+/// requiring a version nothing defines fails that package's load, which rolls
+/// the whole reload back and takes the extension beside it with it. Neither
+/// outcome depends on the module being shipped rather than file-backed.
+#[test]
+fn a_shipped_module_is_versioned_for_extensions_like_any_other() {
+    for (version, expected) in [("1", vec!["plain answer [a]"]), ("2", vec!["plain answer"])] {
+        let _fixture = Fixture::install("distribution-module");
+        let distribution = distribution_with_extensions(
+            &[
+                (
+                    "mark-a.lua",
+                    marking_extension("acceptance.mark.a", " [a]", 10),
+                ),
+                ("uses-paths.lua", shipped_module_consumer(version)),
+            ],
+            "return { packages = { 'mark-a.lua', 'uses-paths.lua' } }\n",
+        );
+
+        distribution.start_with_fixture("distribution-module", "plain");
+        distribution.dispatch(json!({"kind": "input", "data": "compose\r"}));
+
+        assert_eq!(
+            persisted_assistant_texts(&distribution),
+            expected,
+            "requiring pi.config.paths@{version} composed unexpectedly"
+        );
+    }
 }
