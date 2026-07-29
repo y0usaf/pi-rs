@@ -793,7 +793,7 @@ Grow public modules only alongside their file-backed and shipped consumers. Keep
 `nix run` green throughout. After 3.6, work may proceed by disjoint mechanism and
 package paths, but shared binding indexes/default manifests remain serial.
 
-- [ ] **4.1 — Close the public capability surface on demonstrated consumers**
+- [x] **4.1 — Close the public capability surface on demonstrated consumers**
   (**serial**; depends on 3.6).
 
   Add the remaining compact modules needed by configuration, records, richer UI,
@@ -1204,14 +1204,46 @@ package paths, but shared binding indexes/default manifests remain serial.
   detect_capabilities` stays internal — the environment a package already reads
   is enough), and no z-order or overlap policy is named.
 
-  **Remaining for 4.1:** the generated concise API doc covering the actual
-  demonstrated surface. `docs/lua-extension-api.md` and `docs/lua-coding-spine.md`
-  are hand-written and currently accurate, but the acceptance criterion asks for
-  docs generated from the demonstrated surface, so drift cannot reopen. The
-  natural mechanism is the shape `crates/pi-rs-host/tests/public_surface.rs`
-  already pins: it walks the installed `pi` table and asserts exact member lists,
-  so the same walk can emit the reference and a check can compare the committed
-  file against it. That check must not need an ambient sibling checkout.
+  **Landed slice (generated API reference) — closes 4.1:** `docs/lua-api-reference.md`
+  is the generated inventory of the demonstrated surface, and
+  `crates/pi-rs-host/tests/api_reference.rs` is both its generator and its check.
+  Nothing in the inventory is typed by hand. Module members come from an ordinary
+  package that walks the live `pi` table it receives — the shape
+  `public_surface.rs` already pinned, extended to full recursion — so names,
+  kinds, and every bound constant's *value* are read out of the running VM; a
+  table reached twice is emitted as an alias of the path that reached it first,
+  which is how `pi.roots.v1.module` is documented once rather than duplicated.
+  Handle methods cannot be walked: mlua protects userdata metatables
+  (`getmetatable` returns `false`) and the `debug` library is not opened, so
+  `Display:submit` is unreachable from Lua reflection. They are therefore read
+  out of the `impl UserData` blocks under `crates/pi-rs-host/src`, bounded by the
+  first-column `}` that `cargo fmt` guarantees, and the scan fails loudly on any
+  registration form it cannot read rather than skipping it. Prose is curated but
+  fail-closed in both directions: a member with no sentence, a sentence with no
+  member, a handle type with no section, or a signature that does not open with
+  its own generated name fails the test, and a function's parenthesis-or-brace
+  form is checked too. Both directions were verified by temporarily adding
+  `pi.records.v1.drift_probe` and `RecordStore:drift_method`, each of which
+  failed the check by name. Regeneration is
+  `PI_RS_WRITE_API_REFERENCE=1 cargo test -p pi-rs-host --test api_reference`;
+  without the variable the test diffs the committed file and reports the first
+  differing line. The check needs no ambient sibling checkout — it reads only
+  this repository's own `crates/pi-rs-host/src` and `docs/` — and it rides the
+  existing `workspace-test` Nix check rather than adding a derivation, confirmed
+  by `tests/api_reference.rs` appearing in that check's sandbox log. The
+  generated file records 8 modules, 100 members, 10 handles, and 35 handle
+  methods; `docs/lua-extension-api.md` gains a pointer naming the generated
+  reference as authoritative for the inventory while it keeps the mechanism
+  rules. `cargo fmt --all -- --check`, `cargo test --workspace` (78 test targets,
+  324 tests, 0 failures), and `nix flake check` (8 checks: workspace tests,
+  clippy, default distribution, raw no-package guidance, file-backed application,
+  pi-core package, model-catalog update) pass.
+
+  **Deliberate omission:** the reference is an inventory, not a semantics
+  document. Argument names, refusal rules, and ordering guarantees stay in
+  `docs/lua-extension-api.md` and `docs/lua-coding-spine.md`, which remain
+  hand-written; only coverage is mechanically enforced. A handle method's
+  *behaviour* can still drift from its sentence — only its existence cannot.
 
 After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
 
