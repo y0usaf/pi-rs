@@ -248,6 +248,7 @@ claim.
 | 05 one declaration mechanism | follows | Builtins and users declare each repeated kind through one registry/path; no hand-wired product exception. Singular mechanisms are not forced into registries. |
 | 06 bare core must boot | follows | With no builtins/config/extensions, the kernel can load a file-backed Lua application, accept input, render, run an effect, and exit; missing/broken product packages diagnose usefully. |
 | 07 Nix as source of truth | follows | The flake owns builds and acceptance. `cargo fmt`/`cargo clippy` are sanctioned direct exceptions; other Cargo commands are iteration aids only. |
+| — process composition (no doctrine) | deliberate divergence | The canon's meta-philosophy is mechanism/policy through a versioned public interface, not Unix small-tools-and-pipes, so no doctrine governs this. pi-rs is one interactive TUI process by choice: composition happens between Lua packages inside the VM, where snapshots pass in memory and a dispatch costs microseconds, not between processes over pipes. Non-TTY stdin stays a one-shot JSON action dump for inspection (`crates/pi-rs-app/src/launcher.rs`), not a headless agent mode; there is no `pi msg` CLI or socket. `pi-rs-ai` (transport, provider protocols, model registry) stays in-tree rather than becoming a separately released library, so there is one flake, one version, and no cross-repo skew. Revisit only if detach/multi-viewer sessions are wanted, which is the doctrine 03 trigger. |
 
 ## Acceptance and evidence
 
