@@ -1111,14 +1111,57 @@ package paths, but shared binding indexes/default manifests remain serial.
   default distribution, raw no-package guidance, file-backed application,
   pi-core package, model-catalog update) pass.
 
+  **Landed slice (hyperlink styling):** the ninth consumer-demonstrated 4.1
+  addition adds the first display content a run can carry beyond glyphs. A text
+  run may now set `link="<target>"` beside `text` and `style`
+  (`TextRun.link` in `crates/pi-rs-tui/src/display.rs`, parsed in
+  `crates/pi-rs-host/src/tui_api/runtime.rs`); every cell that run paints holds
+  the target and the differential presenter wraps exactly those cells in one
+  OSC 8 sequence, closing it on the first cell that does not carry the same
+  target. Mechanism, not appearance: `Cell` gained a `link` field, so a
+  target-only change is an ordinary cell change and repaints just that span,
+  and `write_cells` tracks hyperlink state separately from SGR state because a
+  style reset does not end a link. The shared `walk_text` traversal now carries
+  a `RunAttributes { style, link }` payload instead of a bare `CellStyle`, so
+  measurement and rasterization still cannot diverge and a link costs one `Arc`
+  per run rather than one per cell. Rust names no appearance: no underline, no
+  color, no OSC 8 `id` grouping, and no opinion about what is linkable. Bounds:
+  `max_link_bytes` (default 65536, `display({max_link_bytes=...})`) caps total
+  target bytes per batch; an empty target (the OSC 8 close sequence) and any
+  control character (which would terminate the sequence early) are refused
+  before anything is retained. `DISPLAY_SCHEMA_VERSION` is now `2` because the
+  batch schema gained a field; every package already reads
+  `pi.terminal.v1.display_schema_version`, so the only pinned consumer updated
+  was `crates/pi-rs-host/tests/tui_terminal.rs`. Evidence:
+  `crates/pi-rs-host/tests/display_links.rs` (2 tests) drives the journey from
+  ordinary file-backed packages — a transcript row where Lua owns the label,
+  the target, and the underline styling asserts that the sequence opens before
+  the label and closes before the unlinked tail, that the row still paints
+  twelve cells because a target is not glyphs, that retargeting the same text
+  changes exactly four cells, and that resubmitting emits nothing; the other
+  pins every refusal (empty, BEL, ESC, newline targets, and an oversize batch
+  naming the byte count and limit) with the display revision still 0.
+  `crates/pi-rs-tui/src/display.rs` gains two unit tests proving the OSC 8
+  placement against a real rasterized frame, that all cells of a run share one
+  `Arc`, and the validation refusals. `docs/lua-extension-api.md` gains a
+  hyperlink section and `docs/lua-coding-spine.md` records schema version 2.
+  `cargo fmt --all -- --check`, `cargo test --workspace` (75 test targets, 317
+  tests, 0 failures), and `nix flake check` (8 checks: workspace tests, clippy,
+  default distribution, raw no-package guidance, file-backed application,
+  pi-core package, model-catalog update) pass. **Deliberate omission:** the OSC
+  8 `id=` parameter, which joins non-contiguous cells into one hover/underline
+  region, is not exposed; a wrapped link therefore reads as one region per row.
+  Add it only with a consumer that needs it.
+
   **Remaining for 4.1:** display node content beyond group/text — images
   (`crates/pi-rs-tui/src/terminal_image.rs` has the kitty/iTerm2 encoders and
   cell sizing, but `DisplayNodeContent` has no image variant and the
-  differential cell presenter has no out-of-band escape pass) and hyperlink
-  styling (OSC 8 cannot be expressed today because runs reject escape data) —
-  and the generated concise API doc covering the demonstrated surface. Each
-  still needs its own file-backed consumer before it is added. Note for the
-  image slice: adding a content kind changes `DISPLAY_SCHEMA_VERSION`, which
+  differential cell presenter has no out-of-band escape pass; the hyperlink
+  slice added out-of-band *inline* escapes in `write_cells`, which is not the
+  same as a per-frame image placement pass) — and the generated concise API doc
+  covering the demonstrated surface. Each still needs its own file-backed
+  consumer before it is added. Note for the image slice: adding a content kind
+  changes `DISPLAY_SCHEMA_VERSION` again (now `2`), which
   `pi.terminal.v1.display_schema_version` publishes to every package.
 
 After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.

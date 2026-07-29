@@ -61,6 +61,7 @@ fn parse_node(table: mlua::Table) -> mlua::Result<DisplayNode> {
                     runs.push(TextRun {
                         text: value.get("text")?,
                         style: parse_style(value.get("style")?)?,
+                        link: value.get::<Option<String>>("link")?,
                     });
                 }
             }
@@ -207,6 +208,9 @@ fn parse_limits(table: Option<mlua::Table>) -> mlua::Result<DisplayLimits> {
         max_cells: table
             .get::<Option<usize>>("max_cells")?
             .unwrap_or(defaults.max_cells),
+        max_link_bytes: table
+            .get::<Option<usize>>("max_link_bytes")?
+            .unwrap_or(defaults.max_link_bytes),
     })
 }
 
