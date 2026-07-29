@@ -240,6 +240,19 @@ module.define({
             streamed = streamed .. delta
             emit("agent_text_delta", { text = delta })
           end
+        elseif event.type == "thinking_delta" then
+          -- Reasoning is streamed and named separately from the answer: it
+          -- is not part of `streamed`, which is the partial reply a
+          -- cancellation reports.
+          local delta = event.delta
+          if type(delta) == "string" and #delta > 0 then
+            emit("agent_thinking_delta", { text = delta })
+          end
+        elseif event.type == "thinking_end" then
+          local content = event.content
+          if type(content) == "string" and #content > 0 then
+            emit("agent_thinking", { text = content })
+          end
         elseif event.type == "error" then
           emit("agent_diagnostic", { reason = "stream_error_event" })
         end

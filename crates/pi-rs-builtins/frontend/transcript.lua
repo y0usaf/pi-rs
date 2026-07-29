@@ -34,6 +34,7 @@
 --   | `width`         | block width in cells                               |
 --   | `body`          | usable text width (`width - 1`; column 0 indents)  |
 --   | `limits`        | a copy of this transcript's bounds                 |
+--   | `options`       | a copy of this frame's presentation options        |
 --   | `line(runs[, fill])` | one full-width display line                   |
 --   | `padded(fill)`  | one full-width row of nothing but `fill`           |
 --
@@ -70,6 +71,16 @@ module.define({
       max_output = 120,
       max_block_rows = 64,
     }
+
+    -- Frame-scoped presentation options. Every renderer reads them through
+    -- `context.options`, so a block-specific toggle such as collapsed
+    -- thinking needs no block-specific host surface and no private branch.
+    -- Only scalars are stored and the table is capped, so the per-frame copy
+    -- stays bounded.
+    local DEFAULT_OPTIONS = {
+      thinking_visible = true,
+    }
+    local MAX_OPTIONS = 32
 
     -- Product palette. These are the reviewed canonical colors for the
     -- transcript; a replacement renderer may choose any others.
@@ -117,6 +128,10 @@ module.define({
       notice_warn = { text = META },
       notice_info = { text = META },
     }
+
+    -- Hiding thinking keeps the block's place in the rhythm and replaces the
+    -- reasoning with this placeholder, which is the reviewed canonical row.
+    local THINKING_PLACEHOLDER = "Thinking..."
 
     local SEPARATOR = { runs = {} }
 
@@ -202,7 +217,11 @@ module.define({
     end
 
     local function render_thinking(entry, context)
-      return text_block(PRESENTATION.thinking, entry.text, context)
+      local shown = entry.text
+      if (context.options or {}).thinking_visible == false then
+        shown = THINKING_PLACEHOLDER
+      end
+      return text_block(PRESENTATION.thinking, shown, context)
     end
 
     local function render_notice(entry, context)
@@ -327,13 +346,47 @@ module.define({
           bounds[key] = tonumber(value)
         end
       end
+      local options = {}
+      for key, value in pairs(DEFAULT_OPTIONS) do
+        options[key] = value
+      end
       return setmetatable({
         entries = {},
         limits = bounds,
+        options = options,
         revision = 0,
         streaming = nil,
+        reasoning = nil,
         tools = {},
+        statuses = {},
       }, Transcript)
+    end
+
+    -- Presentation options are ordinary frontend policy: bounded scalars any
+    -- renderer may read. The transcript stores them because it owns the
+    -- per-frame renderer context, not because it interprets them.
+    function Transcript:set_option(key, value)
+      local name = tostring(key)
+      local kind = type(value)
+      if kind ~= "string" and kind ~= "number" and kind ~= "boolean" then
+        return false
+      end
+      if self.options[name] == nil then
+        local count = 0
+        for _ in pairs(self.options) do
+          count = count + 1
+        end
+        if count >= MAX_OPTIONS then
+          return false
+        end
+      end
+      self.options[name] = value
+      self:touch()
+      return true
+    end
+
+    function Transcript:option(key)
+      return self.options[tostring(key)]
     end
 
     function Transcript:touch()
@@ -351,9 +404,17 @@ module.define({
     -- Entries are bounded: the oldest is dropped once the history limit is
     -- reached, so a long session cannot grow product state without bound.
     function Transcript:push(entry)
+      -- Any other block closes an open reasoning block, so a later thinking
+      -- delta starts a new one instead of reopening a settled row.
+      if entry.kind ~= "thinking" then
+        self.reasoning = nil
+      end
       self.entries[#self.entries + 1] = entry
       while #self.entries > self.limits.max_entries do
-        table.remove(self.entries, 1)
+        -- A dropped entry is marked, so a keyed reference kept elsewhere
+        -- cannot silently rewrite a row that is no longer in the list.
+        local dropped = table.remove(self.entries, 1)
+        dropped.removed = true
       end
       self:touch()
       return entry
@@ -396,9 +457,35 @@ module.define({
       end
     end
 
+    -- Reasoning streams like assistant text: deltas grow one open block and
+    -- the completed text closes it, so a whole reasoning turn is one entry
+    -- however many events the provider sent.
+    function Transcript:thinking_delta(delta)
+      local chunk = tostring(delta or "")
+      if #chunk == 0 then
+        return nil
+      end
+      if self.reasoning == nil or self.reasoning.removed then
+        self.streaming = nil
+        self.reasoning = self:push({ kind = "thinking", text = "" })
+      end
+      self.reasoning.text = clip(self.reasoning.text .. chunk, self.limits.max_entry_bytes)
+      self:touch()
+      return self.reasoning
+    end
+
     function Transcript:thinking(text)
       self.streaming = nil
       local value = clip(text, self.limits.max_entry_bytes)
+      local open = self.reasoning
+      self.reasoning = nil
+      if open ~= nil and not open.removed then
+        if #value > 0 then
+          open.text = value
+        end
+        self:touch()
+        return open
+      end
       if #value == 0 then
         return nil
       end
@@ -456,17 +543,38 @@ module.define({
       return entry
     end
 
-    function Transcript:notice(level, text)
-      self.streaming = nil
+    local function notice_level(level)
       local name = tostring(level or "info")
       if name ~= "error" and name ~= "warn" then
         name = "info"
       end
+      return name
+    end
+
+    function Transcript:notice(level, text)
+      self.streaming = nil
       return self:push({
         kind = "notice",
-        level = name,
+        level = notice_level(level),
         text = clip(text, self.limits.max_entry_bytes),
       })
+    end
+
+    -- A keyed notice. Re-announcing the same key rewrites the row already in
+    -- the transcript instead of appending a second one, so a toggle pressed
+    -- twice stays one line of history rather than two.
+    function Transcript:status(key, level, text)
+      local name = tostring(key)
+      local existing = self.statuses[name]
+      if existing ~= nil and not existing.removed then
+        existing.level = notice_level(level)
+        existing.text = clip(text, self.limits.max_entry_bytes)
+        self:touch()
+        return existing
+      end
+      local entry = self:notice(level, text)
+      self.statuses[name] = entry
+      return entry
     end
 
     -- ---------------------------------------------------------------------
@@ -482,10 +590,15 @@ module.define({
       for key, value in pairs(self.limits) do
         limits[key] = value
       end
+      local options = {}
+      for key, value in pairs(self.options) do
+        options[key] = value
+      end
       return {
         width = columns,
         body = body,
         limits = limits,
+        options = options,
         line = function(runs, fill)
           return line_of(columns, runs, fill)
         end,
@@ -580,13 +693,16 @@ module.define({
     function Transcript:clear()
       self.entries = {}
       self.streaming = nil
+      self.reasoning = nil
       self.tools = {}
+      self.statuses = {}
       self:touch()
     end
 
     return {
       new = Transcript.new,
       defaults = DEFAULT_LIMITS,
+      default_options = DEFAULT_OPTIONS,
       separator = SEPARATOR,
       surface = SURFACE,
       palette = PALETTE,

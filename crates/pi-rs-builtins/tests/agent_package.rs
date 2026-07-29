@@ -15,7 +15,8 @@ use pi_rs_ai::registry::{ApiProvider, register_api_provider, unregister_api_prov
 use pi_rs_ai::transport::{AssistantMessageEventStream, create_assistant_message_event_stream};
 use pi_rs_ai_types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, AssistantRole, Context, Message,
-    Model, StopReason, TextContent, ToolCall, ToolCallType, Usage, now_ms,
+    Model, StopReason, TextContent, ThinkingContent, ThinkingType, ToolCall, ToolCallType, Usage,
+    now_ms,
 };
 use pi_rs_host::kernel::{DispatchBatch, DispatchRequest, RootKind};
 use pi_rs_host::{Host, HostConfig, PackageSource};
@@ -60,6 +61,54 @@ fn text_stream(model: &Model, chunks: &[&str]) -> AssistantMessageEventStream {
             partial: partial.clone(),
         });
     }
+    stream.push(AssistantMessageEvent::Done {
+        reason: StopReason::Stop,
+        message: partial,
+    });
+    stream.end();
+    stream
+}
+
+/// A reply that reasons first: thinking deltas, one thinking end, then text.
+///
+/// Reasoning is a separate provider content stream, so the agent has to name
+/// it separately from the answer instead of folding it into `text_delta`.
+fn reasoning_stream(model: &Model, thoughts: &[&str], answer: &str) -> AssistantMessageEventStream {
+    let stream = create_assistant_message_event_stream();
+    let reasoned = thoughts.concat();
+    let partial = assistant(
+        model,
+        vec![
+            AssistantContent::Thinking(ThinkingContent {
+                r#type: ThinkingType::Thinking,
+                thinking: reasoned.clone(),
+                thinking_signature: None,
+                redacted: None,
+            }),
+            AssistantContent::Text(TextContent::new(answer)),
+        ],
+        StopReason::Stop,
+    );
+    stream.push(AssistantMessageEvent::Start {
+        partial: partial.clone(),
+    });
+    for thought in thoughts {
+        stream.push(AssistantMessageEvent::ThinkingDelta {
+            content_index: 0,
+            delta: (*thought).to_owned(),
+            partial: partial.clone(),
+        });
+    }
+    stream.push(AssistantMessageEvent::ThinkingEnd {
+        content_index: 0,
+        content: reasoned,
+        partial: partial.clone(),
+    });
+    stream.push(AssistantMessageEvent::TextDelta {
+        content_index: 1,
+        delta: answer.to_owned(),
+        partial: partial.clone(),
+    });
     stream.push(AssistantMessageEvent::Done {
         reason: StopReason::Stop,
         message: partial,
@@ -235,6 +284,14 @@ fn fixture_stream(
             }
         }
         "cancel" => Ok(text_stream(model, &["never", "rendered"])),
+        "reasoning" => Ok(reasoning_stream(
+            model,
+            &[
+                "Inspect the hidden ",
+                "implementation detail before answering.",
+            ],
+            "Hello!",
+        )),
         other => Err(ProtocolError(format!("unknown fixture {other}"))),
     }
 }
@@ -397,6 +454,39 @@ fn text_turn_streams_deltas_and_settles_idle() {
     let status = batch.actions.last().unwrap();
     assert_eq!(status.payload["state"], "idle");
     assert_eq!(status.payload["messages"], 2);
+}
+
+#[test]
+fn a_reasoning_turn_names_thinking_separately_from_the_answer() {
+    let _fixture = Fixture::install("agent-reasoning", Arc::new(AtomicUsize::new(0)));
+    let harness = Harness::with_tools();
+
+    let batch = harness.dispatch(json!({
+        "kind": "prompt",
+        "text": "think first",
+        "model": model("agent-reasoning", "reasoning"),
+    }));
+
+    // Reasoning must not arrive as answer text: the frontend has to be able
+    // to hide it without hiding the reply.
+    assert_eq!(
+        kinds(&batch),
+        vec![
+            "agent_turn_start",
+            "agent_status",
+            "agent_thinking_delta",
+            "agent_thinking_delta",
+            "agent_thinking",
+            "agent_text_delta",
+            "agent_message",
+            "agent_status",
+        ]
+    );
+    assert_eq!(
+        first(&batch, "agent_thinking")["text"],
+        "Inspect the hidden implementation detail before answering."
+    );
+    assert_eq!(first(&batch, "agent_message")["text"], "Hello!");
 }
 
 #[test]

@@ -436,3 +436,76 @@ fn a_long_transcript_costs_one_viewport_per_frame() {
         "the newest answer must sit against the prompt"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Canonical thinking blocks
+// ---------------------------------------------------------------------------
+
+/// The reasoning text the canonical `thinking-and-queues` journey records.
+const CANONICAL_THINKING: &str = "Inspect the hidden implementation detail before answering.";
+
+/// ctrl-t: the key the canonical journey presses to toggle thinking blocks.
+const CTRL_T: &str = "\u{14}";
+
+#[test]
+fn hiding_thinking_blocks_matches_the_canonical_transcript() {
+    let mut frontend = Frontend::new();
+    frontend.agent(json!([
+        {"kind": "agent_thinking", "payload": {"text": CANONICAL_THINKING}},
+    ]));
+    frontend.types(CTRL_T);
+
+    // Canonical `thinking-hidden` rows 10..=12: the collapsed reasoning
+    // block, the separator row, and the toggle's own status row.
+    let expected = canonical("thinking-and-queues", "thinking-hidden");
+    let actual = frontend.frame("thinking-hidden");
+    assert_transcript_matches("thinking-hidden", &expected, 12, &actual, 3);
+}
+
+#[test]
+fn showing_thinking_blocks_matches_the_canonical_transcript() {
+    let mut frontend = Frontend::new();
+    frontend.agent(json!([
+        {"kind": "agent_thinking", "payload": {"text": CANONICAL_THINKING}},
+    ]));
+    frontend.types(CTRL_T);
+    frontend.types(CTRL_T);
+
+    // Canonical `thinking-visible` rows 10..=12. Toggling twice must leave
+    // one status row, not two: the second announcement rewrites the first.
+    let expected = canonical("thinking-and-queues", "thinking-visible");
+    let actual = frontend.frame("thinking-visible");
+    assert_transcript_matches("thinking-visible", &expected, 12, &actual, 3);
+}
+
+#[test]
+fn streamed_reasoning_is_one_block_that_a_reply_closes() {
+    let mut frontend = Frontend::new();
+    frontend.types("Say hello please\r");
+    frontend.agent(json!([
+        {"kind": "agent_thinking_delta", "payload": {"text": "Inspect the hidden "}},
+        {"kind": "agent_thinking_delta", "payload": {"text": "implementation detail "}},
+        {"kind": "agent_thinking", "payload": {"text": CANONICAL_THINKING}},
+        message("Hello!"),
+    ]));
+
+    // Three reasoning events must leave one reasoning block, and the reply
+    // that follows must not be appended to it.
+    let actual = frontend.frame("streamed-reasoning");
+    let last = usize::from(last_transcript_row(&actual));
+    assert_eq!(
+        row_text(&actual.cells, actual.columns, last),
+        " Hello!",
+        "the reply must be its own block against the prompt"
+    );
+    assert_eq!(
+        row_text(&actual.cells, actual.columns, last - 2),
+        format!(" {CANONICAL_THINKING}"),
+        "streamed reasoning must collapse into one block"
+    );
+    assert_eq!(
+        row_text(&actual.cells, actual.columns, last - 1),
+        "",
+        "blocks stay separated by one untouched row"
+    );
+}

@@ -38,9 +38,10 @@ the whole transition policy without touching the frontend.
 ## Actions out
 
 `agent_turn_start`, `agent_status`, `agent_text_delta`, `agent_message`,
-`agent_tool_group`, `agent_tool_start`, `agent_tool_result`, `agent_retry`,
-`agent_error`, `agent_cancelled`, `agent_steered`, `agent_follow_up`,
-`agent_queued`, `agent_configured`, `agent_reset`, `agent_diagnostic`.
+`agent_thinking_delta`, `agent_thinking`, `agent_tool_group`,
+`agent_tool_start`, `agent_tool_result`, `agent_retry`, `agent_error`,
+`agent_cancelled`, `agent_steered`, `agent_follow_up`, `agent_queued`,
+`agent_configured`, `agent_reset`, `agent_diagnostic`.
 
 Actions are data. Rendering, transcript shape, and user messaging belong to the
 frontend package; the agent never submits display batches.
@@ -49,7 +50,9 @@ frontend package; the agent never submits display batches.
 
 1. The prompt is appended, then queued steering messages join the request.
 2. One request streams through `pi.models.v1.stream`; text deltas render
-   incrementally as `agent_text_delta`.
+   incrementally as `agent_text_delta`, and provider reasoning is named
+   separately as `agent_thinking_delta`/`agent_thinking` so a frontend can
+   hide it without hiding the reply.
 3. A retryable failure (transport error or `stopReason == "error"`) is retried
    up to `max_retries`, each retry announced by `agent_retry`; exhaustion emits
    one `agent_error`. A missing model is not retried.

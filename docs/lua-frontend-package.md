@@ -15,9 +15,9 @@ that half of the product without forking the other.
 
 - `pi.frontend.keys@1` — `decode(events[, limit])` turns one terminal input
   batch into named keys (`text`, `submit`, `newline`, `backspace`, `left`,
-  `right`, `up`, `down`, `home`, `end`, `clear_line`, `interrupt`, `eof`,
-  `escape`, `unknown`). Printable bytes are consumed as whole runs, so a paste
-  is one key, never one key per character.
+  `right`, `up`, `down`, `home`, `end`, `clear_line`, `toggle_thinking`,
+  `interrupt`, `eof`, `escape`, `unknown`). Printable bytes are consumed as
+  whole runs, so a paste is one key, never one key per character.
 - `pi.frontend.editor@1` — `new(limits)` returns the multiline prompt buffer:
   `insert`, `newline`, `backspace`, `delete`, `move(direction)`, `clear_line`,
   `clear`, `text`, `is_empty`, `lines`, `cursor`. Limits are
@@ -25,11 +25,14 @@ that half of the product without forking the other.
   control bytes never enter the buffer.
 - `pi.frontend.transcript@1` — `new(limits)` returns the bounded entry list and
   the presentation policy over it: `user`, `assistant_delta`, `assistant_done`,
-  `thinking`, `tool_start`, `tool_result`, `notice`, `lines(width, limit)`,
+  `thinking_delta`, `thinking`, `tool_start`, `tool_result`, `notice`,
+  `status(key, level, text)`, `set_option`, `option`, `lines(width, limit)`,
   `rows`, `len`, `clear`. Limits are `max_entries = 200`,
   `max_entry_bytes = 4096`, `max_argument = 120`, `max_output = 120`,
-  `max_block_rows = 64`. A streaming assistant entry grows in place, so deltas
-  update one retained block.
+  `max_block_rows = 64`. A streaming assistant or reasoning entry grows in
+  place, so deltas update one retained block. `status` is a keyed notice:
+  re-announcing the same key rewrites the row already in the transcript
+  instead of appending a second one.
 
   `lines(width, limit)` is the whole appearance of the transcript. Each entry
   becomes a **block** of full-width display lines, blocks are separated by one
@@ -39,7 +42,7 @@ that half of the product without forking the other.
   |---|---|
   | user | background `#343541`, one padded row above and below, text `#d4d4d4` |
   | assistant | unstyled text, no padding rows |
-  | thinking | italic `#808080` |
+  | thinking | italic `#808080`; `Thinking...` when `thinking_visible` is false |
   | tool, running | background `#282832`, bold `#d4d4d4` name, `#8abeb7` arguments |
   | tool, succeeded | the same block on `#283228`; the call collapses to what ran |
   | tool, failed | the same block on `#3c2828`, plus the bounded output |
@@ -71,9 +74,17 @@ that half of the product without forking the other.
   `render` returns display lines — `{ runs = { { text = ..., style = ... } } }`,
   the shape `pi.frontend.view` already consumes — and receives a per-frame
   `context` of `width`, `body` (usable text width, one column narrower than
-  the block), a copy of `limits`, `line(runs[, fill])`, and `padded(fill)`.
-  `pi.frontend.transcript@1` also exports `palette` (the reviewed colors) and
-  `declarations()` (the shipped rows), so a renderer may reuse either.
+  the block), a copy of `limits`, a copy of `options`, `line(runs[, fill])`,
+  and `padded(fill)`. `pi.frontend.transcript@1` also exports `palette` (the
+  reviewed colors), `default_options`, and `declarations()` (the shipped
+  rows), so a renderer may reuse any of them.
+
+  `options` are the frame's presentation policy: bounded scalars set with
+  `set_option(key, value)` (at most 32 keys, strings/numbers/booleans only)
+  and read by any renderer. The shipped `thinking_visible` option is what
+  ctrl-t toggles, so collapsing reasoning needs no block-specific host
+  surface — a replacement renderer reads the same option, and a package may
+  add its own.
 
   The winner for an entry kind is the **last** matching declaration in
   registered order — `order`, then source, then id — so a positive `order`
@@ -115,8 +126,8 @@ dispatches the agent and holds no host state.
 
 Key routing goes through the focused component (`editor` today) rather than a
 per-key branch, so a later component joins without reshaping the root. Enter
-submits, alt+enter inserts a line, ctrl+c requests an interrupt, and ctrl+d on
-an empty prompt requests exit.
+submits, alt+enter inserts a line, ctrl+c requests an interrupt, ctrl+d on
+an empty prompt requests exit, and ctrl+t toggles thinking blocks.
 
 ## Application root
 
@@ -153,10 +164,10 @@ stripped.
 `crates/pi-rs-app/tests/transcript_presentation.rs` asserts what the transcript
 *looks like*: it replays the shipped frontend's ANSI into a terminal emulator
 and compares the transcript region of the screen, cell by cell, with the
-canonical `tool-pending` and `cancelled` checkpoints in
-`tests/experience/canonical-v1.json`. It also holds the two presentation
-budgets: a streamed delta repaints only its own row, and a 400-turn transcript
-still costs one viewport per frame.
+canonical `tool-pending`, `cancelled`, `thinking-hidden`, and
+`thinking-visible` checkpoints in `tests/experience/canonical-v1.json`. It
+also holds the two presentation budgets: a streamed delta repaints only its
+own row, and a 400-turn transcript still costs one viewport per frame.
 
 ## Known gaps
 
@@ -166,8 +177,8 @@ still costs one viewport per frame.
 - Transcript text wraps at the block width, but no canonical checkpoint records
   a wrapped transcript line, so the wrap points are pi-rs policy rather than a
   matched observation. There are no scrollback commands.
-- Thinking blocks have presentation (`transcript:thinking`) but nothing emits
-  them yet: the shipped agent has no thinking action. Warning, retry, and
-  compaction blocks reuse the notice styling instead of having their own.
+- Warning, retry, and compaction blocks reuse the notice styling instead of
+  having their own, and the queued-steering/follow-up meta rows have no
+  presentation at all.
 - The header, working indicator, prompt chrome, and status line are still the
   minimal 3.x ones; PLAN 5.2–5.3 own them.
