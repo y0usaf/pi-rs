@@ -359,6 +359,70 @@ fn a_pending_tool_call_matches_the_canonical_transcript() {
     assert_transcript_matches("tool-pending", &expected, 15, &actual, 15);
 }
 
+/// The action the shipped agent emits while a call's arguments stream in.
+fn tool_delta(arguments: Value) -> Value {
+    json!({"kind": "agent_tool_delta", "payload": {
+        "id": "call-1",
+        "name": "read",
+        "arguments": arguments,
+    }})
+}
+
+/// Replay the canonical `stream-tool-cancel` conversation up to the point
+/// where the second turn's call has been named but only part of its argument
+/// has arrived. The answer before it is streamed rather than settled, because
+/// that is the state the canonical `tool-streaming` frame records: the message
+/// has not finished, so no `agent_message` has been emitted yet.
+fn through_tool_stream(frontend: &mut Frontend) {
+    frontend.types("Say hello please\r");
+    frontend.agent(json!([
+        message("Hello! How can I help you today?"),
+        turn_complete(),
+    ]));
+    frontend.types("Read notes.txt\r");
+    frontend.agent(json!([
+        {"kind": "agent_text_delta", "payload": {"text": "I'll read the notes file."}},
+        tool_delta(json!({})),
+        tool_delta(json!({"path": "no"})),
+    ]));
+}
+
+#[test]
+fn a_streaming_tool_call_matches_the_canonical_transcript() {
+    let mut frontend = Frontend::new();
+    through_tool_stream(&mut frontend);
+
+    // Canonical `tool-streaming` rows 1..=15: the same blocks as
+    // `tool-pending`, except the tool block carries only the argument text
+    // that has arrived so far (`read no`, not `read notes.txt`).
+    let expected = canonical("stream-tool-cancel", "tool-streaming");
+    let actual = frontend.frame("tool-streaming");
+    assert_transcript_matches("tool-streaming", &expected, 15, &actual, 15);
+}
+
+#[test]
+fn a_streamed_call_becomes_the_same_block_when_it_starts() {
+    let mut frontend = Frontend::new();
+    through_tool_stream(&mut frontend);
+    frontend.agent(json!([
+        message("I'll read the notes file."),
+        {"kind": "agent_tool_start", "payload": {
+            "id": "call-1",
+            "name": "read",
+            "arguments": {"path": "notes.txt"},
+        }},
+    ]));
+
+    // The canonical `tool-pending` strip, reached through the streaming path
+    // instead of a single settled start. Matching it cell for cell is what
+    // proves the streamed row was refined rather than joined by a second
+    // block for the same call, and that the settled message did not repaint
+    // the answer it had already streamed.
+    let expected = canonical("stream-tool-cancel", "tool-pending");
+    let actual = frontend.frame("tool-pending-after-stream");
+    assert_transcript_matches("tool-pending-after-stream", &expected, 15, &actual, 15);
+}
+
 #[test]
 fn a_settled_tool_call_and_cancellation_match_the_canonical_transcript() {
     let mut frontend = Frontend::new();

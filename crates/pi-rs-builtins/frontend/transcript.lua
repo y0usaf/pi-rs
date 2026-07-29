@@ -471,7 +471,12 @@ module.define({
       if #chunk == 0 then
         return nil
       end
-      if self.streaming == nil then
+      -- An open answer grows only while it is still the newest entry. Once
+      -- anything else has been said — a streaming tool call, a notice — the
+      -- next delta starts its own block instead of rewriting a row that is
+      -- no longer at the bottom. A dropped entry is never the newest, so the
+      -- same condition covers an evicted reference.
+      if self.streaming == nil or self.entries[#self.entries] ~= self.streaming then
         self.streaming = self:push({ kind = "assistant", text = "" })
       end
       self.streaming.text = clip(self.streaming.text .. chunk, self.limits.max_entry_bytes)
@@ -551,20 +556,69 @@ module.define({
       return clip(table.concat(parts, " "), self.limits.max_argument)
     end
 
+    --- The block a call already owns, or `nil`. An entry the history dropped
+    --- is detached from the list, so rewriting it would lose the row without
+    --- saying so: the key is forgotten instead and the caller starts a new
+    --- block.
+    function Transcript:tool_entry(id)
+      local key = tostring(id)
+      local entry = self.tools[key]
+      if entry ~= nil and entry.removed then
+        self.tools[key] = nil
+        return nil, key
+      end
+      return entry, key
+    end
+
+    -- A provider names a call and then streams its arguments, so the row
+    -- exists before the call is runnable. It is the same block the settled
+    -- call will use, keyed by id, so N argument deltas are one refining row
+    -- rather than one row each. A settled call is never rewritten by a late
+    -- delta.
+    function Transcript:tool_delta(id, name, arguments)
+      local entry, key = self:tool_entry(id)
+      if entry == nil then
+        entry = self:push({
+          kind = "tool",
+          state = "pending",
+          name = tostring(name or "tool"),
+          argument = "",
+        })
+        self.tools[key] = entry
+      elseif entry.state ~= "pending" then
+        return entry
+      end
+      if type(name) == "string" and #name > 0 then
+        entry.name = name
+      end
+      entry.argument = self:argument_summary(arguments)
+      self:touch()
+      return entry
+    end
+
     function Transcript:tool_start(id, name, arguments)
+      local entry, key = self:tool_entry(id)
+      if entry ~= nil then
+        -- The call already has a row from its argument stream; starting it
+        -- refines that row instead of painting the same call twice.
+        entry.name = tostring(name or entry.name)
+        entry.argument = self:argument_summary(arguments)
+        self:touch()
+        return entry
+      end
       self.streaming = nil
-      local entry = self:push({
+      entry = self:push({
         kind = "tool",
         state = "pending",
         name = tostring(name or "tool"),
         argument = self:argument_summary(arguments),
       })
-      self.tools[tostring(id)] = entry
+      self.tools[key] = entry
       return entry
     end
 
     function Transcript:tool_result(id, name, ok, output)
-      local entry = self.tools[tostring(id)]
+      local entry = self:tool_entry(id)
       local summary = clip(output, self.limits.max_output)
       if entry == nil then
         entry = self:push({
