@@ -136,9 +136,9 @@ fn run(source: &str, name: &str) -> serde_json::Value {
 fn a_linked_run_is_presented_as_osc8_around_exactly_its_own_cells() {
     let payload = run(TRANSCRIPT, "transcript-links");
 
-    // The run field is a schema change, so the version packages read to build a
-    // batch reports it.
-    assert_eq!(payload["schema_version"], 2);
+    // The run field was a schema change, so the version packages read to build
+    // a batch reports the current schema.
+    assert_eq!(payload["schema_version"], 3);
 
     // Hyperlink state and SGR state are two independent machines: the style
     // reset that ends the underlined label does not end the link, so this

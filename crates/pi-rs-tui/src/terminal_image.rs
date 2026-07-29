@@ -8,13 +8,15 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use base64::Engine as _;
+use serde::{Deserialize, Serialize};
 
 const KITTY_PREFIX: &str = "\x1b_G";
 const ITERM2_PREFIX: &str = "\x1b]1337;File=";
 const KITTY_CHUNK_SIZE: usize = 4096;
 
 /// An inline-image protocol understood by the terminal.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ImageProtocol {
     Kitty,
     ITerm2,

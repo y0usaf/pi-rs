@@ -1153,16 +1153,65 @@ package paths, but shared binding indexes/default manifests remain serial.
   region, is not exposed; a wrapped link therefore reads as one region per row.
   Add it only with a consumer that needs it.
 
-  **Remaining for 4.1:** display node content beyond group/text — images
-  (`crates/pi-rs-tui/src/terminal_image.rs` has the kitty/iTerm2 encoders and
-  cell sizing, but `DisplayNodeContent` has no image variant and the
-  differential cell presenter has no out-of-band escape pass; the hyperlink
-  slice added out-of-band *inline* escapes in `write_cells`, which is not the
-  same as a per-frame image placement pass) — and the generated concise API doc
-  covering the demonstrated surface. Each still needs its own file-backed
-  consumer before it is added. Note for the image slice: adding a content kind
-  changes `DISPLAY_SCHEMA_VERSION` again (now `2`), which
-  `pi.terminal.v1.display_schema_version` publishes to every package.
+  **Landed slice (inline terminal images):** the tenth consumer-demonstrated 4.1
+  addition closes "display node content beyond group/text". A node's content may
+  now be `{kind="image", data="<base64>", protocol="kitty"|"iterm2"}`
+  (`DisplayNodeContent::Image` in `crates/pi-rs-tui/src/display.rs`, parsed in
+  `crates/pi-rs-host/src/tui_api/runtime.rs`), and the node's own `rect` is the
+  placement. This is the *second* out-of-band mechanism and deliberately not the
+  hyperlink one: a link is per-cell state the differential cell diff already
+  carries, while an image is one escape addressed at a cursor position covering a
+  rectangle, so it cannot be reconstructed from cell diffs. Images therefore
+  never enter the cell grid at all — `Frame` gained `images: Vec<FrameImage>`,
+  and `present_images` compares whole placements after the cell pass. Identity is
+  the mechanism that makes removal possible: `ImageIdentities` assigns each image
+  node a terminal-side id, stable for the life of one `RetainedDisplay` and never
+  reused, so replacing a payload deletes that id before transmitting the
+  replacement and dropping the node deletes it outright — blanking cells does not
+  remove a graphic. Because repainting cells *does* draw text over one, any
+  placement whose rows the cell pass rewrote is re-emitted; an unchanged image
+  over untouched rows emits nothing. Rust names no terminal, scaling, aspect
+  ratio, z-order, or overlap rule: protocol choice is Lua policy computed from
+  `pi.effects.v1.env`, and an image whose rectangle is not fully inside its clip
+  is skipped rather than partially drawn. Kitty placements pass `C=1` so the
+  cursor restore stays authoritative. Bounds: `max_images` (default 16) and
+  `max_image_bytes` (default 4 MiB) per batch, and a payload outside the standard
+  base64 alphabet is refused before anything is retained, because it is spliced
+  verbatim into an escape sequence. `SubmitResult` gained `placed_images`, kept
+  separate from `painted_cells` because an image paints no cell.
+  `DISPLAY_SCHEMA_VERSION` is now `3`; every package reads
+  `pi.terminal.v1.display_schema_version`, so the only pinned consumers updated
+  were `crates/pi-rs-host/tests/{tui_terminal,display_links}.rs`. Evidence:
+  `crates/pi-rs-host/tests/display_images.rs` (2 tests) drives the journey from
+  ordinary file-backed packages — a package that picks its protocol from
+  `TERM_PROGRAM` places a 6x2 image at row 1 column 2, asserts the addressed
+  placement and `C=1,c=6,r=2,i=1`, that the text row above still counts 5 painted
+  cells while the image counts 1 placed image, that resubmitting emits nothing,
+  that a new payload deletes id 1 before transmitting, and that dropping the node
+  deletes without re-transmitting; the other pins every refusal (empty, escape-
+  bearing, and space-bearing payloads, an unknown protocol, an unknown content
+  kind, and an oversize batch naming the byte count and limit) with the display
+  revision still 0. `crates/pi-rs-tui/src/display.rs` gains four unit tests
+  proving the kitty and iTerm2 sequences against real rasterized frames, that a
+  repainted row re-places the image covering it while an untouched row does not,
+  and that a partially clipped image is not placed. `docs/lua-extension-api.md`
+  gains an inline-image section and `docs/lua-coding-spine.md` records schema
+  version 3. `cargo fmt --all -- --check`, `cargo test --workspace` (76 test
+  targets, 323 tests, 0 failures), and `nix flake check` (8 checks: workspace
+  tests, clippy, default distribution, raw no-package guidance, file-backed
+  application, pi-core package, model-catalog update) pass. **Deliberate
+  omissions:** no capability detection is exposed (`terminal_image::
+  detect_capabilities` stays internal — the environment a package already reads
+  is enough), and no z-order or overlap policy is named.
+
+  **Remaining for 4.1:** the generated concise API doc covering the actual
+  demonstrated surface. `docs/lua-extension-api.md` and `docs/lua-coding-spine.md`
+  are hand-written and currently accurate, but the acceptance criterion asks for
+  docs generated from the demonstrated surface, so drift cannot reopen. The
+  natural mechanism is the shape `crates/pi-rs-host/tests/public_surface.rs`
+  already pins: it walks the installed `pi` table and asserts exact member lists,
+  so the same walk can emit the reference and a check can compare the committed
+  file against it. That check must not need an ambient sibling checkout.
 
 After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
 

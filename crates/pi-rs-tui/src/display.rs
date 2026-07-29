@@ -13,9 +13,14 @@ use std::{
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::utils::grapheme_width;
+use crate::{
+    terminal_image::{
+        ITerm2Options, ImageProtocol, KittyOptions, delete_kitty_image, encode_iterm2, encode_kitty,
+    },
+    utils::grapheme_width,
+};
 
-pub const DISPLAY_SCHEMA_VERSION: u16 = 2;
+pub const DISPLAY_SCHEMA_VERSION: u16 = 3;
 const SYNC_START: &str = "\x1b[?2026h";
 const SYNC_END: &str = "\x1b[?2026l";
 /// OSC 8 with an empty parameter field. The target follows, then `ST`.
@@ -34,6 +39,10 @@ pub struct DisplayLimits {
     pub max_cells: usize,
     /// Total bytes of hyperlink targets in one batch.
     pub max_link_bytes: usize,
+    /// Image nodes in one batch.
+    pub max_images: usize,
+    /// Total encoded image payload bytes in one batch.
+    pub max_image_bytes: usize,
 }
 
 impl Default for DisplayLimits {
@@ -46,6 +55,8 @@ impl Default for DisplayLimits {
             max_text_bytes: 1_048_576,
             max_cells: 262_144,
             max_link_bytes: 65_536,
+            max_images: 16,
+            max_image_bytes: 4_194_304,
         }
     }
 }
@@ -229,6 +240,14 @@ pub enum DisplayNodeContent {
         #[serde(default = "default_tab_width")]
         tab_width: u8,
     },
+    /// An inline terminal image placed over the node's own cells.
+    ///
+    /// The payload is already encoded and base64-armoured by the caller; the
+    /// host only splices it into the named protocol's escape sequence.
+    Image {
+        data: String,
+        protocol: ImageProtocol,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -305,10 +324,26 @@ pub struct FrameFocus {
     pub rect: Rect,
 }
 
+/// One accepted image placement, in absolute viewport cells.
+///
+/// Images are not cells: they never enter the grid, so a placement carries its
+/// own rectangle and is emitted by a separate out-of-band pass.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FrameImage {
+    pub node: NodeId,
+    pub rect: Rect,
+    pub protocol: ImageProtocol,
+    pub data: Arc<str>,
+    /// Stable per node for the life of one `RetainedDisplay`, so a redraw
+    /// replaces its own placement instead of stacking a second one.
+    pub id: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Frame {
     viewport: Viewport,
     cells: Vec<Cell>,
+    images: Vec<FrameImage>,
     pub cursor: Option<FrameCursor>,
     pub focus: Option<FrameFocus>,
 }
@@ -319,9 +354,14 @@ impl Frame {
         Self {
             viewport,
             cells: vec![Cell::default(); count],
+            images: Vec::new(),
             cursor: None,
             focus: None,
         }
+    }
+
+    pub fn images(&self) -> &[FrameImage] {
+        &self.images
     }
 
     pub fn viewport(&self) -> Viewport {
@@ -413,6 +453,9 @@ pub struct SubmitResult {
     pub painted_cells: usize,
     pub changed_cells: usize,
     pub full_redraw: bool,
+    /// Image placements emitted this frame. Images are out-of-band escapes, so
+    /// they are counted separately from the cells the rasterizer wrote.
+    pub placed_images: usize,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -459,6 +502,12 @@ pub enum DisplayError {
     LinkByteLimit { actual: usize, limit: usize },
     #[error("node {0:?} has an empty or control-bearing hyperlink target")]
     InvalidLink(NodeId),
+    #[error("image count {actual} exceeds limit {limit}")]
+    ImageLimit { actual: usize, limit: usize },
+    #[error("image byte count {actual} exceeds limit {limit}")]
+    ImageByteLimit { actual: usize, limit: usize },
+    #[error("node {0:?} has an empty or non-base64 image payload")]
+    InvalidImageData(NodeId),
     #[error("text byte count {actual} exceeds limit {limit}")]
     TextByteLimit { actual: usize, limit: usize },
     #[error("node {0:?} contains terminal control data")]
@@ -484,6 +533,7 @@ struct PresentResult {
     ansi: String,
     changed_cells: usize,
     full_redraw: bool,
+    placed_images: usize,
 }
 
 impl AnsiPresenter {
@@ -498,6 +548,9 @@ impl AnsiPresenter {
             .is_none_or(|previous| previous.viewport != frame.viewport);
         let mut output = String::new();
         let mut changed_cells = 0;
+        // Rows the cell pass rewrote. A repainted row draws text over whatever
+        // image covered it, so those placements have to be emitted again.
+        let mut written_rows = BTreeSet::new();
         let columns = usize::from(frame.viewport.columns);
 
         for row in 0..usize::from(frame.viewport.rows) {
@@ -535,7 +588,17 @@ impl AnsiPresenter {
             output.push_str(&format!("\x1b[{};{}H", row + 1, start + 1));
             write_cells(&mut output, current, start, end);
             output.push_str("\x1b[0m");
+            if let Ok(row) = u16::try_from(row) {
+                written_rows.insert(row);
+            }
         }
+
+        let placed_images = present_images(
+            &mut output,
+            frame,
+            self.previous.as_ref().filter(|_| !full_redraw),
+            &written_rows,
+        );
 
         let cursor_changed = self
             .previous
@@ -571,8 +634,113 @@ impl AnsiPresenter {
             ansi: output,
             changed_cells,
             full_redraw,
+            placed_images,
         }
     }
+}
+
+/// Rows an accepted placement covers, in absolute viewport coordinates.
+fn image_rows(rect: Rect) -> impl Iterator<Item = u16> {
+    let top = rect.y.max(0);
+    let bottom = top.saturating_add(i32::from(rect.height));
+    (top..bottom).filter_map(|row| u16::try_from(row).ok())
+}
+
+/// Emit the frame's image placements as one out-of-band pass.
+///
+/// This is deliberately not the per-cell path the hyperlink target uses. An
+/// image is one escape sequence addressed at a cursor position and covering a
+/// rectangle of cells, so it cannot be reconstructed from cell diffs; the pass
+/// compares whole placements instead and re-emits any placement whose rows the
+/// cell pass just rewrote.
+fn present_images(
+    output: &mut String,
+    frame: &Frame,
+    previous: Option<&Frame>,
+    written_rows: &BTreeSet<u16>,
+) -> usize {
+    let previous_images: &[FrameImage] =
+        previous.map_or(&[], |previous| previous.images.as_slice());
+    if previous_images.is_empty() && frame.images.is_empty() {
+        return 0;
+    }
+
+    let mut sequences = String::new();
+    let mut placed = 0;
+
+    // Clearing the text cells a placement covered does not remove the graphic,
+    // so a placement that is gone is removed by its own id.
+    for previous_image in previous_images {
+        let still_placed = frame
+            .images
+            .iter()
+            .any(|image| image.node == previous_image.node);
+        if !still_placed && previous_image.protocol == ImageProtocol::Kitty {
+            sequences.push_str(&delete_kitty_image(previous_image.id));
+        }
+    }
+
+    for image in &frame.images {
+        let unchanged = previous_images.contains(image);
+        let overdrawn = image_rows(image.rect).any(|row| written_rows.contains(&row));
+        if unchanged && !overdrawn {
+            continue;
+        }
+        let columns = u32::from(image.rect.width);
+        let rows = u32::from(image.rect.height);
+        match image.protocol {
+            ImageProtocol::Kitty => {
+                // Transmitting the same id twice would leave two stacked
+                // placements, so every (re)placement removes its own first.
+                sequences.push_str(&delete_kitty_image(image.id));
+                sequences.push_str(&format!(
+                    "\x1b[{};{}H",
+                    image.rect.y.saturating_add(1),
+                    image.rect.x.saturating_add(1)
+                ));
+                sequences.push_str(&encode_kitty(
+                    &image.data,
+                    KittyOptions {
+                        columns: Some(columns),
+                        rows: Some(rows),
+                        image_id: Some(image.id),
+                        move_cursor: Some(false),
+                    },
+                ));
+            }
+            ImageProtocol::ITerm2 => {
+                // iTerm2 has no delete verb: a placement is replaced by drawing
+                // over the same cells, which the cursor address below does.
+                let width = columns.to_string();
+                let height = rows.to_string();
+                sequences.push_str(&format!(
+                    "\x1b[{};{}H",
+                    image.rect.y.saturating_add(1),
+                    image.rect.x.saturating_add(1)
+                ));
+                sequences.push_str(&encode_iterm2(
+                    &image.data,
+                    ITerm2Options {
+                        width: Some(&width),
+                        height: Some(&height),
+                        name: None,
+                        preserve_aspect_ratio: Some(false),
+                        inline: Some(true),
+                    },
+                ));
+            }
+        }
+        placed += 1;
+    }
+
+    if sequences.is_empty() {
+        return 0;
+    }
+    if output.is_empty() {
+        output.push_str(SYNC_START);
+    }
+    output.push_str(&sequences);
+    placed
 }
 
 fn changed_span(
@@ -644,6 +812,41 @@ fn write_cells(output: &mut String, cells: &[Cell], start: usize, end: usize) {
     }
 }
 
+/// Terminal-side image identities, assigned per node and never reused.
+///
+/// The identity is what lets a redraw replace its own placement, and what lets
+/// a vanished node's placement be deleted. It is assigned by the host because
+/// it is a resource handle, not a policy: nothing about which image goes where
+/// is decided here.
+#[derive(Default)]
+struct ImageIdentities {
+    assigned: BTreeMap<NodeId, u32>,
+    issued: u32,
+}
+
+impl ImageIdentities {
+    fn id_for(&mut self, node: NodeId) -> u32 {
+        if let Some(id) = self.assigned.get(&node) {
+            return *id;
+        }
+        self.issued = self.issued.saturating_add(1);
+        self.assigned.insert(node, self.issued);
+        self.issued
+    }
+
+    /// Drop identities for nodes this batch no longer paints as images, so the
+    /// map stays bounded by the live image count rather than by history.
+    fn retain(&mut self, batch: &DisplayBatch) {
+        let live: BTreeSet<NodeId> = batch
+            .nodes
+            .iter()
+            .filter(|node| matches!(node.content, DisplayNodeContent::Image { .. }))
+            .map(|node| node.id)
+            .collect();
+        self.assigned.retain(|node, _| live.contains(node));
+    }
+}
+
 pub struct RetainedDisplay {
     limits: DisplayLimits,
     revision: u64,
@@ -653,6 +856,7 @@ pub struct RetainedDisplay {
     cursor: Option<CursorMetadata>,
     frame: Option<Frame>,
     presenter: AnsiPresenter,
+    image_ids: ImageIdentities,
 }
 
 impl Default for RetainedDisplay {
@@ -672,6 +876,7 @@ impl RetainedDisplay {
             cursor: None,
             frame: None,
             presenter: AnsiPresenter::default(),
+            image_ids: ImageIdentities::default(),
         }
     }
 
@@ -721,9 +926,11 @@ impl RetainedDisplay {
                 painted_cells: 0,
                 changed_cells: 0,
                 full_redraw: false,
+                placed_images: 0,
             });
         }
 
+        self.image_ids.retain(&batch);
         let incremental = if self.presenter.previous.is_some() {
             match self
                 .frame
@@ -738,7 +945,7 @@ impl RetainedDisplay {
         };
         let raster = match incremental {
             Some(raster) => raster,
-            None => rasterize(&batch, &validated)?,
+            None => rasterize(&batch, &validated, &mut self.image_ids)?,
         };
         let presented = self
             .presenter
@@ -758,6 +965,7 @@ impl RetainedDisplay {
             painted_cells: raster.painted_cells,
             changed_cells: presented.changed_cells,
             full_redraw: presented.full_redraw,
+            placed_images: presented.placed_images,
         })
     }
 }
@@ -798,6 +1006,8 @@ fn validate_batch(
     let mut text_runs = 0usize;
     let mut text_bytes = 0usize;
     let mut link_bytes = 0usize;
+    let mut images = 0usize;
+    let mut image_bytes = 0usize;
     for (position, node) in batch.nodes.iter().enumerate() {
         if node.id.0 == 0 {
             return Err(DisplayError::ZeroNodeId);
@@ -850,6 +1060,16 @@ fn validate_batch(
                 }
             }
         }
+        if let DisplayNodeContent::Image { data, .. } = &node.content {
+            // The payload is spliced verbatim into an escape sequence, so any
+            // byte outside the base64 alphabet could terminate that sequence
+            // early and hand the remainder to the terminal as commands.
+            if !is_base64_payload(data) {
+                return Err(DisplayError::InvalidImageData(node.id));
+            }
+            images = images.saturating_add(1);
+            image_bytes = image_bytes.saturating_add(data.len());
+        }
     }
     if text_runs > limits.max_text_runs {
         return Err(DisplayError::TextRunLimit {
@@ -867,6 +1087,18 @@ fn validate_batch(
         return Err(DisplayError::LinkByteLimit {
             actual: link_bytes,
             limit: limits.max_link_bytes,
+        });
+    }
+    if images > limits.max_images {
+        return Err(DisplayError::ImageLimit {
+            actual: images,
+            limit: limits.max_images,
+        });
+    }
+    if image_bytes > limits.max_image_bytes {
+        return Err(DisplayError::ImageByteLimit {
+            actual: image_bytes,
+            limit: limits.max_image_bytes,
         });
     }
 
@@ -934,6 +1166,19 @@ fn validate_batch(
         }
     }
     Ok(ValidatedBatch { index })
+}
+
+/// Whether a payload is safe to splice into a terminal escape sequence.
+///
+/// This is a shape check, not a decode: the standard base64 alphabet contains
+/// no control byte and no escape introducer, so an accepted payload cannot end
+/// the sequence it is carried in. Whether the bytes are a valid image is the
+/// terminal's problem, not the host's.
+fn is_base64_payload(data: &str) -> bool {
+    !data.is_empty()
+        && data
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
 }
 
 struct Rasterized {
@@ -1106,7 +1351,11 @@ fn incremental_rasterize(
     }))
 }
 
-fn rasterize(batch: &DisplayBatch, validated: &ValidatedBatch) -> Result<Rasterized, DisplayError> {
+fn rasterize(
+    batch: &DisplayBatch,
+    validated: &ValidatedBatch,
+    image_ids: &mut ImageIdentities,
+) -> Result<Rasterized, DisplayError> {
     let viewport_rect = batch.viewport.rect();
     let mut frame = Frame::blank(batch.viewport);
     let mut layouts = BTreeMap::new();
@@ -1128,16 +1377,30 @@ fn rasterize(batch: &DisplayBatch, validated: &ValidatedBatch) -> Result<Rasteri
                 clip: content_clip,
             },
         );
-        if let (
-            Some(clip),
-            DisplayNodeContent::Text {
-                runs,
-                wrap,
-                tab_width,
-            },
-        ) = (content_clip, &node.content)
-        {
-            painted_cells += paint_text(&mut frame, rect, clip, runs, *wrap, *tab_width);
+        match (content_clip, &node.content) {
+            (
+                Some(clip),
+                DisplayNodeContent::Text {
+                    runs,
+                    wrap,
+                    tab_width,
+                },
+            ) => {
+                painted_cells += paint_text(&mut frame, rect, clip, runs, *wrap, *tab_width);
+            }
+            (Some(clip), DisplayNodeContent::Image { data, protocol }) if clip == rect => {
+                // A terminal image is placed whole at one cursor position, so
+                // there is no partial placement to draw: an image whose own
+                // rectangle is not fully visible is simply not placed.
+                frame.images.push(FrameImage {
+                    node: id,
+                    rect,
+                    protocol: *protocol,
+                    data: Arc::from(data.as_str()),
+                    id: image_ids.id_for(id),
+                });
+            }
+            _ => {}
         }
         let child_clip = if node.clip_children {
             content_clip
@@ -1149,6 +1412,9 @@ fn rasterize(batch: &DisplayBatch, validated: &ValidatedBatch) -> Result<Rasteri
         }
         visited_nodes += 1;
     }
+    // Tree traversal order is an implementation detail; identity order is not,
+    // and the presenter compares placement lists.
+    frame.images.sort_by_key(|image| image.node);
 
     if let Some(focused) = batch.focused {
         let layout = &layouts[&focused];
@@ -2271,5 +2537,272 @@ mod tests {
         );
         // A refused batch leaves no retained frame behind.
         assert!(bounded.frame().is_none());
+    }
+
+    fn image(id: u64, rect: Rect, data: &str, protocol: ImageProtocol) -> DisplayNode {
+        DisplayNode {
+            id: NodeId(id),
+            rect,
+            clip_children: true,
+            focusable: false,
+            content: DisplayNodeContent::Image {
+                data: data.to_owned(),
+                protocol,
+            },
+            children: Vec::new(),
+        }
+    }
+
+    fn image_batch(data: &str, protocol: ImageProtocol) -> DisplayBatch {
+        let viewport = Rect {
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 3,
+        };
+        let placement = Rect {
+            x: 2,
+            y: 1,
+            width: 4,
+            height: 2,
+        };
+        batch(
+            8,
+            3,
+            vec![
+                group(1, viewport, vec![NodeId(2)]),
+                image(2, placement, data, protocol),
+            ],
+        )
+    }
+
+    #[test]
+    fn an_image_is_placed_out_of_band_and_replaces_its_own_placement() {
+        let mut display = RetainedDisplay::default();
+        let first = display
+            .submit(image_batch("AAAA", ImageProtocol::Kitty))
+            .unwrap();
+
+        // The placement is addressed at the node's absolute top-left cell and
+        // sized in cells, and it does not move the hardware cursor (C=1).
+        assert!(first.ansi.contains("\x1b[2;3H"), "{:?}", first.ansi);
+        assert!(
+            first
+                .ansi
+                .contains("\x1b_Ga=T,f=100,q=2,C=1,c=4,r=2,i=1;AAAA\x1b\\"),
+            "{:?}",
+            first.ansi
+        );
+        assert_eq!(first.placed_images, 1);
+
+        // An image is not glyphs: it enters no cell, so the frame's cells stay
+        // blank underneath it and nothing counts as painted.
+        assert_eq!(first.painted_cells, 0);
+        let frame = display.frame().unwrap();
+        assert_eq!(cell_text(frame, 1, 2), None);
+        assert_eq!(frame.images().len(), 1);
+        assert_eq!(frame.images()[0].id, 1);
+
+        // Resubmitting the identical tree emits nothing at all.
+        let second = display
+            .submit(image_batch("AAAA", ImageProtocol::Kitty))
+            .unwrap();
+        assert!(second.ansi.is_empty());
+        assert_eq!(second.placed_images, 0);
+
+        // New payload, same node: the identity is stable, so the terminal is
+        // told to drop that identity before the replacement is transmitted.
+        let third = display
+            .submit(image_batch("BBBB", ImageProtocol::Kitty))
+            .unwrap();
+        let delete_at = third.ansi.find("\x1b_Ga=d,d=I,i=1,q=2\x1b\\");
+        let place_at = third.ansi.find(";BBBB");
+        assert!(
+            delete_at.is_some() && delete_at < place_at,
+            "{:?}",
+            third.ansi
+        );
+        assert_eq!(third.placed_images, 1);
+
+        // Dropping the node removes the placement by identity: clearing text
+        // cells would not have removed the graphic.
+        let viewport = Rect {
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 3,
+        };
+        let fourth = display
+            .submit(batch(8, 3, vec![group(1, viewport, Vec::new())]))
+            .unwrap();
+        assert!(
+            fourth.ansi.contains("\x1b_Ga=d,d=I,i=1,q=2\x1b\\"),
+            "{:?}",
+            fourth.ansi
+        );
+        assert_eq!(fourth.placed_images, 0);
+        assert!(display.frame().unwrap().images().is_empty());
+    }
+
+    #[test]
+    fn a_repainted_row_re_places_the_image_that_covered_it() {
+        let viewport = Rect {
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 2,
+        };
+        let row = Rect {
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 1,
+        };
+        let placement = Rect {
+            x: 0,
+            y: 1,
+            width: 4,
+            height: 1,
+        };
+        let tree = |label: &str| {
+            batch(
+                8,
+                2,
+                vec![
+                    group(1, viewport, vec![NodeId(2), NodeId(3)]),
+                    text(2, row, label),
+                    image(3, placement, "AAAA", ImageProtocol::ITerm2),
+                ],
+            )
+        };
+        let mut display = RetainedDisplay::default();
+        assert_eq!(display.submit(tree("one")).unwrap().placed_images, 1);
+
+        // Row 0 changed and row 1 did not, so the placement on row 1 is left
+        // alone: an unchanged image over untouched cells emits nothing.
+        let text_only = display.submit(tree("two")).unwrap();
+        assert_eq!(text_only.placed_images, 0);
+        assert!(
+            !text_only.ansi.contains("\x1b]1337;File="),
+            "{:?}",
+            text_only.ansi
+        );
+
+        // Repainting the row the image covers draws text over the graphic, so
+        // that placement is emitted again even though it did not change.
+        let overdrawn = display
+            .submit(batch(
+                8,
+                2,
+                vec![
+                    group(1, viewport, vec![NodeId(2), NodeId(3)]),
+                    text(2, row, "two"),
+                    image(3, Rect { x: 4, ..placement }, "AAAA", ImageProtocol::ITerm2),
+                ],
+            ))
+            .unwrap();
+        assert_eq!(overdrawn.placed_images, 1);
+        assert!(
+            overdrawn.ansi.contains(
+                "\x1b]1337;File=inline=1;width=4;height=1;preserveAspectRatio=0:AAAA\x07"
+            ),
+            "{:?}",
+            overdrawn.ansi
+        );
+    }
+
+    #[test]
+    fn image_payloads_are_validated_and_bounded() {
+        let viewport = Rect {
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 3,
+        };
+        let placement = Rect {
+            x: 2,
+            y: 1,
+            width: 4,
+            height: 2,
+        };
+        let refuse = |data: &str| {
+            let mut display = RetainedDisplay::default();
+            display
+                .submit(batch(
+                    8,
+                    3,
+                    vec![
+                        group(1, viewport, vec![NodeId(2)]),
+                        image(2, placement, data, ImageProtocol::Kitty),
+                    ],
+                ))
+                .unwrap_err()
+        };
+        // Anything outside the base64 alphabet could terminate the escape
+        // sequence the payload is carried in.
+        assert_eq!(refuse(""), DisplayError::InvalidImageData(NodeId(2)));
+        assert_eq!(
+            refuse("AA\x1b\\A"),
+            DisplayError::InvalidImageData(NodeId(2))
+        );
+        assert_eq!(refuse("AA A"), DisplayError::InvalidImageData(NodeId(2)));
+
+        let mut bounded = RetainedDisplay::new(DisplayLimits {
+            max_image_bytes: 3,
+            ..DisplayLimits::default()
+        });
+        assert_eq!(
+            bounded
+                .submit(batch(
+                    8,
+                    3,
+                    vec![
+                        group(1, viewport, vec![NodeId(2)]),
+                        image(2, placement, "AAAA", ImageProtocol::Kitty),
+                    ],
+                ))
+                .unwrap_err(),
+            DisplayError::ImageByteLimit {
+                actual: 4,
+                limit: 3,
+            }
+        );
+        // A refused batch leaves no retained frame behind.
+        assert!(bounded.frame().is_none());
+    }
+
+    #[test]
+    fn a_clipped_image_is_not_placed() {
+        let viewport = Rect {
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 2,
+        };
+        let mut display = RetainedDisplay::default();
+        let result = display
+            .submit(batch(
+                8,
+                2,
+                vec![
+                    group(1, viewport, vec![NodeId(2)]),
+                    image(
+                        2,
+                        Rect {
+                            x: 6,
+                            y: 0,
+                            width: 4,
+                            height: 1,
+                        },
+                        "AAAA",
+                        ImageProtocol::Kitty,
+                    ),
+                ],
+            ))
+            .unwrap();
+        // Half the rectangle is outside the viewport, and a terminal image is
+        // placed whole or not at all.
+        assert_eq!(result.placed_images, 0);
+        assert!(display.frame().unwrap().images().is_empty());
     }
 }
