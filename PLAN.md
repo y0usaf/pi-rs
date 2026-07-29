@@ -1424,6 +1424,90 @@ After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
   resume, corruption, cancellation, stale-handle, and legacy-read/XDG-write paths
   are covered.
 
+  **Landed slice (the whole package; one acceptance criterion open):**
+  `crates/pi-rs-builtins/session/` is an ordinary three-file package graph over
+  the public surface only. `records.lua` (`pi.session.records@1`) is pure: it
+  owns the record kinds (`header`, `message`, `title`, `model`, `compaction`,
+  `branch`, `note`), a 16 KiB per-field text budget, and the left fold that
+  reconstructs a conversation. Writing is fail-closed and names its dotted path;
+  folding is deliberately tolerant, because a log outlives the package that
+  wrote it — an unknown kind, a missing header, or a compaction pointing past
+  the end is counted in `diagnostics` instead of raising. `store.lua`
+  (`pi.session.store@1`) turns `pi.records.v1` into sessions — id-as-file-name,
+  time-ordered generated ids with collision retry, start/open/list/describe,
+  prefix-copy branching that re-identifies the copy with a `branch` record,
+  compaction, and retention — while still naming no directory: both the write
+  destination and the read-only legacy directory are arguments. `init.lua` picks
+  them from the one path policy, `pi.config.paths@1` (`sessions` resource:
+  `$XDG_STATE_HOME/pi/sessions`, legacy `~/.pi/agent/sessions`), and refuses to
+  write at all when that module is absent rather than inventing a second
+  directory rule.
+
+  Integration is two public stages and no root, which is what makes suppression
+  free: `pi.builtins.session.record` (`agent`/`render`, order `100`) folds the
+  settled agent batch into records and returns the batch untouched, so
+  persistence can never alter, delay, or fail a turn; `pi.builtins.session.command`
+  (`application`/`event`, order `-60`) answers a `session` event by stopping the
+  chain and queueing one `session_result` action (`status`, `list`, `describe`,
+  `resume`, `new`, `name`, `compact`, `branch`, `retain`, `close`). Recording
+  reads only the agent's *public* action vocabulary, so a replacement agent that
+  emits the same actions is persisted unchanged. Legacy is read-only in both
+  directions: `list` labels every row `canonical` or `legacy`, and `resume` on a
+  legacy-only id copies it forward into the canonical directory and continues
+  there, leaving the inherited file byte-for-byte as it was — the same promotion
+  rule the credential store uses. Retention never removes a legacy log, the live
+  log, or a log the listing could not open, so a locked or damaged file is
+  diagnosed rather than deleted.
+
+  Evidence: `crates/pi-rs-builtins/tests/session_package.rs` (19 tests) drives
+  every scenario through the public kernel transaction — suppression leaving
+  3.6's ephemeral application and writing nothing at all, a file-backed
+  replacement persisting its own schema at its own destination, XDG-only writes,
+  tool settlement with `call_id`/`name`/`ok`, the *shipped* agent under a fixture
+  provider proving the recorded vocabulary is real, resume reconstructing and
+  continuing the same log, reset ending a log, naming and compaction as appended
+  records, a refused impossible compaction, branching with parent provenance,
+  retention keeping the live log and sparing legacy, legacy promotion, a torn
+  log diagnosed as `partial-write` with recording recovering into a new log, a
+  foreign log folding with diagnostics, a stale handle dropped without failing
+  the turn, package disposal releasing the store's lock to a second host,
+  16 KiB truncation, an unusable state root, and an unknown command refused by
+  name. `docs/lua-session-package.md` documents the stages, schema, storage
+  rule, commands, and the replacement seam. `cargo fmt --all -- --check`,
+  `cargo test --workspace` (80 test targets, 369 tests, 0 failures), and
+  `nix flake check` (8 checks: workspace tests, clippy, default distribution,
+  raw no-package guidance, file-backed application, pi-core package,
+  model-catalog update) pass.
+
+  **Remaining before this box closes — cancellation evidence.** Every other
+  acceptance path is covered above. A *kernel-cancelled* record operation is not
+  reachable from Lua: `pi.records.v1` accepts only a kernel `Cancellation`
+  (`crates/pi-rs-host/src/bindings/records.rs`), the handle exposes `is_cancelled`
+  and `wait` but no `cancel`, and a scope token is cancelled only by disposal —
+  at which point the stage is gone. The session-level interruption paths that
+  *are* reachable are covered (a torn tail is diagnosed by name and recording
+  recovers; disposal closes the store and releases its lock). Closing this box
+  needs one of: (a) a focused test in `crates/pi-rs-host/tests/records_store.rs`
+  proving a cancelled token refuses an append before blocking work — 4.1's owned
+  path, not this item's; or (b) 4.4 deciding whether Lua may hold a cancellable
+  token at all. Do not close 4.3 by asserting a check that was not run.
+
+  **Carried forward to 4.4 (not dropped):** (a) the package is deliberately
+  **not** in `crates/pi-rs-builtins/default.json` or `flake.nix`'s
+  `mkPiPackages` copy list, for the same reason the configuration package is
+  not: 4.4 extends the declarative manifest once, and it must add `config/` and
+  `session/` together because `session/init.lua` requires `pi.config.paths@1`.
+  (b) A resumed log reconstructs its conversation, but nothing hands it back to
+  the *live* shipped agent: `pi.agent.turn@1` keeps `conversation` private and
+  has no public `restore` event, and `crates/pi-rs-builtins/agent/**` is not this
+  item's owned path. 4.4 owns that integration and should decide it as an agent
+  event rather than a session-package reach-in. (c) `agent_message` publishes
+  the settled text and a tool-call count, not the provider content blocks, so a
+  persisted assistant turn carries text only; exact provider replay would need
+  the agent to publish the settled message. (d) `tests/README.md` still has no
+  acceptance row for `crates/pi-rs-builtins/tests/**`, now covering the agent,
+  frontend, tool, configuration, and session package suites.
+
 - [ ] **4.4 — Integrate configuration/session and close replacement composition**
   (**serial after Wave P1**).
 
