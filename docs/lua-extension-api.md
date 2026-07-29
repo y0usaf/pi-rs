@@ -63,6 +63,24 @@ dispatch of that kind fails; it is owned by the selecting source and scope, so a
 second package selecting the same kind is a conflict and disposing the selector
 restores priority resolution. Omitting `id` clears the selection.
 
+## Declarations
+
+`declare(kind, definition)` is the one path for every repeated unit — `tool`,
+`command`, `provider`, `event`, `renderer`, `ui_slot`, `theme`, `keymap`, and
+the retained `flag`. A definition needs an `id` (or `name`); every other field
+belongs to the consumer, and the kernel neither validates nor interprets it.
+A declaration is owned by the declaring source and scope, so disposing that
+package retracts it, and a second declaration of the same `kind`/`id` — from
+any source — is a conflict rather than an override.
+
+`registered(kind)` reads them back sorted by `order`, then source, then id,
+then declaration sequence. Which end of that order wins is the consumer's
+rule, not the kernel's: the shipped transcript takes the **last** match per
+claimed entry kind, so a package replaces one block by declaring a positive
+`order` (see `docs/lua-frontend-package.md`). Because precedence is a declared
+number rather than a load position, replacement never depends on package load
+order.
+
 ## Module lifecycle
 
 `pi.kernel.v1.module` resolves exact `name@version` identities. `define` still

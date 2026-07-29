@@ -49,6 +49,40 @@ that half of the product without forking the other.
   Only the newest `limit` lines are built, so a frame costs one viewport
   whatever the history length, and a call is summarised as its name plus its
   scalar arguments in key order so the block reads like the command that ran.
+
+  Every row of that table is a **declaration**, not a private branch. Each
+  shipped block is declared through the one generic declaration path,
+  `pi.kernel.v1.declare("renderer", definition)`, with
+  `surface = "transcript.block"` and one claimed `entry` kind, so a single
+  block is replaceable without forking the frontend root:
+
+  ```lua
+  pi.kernel.v1.declare("renderer", {
+    id      = "my.package.user-block",
+    surface = "transcript.block",
+    entry   = "user",   -- user | assistant | thinking | tool | notice
+    order   = 10,       -- shipped blocks declare 0
+    render  = function(entry, context)
+      return { context.line({ { text = "> " .. entry.text } }) }
+    end,
+  })
+  ```
+
+  `render` returns display lines — `{ runs = { { text = ..., style = ... } } }`,
+  the shape `pi.frontend.view` already consumes — and receives a per-frame
+  `context` of `width`, `body` (usable text width, one column narrower than
+  the block), a copy of `limits`, `line(runs[, fill])`, and `padded(fill)`.
+  `pi.frontend.transcript@1` also exports `palette` (the reviewed colors) and
+  `declarations()` (the shipped rows), so a renderer may reuse either.
+
+  The winner for an entry kind is the **last** matching declaration in
+  registered order — `order`, then source, then id — so a positive `order`
+  wins deterministically rather than by load order, and disposing the
+  declaring package restores the shipped block. Resolution is one bounded host
+  read per frame, not per block. Renderer output is bounded like any other
+  policy: a block is clipped to `max_block_rows + 2` lines, a malformed line
+  is dropped, and an entry kind nothing claims still renders its text
+  unstyled, so removing presentation never silently removes content.
 - `pi.frontend.chrome@1` — header, footer hints, status word, and
   `guidance_for(reason)`, which maps an agent error reason to one actionable
   line (missing model, missing/rejected credentials, declared turn limits).
@@ -103,15 +137,18 @@ table first.
 
 ## Evidence
 
-`crates/pi-rs-builtins/tests/frontend_package.rs` drives 12 deterministic
+`crates/pi-rs-builtins/tests/frontend_package.rs` drives 14 deterministic
 journeys through the public application root with a registered fixture api:
 input-ready startup frame, typed prompt with incremental streaming frames, tool
 start/result rows, interrupt then cancelled turn, ctrl+d shutdown, resize
 repaint, missing-model guidance, rejected-credential guidance with bounded
 retry, multiline editing, a file-backed frontend replacement, a file-backed
-application replacement driving the shipped frontend, and a file-backed render
-middleware wrapping the shipped frame. Those journeys assert what the frame
-*says*, with styling stripped.
+application replacement driving the shipped frontend, a file-backed render
+middleware wrapping the shipped frame, a file-backed `renderer` declaration
+replacing only the user block while the shipped assistant block and chrome
+survive, and two competing renderers proving `order` decides the winner rather
+than load order. Those journeys assert what the frame *says*, with styling
+stripped.
 
 `crates/pi-rs-app/tests/transcript_presentation.rs` asserts what the transcript
 *looks like*: it replays the shipped frontend's ANSI into a terminal emulator

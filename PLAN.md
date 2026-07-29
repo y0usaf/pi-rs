@@ -1838,6 +1838,62 @@ other workers contribute modules through interfaces already merged.
   `nix flake check --print-build-logs` (6 checks, all passed), and `nix run .`
   under a private `HOME`/XDG set (startup frame renders, nothing written).
 
+  **Landed slice (one block renderer is replaceable through the generic
+  declaration path).** Presentation no longer lives in a module a second
+  source cannot claim. Each shipped block — `user`, `assistant`, `thinking`,
+  `tool`, `notice` — is now declared through
+  `pi.kernel.v1.declare("renderer", ...)` with `surface = "transcript.block"`
+  and one claimed `entry` kind, and `crates/pi-rs-builtins/frontend/
+  transcript.lua` resolves the winner per entry kind out of
+  `pi.kernel.v1.registered("renderer")`. That is the kernel's existing
+  `Renderer` declaration kind, which had no consumer until now, so the seam
+  added no Rust and no new public member (`docs/lua-api-reference.md` is
+  unchanged and still generated).
+
+  A renderer receives the entry plus a per-frame `context` — `width`, `body`
+  (usable text width), a copy of `limits`, `line(runs[, fill])`, and
+  `padded(fill)` — and returns the same display lines `pi.frontend.view`
+  already consumes. The module also exports `palette` and `declarations()` so
+  a replacement can reuse the reviewed colors or wrap a shipped block. The
+  shipped rows are declared by the *package file*, not the module factory, so
+  they belong to that package's own source and scope and are retracted with
+  it.
+
+  Precedence is declared, not accidental: the winner for an entry kind is the
+  **last** match in registered order (`order`, then source, then id, then
+  sequence), so a positive `order` replaces a shipped block deterministically
+  rather than by load position. Renderer output is bounded like any other
+  policy — a block is clipped to `max_block_rows + 2` lines, a malformed line
+  is dropped, and an entry kind nothing claims still renders its text
+  unstyled, so removing presentation cannot silently remove content.
+  Resolution is one bounded host read per frame, not one per block, because
+  block width is constant across a frame.
+
+  Evidence: two new journeys in
+  `crates/pi-rs-builtins/tests/frontend_package.rs` (14 total). A file-backed
+  package declaring `entry = "user"` at `order = 10` repaints only the user
+  block while the shipped assistant block and chrome survive, proving this is
+  a block replacement and not a frontend fork. Two competing file-backed
+  renderers for `notice` (`order = 5` and `order = 20`, the higher one loaded
+  *first*) prove `order` decides rather than load order — both "first wins"
+  and "last loaded wins" would paint the losing block. The behaviour-
+  preservation evidence is the untouched cell-exact suite:
+  `crates/pi-rs-app/tests/transcript_presentation.rs` still matches the
+  canonical `tool-pending` and `cancelled` checkpoints cell by cell after the
+  refactor.
+
+  Docs: `docs/lua-frontend-package.md` gains the renderer contract, the
+  precedence rule, and the bounds; `docs/lua-extension-api.md` gains a
+  `Declarations` section, because the generic `declare`/`registered`
+  precedence rule the seam depends on was undocumented.
+
+  Checks: `cargo fmt --all -- --check`, `cargo clippy --workspace
+  --all-targets` (8 pre-existing warnings, none in the touched files),
+  `cargo test --workspace` (82 test targets, 406 tests, 0 failures),
+  `nix flake check --print-build-logs` (all checks passed), and `nix run .`
+  under a private `HOME`/XDG set (startup frame renders, nothing written
+  outside Nix's own cache).
+
   **Remaining for 5.1 (this box stays open):**
   1. **Rows without a producer or a checkpoint.** `transcript:thinking` exists
      but no agent action emits it, and warning/retry/compaction/custom blocks
@@ -1848,17 +1904,20 @@ other workers contribute modules through interfaces already merged.
      `pi.terminal.v1.text.wrap`, but no canonical checkpoint records a wrapped
      transcript line, so the wrap points are pi-rs policy, not a matched
      observation. A checkpoint or an explicit divergence note is owed.
-  3. **Renderers are not yet replaceable.** Presentation lives in one module a
-     second source cannot claim; there is no public seam for replacing a block
-     renderer short of replacing the whole frontend root. Deciding that seam is
-     the next slice of 5.1.
+  3. **Only transcript blocks have a renderer seam.** `surface` currently has
+     exactly one value: header, footer, guidance, and the editor rows are
+     still built directly by `pi.frontend.view` with no declaration in
+     between. Whether those chrome surfaces get the same `renderer` treatment
+     or the kernel's unused `ui_slot` kind is a 5.3 decision, not this
+     slice's.
   4. **Memory budget unmeasured.** The render budget is asserted as painted
      bytes per frame; RSS over a long transcript is only bounded by
      construction (`max_entries`), not measured. The 0.2 release harness is the
      honest instrument and has not been run for this item.
-  5. **Only the transcript strip is claimed.** Header, working indicator,
-     prompt chrome, and status line are still the minimal 3.x ones, so no
-     canonical frame matches in full. That is 5.2/5.3 work by design.
+  5. **Only the transcript strip is claimed.** Separately from the seam gap
+     above, the header, working indicator, prompt chrome, and status line are
+     still the minimal 3.x ones, so no canonical frame matches in full. That
+     is 5.2/5.3 work by design.
 
   **Standing notes carried past 4.4 and still true:** `tests/README.md` has no
   acceptance row for `crates/pi-rs-builtins/tests/**` and now none for

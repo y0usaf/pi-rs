@@ -1,18 +1,63 @@
 -- Transcript blocks for the shipped frontend.
 --
--- The transcript is an ordinary bounded list of entries built from agent
--- actions, plus the presentation policy that turns them into styled display
--- lines. Rust never learns what a "user block" or a "tool block" is: it
--- receives text runs with cell styles like any other package would submit.
+-- Two halves live in this file and they are deliberately separable:
+--
+--   1. the bounded entry list built from agent actions (`user`,
+--      `assistant_delta`, `tool_start`, `notice`, ...), which is state, and
+--   2. the presentation that turns one entry into styled display lines, which
+--      is a **declaration**, not a private branch.
+--
+-- Rust never learns what a "user block" or a "tool block" is: it receives text
+-- runs with cell styles like any other package would submit.
 --
 -- Presentation rhythm (canonical set, `tests/experience/canonical-v1.json`):
 -- every entry becomes a block of full-width lines, blocks are separated by one
 -- untouched row, text starts at column 1, and a filled block paints its own
 -- background across the whole width with one padded row above and below.
+--
+-- **The block renderer seam.** Each shipped block is declared through the one
+-- generic declaration path, `pi.kernel.v1.declare("renderer", definition)`,
+-- with `surface = "transcript.block"`. A declaration claims one `entry` kind:
+--
+--     pi.kernel.v1.declare("renderer", {
+--       id      = "my.package.user-block",
+--       surface = "transcript.block",
+--       entry   = "user",                 -- user|assistant|thinking|tool|notice
+--       order   = 10,                     -- shipped blocks declare 0
+--       render  = function(entry, context) return { line, line, ... } end,
+--     })
+--
+-- `render` receives the entry and a per-frame `context`:
+--
+--   | field           | meaning                                            |
+--   |-----------------|----------------------------------------------------|
+--   | `width`         | block width in cells                               |
+--   | `body`          | usable text width (`width - 1`; column 0 indents)  |
+--   | `limits`        | a copy of this transcript's bounds                 |
+--   | `line(runs[, fill])` | one full-width display line                   |
+--   | `padded(fill)`  | one full-width row of nothing but `fill`           |
+--
+-- and returns display lines — `{ runs = { { text = ..., style = ... } } }` —
+-- exactly the shape `pi.frontend.view` already consumes.
+--
+-- Resolution is one bounded host read per frame, not per block: the winner for
+-- an entry kind is the **last** matching declaration in registered order, which
+-- is `order`, then source, then id. Declaring a positive `order` therefore
+-- replaces a shipped block deterministically, without a priority auction and
+-- without forking the frontend root. Disposing the declaring package retracts
+-- it and the shipped block returns.
+--
+-- A renderer is ordinary policy, so its output is bounded here: a block is
+-- clipped to `max_block_rows + 2` lines and a malformed line is dropped. An
+-- entry kind no renderer claims still shows its text unstyled, so removing
+-- presentation never silently removes content.
 
 local pi = ...
-local module = pi.kernel.v1.module
+local kernel = pi.kernel.v1
+local module = kernel.module
 local text_cells = pi.terminal.v1.text
+
+local SURFACE = "transcript.block"
 
 module.define({
   name = "pi.frontend.transcript",
@@ -27,7 +72,7 @@ module.define({
     }
 
     -- Product palette. These are the reviewed canonical colors for the
-    -- transcript; a replacement frontend may choose any others.
+    -- transcript; a replacement renderer may choose any others.
     local function rgb(value)
       return {
         red = (value // 0x10000) % 0x100,
@@ -47,8 +92,20 @@ module.define({
     local TOOL_OK_FILL = rgb(0x283228)
     local TOOL_FAILED_FILL = rgb(0x3c2828)
 
-    -- One presentation row per entry kind: `fill` paints a background block
-    -- with pad rows, `text`/`accent` style the two run kinds inside it.
+    local PALETTE = {
+      text = TEXT,
+      argument = ARGUMENT,
+      muted = MUTED,
+      meta = META,
+      failure = FAILURE,
+      user_fill = USER_FILL,
+      tool_pending_fill = TOOL_PENDING_FILL,
+      tool_ok_fill = TOOL_OK_FILL,
+      tool_failed_fill = TOOL_FAILED_FILL,
+    }
+
+    -- One presentation row per block: `fill` paints a background block with
+    -- pad rows, `text`/`accent` style the two run kinds inside it.
     local PRESENTATION = {
       user = { fill = USER_FILL, text = TEXT },
       assistant = { text = nil },
@@ -84,6 +141,178 @@ module.define({
       end
       return { background = presentation.fill }
     end
+
+    -- One display line: the leading indent and the trailing pad carry the
+    -- block fill but no foreground, which is exactly how the canonical frames
+    -- record a filled row.
+    local function line_of(width, runs, fill)
+      local out = { { text = " ", style = fill } }
+      local used = 1
+      for _, run in ipairs(runs or {}) do
+        if type(run) == "table" and type(run.text) == "string" and #run.text > 0 then
+          out[#out + 1] = { text = run.text, style = run.style }
+          used = used + text_cells.width(run.text)
+        end
+      end
+      if fill and used < width then
+        out[#out + 1] = { text = string.rep(" ", width - used), style = fill }
+      end
+      return { runs = out }
+    end
+
+    local function padded_row(width, fill)
+      return { runs = { { text = string.rep(" ", width), style = fill } } }
+    end
+
+    -- ---------------------------------------------------------------------
+    -- Shipped block renderers
+    -- ---------------------------------------------------------------------
+
+    -- Every text-shaped block is the same shape: optional pad row, wrapped
+    -- rows at the block's own style, optional pad row.
+    local function text_block(presentation, value, context)
+      local fill = fill_style(presentation)
+      local style = styled(presentation, "text")
+      local lines = {}
+      if fill then
+        lines[#lines + 1] = context.padded(fill)
+      end
+      local rows = text_cells.wrap(value, {
+        width = context.body,
+        limit = context.limits.max_block_rows,
+      })
+      if #rows == 0 then
+        rows = { "" }
+      end
+      for _, row in ipairs(rows) do
+        lines[#lines + 1] = context.line({ { text = row, style = style } }, fill)
+      end
+      if fill then
+        lines[#lines + 1] = context.padded(fill)
+      end
+      return lines
+    end
+
+    local function render_user(entry, context)
+      return text_block(PRESENTATION.user, entry.text, context)
+    end
+
+    local function render_assistant(entry, context)
+      return text_block(PRESENTATION.assistant, entry.text, context)
+    end
+
+    local function render_thinking(entry, context)
+      return text_block(PRESENTATION.thinking, entry.text, context)
+    end
+
+    local function render_notice(entry, context)
+      local presentation = PRESENTATION["notice_" .. tostring(entry.level)]
+        or PRESENTATION.notice_info
+      return text_block(presentation, entry.text, context)
+    end
+
+    local function render_tool(entry, context)
+      local presentation = PRESENTATION.tool_pending
+      if entry.state == "ok" then
+        presentation = PRESENTATION.tool_ok
+      elseif entry.state == "failed" then
+        presentation = PRESENTATION.tool_failed
+      end
+
+      local fill = fill_style(presentation)
+      local lines = {}
+      if fill then
+        lines[#lines + 1] = context.padded(fill)
+      end
+
+      local name, name_width = text_cells.truncate(entry.name, { width = context.body })
+      local runs = { { text = name, style = styled(presentation, "text") } }
+      local argument = entry.argument or ""
+      if #argument > 0 and name_width + 1 < context.body then
+        local shown = text_cells.truncate(argument, { width = context.body - name_width - 1 })
+        runs[#runs + 1] = { text = " ", style = fill }
+        runs[#runs + 1] = { text = shown, style = styled(presentation, "accent") }
+      end
+      lines[#lines + 1] = context.line(runs, fill)
+
+      -- A settled call collapses to what was run; only a failure keeps its
+      -- output, because that is the part the user has to act on.
+      if entry.output and #entry.output > 0 then
+        local accent = styled(presentation, "accent")
+        local rows = text_cells.wrap(entry.output, { width = context.body, limit = 4 })
+        for _, row in ipairs(rows) do
+          lines[#lines + 1] = context.line({ { text = row, style = accent } }, fill)
+        end
+      end
+
+      if fill then
+        lines[#lines + 1] = context.padded(fill)
+      end
+      return lines
+    end
+
+    local SHIPPED = {
+      { entry = "user", render = render_user },
+      { entry = "assistant", render = render_assistant },
+      { entry = "thinking", render = render_thinking },
+      { entry = "tool", render = render_tool },
+      { entry = "notice", render = render_notice },
+    }
+
+    --- The shipped block renderers as declaration rows, ready for
+    --- `pi.kernel.v1.declare("renderer", row)`. The package file below
+    --- declares them, so they belong to its scope like any other package's.
+    local function declarations()
+      local rows = {}
+      for index, shipped in ipairs(SHIPPED) do
+        rows[index] = {
+          id = "pi.frontend.transcript." .. shipped.entry,
+          surface = SURFACE,
+          entry = shipped.entry,
+          order = 0,
+          render = shipped.render,
+        }
+      end
+      return rows
+    end
+
+    -- One bounded host read per frame. Later beats earlier, and registered
+    -- order is `order`, then source, then id, so a positive `order` replaces
+    -- a shipped block deterministically.
+    local function resolve()
+      local chosen = {}
+      for _, declaration in ipairs(kernel.registered("renderer")) do
+        if
+          declaration.surface == SURFACE
+          and type(declaration.entry) == "string"
+          and type(declaration.render) == "function"
+        then
+          chosen[declaration.entry] = declaration.render
+        end
+      end
+      return chosen
+    end
+
+    -- An entry kind nothing claims still shows its text: presentation may be
+    -- removed, content may not silently vanish with it.
+    local function fallback(entry, context)
+      local rows = text_cells.wrap(tostring(entry.text or ""), {
+        width = context.body,
+        limit = context.limits.max_block_rows,
+      })
+      if #rows == 0 then
+        rows = { "" }
+      end
+      local lines = {}
+      for _, row in ipairs(rows) do
+        lines[#lines + 1] = context.line({ { text = row } })
+      end
+      return lines
+    end
+
+    -- ---------------------------------------------------------------------
+    -- Entry list
+    -- ---------------------------------------------------------------------
 
     local Transcript = {}
     Transcript.__index = Transcript
@@ -222,8 +451,6 @@ module.define({
         })
       end
       entry.state = ok and "ok" or "failed"
-      -- A settled call collapses to what was run; only a failure keeps its
-      -- output, because that is the part the user has to act on.
       entry.output = (not ok) and summary or nil
       self:touch()
       return entry
@@ -242,89 +469,57 @@ module.define({
       })
     end
 
-    local function presentation_for(entry)
-      if entry.kind == "tool" then
-        if entry.state == "ok" then
-          return PRESENTATION.tool_ok
-        end
-        if entry.state == "failed" then
-          return PRESENTATION.tool_failed
-        end
-        return PRESENTATION.tool_pending
+    -- ---------------------------------------------------------------------
+    -- Presentation
+    -- ---------------------------------------------------------------------
+
+    --- The per-frame renderer context. Width is constant across the blocks of
+    --- one frame, so this is built once per `lines` call, not once per block.
+    function Transcript:context(width)
+      local columns = math.max(1, math.floor(tonumber(width) or 80))
+      local body = math.max(1, columns - 1)
+      local limits = {}
+      for key, value in pairs(self.limits) do
+        limits[key] = value
       end
-      if entry.kind == "notice" then
-        return PRESENTATION["notice_" .. entry.level] or PRESENTATION.notice_info
-      end
-      return PRESENTATION[entry.kind] or PRESENTATION.assistant
+      return {
+        width = columns,
+        body = body,
+        limits = limits,
+        line = function(runs, fill)
+          return line_of(columns, runs, fill)
+        end,
+        padded = function(fill)
+          return padded_row(columns, fill)
+        end,
+      }
     end
 
-    -- One display line: the leading indent and the trailing pad carry the
-    -- block fill but no foreground, which is exactly how the canonical frames
-    -- record a filled row.
-    local function line_of(presentation, width, runs)
-      local fill = fill_style(presentation)
-      local out = { { text = " ", style = fill } }
-      local used = 1
-      for _, run in ipairs(runs) do
-        if #run.text > 0 then
-          out[#out + 1] = { text = run.text, style = run.style }
-          used = used + text_cells.width(run.text)
-        end
+    --- One entry's display lines, through the renderer that claims its kind.
+    --- `renderers` is the map `resolve()` returned for this frame; omitting it
+    --- resolves the declarations again, which is the convenient path for a
+    --- caller rendering one block on its own.
+    function Transcript:block(entry, context, renderers)
+      local render = (renderers or resolve())[entry.kind]
+      local produced = nil
+      if render ~= nil then
+        produced = render(entry, context)
       end
-      if fill and used < width then
-        out[#out + 1] = { text = string.rep(" ", width - used), style = fill }
+      if type(produced) ~= "table" then
+        produced = fallback(entry, context)
       end
-      return { runs = out }
-    end
 
-    function Transcript:block(entry, width)
-      local presentation = presentation_for(entry)
-      local body = math.max(1, width - 1)
+      -- A renderer is ordinary policy: bound what it hands back so one
+      -- package cannot make a frame unbounded.
+      local ceiling = math.floor(context.limits.max_block_rows) + 2
       local lines = {}
-
-      if presentation.fill then
-        lines[#lines + 1] = {
-          runs = { { text = string.rep(" ", width), style = fill_style(presentation) } },
-        }
-      end
-
-      if entry.kind == "tool" then
-        local name, name_width = text_cells.truncate(entry.name, { width = body })
-        local runs = { { text = name, style = styled(presentation, "text") } }
-        local argument = entry.argument or ""
-        if #argument > 0 and name_width + 1 < body then
-          local shown = text_cells.truncate(argument, { width = body - name_width - 1 })
-          runs[#runs + 1] = { text = " ", style = fill_style(presentation) }
-          runs[#runs + 1] = { text = shown, style = styled(presentation, "accent") }
+      for _, line in ipairs(produced) do
+        if #lines >= ceiling then
+          break
         end
-        lines[#lines + 1] = line_of(presentation, width, runs)
-        if entry.output and #entry.output > 0 then
-          local rows = text_cells.wrap(entry.output, { width = body, limit = 4 })
-          for _, row in ipairs(rows) do
-            lines[#lines + 1] = line_of(presentation, width, {
-              { text = row, style = styled(presentation, "accent") },
-            })
-          end
+        if type(line) == "table" and type(line.runs) == "table" then
+          lines[#lines + 1] = line
         end
-      else
-        local rows = text_cells.wrap(entry.text, {
-          width = body,
-          limit = self.limits.max_block_rows,
-        })
-        if #rows == 0 then
-          rows = { "" }
-        end
-        for _, row in ipairs(rows) do
-          lines[#lines + 1] = line_of(presentation, width, {
-            { text = row, style = styled(presentation, "text") },
-          })
-        end
-      end
-
-      if presentation.fill then
-        lines[#lines + 1] = {
-          runs = { { text = string.rep(" ", width), style = fill_style(presentation) } },
-        }
       end
       return lines
     end
@@ -332,7 +527,8 @@ module.define({
     -- Only the newest `limit` lines are ever built, so presentation cost is
     -- bounded by the viewport rather than by history length.
     function Transcript:lines(width, limit)
-      local columns = math.max(1, math.floor(tonumber(width) or 80))
+      local context = self:context(width)
+      local renderers = resolve()
       local budget = math.max(1, math.floor(tonumber(limit) or self.limits.max_block_rows))
       local collected = {}
       local total = 0
@@ -340,7 +536,7 @@ module.define({
         if total >= budget then
           break
         end
-        local block = self:block(self.entries[index], columns)
+        local block = self:block(self.entries[index], context, renderers)
         if #collected > 0 then
           total = total + 1
         end
@@ -392,6 +588,17 @@ module.define({
       new = Transcript.new,
       defaults = DEFAULT_LIMITS,
       separator = SEPARATOR,
+      surface = SURFACE,
+      palette = PALETTE,
+      declarations = declarations,
     }
   end,
 })
+
+-- Declared by the package file, not by the module factory, so the shipped
+-- blocks belong to this package's own source and scope: suppressing the
+-- package retracts them exactly like any other declaration.
+local transcript = module.require("pi.frontend.transcript", "1")
+for _, declaration in ipairs(transcript.declarations()) do
+  kernel.declare("renderer", declaration)
+end
