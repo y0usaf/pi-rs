@@ -7,7 +7,7 @@ Each permanent suite has one acceptance owner; overlap is diagnostic only.
 | `tests/experience/**` + `crates/pi-rs-app/tests/experience_contract.rs` | Bounded canonical terminal grids/input journeys selected by PLAN 0.2. |
 | `tests/performance/**` + `crates/pi-rs-app/tests/performance_contract.rs` | Versioned release benchmark schema, parameters, and budgets selected by PLAN 0.2. |
 | `tests/{anthropic,azure-openai-responses,bedrock-converse-stream,google-generative-ai,google-vertex,mistral-conversations,openai-codex-responses,openai-codex-websocket,openai-completions,openai-responses}-parity/**` + matching `crates/pi-rs-ai/tests/*_parity.rs` | Pinned provider request/stream/error/cancellation wire compatibility for the named protocol family. These checked fixtures do not imply product parity. |
-| `tests/model-catalog-update/**`, `scripts/{update-model-catalog.ts,test-model-catalog-update,model-catalog-overrides.json}`, and `.github/workflows/model-catalog-update.yml` | Fail-closed model-catalog normalization, provenance, and reviewed update workflow. |
+| `tests/model-catalog-update/**` and `scripts/{update-model-catalog.ts,test-model-catalog-update,model-catalog-overrides.json}` | Fail-closed model-catalog normalization, provenance, and reviewed update workflow. |
 | `crates/pi-rs-ai/tests/{event_stream,http,json_parse,openai_completions,registry,retry,sse,transform_messages}.rs` + `crates/pi-rs-ai/tests/fixtures/**` | Provider transport, registry, conversion, and replay mechanisms independent of product workflow. |
 | `crates/pi-rs-ai-types/tests/**` | Typed provider/model/message wire-schema round trips and validation. |
 | `crates/pi-rs-ai-auth/tests/**` | Credential, PKCE, callback/device-flow, registry, and subscription-auth engines. |
