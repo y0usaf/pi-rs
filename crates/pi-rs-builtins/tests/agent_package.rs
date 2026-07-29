@@ -158,6 +158,61 @@ fn tool_stream(model: &Model, calls: Vec<ToolCall>) -> AssistantMessageEventStre
     stream
 }
 
+/// A call whose arguments arrive in pieces.
+///
+/// Providers name the tool first and stream its arguments after, so the
+/// partial message carries a partly parsed argument set for a while before
+/// the call is runnable. `stages` are the cumulative argument values, oldest
+/// first; the last one is what the call settles with.
+fn streaming_tool_stream(
+    model: &Model,
+    call: &ToolCall,
+    stages: &[&str],
+) -> AssistantMessageEventStream {
+    let stream = create_assistant_message_event_stream();
+    let staged = |argument: Option<&str>| {
+        let mut block = call.clone();
+        block.arguments = serde_json::Map::new();
+        if let Some(value) = argument {
+            block
+                .arguments
+                .insert("input".to_owned(), Value::String(value.to_owned()));
+        }
+        assistant(
+            model,
+            vec![AssistantContent::ToolCall(block)],
+            StopReason::ToolUse,
+        )
+    };
+
+    stream.push(AssistantMessageEvent::Start {
+        partial: staged(None),
+    });
+    stream.push(AssistantMessageEvent::ToolCallStart {
+        content_index: 0,
+        partial: staged(None),
+    });
+    for stage in stages {
+        stream.push(AssistantMessageEvent::ToolCallDelta {
+            content_index: 0,
+            delta: (*stage).to_owned(),
+            partial: staged(Some(stage)),
+        });
+    }
+    let settled = staged(stages.last().copied());
+    stream.push(AssistantMessageEvent::ToolCallEnd {
+        content_index: 0,
+        tool_call: call.clone(),
+        partial: settled.clone(),
+    });
+    stream.push(AssistantMessageEvent::Done {
+        reason: StopReason::ToolUse,
+        message: settled,
+    });
+    stream.end();
+    stream
+}
+
 fn user_texts(context: &Context) -> Vec<String> {
     context
         .messages
@@ -237,6 +292,17 @@ fn fixture_stream(
                         tool_call("call-2", "read_note", "beta"),
                         tool_call("call-3", "write_note", "gamma"),
                     ],
+                ))
+            }
+        }
+        "streaming-tool" => {
+            if has_tool_results(context) {
+                Ok(text_stream(model, &["settled"]))
+            } else {
+                Ok(streaming_tool_stream(
+                    model,
+                    &tool_call("call-1", "read_note", "alpha"),
+                    &["al", "alpha"],
                 ))
             }
         }
@@ -487,6 +553,67 @@ fn a_reasoning_turn_names_thinking_separately_from_the_answer() {
         "Inspect the hidden implementation detail before answering."
     );
     assert_eq!(first(&batch, "agent_message")["text"], "Hello!");
+}
+
+#[test]
+fn a_streaming_call_is_announced_before_it_is_runnable() {
+    let _fixture = Fixture::install("agent-streaming-tool", Arc::new(AtomicUsize::new(0)));
+    let harness = Harness::with_tools();
+
+    let batch = harness.dispatch(json!({
+        "kind": "prompt",
+        "text": "read the note",
+        "model": model("agent-streaming-tool", "streaming-tool"),
+    }));
+
+    // Four provider events name the same call while its arguments arrive:
+    // the block start, two argument deltas, and the block end. Each becomes
+    // one `agent_tool_delta`, and all four land before the settled message,
+    // so a frontend can show the call before it is runnable.
+    assert_eq!(
+        kinds(&batch),
+        vec![
+            "agent_turn_start",
+            "agent_status",
+            "agent_tool_delta",
+            "agent_tool_delta",
+            "agent_tool_delta",
+            "agent_tool_delta",
+            "agent_message",
+            "agent_tool_group",
+            "agent_tool_start",
+            "agent_tool_result",
+            "agent_status",
+            "agent_text_delta",
+            "agent_message",
+            "agent_status",
+        ]
+    );
+
+    // The announcement carries the arguments parsed so far, which is what
+    // lets the row grow rather than appear complete at the end.
+    let deltas: Vec<Value> = batch
+        .actions
+        .iter()
+        .filter(|action| action.kind == "agent_tool_delta")
+        .map(|action| action.payload.clone())
+        .collect();
+    for delta in &deltas {
+        assert_eq!(delta["id"], "call-1");
+        assert_eq!(delta["name"], "read_note");
+    }
+    assert_eq!(deltas[0]["arguments"], json!({}));
+    assert_eq!(deltas[1]["arguments"], json!({"input": "al"}));
+    assert_eq!(deltas[2]["arguments"], json!({"input": "alpha"}));
+    assert_eq!(deltas[3]["arguments"], json!({"input": "alpha"}));
+
+    // Settlement still reads the finished message, so the call that ran is
+    // the complete one, never a partially parsed announcement.
+    assert_eq!(
+        first(&batch, "agent_tool_start")["arguments"],
+        json!({"input": "alpha"})
+    );
+    assert_eq!(first(&batch, "agent_tool_result")["ok"], true);
 }
 
 #[test]
