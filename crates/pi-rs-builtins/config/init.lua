@@ -39,6 +39,7 @@ local schema = module.require("pi.config.schema", "1")
 local json = module.require("pi.config.json", "1")
 local trust = module.require("pi.config.trust", "1")
 local defaults = module.require("pi.config.defaults", "1")
+local apply = module.require("pi.config.apply", "1")
 
 local SECTIONS = schema.schema.fields
 
@@ -81,6 +82,9 @@ local state = {
   context = nil,
   package_sources = {},
   generation = {},
+  declarations = nil,
+  plan = {},
+  modules = {},
   options = {},
   errors = {},
 }
@@ -382,6 +386,21 @@ local function compose(options)
     end
   end
 
+  -- 5. The declaration plan. It is computed here, before anything is
+  --    published, so a theme, keymap, or provider the product cannot accept
+  --    fails the reload and rolls back with every other failure instead of
+  --    half applying afterwards.
+  local plan = {}
+  if #errors == 0 then
+    local rows, plan_errors = apply.plan(settings, provenance)
+    for _, message in ipairs(plan_errors) do
+      errors[#errors + 1] = message
+    end
+    if #plan_errors == 0 then
+      plan = rows
+    end
+  end
+
   return {
     ok = #errors == 0,
     settings = settings,
@@ -389,6 +408,7 @@ local function compose(options)
     sources = sources,
     context = context,
     package_sources = package_sources,
+    plan = plan,
     errors = errors,
   }
 end
@@ -420,7 +440,8 @@ end
 -- source twice, and restarting an unrelated package because some other
 -- setting changed would be a surprise. Only genuinely new sources load, and
 -- the sources that left the selection are returned for disposal after the
--- publication swap.
+-- publication swap. The packages this attempt introduced are returned too, so
+-- a later step of the same attempt can still undo them.
 local function reconcile_generation(next_sources, errors)
   local live = {}
   for index, source in ipairs(state.package_sources) do
@@ -454,7 +475,7 @@ local function reconcile_generation(next_sources, errors)
   for _, handle in pairs(live) do
     retired[#retired + 1] = handle
   end
-  return generation, retired
+  return generation, retired, added
 end
 
 local function same_list(left, right)
@@ -469,6 +490,40 @@ local function same_list(left, right)
   return true
 end
 
+-- Configuration-derived declarations live in their own package generation.
+-- `pi.kernel.v1.declare` refuses a second declaration of one kind and id, and
+-- a declaration lives exactly as long as the package scope that made it, so
+-- the previous declaration package is disposed *before* the next one loads.
+-- The ids are deliberately stable — a consumer asks for "the configured
+-- theme", not for revision seven's theme — and that is what makes the order
+-- dispose-then-load rather than load-then-dispose.
+--
+-- The plan being replayed was already validated during composition, so this
+-- step is a replay of accepted data; if the host refuses it anyway, the
+-- caller puts the previous plan back.
+local function publish_declarations(plan, errors)
+  if state.declarations ~= nil then
+    if not state.declarations:disposed() then
+      pcall(state.declarations.dispose, state.declarations)
+    end
+    state.declarations = nil
+  end
+  if #plan == 0 then
+    return true
+  end
+  apply.stage(plan)
+  local ok, handle = pcall(packages.load, {
+    name = apply.package_name,
+    source = apply.source,
+  })
+  apply.stage(nil)
+  if not ok then
+    errors[#errors + 1] = "declarations: " .. first_line(handle)
+    return false
+  end
+  state.declarations = handle
+  return true
+end
 --- Compose and publish. On any failure the previous publication — settings,
 --- provenance, package generation, and revision — stays exactly as it was.
 ---
@@ -505,8 +560,32 @@ local function reload(options)
   end
 
   local errors = {}
-  local generation, retired = reconcile_generation(report.package_sources, errors)
+  local generation, retired, added = reconcile_generation(report.package_sources, errors)
   if generation == nil then
+    report.ok = false
+    report.errors = errors
+    report.changed = false
+    report.revision = state.revision
+    state.errors = errors
+    return report
+  end
+
+  -- Applying the sections is part of the same attempt: a module identity the
+  -- configuration pins but no package provides, or a declaration the host
+  -- refuses, rolls the whole reload back instead of publishing settings the
+  -- product could not act on.
+  local resolved, module_errors = apply.pin(report.settings)
+  for _, message in ipairs(module_errors) do
+    errors[#errors + 1] = message
+  end
+  local applied = #module_errors == 0 and publish_declarations(report.plan, errors)
+  if not applied then
+    if #module_errors == 0 then
+      -- Only the declaration swap retracts anything before it can fail; put
+      -- the still-published configuration's declarations back.
+      publish_declarations(state.plan, {})
+    end
+    dispose_generation(added)
     report.ok = false
     report.errors = errors
     report.changed = false
@@ -523,6 +602,8 @@ local function reload(options)
   state.context = report.context
   state.package_sources = report.package_sources
   state.generation = generation
+  state.plan = report.plan
+  state.modules = resolved
   state.revision = state.revision + 1
   state.loaded = true
   state.errors = {}
@@ -534,9 +615,14 @@ local function reload(options)
 end
 
 -- Package-scope cleanup: disposing the configuration package disposes every
--- package its configuration selected, including generations loaded during a
--- dispatch, which the host does not own.
+-- package its configuration selected — including the declaration package that
+-- carries its theme, keymaps, and providers — so no configuration-derived
+-- declaration outlives the configuration itself.
 kernel.resource(function()
+  if state.declarations ~= nil and not state.declarations:disposed() then
+    pcall(state.declarations.dispose, state.declarations)
+  end
+  state.declarations = nil
   dispose_generation(state.generation)
   state.generation = {}
 end)
@@ -596,6 +682,27 @@ module.define({
       local result = {}
       for index, source in ipairs(state.package_sources) do
         result[index] = source
+      end
+      return result
+    end
+
+    --- The declaration rows the published configuration produced, in the
+    --- order they were declared. `pi.kernel.v1.registered(kind)` is the same
+    --- information from the consumer's side; this is the configuration's own
+    --- account of what it applied.
+    function api.declarations()
+      local result = {}
+      for index, row in ipairs(state.plan) do
+        result[index] = { kind = row.kind, definition = schema.copy(row.definition) }
+      end
+      return result
+    end
+
+    --- Module identities the published configuration resolved, in order.
+    function api.modules()
+      local result = {}
+      for index, identity in ipairs(state.modules) do
+        result[index] = identity
       end
       return result
     end
