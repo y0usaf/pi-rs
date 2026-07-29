@@ -1259,6 +1259,69 @@ After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
   configuration is inspectable; replacing the file-backed config changes policy;
   Rust contains no product default.
 
+  **Landed slice (configuration spine, precedence/trust/rollback/idempotence):**
+  `crates/pi-rs-builtins/config/` is the ordinary Lua package graph
+  (`json.lua`, `paths.lua`, `schema.lua`, `trust.lua`, `defaults.lua`,
+  `init.lua`) over the public surface only; no directory name, precedence rule,
+  fallback, trust concept, merge rule, or default is in Rust, and no host file
+  changed for this slice. Three layers merge in order — shipped `defaults`,
+  `user` (canonical `<config>/config.lua`, else legacy `settings.json`), and
+  `project` (`<root>/.pi/config.lua`, trusted directories only). A configuration
+  file is not a package: it is a chunk loaded with an explicit environment of
+  pure libraries (each proxied read-only) with no `pi`, `io`, `os`, `require`,
+  or `load`, so capability arrives only by naming packages in `packages`, which
+  load through `pi.packages.v1`. `pi.config.schema@1` is the one fail-closed
+  schema (unknown key or wrong type is an error naming its dotted path; records
+  and maps merge, lists and scalars replace) and it records the layer and file
+  behind every dotted leaf. Trust is a durable append-only record under
+  `<state>/pi/trust` through `pi.records.v1`; asking a question creates nothing,
+  and repeating a decision appends nothing. Publication is atomic: discovery,
+  evaluation, validation, merge, and package loading complete before anything
+  visible changes, a package already loaded is retained rather than restarted,
+  and retired packages are disposed after the swap. `sources()`/`errors()`
+  describe the most recent attempt while `effective()`/`provenance()`/
+  `revision()` keep describing the last configuration that took effect.
+  `init.lua` registers one application event middleware `pi.builtins.config`
+  (order `-200`) that composes on the first dispatch, republishes
+  `event.config`/`event.config_revision`, sets `event.model` from a catalog row
+  when the event carries none, and recomposes only on an explicit
+  `config_reload` event. Evidence:
+  `crates/pi-rs-builtins/tests/config_package.rs` (15 tests) drives every
+  scenario from file-backed packages through the public kernel transaction —
+  canonical-over-legacy precedence with the legacy file byte- and
+  mtime-unchanged, legacy-only fallback reporting unknown keys, no fall-through
+  from a broken canonical file, the trust matrix (undecided, trusted, repeated,
+  revoked, other directory) with the on-disk record count asserted, rollback
+  across four failure modes with settings/revision/packages intact, idempotent
+  recomposition (same revision, same package scope) and generation swap,
+  duplicate package refusal, two-directional leaf/provenance coverage, the
+  resource matrix, `$HOME` defaults with a refused relative `XDG_*_HOME`, model
+  policy changing when the file changes, the sandbox refusing host capability,
+  a zero-configuration run that writes nothing (no trust store, no state root),
+  and the absence of any host configuration module.
+  `docs/lua-config-package.md` documents the package.
+  `cargo fmt --all -- --check`, `cargo test --workspace` (78 test targets, 339
+  tests, 0 failures), and `nix flake check` (workspace tests, clippy, default
+  distribution, raw no-package guidance, file-backed application, pi-core
+  package, model-catalog update) pass.
+
+  **Remaining for 4.2 (next session):** the schema validates and publishes
+  `theme`, `keymaps`, `providers`, `tools`, `modules`, and `roots`, but only
+  `packages` and `model` are *applied*; nothing yet consumes a theme, a keymap,
+  a provider row, a tool setting, a pinned module identity, or a root
+  selection. Apply module selection (`modules`) through
+  `pi.kernel.v1.module`, translate `theme`/`keymaps` into
+  `pi.kernel.v1.declare("theme"|"keymap", ...)`, feed `providers` into provider
+  declarations, hand `tools` to the shipped tool suite, and act on `roots`
+  selection/suppression; each needs its own matrix row. The package is
+  deliberately **not** in `crates/pi-rs-builtins/default.json`: 4.4 extends the
+  declarative manifest once and reconciles the overlap with
+  `defaults/init.lua`'s `pi.builtins.defaults.model` (order `-100`) and
+  `pi.builtins.defaults.tool-root` (order `-99`) middleware. `tests/README.md`
+  still has no acceptance row for `crates/pi-rs-builtins/tests/**` (a
+  pre-existing gap covering the agent, frontend, tool, and now configuration
+  package suites).
+
 - [ ] **4.3 — Configurable session package** (**Wave P1**, path owner:
   `crates/pi-rs-builtins/session/**`; depends on 4.1).
 
