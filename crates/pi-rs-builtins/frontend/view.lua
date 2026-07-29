@@ -30,12 +30,17 @@ module.define({
     local PROMPT = "> "
     local CONTINUATION = "  "
 
-    local ROW_PREFIX = {
-      user = "you  ",
-      assistant = "pi   ",
-      tool = "     ",
-      notice = "     ",
-    }
+    local function runs_node(id, x, y, width, runs)
+      return {
+        id = id,
+        rect = { x = x, y = y, width = width, height = 1 },
+        content = {
+          kind = "text",
+          wrap = "clip",
+          runs = runs,
+        },
+      }
+    end
 
     local function text_node(id, x, y, width, text, style)
       return {
@@ -110,21 +115,27 @@ module.define({
         { bold = true }
       )
 
-      -- Transcript shows the newest rows that fit; history stays bounded in
-      -- the transcript module, not in the frame.
+      -- The transcript is bottom anchored: the newest block sits against the
+      -- prompt and older lines scroll off the top, so a growing conversation
+      -- moves upward instead of jumping. History stays bounded in the
+      -- transcript module and the frame only ever holds what fits.
       local transcript = state.transcript or {}
       local first = #transcript - transcript_height + 1
       if first < 1 then
         first = 1
       end
       local transcript_children = {}
-      local slot = 0
+      local slot = math.max(0, transcript_height - #transcript)
       for index = first, #transcript do
-        local row = transcript[index]
-        local prefix = ROW_PREFIX[row.kind] or ROW_PREFIX.notice
-        local id = NODE_TRANSCRIPT_ROW + slot
-        nodes[#nodes + 1] = text_node(id, 0, slot, columns, prefix .. (row.text or ""))
-        transcript_children[#transcript_children + 1] = id
+        local line = transcript[index]
+        local runs = line.runs or {}
+        -- A block separator has no runs: it stays an untouched row rather
+        -- than a painted blank one.
+        if #runs > 0 then
+          local id = NODE_TRANSCRIPT_ROW + slot
+          nodes[#nodes + 1] = runs_node(id, 0, slot, columns, runs)
+          transcript_children[#transcript_children + 1] = id
+        end
         slot = slot + 1
       end
       nodes[#nodes + 1] = group_node(

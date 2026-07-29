@@ -23,18 +23,41 @@ that half of the product without forking the other.
   `clear`, `text`, `is_empty`, `lines`, `cursor`. Limits are
   `max_lines = 64`, `max_line_bytes = 4096`; the cursor is UTF-8 aware and
   control bytes never enter the buffer.
-- `pi.frontend.transcript@1` — `new(limits)` returns the bounded row list:
-  `user`, `assistant_delta`, `assistant_done`, `tool_start`, `tool_result`,
-  `notice`, `rows`, `len`, `clear`. Limits are `max_rows = 200`,
-  `max_row_bytes = 4096`, `max_tool_output = 120`. A streaming assistant row is
-  appended in place, so deltas update one retained row.
+- `pi.frontend.transcript@1` — `new(limits)` returns the bounded entry list and
+  the presentation policy over it: `user`, `assistant_delta`, `assistant_done`,
+  `thinking`, `tool_start`, `tool_result`, `notice`, `lines(width, limit)`,
+  `rows`, `len`, `clear`. Limits are `max_entries = 200`,
+  `max_entry_bytes = 4096`, `max_argument = 120`, `max_output = 120`,
+  `max_block_rows = 64`. A streaming assistant entry grows in place, so deltas
+  update one retained block.
+
+  `lines(width, limit)` is the whole appearance of the transcript. Each entry
+  becomes a **block** of full-width display lines, blocks are separated by one
+  untouched row, and text starts at column 1:
+
+  | Block | Appearance |
+  |---|---|
+  | user | background `#343541`, one padded row above and below, text `#d4d4d4` |
+  | assistant | unstyled text, no padding rows |
+  | thinking | italic `#808080` |
+  | tool, running | background `#282832`, bold `#d4d4d4` name, `#8abeb7` arguments |
+  | tool, succeeded | the same block on `#283228`; the call collapses to what ran |
+  | tool, failed | the same block on `#3c2828`, plus the bounded output |
+  | notice, error | `#cc6666` |
+  | notice, info/warn | `#666666` |
+
+  Only the newest `limit` lines are built, so a frame costs one viewport
+  whatever the history length, and a call is summarised as its name plus its
+  scalar arguments in key order so the block reads like the command that ran.
 - `pi.frontend.chrome@1` — header, footer hints, status word, and
   `guidance_for(reason)`, which maps an agent error reason to one actionable
   line (missing model, missing/rejected credentials, declared turn limits).
 - `pi.frontend.view@1` — `build(state)` returns one display batch. Node
   identities are stable (`1` root, `2` header, `3` transcript, `4` editor,
   `5` footer, `6` guidance, `100+` transcript rows, `200+` editor rows), so an
-  unchanged region is retained and only changed cells are painted.
+  unchanged region is retained and only changed cells are painted. The
+  transcript is bottom anchored: the newest block sits against the prompt and
+  older lines scroll off the top.
 
 ## Frontend root
 
@@ -87,12 +110,27 @@ start/result rows, interrupt then cancelled turn, ctrl+d shutdown, resize
 repaint, missing-model guidance, rejected-credential guidance with bounded
 retry, multiline editing, a file-backed frontend replacement, a file-backed
 application replacement driving the shipped frontend, and a file-backed render
-middleware wrapping the shipped frame.
+middleware wrapping the shipped frame. Those journeys assert what the frame
+*says*, with styling stripped.
+
+`crates/pi-rs-app/tests/transcript_presentation.rs` asserts what the transcript
+*looks like*: it replays the shipped frontend's ANSI into a terminal emulator
+and compares the transcript region of the screen, cell by cell, with the
+canonical `tool-pending` and `cancelled` checkpoints in
+`tests/experience/canonical-v1.json`. It also holds the two presentation
+budgets: a streamed delta repaints only its own row, and a 400-turn transcript
+still costs one viewport per frame.
 
 ## Known gaps
 
 - Terminal size is not yet a public mechanism: the frontend starts at 80×24 and
   adopts real dimensions from a `resize` event. The launcher gains that event
   when the size/resize mechanism lands.
-- Rows are clipped, not wrapped, and the transcript has no scrollback commands;
-  richer presentation is PLAN 5.1–5.3.
+- Transcript text wraps at the block width, but no canonical checkpoint records
+  a wrapped transcript line, so the wrap points are pi-rs policy rather than a
+  matched observation. There are no scrollback commands.
+- Thinking blocks have presentation (`transcript:thinking`) but nothing emits
+  them yet: the shipped agent has no thinking action. Warning, retry, and
+  compaction blocks reuse the notice styling instead of having their own.
+- The header, working indicator, prompt chrome, and status line are still the
+  minimal 3.x ones; PLAN 5.2–5.3 own them.

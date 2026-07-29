@@ -607,15 +607,15 @@ impl Distribution {
             .unwrap_or_else(|error| panic!("application dispatch failed: {error}"))
     }
 
-    /// A full repaint of the retained frame as plain text.
+    /// A full repaint of the retained frame as readable text.
+    ///
+    /// Styling is dropped: a transcript block splits its line into several
+    /// styled runs, so a phrase that reads as one string on screen is not one
+    /// substring of the raw stream. Cell-exact presentation is owned by
+    /// `crates/pi-rs-app/tests/transcript_presentation.rs`.
     fn screen(&self) -> String {
         let batch = self.dispatch(json!({"kind": "resize", "columns": 80, "rows": 24}));
-        batch
-            .actions
-            .iter()
-            .filter(|action| action.kind == "ansi")
-            .filter_map(|action| action.payload.get("data").and_then(Value::as_str))
-            .collect()
+        strip_ansi(&ansi(&batch))
     }
 
     /// One `session` command, answered by the shipped session package's
@@ -647,15 +647,15 @@ fn the_default_distribution_completes_a_prompt_and_a_tool_call_offline() {
 
     let screen = distribution.screen();
     assert!(
-        screen.contains("you  read the note"),
+        screen.contains(" read the note"),
         "user row missing: {screen}"
     );
     assert!(
-        screen.contains("+ read →"),
+        screen.contains(" read note.txt"),
         "shipped read tool row missing: {screen}"
     );
     assert!(
-        screen.contains("pi   note read"),
+        screen.contains(" note read"),
         "assistant follow-up missing: {screen}"
     );
     assert!(screen.contains("idle"), "turn not settled: {screen}");
@@ -763,7 +763,7 @@ fn suppressing_the_session_package_leaves_an_ephemeral_conversation() {
 
     let screen = distribution.screen();
     assert!(
-        screen.contains("pi   note read"),
+        screen.contains(" note read"),
         "the conversation still completes: {screen}"
     );
     assert!(
@@ -849,11 +849,11 @@ return {
     let screen = distribution.screen();
     assert!(screen.contains("pi · "), "shipped chrome missing: {screen}");
     assert!(
-        screen.contains("you  who answers?"),
+        screen.contains(" who answers?"),
         "shipped user row missing: {screen}"
     );
     assert!(
-        screen.contains("pi   replacement agent: who answers?"),
+        screen.contains(" replacement agent: who answers?"),
         "the replacement agent did not answer: {screen}"
     );
     assert!(screen.contains("idle"), "turn not settled: {screen}");
@@ -1028,7 +1028,7 @@ fn two_configured_extensions_compose_without_privileged_ordering() {
     // Lower `order` runs first, so `[a]` is appended before `[b]`.
     let screen = distribution.screen();
     assert!(
-        screen.contains("pi   plain answer [a] [b]"),
+        screen.contains(" plain answer [a] [b]"),
         "the two extensions did not compose in declared order: {screen}"
     );
     assert!(
@@ -1068,7 +1068,7 @@ fn swapping_only_the_declared_order_swaps_the_composition() {
 
     let screen = distribution.screen();
     assert!(
-        screen.contains("pi   plain answer [b] [a]"),
+        screen.contains(" plain answer [b] [a]"),
         "the declared order did not decide the composition: {screen}"
     );
 }
@@ -1093,7 +1093,7 @@ fn a_configured_extension_orders_itself_after_the_shipped_session_stage() {
 
     let screen = distribution.screen();
     assert!(
-        screen.contains("pi   plain answer [late]"),
+        screen.contains(" plain answer [late]"),
         "a stage after the shipped one did not reach the frame: {screen}"
     );
     assert_eq!(
@@ -1268,6 +1268,42 @@ fn ansi(batch: &DispatchBatch) -> String {
         .filter(|action| action.kind == "ansi")
         .filter_map(|action| action.payload.get("data").and_then(Value::as_str))
         .collect()
+}
+
+/// The same bytes with every escape sequence removed.
+fn strip_ansi(data: &str) -> String {
+    let mut out = String::with_capacity(data.len());
+    let mut characters = data.chars().peekable();
+    while let Some(character) = characters.next() {
+        if character != '\u{1b}' {
+            out.push(character);
+            continue;
+        }
+        match characters.next() {
+            // CSI: parameters and intermediates, then one final byte.
+            Some('[') => {
+                for byte in characters.by_ref() {
+                    if ('\u{40}'..='\u{7e}').contains(&byte) {
+                        break;
+                    }
+                }
+            }
+            // OSC: terminated by BEL or ST.
+            Some(']') => {
+                while let Some(byte) = characters.next() {
+                    if byte == '\u{7}' {
+                        break;
+                    }
+                    if byte == '\u{1b}' && characters.peek() == Some(&'\\') {
+                        characters.next();
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// Two roots replaced at once, from one configuration, and the rest of the
