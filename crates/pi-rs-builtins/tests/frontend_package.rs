@@ -691,3 +691,102 @@ fn file_backed_middleware_wraps_the_shipped_render_stage() {
     assert!(frame.contains("pi · "), "shipped frame missing: {frame}");
     assert!(frame.ends_with("[wrapped]"), "middleware not applied");
 }
+
+/// Claims the shipped `user` block through the one generic declaration path.
+///
+/// Nothing here is frontend-private: `pi.kernel.v1.declare` is the same call
+/// a theme, a provider, or a tool declaration uses, and `context.line` is the
+/// same primitive the shipped renderers build their rows from.
+const REPLACEMENT_USER_BLOCK: &str = r#"
+local pi = ...
+local kernel = pi.kernel.v1
+
+kernel.declare("renderer", {
+  id = "test.user-block",
+  surface = "transcript.block",
+  entry = "user",
+  order = 10,
+  render = function(entry, context)
+    return { context.line({ { text = "<mine> " .. tostring(entry.text) } }) }
+  end,
+})
+"#;
+
+#[test]
+fn a_file_backed_renderer_replaces_one_transcript_block() {
+    let _fixture = Fixture::install("frontend-renderer");
+    let harness = Harness::new(&[
+        ("tools_package.lua", TOOL_PACKAGE),
+        ("renderer.lua", REPLACEMENT_USER_BLOCK),
+    ]);
+    harness.start(Some("text"), "frontend-renderer");
+
+    harness.type_keys("hi\r");
+    let screen = harness.screen();
+
+    // The claimed block is the replacement's.
+    assert!(
+        screen.contains("<mine> hi"),
+        "file-backed user block not used: {screen}"
+    );
+    // Every unclaimed block is still the shipped one, and the rest of the
+    // frontend root is untouched: this is a block replacement, not a fork.
+    assert!(
+        screen.contains(" Hello world"),
+        "shipped assistant block lost: {screen}"
+    );
+    assert!(
+        screen.contains("pi · text · idle"),
+        "shipped chrome lost: {screen}"
+    );
+}
+
+const LOW_ORDER_NOTICE_BLOCK: &str = r#"
+local pi = ...
+pi.kernel.v1.declare("renderer", {
+  id = "test.notice-low",
+  surface = "transcript.block",
+  entry = "notice",
+  order = 5,
+  render = function(entry, context)
+    return { context.line({ { text = "[low] " .. tostring(entry.text) } }) }
+  end,
+})
+"#;
+
+const HIGH_ORDER_NOTICE_BLOCK: &str = r#"
+local pi = ...
+pi.kernel.v1.declare("renderer", {
+  id = "test.notice-high",
+  surface = "transcript.block",
+  entry = "notice",
+  order = 20,
+  render = function(entry, context)
+    return { context.line({ { text = "[high] " .. tostring(entry.text) } }) }
+  end,
+})
+"#;
+
+#[test]
+fn renderer_order_decides_which_block_wins_not_load_order() {
+    let _fixture = Fixture::install("frontend-renderer-order");
+    // The higher `order` is loaded first, so winning cannot be "last loaded".
+    let harness = Harness::new(&[
+        ("tools_package.lua", TOOL_PACKAGE),
+        ("notice_high.lua", HIGH_ORDER_NOTICE_BLOCK),
+        ("notice_low.lua", LOW_ORDER_NOTICE_BLOCK),
+    ]);
+    harness.start(Some("text"), "frontend-renderer-order");
+
+    harness.frontend(json!({"kind": "notice", "level": "info", "text": "ping"}));
+    let screen = harness.screen();
+
+    assert!(
+        screen.contains("[high] ping"),
+        "highest declared order did not win: {screen}"
+    );
+    assert!(
+        !screen.contains("[low] ping"),
+        "losing renderer still painted: {screen}"
+    );
+}
