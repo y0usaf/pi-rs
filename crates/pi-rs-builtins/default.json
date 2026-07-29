@@ -8,6 +8,7 @@
 		"config/defaults.lua",
 		"config/apply.lua",
 		"config/tools.lua",
+		"config/roots.lua",
 		"config/init.lua",
 		"agent/queue.lua",
 		"agent/tools.lua",

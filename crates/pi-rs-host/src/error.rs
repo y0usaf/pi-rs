@@ -18,6 +18,13 @@ pub enum HostError {
     #[error("no active kernel root for '{0}'")]
     UnknownRoot(String),
 
+    #[error("{kind} root '{id}' selected by {selected_by} is not registered and active")]
+    UnknownSelectedRoot {
+        kind: String,
+        id: String,
+        selected_by: String,
+    },
+
     #[error("invalid kernel root kind '{0}'")]
     InvalidRootKind(String),
 

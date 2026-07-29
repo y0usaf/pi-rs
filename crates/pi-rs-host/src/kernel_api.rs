@@ -18,6 +18,7 @@ const TRANSACTION_KEY: &str = "kernel_transaction";
 const TRANSACTION_STACK_KEY: &str = "kernel_transaction_stack";
 const CURRENT_SCOPE_KEY: &str = "kernel_scope";
 const DECLARATION_SEQUENCE_KEY: &str = "kernel_declaration_sequence";
+const ROOT_SELECTIONS_KEY: &str = "kernel_root_selections";
 
 #[derive(Clone)]
 pub(crate) struct LuaCancellation(pub(crate) CancellationToken);
@@ -111,6 +112,7 @@ pub(crate) fn install(
     registry.set(TRANSACTION_KEY, Value::Nil)?;
     registry.set(TRANSACTION_STACK_KEY, lua.create_table()?)?;
     registry.set(CURRENT_SCOPE_KEY, 0_u64)?;
+    registry.set(ROOT_SELECTIONS_KEY, lua.create_table()?)?;
 
     let version = lua.create_table()?;
     version.set("api_version", KERNEL_API_VERSION)?;
@@ -129,6 +131,16 @@ pub(crate) fn install(
     version.set(
         "registered",
         lua.create_function(|lua, kind: String| registered_declarations(lua, &kind))?,
+    )?;
+    version.set(
+        "roots",
+        lua.create_function(|lua, kind: Option<String>| root_registrations(lua, kind))?,
+    )?;
+    version.set(
+        "select_root",
+        lua.create_function(|lua, (kind, id): (String, Option<String>)| {
+            select_root(lua, &kind, id)
+        })?,
     )?;
     version.set(
         "action",
@@ -216,6 +228,99 @@ fn register_root_entry(
     entry.set("source", source)?;
     entry.set("scope", scope.get())?;
     roots.set(key, entry)
+}
+
+/// Root registrations of one kind, or of every kind, as ordinary data.
+///
+/// Rows carry identity and the resolution inputs only — never the `dispatch`
+/// function — so listing roots grants no ability to run one. The order is
+/// `(kind, id)`, so a package validating a selection against the live registry
+/// sees the same list every time.
+fn root_registrations(lua: &mlua::Lua, kind: Option<String>) -> mlua::Result<Table> {
+    if let Some(kind) = kind.as_deref() {
+        RootKind::parse(kind).map_err(mlua::Error::external)?;
+    }
+    let registry = crate::api::registry_table(lua)?;
+    let roots: Table = registry.get(ROOTS_KEY)?;
+    let selections: Table = registry.get(ROOT_SELECTIONS_KEY)?;
+    let mut rows: Vec<(String, String, Table)> = Vec::new();
+    for pair in roots.pairs::<String, Table>() {
+        let (_, entry) = pair?;
+        let entry_kind: String = entry.get("kind")?;
+        if kind.as_deref().is_some_and(|wanted| wanted != entry_kind) {
+            continue;
+        }
+        let id: String = entry.get("id")?;
+        let selected = match selections.get::<Option<Table>>(entry_kind.as_str())? {
+            Some(selection) => selection.get::<String>("id")? == id,
+            None => false,
+        };
+        let row = lua.create_table()?;
+        row.set("kind", entry_kind.as_str())?;
+        row.set("id", id.as_str())?;
+        row.set("source", entry.get::<String>("source")?)?;
+        row.set("priority", entry.get::<i64>("priority")?)?;
+        row.set("active", entry.get::<bool>("active")?)?;
+        row.set("selected", selected)?;
+        rows.push((entry_kind, id, row));
+    }
+    rows.sort_by(|left, right| (&left.0, &left.1).cmp(&(&right.0, &right.1)));
+    let result = lua.create_table()?;
+    for (_, _, row) in rows {
+        result.push(row)?;
+    }
+    Ok(result)
+}
+
+/// Explicit per-kind root selection: resolve this kind to this id, or clear.
+///
+/// A selection is owned by the source that made it and by that package's
+/// scope, exactly like a registration: a second source selecting the same kind
+/// is a deterministic conflict rather than silent last-writer-wins, and
+/// disposing the selecting package restores priority resolution.
+fn select_root(lua: &mlua::Lua, kind: &str, id: Option<String>) -> mlua::Result<()> {
+    RootKind::parse(kind).map_err(mlua::Error::external)?;
+    let source = crate::api::current_source(lua);
+    let registry = crate::api::registry_table(lua)?;
+    let selections: Table = registry.get(ROOT_SELECTIONS_KEY)?;
+    if let Some(existing) = selections.get::<Option<Table>>(kind)? {
+        let owner: String = existing.get("source")?;
+        if owner != source {
+            return Err(conflict_error(
+                "root selection",
+                kind,
+                &existing.get::<String>("id")?,
+                &source,
+                &owner,
+            ));
+        }
+    }
+    let Some(id) = id else {
+        // Clearing is idempotent, so a source may reconcile a section that was
+        // removed without first proving it had selected anything.
+        return selections.set(kind, Value::Nil);
+    };
+    if id.trim().is_empty() {
+        return Err(mlua::Error::runtime(
+            "root selection id must be a non-empty string",
+        ));
+    }
+    let scope = current_scope(lua)?;
+    let entry = lua.create_table()?;
+    entry.set("kind", kind)?;
+    entry.set("id", id)?;
+    entry.set("source", source)?;
+    entry.set("scope", scope.get())?;
+    selections.set(kind, entry)
+}
+
+/// The live selection for one kind as `(id, source)`, when a package made one.
+fn selected_root(lua: &mlua::Lua, kind: RootKind) -> mlua::Result<Option<(String, String)>> {
+    let selections: Table = crate::api::registry_table(lua)?.get(ROOT_SELECTIONS_KEY)?;
+    match selections.get::<Option<Table>>(kind.as_str())? {
+        Some(entry) => Ok(Some((entry.get("id")?, entry.get("source")?))),
+        None => Ok(None),
+    }
 }
 
 fn register_declaration(lua: &mlua::Lua, kind: &str, definition: Table) -> mlua::Result<()> {
@@ -484,6 +589,23 @@ pub(crate) fn resolve_root(lua: &mlua::Lua, kind: RootKind) -> Result<ResolvedRo
         })
         .collect::<mlua::Result<Vec<_>>>()
         .map_err(|error| HostError::Lua(error.to_string()))?;
+    // An explicit selection outranks priority entirely: a configuration that
+    // names a root means that root, not "that root unless something outbids
+    // it". It cannot revive an inactive or absent registration, so a stale
+    // selection fails loudly rather than silently falling back to the bidding.
+    if let Some((id, selected_by)) =
+        selected_root(lua, kind).map_err(|error| HostError::Lua(error.to_string()))?
+    {
+        candidates.retain(|entry| entry.get::<String>("id").is_ok_and(|value| value == id));
+        if candidates.len() != 1 {
+            return Err(HostError::UnknownSelectedRoot {
+                kind: kind.as_str().to_owned(),
+                id,
+                selected_by,
+            });
+        }
+        return resolved_root(candidates.remove(0));
+    }
     let Some(priority) = candidates
         .iter()
         .filter_map(|entry| entry.get::<i64>("priority").ok())
@@ -519,7 +641,11 @@ pub(crate) fn resolve_root(lua: &mlua::Lua, kind: RootKind) -> Result<ResolvedRo
             kind.as_str()
         )));
     }
-    let entry = candidates.remove(0);
+    resolved_root(candidates.remove(0))
+}
+
+/// One registry entry as the dispatch handle the VM runs.
+fn resolved_root(entry: Table) -> Result<ResolvedRoot, HostError> {
     Ok(ResolvedRoot {
         source: entry
             .get("source")
@@ -732,6 +858,29 @@ pub(crate) fn remove_scope(lua: &mlua::Lua, scope: ScopeId) -> mlua::Result<()> 
         .collect::<mlua::Result<Vec<_>>>()?;
     for key in root_keys {
         roots.set(key, Value::Nil)?;
+    }
+
+    // A selection is scope-owned like the registration it names: disposing or
+    // rolling back the selecting package restores priority resolution instead
+    // of leaving a dangling choice that fails every later dispatch.
+    let selections: Table = registry.get(ROOT_SELECTIONS_KEY)?;
+    let selection_keys = selections
+        .clone()
+        .pairs::<String, Table>()
+        .filter_map(|pair| match pair {
+            Ok((key, entry))
+                if entry
+                    .get::<u64>("scope")
+                    .is_ok_and(|owner| owner == scope.get()) =>
+            {
+                Some(Ok(key))
+            }
+            Ok(_) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .collect::<mlua::Result<Vec<_>>>()?;
+    for key in selection_keys {
+        selections.set(key, Value::Nil)?;
     }
 
     let declarations: Table = registry.get(DECLARATIONS_KEY)?;

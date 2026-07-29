@@ -41,6 +41,7 @@ local trust = module.require("pi.config.trust", "1")
 local defaults = module.require("pi.config.defaults", "1")
 local apply = module.require("pi.config.apply", "1")
 local tool_policy = module.require("pi.config.tools", "1")
+local root_policy = module.require("pi.config.roots", "1")
 
 local SECTIONS = schema.schema.fields
 
@@ -86,6 +87,7 @@ local state = {
   declarations = nil,
   plan = {},
   tools = nil,
+  roots = nil,
   modules = {},
   options = {},
   errors = {},
@@ -597,9 +599,17 @@ local function reload(options)
   for _, message in ipairs(module_errors) do
     errors[#errors + 1] = message
   end
-  local applied = #module_errors == 0 and publish_declarations(report.plan, errors)
+  -- Root selection is validated *here*, after the configuration's own packages
+  -- have loaded, rather than during composition: the usual reason to name a
+  -- root is that one of those packages registers it.
+  local root_selection, root_errors = root_policy.plan(report.settings)
+  for _, message in ipairs(root_errors) do
+    errors[#errors + 1] = message
+  end
+  local blocked = #module_errors > 0 or #root_errors > 0
+  local applied = not blocked and publish_declarations(report.plan, errors)
   if not applied then
-    if #module_errors == 0 then
+    if not blocked then
       -- Only the declaration swap retracts anything before it can fail; put
       -- the still-published configuration's declarations back.
       publish_declarations(state.plan, {})
@@ -623,6 +633,7 @@ local function reload(options)
   state.generation = generation
   state.plan = report.plan
   state.tools = report.tools
+  state.roots = root_selection
   state.modules = resolved
   state.revision = state.revision + 1
   state.loaded = true
@@ -733,6 +744,13 @@ module.define({
     --- policy is in force, which is also the zero-configuration answer.
     function api.tools()
       return tool_policy.report(state.tools)
+    end
+
+    --- The live root selection: the registration id this configuration named
+    --- per replaceable root kind, and the revision behind it. `nil` while
+    --- every kind is resolved by priority.
+    function api.root_selection()
+      return root_policy.report()
     end
 
     function api.errors()
@@ -871,6 +889,34 @@ roots.middleware.register({
       -- Publication already happened, so this cannot roll anything back; it
       -- becomes an inspectable diagnostic instead of a broken dispatch.
       state.errors[#state.errors + 1] = "tools: " .. tostring(message)
+    end
+    return nil
+  end,
+})
+
+-- Applying the root selection is a third stage, one slot after the tool stage
+-- for the same reason: it applies published policy, so it must run after the
+-- publication stage (`-200`) and after every package that could register a
+-- root has loaded. It is separate from the tool stage because the two touch
+-- unrelated registries and either can fail on its own.
+--
+-- The host resolves a root *before* running this dispatch's event middleware,
+-- so a selection applied here governs the next dispatch of that kind.
+roots.middleware.register({
+  kind = "application",
+  phase = "event",
+  id = "pi.builtins.config.roots",
+  order = -49,
+  handler = function(snapshot)
+    local _ = snapshot
+    if not state.loaded then
+      return nil
+    end
+    local ok, message = root_policy.reconcile(state.roots, state.revision)
+    if not ok and message ~= nil then
+      -- Publication already happened, so this cannot roll anything back; it
+      -- becomes an inspectable diagnostic instead of a broken dispatch.
+      state.errors[#state.errors + 1] = tostring(message)
     end
     return nil
   end,

@@ -14,7 +14,7 @@ This is the inventory. `docs/lua-extension-api.md` explains the mechanisms and
 their rules; `docs/lua-coding-spine.md` explains the coding-spine event and display
 contracts.
 
-Surface: 8 modules, 100 members, 10 handles, 35 handle methods.
+Surface: 8 modules, 104 members, 10 handles, 35 handle methods.
 
 ## Modules
 
@@ -126,6 +126,8 @@ The package transaction: roots, declarations, queued actions and effects, module
 | `registered` | function | `registered(kind) -> definitions` — Reads declarations of one kind back in declaration order. |
 | `resource` | function | `resource(disposer) -> Resource` — Registers a disposer on the current scope, so cleanup runs at package disposal rather than at Lua garbage collection. |
 | `root` | function | `root(definition)` — Registers one root; `pi.roots.v1.register` is the facade over it. |
+| `roots` | function | `roots([kind]) -> rows` — Root registrations as data — `kind`, `id`, `source`, `priority`, `active`, `selected` — never the `dispatch` function. |
+| `select_root` | function | `select_root(kind[, id])` — Resolves one kind to one registration id regardless of priority; omitting `id` clears the selection. |
 
 #### `pi.kernel.v1.module`
 
@@ -200,9 +202,11 @@ Facade over the kernel transaction for application, agent, and frontend roots.
 | `api_version` | `1` | Contract version of this module. |
 | `cancellation` | function | `cancellation() -> Cancellation` — The same dispatch token as `pi.kernel.v1.cancellation`. |
 | `dispatch` | function | `dispatch(kind, event[, context]) -> batch` — Runs one root dispatch from Lua and returns its published `generation`, `source`, `actions`, and `effects`. |
+| `list` | function | `list([kind]) -> rows` — The same registry rows as `pi.kernel.v1.roots`, restricted to the kinds this facade registers. |
 | `middleware` | table | Root middleware registration. |
 | `module` | alias of `pi.kernel.v1.module` | The same module registry the kernel exposes. |
 | `register` | function | `register(definition)` — Registers one `application`, `agent`, or `frontend` root with its `id`, `dispatch`, `active`, and `priority`. |
+| `select` | function | `select(kind[, id])` — Names the registration one kind resolves to, outranking priority; the selection is owned by the selecting source and scope. |
 
 #### `pi.roots.v1.middleware`
 

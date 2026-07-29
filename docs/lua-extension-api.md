@@ -38,7 +38,8 @@ and disposal path.
 
 `pi.kernel.v1` provides:
 
-- `root(definition)`, `declare(kind, definition)`, and `registered(kind)`;
+- `root(definition)`, `roots([kind])`, `select_root(kind[, id])`,
+  `declare(kind, definition)`, and `registered(kind)`;
 - `action(kind, payload)` and `effect(kind, payload)` queues;
 - exact-version `module.define`, `module.require`, `module.list`,
   `module.remove`, and `module.reset`;
@@ -51,6 +52,16 @@ Actions/effects publish only after a successful dispatch. Snapshots contain
 `pi.roots.v1.register(definition)` accepts `kind = "application" | "agent" |
 "frontend"`; `action`, `cancellation`, and `module` are the same canonical
 kernel operations.
+
+A root kind resolves to the highest-priority active registration, and a tie is a
+conflict. `pi.roots.v1.list([kind])` reports the live registrations as data —
+`kind`, `id`, `source`, `priority`, `active`, `selected`, never the `dispatch`
+function — and `pi.roots.v1.select(kind[, id])` names the registration that kind
+resolves to regardless of priority, so replacing a root is a declaration rather
+than a bidding war. A selection names an active registration or the next
+dispatch of that kind fails; it is owned by the selecting source and scope, so a
+second package selecting the same kind is a conflict and disposing the selector
+restores priority resolution. Omitting `id` clears the selection.
 
 ## Module lifecycle
 
