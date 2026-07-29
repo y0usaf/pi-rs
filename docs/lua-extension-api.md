@@ -232,5 +232,45 @@ Mutating members are asynchronous and observe the innermost dispatch
 cancellation. The store holds no operating-system resource between calls, so
 there is nothing to dispose: each operation takes the canonical lock, completes
 or is cancelled at a lock retry, stored-value command, or token refresh, and
-releases it. Login flows (browser/PKCE and device code) are not yet on the
-surface.
+releases it.
+
+## Subscription login
+
+`login(provider, callbacks[, options])` runs one subscription OAuth flow and
+returns the credential row it produced — the same shape `set_oauth` accepts.
+Nothing is written: which store receives the row, and whether to keep it at all,
+stay package decisions.
+
+Rust runs the wire flow (PKCE, the loopback callback server, authorization-code
+exchange, RFC 8628 device polling). Every user-visible step is an ordinary Lua
+function in `callbacks`:
+
+- `on_auth{url, instructions}` — show the authorization URL (required);
+- `on_device_code{user_code, verification_uri, interval_seconds,
+  expires_in_seconds}` — show a device code (required);
+- `on_prompt{message, placeholder, allow_empty}` returns a line of input
+  (required);
+- `on_select{message, options={{id, label}, …}}` returns a chosen `id`, or `nil`
+  to cancel (required);
+- `on_progress(message)` — optional status line;
+- `on_manual_code_input()` returns a pasted code or redirect URL. Supplying it is
+  what enables the manual path: flows that offer it race manual entry against the
+  callback server.
+
+`options` may carry `timeout_ms` (default 900000, maximum 3600000) and
+`model_ids(provider)`, which returns the catalog model ids a flow may enable
+after a successful login (maximum 128; unsupplied means none). The provider
+interface asks for that list synchronously, so it is read once before the flow
+starts.
+
+Callbacks are served in arrival order with at most one Lua call in flight, and
+concurrently with the flow itself — a pending manual-code prompt does not stop
+the callback server from settling. A callback that raises ends the login with
+that error. A callback that never returns holds later notifications until the
+login settles.
+
+A login observes the innermost dispatch cancellation at every step, including
+while parked on a prompt or an HTTP response, and a cancelled login reports as a
+cancelled dispatch. It also ends at `timeout_ms`, so no login runs unbounded.
+The callback server is owned by the flow future: dropping the login — by
+cancellation, timeout, or failure — releases its port.

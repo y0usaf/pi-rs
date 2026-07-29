@@ -175,12 +175,17 @@ fn file_and_embedded_packages_see_only_the_same_compact_surface() {
         ])
     );
     // Credential storage is subscription inventory, an explicit-location store
-    // constructor, and its bounds. Storage locations are Lua policy, so no
-    // path, provider name, or precedence rule appears in the surface.
+    // constructor, one login entry point, and their bounds. Storage locations,
+    // login presentation, and provider choice are Lua policy, so no path,
+    // provider name, precedence rule, or login step appears in the surface.
     assert_eq!(
         payload["shape"]["auth_v1"],
         serde_json::json!([
             "api_version",
+            "default_login_timeout_ms",
+            "login",
+            "max_login_models",
+            "max_login_timeout_ms",
             "max_providers",
             "max_secret_bytes",
             "providers",

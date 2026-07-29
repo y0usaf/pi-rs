@@ -13,6 +13,12 @@
 //! The store handle owns no operating-system resource between calls: each
 //! operation takes the canonical lock, completes, and releases it, so there is
 //! nothing to register as a scope resource and nothing to leak at disposal.
+//!
+//! Subscription login lives in [`login`]: the same split, one level up. Rust
+//! runs the OAuth wire flow, Lua supplies every user-visible step, and the
+//! credential row comes back for Lua to store wherever it decided to.
+
+mod login;
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -190,6 +196,9 @@ pub(crate) fn install(lua: &Lua, pi: &Table) -> mlua::Result<()> {
     v1.set("api_version", AUTH_API_VERSION)?;
     v1.set("max_secret_bytes", MAX_SECRET_BYTES)?;
     v1.set("max_providers", MAX_PROVIDERS)?;
+    v1.set("default_login_timeout_ms", login::DEFAULT_LOGIN_TIMEOUT_MS)?;
+    v1.set("max_login_timeout_ms", login::MAX_LOGIN_TIMEOUT_MS)?;
+    v1.set("max_login_models", login::MAX_LOGIN_MODELS)?;
 
     // Subscription inventory: which provider identities can refresh a stored
     // OAuth row. Which of them a product offers, and in what order, is policy
@@ -223,6 +232,17 @@ pub(crate) fn install(lua: &Lua, pi: &Table) -> mlua::Result<()> {
                 store: CredentialStore::new(paths),
             })
         })?,
+    )?;
+
+    // One subscription login. Rust runs the wire flow and hands back the
+    // credential row; presenting the flow and storing the row are both Lua.
+    v1.set(
+        "login",
+        lua.create_async_function(
+            |lua, (provider, callbacks, options): (String, Table, Option<Table>)| {
+                login::run(lua, provider, callbacks, options)
+            },
+        )?,
     )?;
 
     let auth = lua.create_table()?;
