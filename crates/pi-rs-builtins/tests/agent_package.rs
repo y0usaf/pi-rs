@@ -733,8 +733,12 @@ fn steering_joins_the_active_turn_and_follow_ups_run_after_it() {
 
     let steered = harness.dispatch(json!({"kind": "steer", "text": "prefer tests"}));
     assert_eq!(first(&steered, "agent_queued")["depth"], 1);
+    // The accepted text travels with the acceptance, so a frontend can show
+    // what is pending without reading the agent's queue.
+    assert_eq!(first(&steered, "agent_queued")["text"], "prefer tests");
     let queued = harness.dispatch(json!({"kind": "follow_up", "text": "then document it"}));
     assert_eq!(first(&queued, "agent_queued")["queue"], "follow_up");
+    assert_eq!(first(&queued, "agent_queued")["text"], "then document it");
 
     let batch = harness.dispatch(json!({
         "kind": "prompt",

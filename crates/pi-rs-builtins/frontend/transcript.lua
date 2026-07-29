@@ -22,7 +22,7 @@
 --     pi.kernel.v1.declare("renderer", {
 --       id      = "my.package.user-block",
 --       surface = "transcript.block",
---       entry   = "user",                 -- user|assistant|thinking|tool|notice
+--       entry   = "user",                 -- user|assistant|thinking|tool|notice|queue
 --       order   = 10,                     -- shipped blocks declare 0
 --       render  = function(entry, context) return { line, line, ... } end,
 --     })
@@ -70,6 +70,7 @@ module.define({
       max_argument = 120,
       max_output = 120,
       max_block_rows = 64,
+      max_queue_rows = 16,
     }
 
     -- Frame-scoped presentation options. Every renderer reads them through
@@ -127,11 +128,19 @@ module.define({
       notice_error = { text = FAILURE },
       notice_warn = { text = META },
       notice_info = { text = META },
+      queue = { text = META },
     }
 
     -- Hiding thinking keeps the block's place in the rhythm and replaces the
     -- reasoning with this placeholder, which is the reviewed canonical row.
     local THINKING_PLACEHOLDER = "Thinking..."
+
+    -- The canonical queue block: one row per message the agent accepted while
+    -- a turn was running, then one hint row naming the key that restores them
+    -- to the editor. The key itself (alt+up) is not decoded yet; binding it is
+    -- PLAN 5.2 keymap work.
+    local QUEUE_LABELS = { steer = "Steering: ", follow_up = "Follow-up: " }
+    local QUEUE_HINT = "\u{21b3} Alt+Up to edit all queued messages"
 
     local SEPARATOR = { runs = {} }
 
@@ -230,6 +239,32 @@ module.define({
       return text_block(presentation, entry.text, context)
     end
 
+    -- Queued messages are the one block that is not history: steering rows
+    -- first, then follow-ups, then the hint, with no internal separators.
+    -- Rows truncate instead of wrapping, so one long queued message cannot
+    -- push the rest of the block out of the viewport.
+    local function render_queue(entry, context)
+      local style = styled(PRESENTATION.queue, "text")
+      local lines = {}
+      local function row(text)
+        if #lines >= context.limits.max_block_rows then
+          return
+        end
+        local shown = text_cells.truncate(text, { width = context.body })
+        lines[#lines + 1] = context.line({ { text = shown, style = style } })
+      end
+      for _, text in ipairs(entry.steering or {}) do
+        row(QUEUE_LABELS.steer .. text)
+      end
+      for _, text in ipairs(entry.follow_ups or {}) do
+        row(QUEUE_LABELS.follow_up .. text)
+      end
+      if #lines > 0 then
+        row(tostring(entry.hint or QUEUE_HINT))
+      end
+      return lines
+    end
+
     local function render_tool(entry, context)
       local presentation = PRESENTATION.tool_pending
       if entry.state == "ok" then
@@ -276,6 +311,7 @@ module.define({
       { entry = "thinking", render = render_thinking },
       { entry = "tool", render = render_tool },
       { entry = "notice", render = render_notice },
+      { entry = "queue", render = render_queue },
     }
 
     --- The shipped block renderers as declaration rows, ready for
@@ -359,6 +395,7 @@ module.define({
         reasoning = nil,
         tools = {},
         statuses = {},
+        queues = { steer = {}, follow_up = {} },
       }, Transcript)
     end
 
@@ -578,6 +615,97 @@ module.define({
     end
 
     -- ---------------------------------------------------------------------
+    -- Pending queue
+    -- ---------------------------------------------------------------------
+    --
+    -- A message the agent accepted while a turn was running is not history:
+    -- it is one live block pinned under the newest entry until the turn
+    -- drains it into an ordinary user block. The agent owns the queue itself;
+    -- what follows is the presentation copy, bounded by `max_queue_rows`.
+
+    local function queue_name(name)
+      local value = tostring(name or "")
+      if value == "steer" or value == "steering" then
+        return "steer"
+      end
+      if value == "follow_up" or value == "followUp" then
+        return "follow_up"
+      end
+      return nil
+    end
+
+    function Transcript:queue(name, text)
+      local queue = queue_name(name)
+      if queue == nil then
+        return false
+      end
+      if #self.queues.steer + #self.queues.follow_up >= self.limits.max_queue_rows then
+        return false
+      end
+      local list = self.queues[queue]
+      list[#list + 1] = clip(text, self.limits.max_entry_bytes)
+      self:touch()
+      return true
+    end
+
+    -- A drained message becomes an ordinary block, so its pending row leaves
+    -- with it. The text is matched first because a turn may drain out of
+    -- order; the oldest row of that queue is dropped otherwise, so a pending
+    -- row can never outlive the queue it mirrors.
+    function Transcript:unqueue(name, text)
+      local queue = queue_name(name)
+      if queue == nil then
+        return false
+      end
+      local list = self.queues[queue]
+      if #list == 0 then
+        return false
+      end
+      local wanted = clip(text, self.limits.max_entry_bytes)
+      for index, value in ipairs(list) do
+        if value == wanted then
+          table.remove(list, index)
+          self:touch()
+          return true
+        end
+      end
+      table.remove(list, 1)
+      self:touch()
+      return true
+    end
+
+    function Transcript:queued()
+      local copy = { steer = {}, follow_up = {} }
+      for name, list in pairs(copy) do
+        for index, value in ipairs(self.queues[name]) do
+          list[index] = value
+        end
+      end
+      return copy
+    end
+
+    function Transcript:clear_queue()
+      self.queues = { steer = {}, follow_up = {} }
+      self:touch()
+    end
+
+    --- The pending block as a renderable entry, or `nil` when nothing is
+    --- queued. Built once per frame and bounded by `max_queue_rows`.
+    function Transcript:queue_entry()
+      if #self.queues.steer == 0 and #self.queues.follow_up == 0 then
+        return nil
+      end
+      local entry = { kind = "queue", steering = {}, follow_ups = {}, hint = QUEUE_HINT }
+      for index, value in ipairs(self.queues.steer) do
+        entry.steering[index] = value
+      end
+      for index, value in ipairs(self.queues.follow_up) do
+        entry.follow_ups[index] = value
+      end
+      return entry
+    end
+
+    -- ---------------------------------------------------------------------
     -- Presentation
     -- ---------------------------------------------------------------------
 
@@ -645,6 +773,16 @@ module.define({
       local budget = math.max(1, math.floor(tonumber(limit) or self.limits.max_block_rows))
       local collected = {}
       local total = 0
+      -- Queued messages are pinned under the newest entry, so the pending
+      -- block is collected first in this newest-first walk.
+      local pending = self:queue_entry()
+      if pending ~= nil then
+        local block = self:block(pending, context, renderers)
+        if #block > 0 then
+          total = total + #block
+          collected[#collected + 1] = block
+        end
+      end
       for index = #self.entries, 1, -1 do
         if total >= budget then
           break
@@ -696,6 +834,7 @@ module.define({
       self.reasoning = nil
       self.tools = {}
       self.statuses = {}
+      self.queues = { steer = {}, follow_up = {} }
       self:touch()
     end
 
@@ -706,6 +845,8 @@ module.define({
       separator = SEPARATOR,
       surface = SURFACE,
       palette = PALETTE,
+      queue_hint = QUEUE_HINT,
+      queue_labels = QUEUE_LABELS,
       declarations = declarations,
     }
   end,

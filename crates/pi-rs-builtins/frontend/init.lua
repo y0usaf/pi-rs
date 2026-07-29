@@ -110,6 +110,13 @@ local function route_editor_key(current, key)
   return false
 end
 
+-- A turn is running when the agent last reported streaming. The agent owns
+-- the queues, so while it works the frontend only offers a line to it and
+-- shows nothing until `agent_queued` says it was accepted.
+local function working(current)
+  return current.chrome.status == "streaming"
+end
+
 local function handle_key(current, key)
   local kind = key.kind
 
@@ -120,10 +127,30 @@ local function handle_key(current, key)
     end
     local text = current.editor:text()
     current.editor:clear()
+    if working(current) then
+      roots.action("frontend_submit", { text = text, queue = "steer" })
+      return true
+    end
     current.transcript:user(text)
     current.chrome:set_status("streaming")
     current.chrome:clear_guidance()
     roots.action("frontend_submit", { text = text })
+    return true
+  end
+
+  if kind == "follow_up" then
+    -- alt+enter. While a turn runs it queues a message for after the turn;
+    -- idle it inserts a line, which is what the shipped hint row promises.
+    if not working(current) then
+      current.editor:newline()
+      return true
+    end
+    if current.editor:is_empty() then
+      return true
+    end
+    local text = current.editor:text()
+    current.editor:clear()
+    roots.action("frontend_submit", { text = text, queue = "follow_up" })
     return true
   end
 
@@ -233,9 +260,15 @@ local function apply_agent_action(current, action)
   if kind == "agent_queued" then
     if payload.queue == "interrupt" then
       current.transcript:notice("info", "interrupt queued")
-      invalidate()
-      render(false)
+    elseif payload.accepted == true then
+      current.transcript:queue(payload.queue, payload.text)
+    else
+      -- A refused message is never silently dropped: it is the one thing
+      -- the user cannot see anywhere else.
+      current.transcript:notice("warn", "message not queued: " .. tostring(payload.reason))
     end
+    invalidate()
+    render(false)
     return
   end
   if kind == "agent_status" then
@@ -248,7 +281,11 @@ local function apply_agent_action(current, action)
     return
   end
   if kind == "agent_steered" or kind == "agent_follow_up" then
-    current.transcript:user(tostring(payload.text or ""))
+    -- The turn took the message: its pending row leaves as the ordinary
+    -- user block arrives, so the same text is never shown twice.
+    local text = tostring(payload.text or "")
+    current.transcript:unqueue(kind == "agent_steered" and "steer" or "follow_up", text)
+    current.transcript:user(text)
     invalidate()
     render(false)
     return
@@ -354,6 +391,7 @@ roots.register({
         status = current.chrome.status,
         guidance = current.chrome:guidance_row(),
         input = current.editor:text(),
+        queued = current.transcript:queued(),
       })
       return
     end

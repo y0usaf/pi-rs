@@ -790,3 +790,91 @@ fn renderer_order_decides_which_block_wins_not_load_order() {
         "losing renderer still painted: {screen}"
     );
 }
+
+/// The action the shipped agent emits when a provider request starts.
+fn streaming() -> Value {
+    json!({"kind": "agent", "actions": [
+        {"kind": "agent_status", "payload": {"state": "streaming"}}
+    ]})
+}
+
+#[test]
+fn lines_typed_during_a_turn_are_queued_by_the_agent_and_shown_as_pending() {
+    let _fixture = Fixture::install("frontend-queues");
+    let harness = Harness::with_tools();
+    harness.start(Some("text"), "frontend-queues");
+    harness.frontend(streaming());
+
+    // enter steers the running turn, alt+enter queues a follow-up. Both rows
+    // are painted only because the agent answered `agent_queued`: the typed
+    // line went frontend intent -> application -> agent -> frontend.
+    harness.type_keys("also check tests\r");
+    harness.type_keys("then run lint\u{1b}\r");
+
+    let screen = harness.screen();
+    assert!(
+        screen.contains("Steering: also check tests"),
+        "steering row missing: {screen}"
+    );
+    assert!(
+        screen.contains("Follow-up: then run lint"),
+        "follow-up row missing: {screen}"
+    );
+    assert!(
+        screen.contains("Alt+Up to edit all queued messages"),
+        "dequeue hint missing: {screen}"
+    );
+    // Neither line became a user block: it has not been sent yet.
+    assert!(
+        !screen.contains("> also check tests"),
+        "a queued line must not enter the transcript as a turn: {screen}"
+    );
+
+    let status = harness.frontend(json!({"kind": "status"}));
+    let queued = status
+        .actions
+        .iter()
+        .find(|action| action.kind == "frontend_status")
+        .and_then(|action| action.payload.get("queued").cloned())
+        .expect("status must report the pending queue");
+    assert_eq!(queued["steer"][0], "also check tests");
+    assert_eq!(queued["follow_up"][0], "then run lint");
+}
+
+/// Claims the pending-queue block through the same declaration path the
+/// shipped transcript blocks use.
+const REPLACEMENT_QUEUE_BLOCK: &str = r#"
+local pi = ...
+pi.kernel.v1.declare("renderer", {
+  id = "test.queue-block",
+  surface = "transcript.block",
+  entry = "queue",
+  order = 10,
+  render = function(entry, context)
+    return { context.line({ { text = "<pending " .. #entry.steering .. ">" } }) }
+  end,
+})
+"#;
+
+#[test]
+fn a_file_backed_renderer_replaces_the_pending_queue_block() {
+    let _fixture = Fixture::install("frontend-queue-renderer");
+    let harness = Harness::new(&[
+        ("tools_package.lua", TOOL_PACKAGE),
+        ("queue_block.lua", REPLACEMENT_QUEUE_BLOCK),
+    ]);
+    harness.start(Some("text"), "frontend-queue-renderer");
+    harness.frontend(streaming());
+
+    harness.type_keys("also check tests\r");
+    let screen = harness.screen();
+
+    assert!(
+        screen.contains("<pending 1>"),
+        "file-backed queue block not used: {screen}"
+    );
+    assert!(
+        !screen.contains("Steering: also check tests"),
+        "shipped queue block still painted: {screen}"
+    );
+}

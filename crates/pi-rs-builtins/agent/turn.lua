@@ -466,6 +466,9 @@ module.define({
         local accepted, reason = queue:push(text)
         emit("agent_queued", {
           queue = kind,
+          -- The text travels with the acceptance so a frontend can show what
+          -- is pending without asking the agent for its queue.
+          text = text,
           accepted = accepted and true or false,
           reason = accepted and nil or tostring(reason),
           depth = queue:len(),

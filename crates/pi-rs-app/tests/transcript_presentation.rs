@@ -321,10 +321,21 @@ fn message(text: &str) -> Value {
     json!({"kind": "agent_message", "payload": {"text": text}})
 }
 
+/// The action the shipped agent emits when a turn completes.
+///
+/// Replaying it matters: while a turn is running, a submitted line is offered
+/// to the agent's steering queue instead of starting a new one.
+fn turn_complete() -> Value {
+    json!({"kind": "agent_status", "payload": {"state": "idle"}})
+}
+
 /// Replay the canonical `stream-tool-cancel` conversation up to its tool call.
 fn through_tool_call(frontend: &mut Frontend) {
     frontend.types("Say hello please\r");
-    frontend.agent(json!([message("Hello! How can I help you today?")]));
+    frontend.agent(json!([
+        message("Hello! How can I help you today?"),
+        turn_complete(),
+    ]));
     frontend.types("Read notes.txt\r");
     frontend.agent(json!([
         message("I'll read the notes file."),
@@ -360,6 +371,7 @@ fn a_settled_tool_call_and_cancellation_match_the_canonical_transcript() {
             "output": "alpha\nbeta\ngamma",
         }},
         message("The file lists three Greek letters."),
+        turn_complete(),
     ]));
     frontend.types("Tell me a story\r");
     frontend.agent(json!([
@@ -411,7 +423,10 @@ fn a_long_transcript_costs_one_viewport_per_frame() {
     let mut frontend = Frontend::new();
     for index in 0..400 {
         frontend.types(&format!("message {index}\r"));
-        frontend.agent(json!([message(&format!("answer {index}"))]));
+        frontend.agent(json!([
+            message(&format!("answer {index}")),
+            turn_complete()
+        ]));
     }
 
     let batch = frontend.dispatch(json!({"kind": "resize", "columns": COLUMNS, "rows": ROWS}));
@@ -508,4 +523,115 @@ fn streamed_reasoning_is_one_block_that_a_reply_closes() {
         "",
         "blocks stay separated by one untouched row"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Canonical queue rows
+// ---------------------------------------------------------------------------
+
+/// The prompt the canonical `thinking-and-queues` journey is steering.
+const CANONICAL_PROMPT: &str = "Summarize the design";
+
+/// alt+enter: the key the canonical journey presses to queue a follow-up.
+const ALT_ENTER: &str = "\u{1b}\r";
+
+/// The action the shipped agent emits when a queue accepts a message.
+fn accepted(queue: &str, text: &str, depth: u64) -> Value {
+    json!({"kind": "agent_queued", "payload": {
+        "queue": queue,
+        "text": text,
+        "accepted": true,
+        "depth": depth,
+    }})
+}
+
+/// The `frontend_submit` intent one input batch produced.
+fn submit_intent(batch: &DispatchBatch) -> Value {
+    batch
+        .actions
+        .iter()
+        .find(|action| action.kind == "frontend_submit")
+        .map(|action| action.payload.clone())
+        .expect("a submitted line must produce one frontend_submit intent")
+}
+
+/// Submit `CANONICAL_PROMPT`, then steer the running turn the way the
+/// canonical journey does: type a line and press enter while it works.
+fn steer(frontend: &mut Frontend) {
+    frontend.types(&format!("{CANONICAL_PROMPT}\r"));
+    let batch = frontend.dispatch(json!({"kind": "input", "data": "also check tests\r"}));
+    let intent = submit_intent(&batch);
+    assert_eq!(
+        intent.get("queue").and_then(Value::as_str),
+        Some("steer"),
+        "enter during a turn must offer the line as steering: {intent}"
+    );
+    assert_eq!(
+        intent.get("text").and_then(Value::as_str),
+        Some("also check tests")
+    );
+    frontend.agent(json!([accepted("steer", "also check tests", 1)]));
+}
+
+#[test]
+fn a_steered_message_matches_the_canonical_queue_rows() {
+    let mut frontend = Frontend::new();
+    steer(&mut frontend);
+
+    // Canonical `steering-queued` rows 10..=15: the user block that started
+    // the turn, the untouched separator, the steering row, and the hint.
+    let expected = canonical("thinking-and-queues", "steering-queued");
+    let actual = frontend.frame("steering-queued");
+    assert_transcript_matches("steering-queued", &expected, 15, &actual, 6);
+}
+
+#[test]
+fn a_queued_follow_up_matches_the_canonical_queue_rows() {
+    let mut frontend = Frontend::new();
+    steer(&mut frontend);
+
+    let batch = frontend.dispatch(json!({
+        "kind": "input",
+        "data": format!("then run lint{ALT_ENTER}"),
+    }));
+    let intent = submit_intent(&batch);
+    assert_eq!(
+        intent.get("queue").and_then(Value::as_str),
+        Some("follow_up"),
+        "alt+enter during a turn must offer the line as a follow-up: {intent}"
+    );
+    frontend.agent(json!([accepted("follow_up", "then run lint", 1)]));
+
+    // Canonical `follow-up-queued` rows 9..=15. Both queued messages sit in
+    // one block with no internal separator, steering first.
+    let expected = canonical("thinking-and-queues", "follow-up-queued");
+    let actual = frontend.frame("follow-up-queued");
+    assert_transcript_matches("follow-up-queued", &expected, 15, &actual, 7);
+}
+
+#[test]
+fn a_drained_queue_row_becomes_the_ordinary_user_block() {
+    let mut frontend = Frontend::new();
+    steer(&mut frontend);
+
+    // The turn takes the steered message: the pending row must leave as the
+    // user block arrives, or the same text would be on screen twice.
+    frontend.agent(json!([
+        {"kind": "agent_steered", "payload": {"text": "also check tests"}},
+    ]));
+
+    let actual = frontend.frame("steering-drained");
+    let last = usize::from(last_transcript_row(&actual));
+    assert_eq!(
+        row_text(&actual.cells, actual.columns, last - 1),
+        " also check tests",
+        "the drained message must become a user block"
+    );
+    for offset in 0..6 {
+        let row = row_text(&actual.cells, actual.columns, last - offset);
+        assert!(
+            !row.contains("Steering:") && !row.contains("Alt+Up"),
+            "a drained message must not stay queued: {row:?}"
+        );
+    }
 }

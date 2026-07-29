@@ -64,8 +64,10 @@ module.define({
               index = scan + 1
             end
           elseif following == "\r" or following == "\n" then
-            -- alt+enter inserts a line instead of submitting.
-            keys[#keys + 1] = { kind = "newline" }
+            -- alt+enter: a follow-up while a turn is running, an inserted
+            -- line otherwise. Which one it is is the root's policy, not the
+            -- decoder's, so this stays one named key.
+            keys[#keys + 1] = { kind = "follow_up" }
             index = index + 2
           else
             keys[#keys + 1] = { kind = "escape" }
