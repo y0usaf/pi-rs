@@ -35,6 +35,7 @@ fn package_files() -> Vec<PathBuf> {
         "schema.lua",
         "trust.lua",
         "defaults.lua",
+        "apply.lua",
         "init.lua",
     ]
     .into_iter()
@@ -67,6 +68,16 @@ local function packages()
   local out = {}
   for index, row in ipairs(pi.packages.v1.list()) do
     out[index] = { source = row.source, scope = row.scope }
+  end
+  return out
+end
+
+-- Declarations from the consumer's side: nothing here knows a configuration
+-- package exists, only that the kernel carries declarations of these kinds.
+local function registered(kind)
+  local out = {}
+  for index, entry in ipairs(pi.kernel.v1.registered(kind)) do
+    out[index] = clone(entry)
   end
   return out
 end
@@ -109,6 +120,11 @@ roots.register({
       resources = settings.resources(),
       roots = settings.roots(),
       trust_list = settings.trust_list(),
+      declarations = settings.declarations(),
+      modules = settings.modules(),
+      themes = registered("theme"),
+      keymaps = registered("keymap"),
+      providers = registered("provider"),
       event_config = clone(event.config),
       event_config_revision = event.config_revision,
       event_model = event.model and event.model.id or nil,
@@ -288,10 +304,24 @@ fn source_row(payload: &Value, layer: &str) -> Value {
         .unwrap_or_else(|| panic!("source row for layer {layer}"))
 }
 
-fn package_sources(payload: &Value) -> Vec<String> {
+/// Source key of the package the configuration loads to carry its own
+/// declarations. It is an ordinary Lua-loaded package, so it appears in the
+/// live package list beside the ones the configuration selected.
+const DECLARATION_PACKAGE: &str = "pi.config.declarations";
+
+fn live_packages(payload: &Value) -> Vec<String> {
     rows(&payload["packages"])
         .into_iter()
         .map(|row| row["source"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+/// The packages the *configuration file* selected, which is what every
+/// selection, rollback, and idempotence assertion is about.
+fn package_sources(payload: &Value) -> Vec<String> {
+    live_packages(payload)
+        .into_iter()
+        .filter(|source| source != DECLARATION_PACKAGE)
         .collect()
 }
 
@@ -847,6 +877,217 @@ return { theme = string.format("%s:%s", context.layer, context.paths.config ~= n
 }
 
 // ---------------------------------------------------------------------------
+// Applying the sections
+// ---------------------------------------------------------------------------
+
+#[test]
+fn theme_keymaps_and_providers_become_declarations_the_product_reads() {
+    let fixture = Fixture::new();
+    fixture.write_config(
+        r#"
+return {
+  theme = "solar",
+  keymaps = { ["ctrl+k"] = "clear", ["ctrl+j"] = "newline" },
+  providers = {
+    openai = { base_url = "http://127.0.0.1:9/v1", models = { "gpt-5.1" } },
+  },
+}
+"#,
+    );
+
+    let host = start(fixture.environment());
+    let payload = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+
+    // One theme declaration, in the configuration's own id namespace so a
+    // configured theme never silently collides with a package's, carrying the
+    // layer and file that produced it.
+    let themes = rows(&payload["themes"]);
+    assert_eq!(themes.len(), 1);
+    assert_eq!(themes[0]["declaration_id"], "pi.config.theme");
+    assert_eq!(themes[0]["name"], "solar");
+    assert_eq!(themes[0]["layer"], "user");
+    assert_eq!(themes[0]["origin"], text(&fixture.config_file()));
+
+    // One keymap declaration per binding, in sorted binding order, so the
+    // declaration order is a property of the file's content rather than of
+    // Lua's table iteration order.
+    let keymaps = rows(&payload["keymaps"]);
+    assert_eq!(keymaps.len(), 2);
+    assert_eq!(keymaps[0]["declaration_id"], "pi.config.keymap:ctrl+j");
+    assert_eq!(keymaps[0]["binding"], "ctrl+j");
+    assert_eq!(keymaps[0]["action"], "newline");
+    assert_eq!(keymaps[1]["declaration_id"], "pi.config.keymap:ctrl+k");
+    assert_eq!(keymaps[1]["action"], "clear");
+
+    // A configured endpoint rides on the reviewed catalog row, so nothing here
+    // invents a cost, a context window, or a token budget.
+    let providers = rows(&payload["providers"]);
+    assert_eq!(providers.len(), 1);
+    assert_eq!(providers[0]["declaration_id"], "pi.config.provider:openai");
+    assert_eq!(providers[0]["base_url"], "http://127.0.0.1:9/v1");
+    let models = rows(&providers[0]["models"]);
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0]["id"], "gpt-5.1");
+    assert_eq!(models[0]["baseUrl"], "http://127.0.0.1:9/v1");
+    assert!(models[0]["contextWindow"].as_u64().unwrap_or_default() > 0);
+
+    // The configuration's own account of what it applied agrees with the
+    // kernel's, and the declarations arrive in one package the configuration
+    // owns rather than from the configuration package's permanent scope.
+    let planned = rows(&payload["declarations"]);
+    assert_eq!(planned.len(), 4);
+    assert_eq!(planned[0]["kind"], "theme");
+    assert_eq!(planned[3]["kind"], "provider");
+    assert_eq!(
+        live_packages(&payload),
+        vec![DECLARATION_PACKAGE.to_owned()]
+    );
+}
+
+#[test]
+fn changing_the_configuration_replaces_the_declarations_it_produced() {
+    let fixture = Fixture::new();
+    fixture.write_config(
+        r#"return { theme = "solar", keymaps = { ["ctrl+k"] = "clear", ["ctrl+j"] = "newline" } }"#,
+    );
+
+    let host = start(fixture.environment());
+    let first = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+    assert_eq!(rows(&first["themes"])[0]["name"], "solar");
+    assert_eq!(rows(&first["keymaps"]).len(), 2);
+
+    dispatch(
+        &host,
+        &fixture,
+        json!({
+            "kind": "write",
+            "path": text(&fixture.config_file()),
+            "contents": r#"return { theme = "mono", keymaps = { ["ctrl+k"] = "submit" } }"#,
+        }),
+    );
+    let batch = dispatch(&host, &fixture, json!({ "kind": "reload" }));
+    assert_eq!(action(&batch, "reload_result")["ok"], true);
+    let second = report(&batch);
+
+    // The previous declarations are gone rather than shadowed: the same ids
+    // are declared again, which the kernel would refuse if the package that
+    // made them were still alive.
+    let themes = rows(&second["themes"]);
+    assert_eq!(themes.len(), 1);
+    assert_eq!(themes[0]["declaration_id"], "pi.config.theme");
+    assert_eq!(themes[0]["name"], "mono");
+    let keymaps = rows(&second["keymaps"]);
+    assert_eq!(keymaps.len(), 1);
+    assert_eq!(keymaps[0]["declaration_id"], "pi.config.keymap:ctrl+k");
+    assert_eq!(keymaps[0]["action"], "submit");
+    // One declaration package, not one per revision.
+    assert_eq!(live_packages(second), vec![DECLARATION_PACKAGE.to_owned()]);
+
+    // Removing every applied section retracts the declarations with it.
+    dispatch(
+        &host,
+        &fixture,
+        json!({
+            "kind": "write",
+            "path": text(&fixture.config_file()),
+            "contents": "return {}",
+        }),
+    );
+    let cleared = report(&dispatch(&host, &fixture, json!({ "kind": "reload" }))).clone();
+    assert!(rows(&cleared["themes"]).is_empty());
+    assert!(rows(&cleared["keymaps"]).is_empty());
+    assert!(live_packages(&cleared).is_empty());
+}
+
+#[test]
+fn a_provider_naming_an_unknown_model_fails_the_reload_and_keeps_the_declarations() {
+    let fixture = Fixture::new();
+    fixture.write_config(
+        r#"return { theme = "solar", providers = { openai = { models = { "gpt-5.1" } } } }"#,
+    );
+
+    let host = start(fixture.environment());
+    let first = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+    assert_eq!(first["revision"], 1);
+    assert_eq!(rows(&first["providers"]).len(), 1);
+
+    // The plan is built during composition, before anything is published, so a
+    // model the reviewed catalog does not carry fails the whole reload instead
+    // of publishing settings the product cannot act on.
+    dispatch(
+        &host,
+        &fixture,
+        json!({
+            "kind": "write",
+            "path": text(&fixture.config_file()),
+            "contents": r#"return { theme = "mono", providers = { openai = { models = { "no-such-model" } } } }"#,
+        }),
+    );
+    let batch = dispatch(&host, &fixture, json!({ "kind": "reload" }));
+    let result = action(&batch, "reload_result");
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["revision"], 1);
+    let message = rows(&result["errors"])
+        .first()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_default();
+    assert!(message.contains("providers.openai.models[1]"), "{message}");
+
+    let payload = report(&batch);
+    assert_eq!(payload["revision"], 1);
+    assert_eq!(payload["effective"]["theme"], "solar");
+    assert_eq!(rows(&payload["themes"])[0]["name"], "solar");
+    assert_eq!(rows(&payload["providers"]).len(), 1);
+}
+
+#[test]
+fn the_configuration_pins_the_module_identities_it_names() {
+    let fixture = Fixture::new();
+    let selected = fixture.write_package("extra.lua");
+    fixture.write_config(
+        r#"return {
+  packages = { "extra.lua" },
+  modules = { { name = "pi.test.extra", version = "1" } },
+}"#,
+    );
+
+    let host = start(fixture.environment());
+    let first = report(&dispatch(&host, &fixture, json!({ "kind": "report" }))).clone();
+    assert_eq!(first["revision"], 1);
+    assert_eq!(rows(&first["modules"]), vec![json!("pi.test.extra@1")]);
+    assert_eq!(package_sources(&first), vec![text(&selected)]);
+
+    // Pinning a version no selected package provides is a configuration error,
+    // not a missing dependency discovered later by whoever needed it.
+    dispatch(
+        &host,
+        &fixture,
+        json!({
+            "kind": "write",
+            "path": text(&fixture.config_file()),
+            "contents": r#"return {
+  packages = { "extra.lua" },
+  modules = { { name = "pi.test.extra", version = "2" } },
+}"#,
+        }),
+    );
+    let batch = dispatch(&host, &fixture, json!({ "kind": "reload" }));
+    let result = action(&batch, "reload_result");
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["revision"], 1);
+    let message = rows(&result["errors"])
+        .first()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_default();
+    assert!(message.starts_with("modules[1]: "), "{message}");
+
+    let payload = report(&batch);
+    assert_eq!(payload["revision"], 1);
+    assert_eq!(rows(&payload["modules"]), vec![json!("pi.test.extra@1")]);
+    assert_eq!(package_sources(payload), vec![text(&selected)]);
+}
+
+// ---------------------------------------------------------------------------
 // Zero configuration
 // ---------------------------------------------------------------------------
 
@@ -874,6 +1115,13 @@ fn without_any_configuration_file_only_the_shipped_defaults_are_published() {
     }
     assert_eq!(source_row(&payload, "user")["outcome"], "absent");
     assert!(package_sources(&payload).is_empty());
+    // Nothing to apply, so nothing is declared and no declaration package is
+    // loaded at all.
+    assert!(live_packages(&payload).is_empty());
+    assert!(rows(&payload["themes"]).is_empty());
+    assert!(rows(&payload["keymaps"]).is_empty());
+    assert!(rows(&payload["providers"]).is_empty());
+    assert!(rows(&payload["declarations"]).is_empty());
 
     // Reading a configuration writes nothing: no file is created under any
     // root, and no trust store exists without a decision.

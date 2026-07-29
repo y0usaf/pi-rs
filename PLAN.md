@@ -1305,22 +1305,65 @@ After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
   distribution, raw no-package guidance, file-backed application, pi-core
   package, model-catalog update) pass.
 
-  **Remaining for 4.2 (next session):** the schema validates and publishes
-  `theme`, `keymaps`, `providers`, `tools`, `modules`, and `roots`, but only
-  `packages` and `model` are *applied*; nothing yet consumes a theme, a keymap,
-  a provider row, a tool setting, a pinned module identity, or a root
-  selection. Apply module selection (`modules`) through
-  `pi.kernel.v1.module`, translate `theme`/`keymaps` into
-  `pi.kernel.v1.declare("theme"|"keymap", ...)`, feed `providers` into provider
-  declarations, hand `tools` to the shipped tool suite, and act on `roots`
-  selection/suppression; each needs its own matrix row. The package is
-  deliberately **not** in `crates/pi-rs-builtins/default.json`: 4.4 extends the
-  declarative manifest once and reconciles the overlap with
-  `defaults/init.lua`'s `pi.builtins.defaults.model` (order `-100`) and
-  `pi.builtins.defaults.tool-root` (order `-99`) middleware. `tests/README.md`
-  still has no acceptance row for `crates/pi-rs-builtins/tests/**` (a
-  pre-existing gap covering the agent, frontend, tool, and now configuration
-  package suites).
+  **Landed slice (applying the declarative sections):**
+  `crates/pi-rs-builtins/config/apply.lua` is the second half of the package:
+  validating a section proves the file is well formed, applying it makes the
+  product behave differently. Two mechanisms carry it and neither is new —
+  `modules` resolves every named identity through
+  `pi.kernel.v1.module.require`, and `theme`, `keymaps`, and `providers`
+  become `pi.kernel.v1.declare` rows (`pi.config.theme`,
+  `pi.config.keymap:<binding>`, `pi.config.provider:<name>`, sorted, each
+  carrying the `layer` and `origin` file behind it). A configured model starts
+  from its reviewed catalog row and takes the section's `api`/`base_url`
+  overrides, so no cost, context window, or token budget is invented; a model
+  the catalog does not carry is an error naming its dotted path (full custom
+  rows are 6.4). `apply.plan()` is pure and runs during composition, so a
+  section the product cannot accept rolls the whole reload back instead of
+  half applying after publication; module pinning and the declaration swap
+  join the same attempt, and `reconcile_generation` now returns the packages
+  it added so a later step can undo them.
+
+  Two host behaviours shaped the mechanism and are worth carrying forward.
+  First, `pi.kernel.v1.declare` refuses a second declaration of one kind and
+  id, and a declaration lives exactly as long as the scope that made it, so
+  the configuration package — whose scope outlives every reload — can never
+  re-declare its own theme; the staged plan is therefore replayed by a tiny
+  package it loads and disposes like any other (`pi.config.declarations`, a
+  two-line constant chunk carrying no configuration data), and the ids stay
+  stable, which makes the order dispose-then-load with the previous plan put
+  back on refusal. Second, `module_api::remove_scope` clears *every* surviving
+  module's cached value on any disposal, so the staged plan lives at
+  `apply.lua` file scope rather than inside the factory — a factory local
+  would be staged onto the instance the disposal just retired. Evidence:
+  `crates/pi-rs-builtins/tests/config_package.rs` grows to 19 tests with four
+  new rows — declarations read back through `pi.kernel.v1.registered` with
+  their layer/origin and catalog-backed model rows, replacement and retraction
+  across reloads with exactly one declaration package alive, an unknown
+  configured model failing the reload with the published declarations intact,
+  and module pinning with its own rollback — plus a zero-configuration
+  assertion that nothing is declared and no declaration package is loaded.
+  `docs/lua-config-package.md` documents the applier.
+  `cargo fmt --all -- --check`, `cargo test --workspace` (78 test targets, 343
+  tests, 0 failures), and `nix flake check` (8 checks: workspace tests,
+  clippy, default distribution, raw no-package guidance, file-backed
+  application, pi-core package, model-catalog update) pass.
+
+  **Remaining for 4.2 (next session):** `tools` and `roots` validate, merge,
+  and publish, but nothing acts on them. Hand `tools` (`root`, `suppress`,
+  `settings`) to the shipped suite through `pi.tools.suite@1`, and act on
+  `roots` selection/suppression; each needs its own matrix row. Both were
+  deliberately deferred rather than half-landed: `tools` would be clobbered by
+  `defaults/init.lua`'s `pi.builtins.defaults.tool-root` middleware (order
+  `-99`, after this package's `-200`), and root selection/suppression is
+  entangled with 4.4's manifest work — the host picks the highest-priority
+  active root per kind, which a configuration cannot influence without a
+  decision about how a selected package wins. The package is deliberately
+  **not** in `crates/pi-rs-builtins/default.json`: 4.4 extends the declarative
+  manifest once and reconciles the overlap with `pi.builtins.defaults.model`
+  (order `-100`) and `pi.builtins.defaults.tool-root` (order `-99`).
+  `tests/README.md` still has no acceptance row for
+  `crates/pi-rs-builtins/tests/**` (a pre-existing gap covering the agent,
+  frontend, tool, and configuration package suites).
 
 - [ ] **4.3 — Configurable session package** (**Wave P1**, path owner:
   `crates/pi-rs-builtins/session/**`; depends on 4.1).
