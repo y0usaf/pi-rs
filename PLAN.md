@@ -1411,7 +1411,7 @@ After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
   `crates/pi-rs-builtins/tests/**` (a pre-existing gap covering the agent,
   frontend, tool, and configuration package suites).
 
-- [ ] **4.3 — Configurable session package** (**Wave P1**, path owner:
+- [x] **4.3 — Configurable session package** (**Wave P1**, path owner:
   `crates/pi-rs-builtins/session/**`; depends on 4.1).
 
   Implement optional persistent conversation policy over the public record store:
@@ -1424,7 +1424,7 @@ After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
   resume, corruption, cancellation, stale-handle, and legacy-read/XDG-write paths
   are covered.
 
-  **Landed slice (the whole package; one acceptance criterion open):**
+  **Landed (the whole package):**
   `crates/pi-rs-builtins/session/` is an ordinary three-file package graph over
   the public surface only. `records.lua` (`pi.session.records@1`) is pure: it
   owns the record kinds (`header`, `message`, `title`, `model`, `compaction`,
@@ -1473,24 +1473,38 @@ After 4.1, `/orchestrate` may run **Wave P1** for the disjoint package trees.
   the turn, package disposal releasing the store's lock to a second host,
   16 KiB truncation, an unusable state root, and an unknown command refused by
   name. `docs/lua-session-package.md` documents the stages, schema, storage
-  rule, commands, and the replacement seam. `cargo fmt --all -- --check`,
-  `cargo test --workspace` (80 test targets, 369 tests, 0 failures), and
-  `nix flake check` (8 checks: workspace tests, clippy, default distribution,
-  raw no-package guidance, file-backed application, pi-core package,
-  model-catalog update) pass.
+  rule, commands, the replacement seam, and the cancellation rule below.
 
-  **Remaining before this box closes — cancellation evidence.** Every other
-  acceptance path is covered above. A *kernel-cancelled* record operation is not
-  reachable from Lua: `pi.records.v1` accepts only a kernel `Cancellation`
-  (`crates/pi-rs-host/src/bindings/records.rs`), the handle exposes `is_cancelled`
-  and `wait` but no `cancel`, and a scope token is cancelled only by disposal —
-  at which point the stage is gone. The session-level interruption paths that
-  *are* reachable are covered (a torn tail is diagnosed by name and recording
-  recovers; disposal closes the store and releases its lock). Closing this box
-  needs one of: (a) a focused test in `crates/pi-rs-host/tests/records_store.rs`
-  proving a cancelled token refuses an append before blocking work — 4.1's owned
-  path, not this item's; or (b) 4.4 deciding whether Lua may hold a cancellable
-  token at all. Do not close 4.3 by asserting a check that was not run.
+  **Cancellation — the last criterion, closed here.** A *kernel-cancelled*
+  record operation looked unreachable from Lua, because `pi.records.v1` accepts
+  only a kernel `Cancellation` (`crates/pi-rs-host/src/bindings/records.rs`),
+  that userdata exposes `is_cancelled`/`wait` but no `cancel`, and a scope token
+  is cancelled only by disposal. It *is* reachable, through the public surface
+  alone: a package captures its own dispatch cancellation with
+  `pi.kernel.v1.cancellation()` and publishes it as an ordinary module value; a
+  second package requires that module, the host disposes the publisher (which
+  cancels its scope token), and the survivor still holds a live, now-cancelled
+  kernel token.
+  `crates/pi-rs-host/tests/records_store.rs::a_cancelled_kernel_token_refuses_record_work_before_it_starts`
+  drives exactly that journey: `append`, `copy`, and `cursor:next` each fail
+  with `record-store operation cancelled` *before* any blocking work, the log
+  keeps exactly its settled records with no torn line, no copy destination is
+  published, an uncancelled append still lands (the refusal is per operation,
+  not per handle), and a cancellation the kernel did not issue
+  (`pi.effects.v1.cancellation.new()`) is refused by name.
+
+  The evidence sits in 4.1's owned binding path rather than the session suite
+  on purpose, and this session claimed it serially with no orchestrated batch
+  active: the session package supplies no cancellation of its own, so every
+  session write inherits the ambient dispatch token, and each call site is
+  already `pcall`-wrapped — a refusal becomes a `session_result.error`
+  diagnostic on the same branch as the covered stale-handle path, which is why
+  duplicating it under `crates/pi-rs-builtins/session/**` would assert nothing
+  new. `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets`
+  (one pre-existing `double_ended_iterator_last` warning in the `agent_package`
+  test, outside the flake's `--lib --bins` clippy gate), `cargo test --workspace`
+  (80 test targets, 370 tests, 0 failures), and `nix flake check` (8 checks) all
+  pass on the closing change.
 
   **Carried forward to 4.4 (not dropped):** (a) the package is deliberately
   **not** in `crates/pi-rs-builtins/default.json` or `flake.nix`'s

@@ -106,6 +106,19 @@ the store and releases the lock — not Lua garbage collection. A live log is
 therefore never reopened to be read: `status` and `describe` answer from the
 fold already in memory.
 
+Interruption is fail-closed in the mechanism rather than patched over here.
+Every session write goes through `pi.records.v1` without an explicit
+`cancellation`, so each call observes the cancellation of the dispatch it runs
+in. An already-cancelled token refuses `append`, `copy`, and cursor reads
+*before* any blocking work, so an interrupted turn cannot leave a half-written
+record or a half-published branch; the handle itself stays usable, because the
+refusal is per operation. Every session call site already wraps its record call
+in `pcall`, so a refusal becomes a diagnostic in `session_result.error` instead
+of a failed turn — the same path a stale handle takes.
+`crates/pi-rs-host/tests/records_store.rs::a_cancelled_kernel_token_refuses_record_work_before_it_starts`
+proves the refusal, that nothing torn reaches disk, and that a cancellation the
+kernel did not issue is rejected by name.
+
 ## Commands
 
 An application event `{kind = "session", command = ...}` is answered by the
@@ -147,4 +160,6 @@ the public kernel transaction: suppression, file-backed replacement, XDG-only
 writes, tool settlement, the shipped agent's real vocabulary, resume, reset,
 naming, compaction and its refusal, branching, retention, legacy promotion, a
 torn log, a foreign log, a stale handle, package disposal releasing the lock,
-truncation, an unusable state root, and an unknown command.
+truncation, an unusable state root, and an unknown command. Cancellation is
+owned one layer down, where it is decided:
+`crates/pi-rs-host/tests/records_store.rs::a_cancelled_kernel_token_refuses_record_work_before_it_starts`.
