@@ -28,11 +28,13 @@ local shape = {
   effects = keys(pi.effects),
   records = keys(pi.records),
   packages = keys(pi.packages),
+  auth = keys(pi.auth),
   kernel_v1 = keys(pi.kernel.v1),
   module = keys(pi.kernel.v1.module),
   effects_v1 = keys(pi.effects.v1),
   packages_v1 = keys(pi.packages.v1),
   models_v1 = keys(pi.models.v1),
+  auth_v1 = keys(pi.auth.v1),
 }
 
 roots.register({
@@ -99,11 +101,11 @@ fn file_and_embedded_packages_see_only_the_same_compact_surface() {
     assert_eq!(
         payload["shape"]["top"],
         serde_json::json!([
-            "effects", "kernel", "models", "packages", "records", "roots", "terminal"
+            "auth", "effects", "kernel", "models", "packages", "records", "roots", "terminal"
         ])
     );
     for member in [
-        "kernel", "roots", "terminal", "models", "effects", "records", "packages",
+        "kernel", "roots", "terminal", "models", "effects", "records", "packages", "auth",
     ] {
         assert_eq!(payload["shape"][member], serde_json::json!(["v1"]));
     }
@@ -170,6 +172,19 @@ fn file_and_embedded_packages_see_only_the_same_compact_surface() {
             "providers",
             "stream",
             "validate"
+        ])
+    );
+    // Credential storage is subscription inventory, an explicit-location store
+    // constructor, and its bounds. Storage locations are Lua policy, so no
+    // path, provider name, or precedence rule appears in the surface.
+    assert_eq!(
+        payload["shape"]["auth_v1"],
+        serde_json::json!([
+            "api_version",
+            "max_providers",
+            "max_secret_bytes",
+            "providers",
+            "store"
         ])
     );
     assert_eq!(
