@@ -133,7 +133,15 @@ roots.register({
       if event.model ~= nil then
         configure(event.model)
       end
-      to_frontend({ kind = "startup" })
+      -- The launcher measured the terminal before the first dispatch, so the
+      -- first frame is already the right size instead of repainting after a
+      -- resize event.
+      local terminal = type(snapshot.context) == "table" and snapshot.context.terminal or nil
+      to_frontend({
+        kind = "startup",
+        columns = type(terminal) == "table" and terminal.columns or nil,
+        rows = type(terminal) == "table" and terminal.rows or nil,
+      })
       return
     end
 

@@ -102,6 +102,50 @@ fn environment_dimensions() -> (Option<String>, Option<String>) {
     (std::env::var("COLUMNS").ok(), std::env::var("LINES").ok())
 }
 
+/// Resolve the dimensions of the controlling terminal right now.
+///
+/// One call answers "how big is the terminal" for every caller: the live
+/// `ioctl` value wins, then `COLUMNS`/`LINES`, then the portable 80x24
+/// default. A process with no terminal therefore reports the fallback
+/// instead of failing, which is what a piped or test launch needs.
+#[must_use]
+pub fn live_terminal_dimensions() -> (u16, u16) {
+    let live = crossterm::terminal::size().ok();
+    let environment = environment_dimensions();
+    resolve_terminal_dimensions(
+        (None, None),
+        (live.map(|size| size.0), live.map(|size| size.1)),
+        (environment.0.as_deref(), environment.1.as_deref()),
+    )
+}
+
+/// Report whether standard input has bytes ready, waiting at most `timeout`.
+///
+/// This is readiness only: no byte is consumed, so the caller keeps owning
+/// the read and the decoder. `None` waits indefinitely. An interrupted wait
+/// returns `io::ErrorKind::Interrupted` so a caller that installed signal
+/// handlers can decide what the signal meant.
+pub fn stdin_readable(timeout: Option<Duration>) -> io::Result<bool> {
+    use std::os::fd::AsRawFd as _;
+
+    let milliseconds = match timeout {
+        None => -1,
+        Some(timeout) => i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX),
+    };
+    let mut descriptor = libc::pollfd {
+        fd: io::stdin().as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // SAFETY: one initialized `pollfd` is passed with a matching count, and
+    // the kernel writes only into `revents`.
+    let polled = unsafe { libc::poll(&mut descriptor, 1, milliseconds) };
+    if polled < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(polled > 0 && descriptor.revents & libc::POLLIN != 0)
+}
+
 /// Pure terminal state machine. A negotiation prefix has its own 150ms
 /// deadline; callers retain the ordinary stdin parser's 10ms flush timeout.
 #[derive(Debug)]
@@ -360,12 +404,13 @@ pub struct ProcessTerminal<W: Write = io::Stdout> {
 }
 impl ProcessTerminal<io::Stdout> {
     pub fn stdout(columns: Option<u16>, rows: Option<u16>) -> Self {
-        let live = crossterm::terminal::size().ok();
-        let environment = environment_dimensions();
+        // Live and environment resolution has one implementation; this call
+        // only keeps an explicit override ahead of it.
+        let live = live_terminal_dimensions();
         let dimensions = resolve_terminal_dimensions(
             (columns, rows),
-            (live.map(|size| size.0), live.map(|size| size.1)),
-            (environment.0.as_deref(), environment.1.as_deref()),
+            (Some(live.0), Some(live.1)),
+            (None, None),
         );
         Self::new(io::stdout(), Some(dimensions.0), Some(dimensions.1))
     }

@@ -22,7 +22,23 @@ roots.register({
     local kind = snapshot.event.kind
 
     if kind == "startup" then
-      forward(roots.dispatch("frontend", { kind = "startup" }))
+      -- The launcher measures the terminal before the first dispatch and
+      -- passes it in the context; later changes arrive as `resize` events.
+      local terminal = type(snapshot.context) == "table" and snapshot.context.terminal or nil
+      forward(roots.dispatch("frontend", {
+        kind = "startup",
+        columns = type(terminal) == "table" and terminal.columns or nil,
+        rows = type(terminal) == "table" and terminal.rows or nil,
+      }))
+      return
+    end
+
+    if kind == "resize" then
+      forward(roots.dispatch("frontend", {
+        kind = "resize",
+        columns = snapshot.event.columns,
+        rows = snapshot.event.rows,
+      }))
       return
     end
 

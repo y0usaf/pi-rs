@@ -343,6 +343,10 @@ fn create_session(options: &Options, manifest: Option<&Path>) -> Result<Session,
         "kind": "startup",
         "arguments": options.arguments,
     });
+    // The terminal size is mechanism, not policy: the launcher measures it
+    // once here so the product's first frame is already the right size, and
+    // the interactive loop reports every later change as a `resize` event.
+    let (columns, rows) = pi_rs_tui::terminal::live_terminal_dimensions();
     let context = serde_json::json!({
         "root": root.to_string_lossy(),
         "manifest": selection.manifest.as_ref().map(|path| path.to_string_lossy()),
@@ -351,6 +355,7 @@ fn create_session(options: &Options, manifest: Option<&Path>) -> Result<Session,
             .map(|path| path.to_string_lossy())
             .collect::<Vec<_>>(),
         "storage": startup,
+        "terminal": { "columns": columns, "rows": rows },
     });
     let startup_batch = host
         .dispatch(DispatchRequest::new(

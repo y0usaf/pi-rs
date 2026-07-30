@@ -1777,6 +1777,61 @@ After 4.4, `/orchestrate` may run **Wave P2** by separate Lua module trees and
 fixture paths. One worker owns the frontend root integration points per wave;
 other workers contribute modules through interfaces already merged.
 
+- [x] **5.0 — Terminal size and resize mechanism** (**serial before Wave P2**;
+  depends on 4.4).
+
+  Rust learns the real terminal size and reports every change; what a frame
+  looks like at a size stays Lua policy. Closes decision (a) of 3.4.
+
+  **Accept:** a launch under a known-size terminal renders at that size on its
+  first frame with no synthetic event; a size change reaches the product with no
+  input typed; a launch with no terminal still starts on the documented 80x24
+  fallback; both are proven through a file-backed package, not a private hook.
+
+  **Landed slice.** One mechanism, two report paths, no new public Lua member.
+
+  1. **Measurement has one implementation.**
+     `pi_rs_tui::terminal::live_terminal_dimensions()` resolves live `ioctl`
+     value, then `COLUMNS`/`LINES`, then 80x24, reusing the pure
+     `resolve_terminal_dimensions` ladder that already existed with no caller
+     for the live half. `ProcessTerminal::stdout` now calls it instead of
+     repeating the resolution.
+  2. **The first frame is already right.** `crates/pi-rs-app/src/launcher.rs`
+     measures once before the startup dispatch and passes
+     `context.terminal = { columns, rows }`. `frontend/application.lua`
+     forwards it on the `startup` event and `frontend/init.lua` adopts it, so
+     80x24 became the fallback rather than the normal path. No repaint flash:
+     the product never paints a wrong size first.
+  3. **Later changes need no keypress.** `crates/pi-rs-app/src/interactive.rs`
+     stopped blocking in `read`. It waits through the new
+     `pi_rs_tui::terminal::stdin_readable(timeout)` — readiness only, no byte
+     consumed, so Lua keeps owning input decoding — re-measures on every wake,
+     and dispatches `{ kind = "resize", columns, rows }` when the size differs.
+     The shipped application root already routed `resize`, so that half needed
+     no Lua change. `SIGWINCH` is deliberately not handled: a 100 ms wake is
+     smaller than the change is perceptible, and one poll site is less code
+     than a signal handler plus a self-pipe.
+  4. **One poll implementation.** `pi-rs-tui`'s `DisplayProcess::run` loop now
+     calls the same `stdin_readable` instead of its own inline `libc::poll`.
+
+  Evidence: `crates/pi-rs-app/tests/interactive_loop.rs` sets the PTY window to
+  100x30 with `TIOCSWINSZ` **before** spawning `pi`, asserts the startup frame
+  says `size: 100x30`, then resizes to 132x40, types nothing, and asserts the
+  frame says `size: 132x40`. The observable is the walking-skeleton example
+  package, so this is a public file-backed capability, not an internal hook.
+  Negative controls run by hand: dropping the `resize` dispatch fails the second
+  assertion with empty output, and renaming the `context.terminal` key fails the
+  first with the pre-change behaviour visible in the message
+  (`pi> size: 80x24` painted 80 cells wide inside a 100-column terminal).
+
+  Checks: `cargo fmt --all -- --check`, `cargo clippy --workspace
+  --all-targets` (pre-existing warnings only; the two in `pi-rs-tui` are in
+  `display.rs`, untouched here), `cargo test --workspace` (418 tests, 0
+  failures), and `nix flake check --print-build-logs` (all checks passed).
+
+  **Remaining:** the loop still cannot notice a resize while a turn settles,
+  because a turn is one dispatch — that is 5.4's, not this item's.
+
 - [ ] **5.1 — Transcript and streaming presentation** (**Wave P2**; depends on
   4.4).
 
@@ -2107,6 +2162,109 @@ other workers contribute modules through interfaces already merged.
   **Accept:** complete canonical interaction journeys pass without hidden mutable
   coupling; replacing or removing the session root requires no frontend fork;
   default and bare/file-backed Nix launch checks remain green.
+
+  **Design decided 2026-07-29 (DESIGN.md, "the host always listens").** A turn
+  is one dispatch today (`crates/pi-rs-app/src/interactive.rs` settles it whole),
+  so nothing is read while it streams. The fix is not a new loop: a dispatch is
+  *already* a Lua coroutine driven as a future
+  (`crates/pi-rs-host/src/vm.rs` `dispatch_function` →
+  `runtime.block_on(Watched { .. })`), so suspension already happens on every
+  awaited host call. What is missing is that nothing else may run during that
+  suspension. Three host globals assume exactly one dispatch exists, and each
+  becomes per-dispatch:
+
+  1. **The active transaction.** `crates/pi-rs-host/src/kernel_api.rs`
+     `begin_transaction`/`finish_transaction` keep it in one Lua registry key
+     plus a LIFO stack (`TRANSACTION_KEY`, `TRANSACTION_STACK_KEY`). LIFO is
+     right for a nested chain and wrong for two concurrent chains, which would
+     pop each other's queue. Key the active transaction by the running
+     coroutine; keep the stack semantics *within* one chain.
+  2. **The nested-dispatch stack.** `crates/pi-rs-host/src/kernel.rs` holds
+     `dispatch_nest_depth: AtomicUsize` and
+     `dispatch_nest_stack: Mutex<Vec<RootKind>>` on `Control`, i.e. process-wide.
+     Two concurrent chains would raise false "recursive nested dispatch"
+     conflicts. Move both into the state carried along one chain.
+  3. **The watchdog.** `crates/pi-rs-host/src/vm.rs` `WatchdogHook::install`
+     calls `lua.set_global_hook` per dispatch and `remove`s it on completion, so
+     a second install would overwrite the first and the first finisher would
+     disarm its neighbour. Install one hook for the VM's life and select the
+     budget state by the running coroutine, so a runaway handler still dies
+     while a suspended neighbour survives.
+
+  Then the two loops:
+
+  4. **VM message loop.** `vm_main` stops `block_on`-ing one dispatch at a time
+     and drives in-flight dispatches on the existing runtime (`LocalSet` or
+     `FuturesUnordered`) while it keeps receiving `Msg`. Each request already
+     carries its own reply `SyncSender`, so completion order needs no new wiring.
+     Cap the in-flight count and refuse past it with a named error.
+  5. **Launcher.** `Host::dispatch` stays blocking for startup and existing
+     tests; add a submit/collect pair so `crates/pi-rs-app/src/interactive.rs`
+     waits on stdin readiness (5.0's `stdin_readable`) *or* a finished dispatch,
+     and presents whichever arrives.
+
+  `crates/pi-rs-builtins/agent/turn.lua` is not rewritten: its blocking
+  `models.stream` loop is exactly what suspends. The steering, follow-up, and
+  queue-block policy already landed and tested in 5.1 becomes reachable by
+  typing, which is the whole point of the item.
+
+  **Evidence this item owes:** two concurrent host dispatches publish only their
+  own actions, in completion order; a runaway handler is killed while a suspended
+  dispatch survives; the in-flight ceiling refuses with a named error; a nested
+  chain still refuses same-kind recursion while a concurrent chain does not see
+  its stack; a PTY journey types during a streaming turn and sees the pending
+  steer row before the turn ends; ctrl-c mid-turn cancels that turn only.
+
+  **Sequenced as:** 5.4a host concurrency plus its host tests (serial, host paths
+  only) → 5.4b launcher select plus PTY/canonical journeys → 5.4c delete
+  `crates/pi-rs-tui/src/process.rs` in its own commit (612 lines of port-era
+  input/render/signal loop with no consumer; the poll it owned is already
+  extracted as `pi_rs_tui::terminal::stdin_readable`, and its
+  `ProcessEvent::{Input, Resize, Tick, Signal}` shape is not what this design
+  picked).
+
+- [ ] **5.5 — Expose the remaining OS effects to Lua** (**Wave P2**; depends on
+  4.4).
+
+  HTTP streaming, clipboard, and crypto have been typed, scope-owned, cancellable
+  effect requests in `crates/pi-rs-host/src/effects/**` since 2.2, and
+  `crates/pi-rs-host/src/bindings/effects.rs` binds none of them: `pi.effects.v1`
+  offers `fs`, `path`, `env`, `process`, `timer`, and `cancellation` only. A
+  package therefore cannot fetch a URL, read the clipboard, or hash bytes except
+  by shelling out through `process.run`, which rules out an MCP client, a web
+  fetch/search tool, or a content-addressed cache written as ordinary Lua. The
+  request type is also `url` plus headers with no method, body, or form, so it
+  cannot serve a real tool as it stands.
+
+  Extend the request type to the method/body surface a tool needs, bind the three
+  effects, and gate network and clipboard reach on the configuration package's
+  existing trust decision rather than a new mechanism.
+
+  **Accept:** a file-backed package fetches a local `127.0.0.1:0` fixture,
+  round-trips the clipboard, and hashes bytes using no private API; each is
+  cancellable and leaves no socket or task after disposal; an untrusted project
+  package is refused network reach with a named diagnostic;
+  `docs/lua-api-reference.md` regenerates with the new members.
+
+- [ ] **5.6 — Resolve the headless/non-TTY contract** (**serial after 5.4**;
+  resolution deliberately deferred).
+
+  `DESIGN.md`'s process-composition divergence says non-TTY stdin is "a one-shot
+  JSON action dump for inspection, not a headless agent mode". The launcher is
+  more capable than that: `crates/pi-rs-app/src/launcher.rs` settles the whole
+  startup dispatch first, then serializes `actions`/`effects` whenever the batch
+  contains `shutdown` or stdin is not a terminal, and the watchdog bounds only
+  *continuous* Lua execution, so a Lua application root can run a complete agent
+  turn from `context.arguments` and exit with machine-readable output. Contract
+  and mechanism disagree.
+
+  The owner deferred the resolution until 5.4 lands, because 5.4 decides whether
+  a turn is a single dispatch at all. Until then: do not amend `DESIGN.md`, add a
+  CLI flag, or restrict the launcher.
+
+  **Accept:** one recorded decision — supported one-shot runs, a first-class
+  flag, or an enforced refusal — lands in `DESIGN.md` with its reason, plus one
+  test pinning the chosen behaviour.
 
 ## 6 — Complete provider and authentication parity
 

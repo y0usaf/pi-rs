@@ -368,10 +368,16 @@ fn fixture_stream(
 
 fn agent_package_files() -> Vec<std::path::PathBuf> {
     let agent = pi_rs_builtins::package_root().join("agent");
-    ["queue.lua", "tools.lua", "turn.lua", "init.lua"]
-        .into_iter()
-        .map(|file| agent.join(file))
-        .collect()
+    [
+        "queue.lua",
+        "tools.lua",
+        "credentials.lua",
+        "turn.lua",
+        "init.lua",
+    ]
+    .into_iter()
+    .map(|file| agent.join(file))
+    .collect()
 }
 
 const TOOL_PACKAGE: &str = r#"

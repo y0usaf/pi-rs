@@ -465,7 +465,13 @@ fn shipped_agent_turn_is_persisted() {
     .unwrap();
     let root = pi_rs_builtins::package_root();
     let mut files = package_files();
-    for file in ["queue.lua", "tools.lua", "turn.lua", "init.lua"] {
+    for file in [
+        "queue.lua",
+        "tools.lua",
+        "credentials.lua",
+        "turn.lua",
+        "init.lua",
+    ] {
         files.push(root.join("agent").join(file));
     }
     for path in files {

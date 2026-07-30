@@ -3,7 +3,8 @@
 //! PTY-driven acceptance test for the interactive product loop.
 //!
 //! Spawns `pi` behind a real pseudo-terminal, types input, and verifies the
-//! loop renders ANSI frames, executes bounded effects, diagnoses a missing
+//! loop renders ANSI frames at the measured terminal size, reports a size
+//! change with no input typed, executes bounded effects, diagnoses a missing
 //! model, streams a deterministic fixture provider incrementally, cancels
 //! in-flight work, and exits on a shutdown action.
 
@@ -32,6 +33,20 @@ fn open_pty() -> Pty {
             slave: std::fs::File::from_raw_fd(slave_fd),
         }
     }
+}
+
+/// Set the window size of a PTY, which is what a terminal emulator does when
+/// its window changes. The kernel then reports it through `ioctl` to every
+/// process holding the other end.
+fn set_window_size(pty: &Pty, columns: u16, rows: u16) {
+    let size = libc::winsize {
+        ws_row: rows,
+        ws_col: columns,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    let result = unsafe { libc::ioctl(pty.master.as_raw_fd(), libc::TIOCSWINSZ, &size) };
+    assert_eq!(result, 0, "TIOCSWINSZ failed");
 }
 
 fn read_available(master: &mut std::fs::File, timeout: Duration) -> String {
@@ -170,6 +185,9 @@ fn pty_loop_renders_input_frames_and_exits_on_shutdown() {
     let mut pty = open_pty();
     let slave_raw: RawFd = pty.slave.as_raw_fd();
 
+    // A terminal emulator's window is a known size before the program starts.
+    set_window_size(&pty, 100, 30);
+
     // Duplicate the slave fd for the child's stdin/stdout. The parent
     // keeps its own copy; the child inherits duplicated descriptors.
     let child_stdin = unsafe { libc::dup(slave_raw) };
@@ -203,6 +221,20 @@ fn pty_loop_renders_input_frames_and_exits_on_shutdown() {
     assert!(
         startup_output.contains("[mw]"),
         "render middleware marker missing from startup frame: {startup_output:?}"
+    );
+    assert!(
+        startup_output.contains("size: 100x30"),
+        "startup frame should adopt the measured terminal size: {startup_output:?}"
+    );
+
+    // Resize the window and type nothing. A size change is an `ioctl` value,
+    // not a byte on stdin, so this fails unless the loop measures the terminal
+    // on its own.
+    set_window_size(&pty, 132, 40);
+    let resize_output = read_available(&mut pty.master, Duration::from_secs(5));
+    assert!(
+        resize_output.contains("size: 132x40"),
+        "resize should reach the product with no input typed: {resize_output:?}"
     );
 
     // Type 'h' — the skeleton should echo it.
