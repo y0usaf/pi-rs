@@ -12,6 +12,7 @@
 		"config/init.lua",
 		"agent/queue.lua",
 		"agent/tools.lua",
+		"agent/credentials.lua",
 		"agent/turn.lua",
 		"agent/init.lua",
 		"tools/paths.lua",

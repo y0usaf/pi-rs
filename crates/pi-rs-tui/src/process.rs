@@ -280,41 +280,39 @@ impl DisplayProcess {
 
             while !exit_requested {
                 let mut events = Vec::new();
-                let mut pfd = libc::pollfd {
-                    fd: stdin_fd,
-                    events: libc::POLLIN,
-                    revents: 0,
-                };
-                let polled = unsafe { libc::poll(&mut pfd, 1, 0) };
-                if polled < 0 {
-                    let error = io::Error::last_os_error();
-                    if error.kind() != io::ErrorKind::Interrupted {
+                match crate::terminal::stdin_readable(Some(Duration::ZERO)) {
+                    Err(error) if error.kind() != io::ErrorKind::Interrupted => {
                         return Err(ProcessError::Terminal(TerminalError::Io(error)));
                     }
-                } else if polled > 0 && pfd.revents & libc::POLLIN != 0 {
-                    let mut bytes = [0_u8; 4096];
-                    let count = unsafe {
-                        libc::read(
-                            stdin_fd,
-                            bytes.as_mut_ptr().cast::<libc::c_void>(),
-                            bytes.len(),
-                        )
-                    };
-                    if count > 0 {
+                    Err(_) => {}
+                    Ok(true) => {
+                        let mut bytes = [0_u8; 4096];
+                        // SAFETY: a fixed-size buffer and its own length are
+                        // passed to a descriptor this loop owns.
+                        let count = unsafe {
+                            libc::read(
+                                stdin_fd,
+                                bytes.as_mut_ptr().cast::<libc::c_void>(),
+                                bytes.len(),
+                            )
+                        };
+                        if count > 0 {
+                            events.extend(
+                                self.terminal
+                                    .try_feed_input(&bytes[..count as usize])?
+                                    .into_iter()
+                                    .map(ProcessEvent::Input),
+                            );
+                        }
+                    }
+                    Ok(false) => {
                         events.extend(
                             self.terminal
-                                .try_feed_input(&bytes[..count as usize])?
+                                .try_flush_input()?
                                 .into_iter()
                                 .map(ProcessEvent::Input),
                         );
                     }
-                } else {
-                    events.extend(
-                        self.terminal
-                            .try_flush_input()?
-                            .into_iter()
-                            .map(ProcessEvent::Input),
-                    );
                 }
 
                 if self.terminal.keyboard_negotiation_pending() {

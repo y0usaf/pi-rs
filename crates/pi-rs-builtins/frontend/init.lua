@@ -319,6 +319,10 @@ roots.register({
 
     if kind == "startup" then
       current.chrome:set_status("idle")
+      -- A measured size arrives with startup; 80x24 stays the fallback for a
+      -- launch that has no terminal to measure.
+      current.columns = tonumber(event.columns) or current.columns
+      current.rows = tonumber(event.rows) or current.rows
       -- Startup owns the whole screen: drop any retained presentation so the
       -- first frame is a complete input-ready paint.
       current.display:reset_presentation()

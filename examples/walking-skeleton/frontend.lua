@@ -13,6 +13,10 @@ local terminal = pi.terminal.v1
 -- Display and input buffer survive across dispatches via Lua upvalues.
 local display = nil
 local input = nil
+-- The launcher reports the measured terminal size with startup and every
+-- change; 80x24 is only the fallback for a launch with no terminal.
+local columns = 80
+local rows = 24
 
 local function ensure_display()
   if not display then
@@ -22,16 +26,39 @@ local function ensure_display()
   return display
 end
 
+local function adopt_size(event)
+  local next_columns = tonumber(event.columns)
+  local next_rows = tonumber(event.rows)
+  local changed = false
+  if next_columns and next_columns ~= columns then
+    columns = next_columns
+    changed = true
+  end
+  if next_rows and next_rows ~= rows then
+    rows = next_rows
+    changed = true
+  end
+  if changed then
+    -- A new size invalidates every retained cell.
+    ensure_display():reset_presentation()
+  end
+  return changed
+end
+
+local function size_label()
+  return "size: " .. tostring(columns) .. "x" .. tostring(rows)
+end
+
 local function render_frame(text, ready)
   local d = ensure_display()
   local label = ready and "pi> " .. text or text
   local frame = d:submit({
     version = terminal.display_schema_version,
-    viewport = { columns = 80, rows = 1 },
+    viewport = { columns = columns, rows = 1 },
     root = 1,
     nodes = { {
       id = 1,
-      rect = { x = 0, y = 0, width = 80, height = 1 },
+      rect = { x = 0, y = 0, width = columns, height = 1 },
       content = {
         kind = "text",
         runs = { { text = label } },
@@ -51,7 +78,14 @@ roots.register({
     local kind = snapshot.event.kind
 
     if kind == "startup" then
-      render_frame("", true)
+      adopt_size(snapshot.event)
+      render_frame(size_label(), true)
+      return
+    end
+
+    if kind == "resize" then
+      adopt_size(snapshot.event)
+      render_frame(size_label(), true)
       return
     end
 

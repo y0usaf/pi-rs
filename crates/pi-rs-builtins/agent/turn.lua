@@ -18,10 +18,12 @@ module.define({
   dependencies = {
     queues = { name = "pi.agent.queue", version = "1" },
     tools = { name = "pi.agent.tools", version = "1" },
+    credentials = { name = "pi.agent.credentials", version = "1" },
   },
   factory = function(deps)
     local queues = deps.queues
     local tools = deps.tools
+    local credentials = deps.credentials
 
     local DEFAULT_LIMITS = {
       max_retries = 2,
@@ -31,6 +33,28 @@ module.define({
       max_events = 256,
       queue_limit = 64,
     }
+
+    -- A provider failure that names a credential is settled, not transient.
+    -- Retrying it spends the whole retry budget reprinting one message, which
+    -- is what turned a missing key into three identical rows. The list is
+    -- data so a replacement agent widens it with a row, not a branch.
+    local PERMANENT_ERROR_PATTERNS = {
+      "no api key",
+      "invalid api key",
+      "unauthorized",
+      "authentication",
+      "credential",
+    }
+
+    local function retryable_error(reason)
+      local lowered = string.lower(tostring(reason or ""))
+      for _, pattern in ipairs(PERMANENT_ERROR_PATTERNS) do
+        if string.find(lowered, pattern, 1, true) then
+          return false
+        end
+      end
+      return true
+    end
 
     -- Snapshots are read-only views; copy anything kept across dispatches.
     local function clone(value)
@@ -298,6 +322,19 @@ module.define({
       local model = self.model
       local context = self:context()
       local options = self:stream_options(signal)
+
+      -- The provider request carries its own key. An explicit `apiKey` agent
+      -- option wins so a caller can drive a provider the store never held;
+      -- otherwise the store answers for this model's provider.
+      if options.apiKey == nil then
+        local key, reason = credentials.resolve(model.provider)
+        if reason ~= nil then
+          self.active_signal = nil
+          return { state = "error", retryable = false, reason = reason, tool_calls = {} }
+        end
+        options.apiKey = key
+      end
+
       local ok, result = pcall(function()
         return models.stream(model, context, options, on_event)
       end)
@@ -310,7 +347,7 @@ module.define({
       if not ok then
         return {
           state = "error",
-          retryable = true,
+          retryable = retryable_error(result),
           reason = tostring(result),
           tool_calls = {},
         }
@@ -326,10 +363,11 @@ module.define({
         return { state = "cancelled", tool_calls = {} }
       end
       if stop == "error" then
+        local reason = tostring(message.errorMessage or "provider error")
         return {
           state = "error",
-          retryable = true,
-          reason = tostring(message.errorMessage or "provider error"),
+          retryable = retryable_error(reason),
+          reason = reason,
           tool_calls = {},
         }
       end

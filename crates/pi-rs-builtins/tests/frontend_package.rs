@@ -179,10 +179,16 @@ fn package_files() -> Vec<std::path::PathBuf> {
     let root = pi_rs_builtins::package_root();
     let agent = root.join("agent");
     let frontend = root.join("frontend");
-    let mut files: Vec<std::path::PathBuf> = ["queue.lua", "tools.lua", "turn.lua", "init.lua"]
-        .into_iter()
-        .map(|file| agent.join(file))
-        .collect();
+    let mut files: Vec<std::path::PathBuf> = [
+        "queue.lua",
+        "tools.lua",
+        "credentials.lua",
+        "turn.lua",
+        "init.lua",
+    ]
+    .into_iter()
+    .map(|file| agent.join(file))
+    .collect();
     files.extend(
         [
             "keys.lua",
@@ -543,9 +549,12 @@ fn rejected_credentials_produce_actionable_guidance() {
         screen.contains("provider credentials missing or rejected"),
         "auth guidance absent: {screen}"
     );
+    // A rejected credential is settled, not transient. Retrying it spends the
+    // whole retry budget reprinting one message, so the agent reports it once
+    // and the frontend shows guidance instead of a retry row.
     assert!(
-        screen.contains("retrying"),
-        "bounded retry not reported: {screen}"
+        !screen.contains("retrying"),
+        "a rejected credential was retried: {screen}"
     );
 }
 

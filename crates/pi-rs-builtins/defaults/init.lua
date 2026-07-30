@@ -8,10 +8,12 @@
 -- middleware. A package loaded later may replace this stage (same id, same
 -- kind/phase) or simply configure another model.
 --
--- Credentials are never read here. `pi.models.v1.stream` resolves the
--- provider's supported credential itself, so a correct key is the only thing
--- a live run needs; a missing or rejected one settles as an agent error and
--- the frontend renders its credential guidance.
+-- Credentials are not read here either, but nothing else reads them by
+-- accident: `pi.models.v1.stream` takes the key as a request option and
+-- never resolves one on a caller's behalf. The shipped agent asks
+-- `pi.agent.credentials` for its model's provider before each request; a
+-- missing or rejected key settles as a non-retryable agent error and the
+-- frontend renders its credential guidance.
 --
 -- This package also decides the one thing the shipped tool package leaves
 -- open: which directory the shipped tools treat as the workspace. The

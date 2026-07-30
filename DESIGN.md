@@ -126,6 +126,45 @@ Failed package loads publish nothing. Stale handles fail after root/session
 replacement or reload. Shutdown and reload cancel all work owned by the disposed
 scope.
 
+### Locked 2026-07-29 — the host always listens
+
+A suspended dispatch does not stop the host from accepting the next one. When a
+dispatch awaits host I/O — a provider stream, a subprocess, a timer — it yields
+the VM thread, and a queued dispatch may start or resume in the meantime. This
+is what makes an interactive turn interruptible: typing, resizing, and
+cancelling reach the product while a turn is still streaming, without the agent
+loop being rewritten to ask permission between chunks.
+
+The guarantees that bound it:
+
+- **One coroutine executes at a time.** There is one Lua state on one VM thread,
+  so overlap only ever happens at a suspension point. Lua policy never needs a
+  lock and never observes a partially applied action batch.
+- **Publication stays per dispatch and atomic.** Each dispatch owns its own
+  transaction; its actions and effects publish together, when that dispatch
+  finishes, through the one validation/application path. The observable order is
+  *completion* order, not request order — a short dispatch submitted during a
+  long one publishes first, by design.
+- **The watchdog stays per dispatch.** The budget measures continuous Lua
+  execution of that coroutine. A runaway handler is killed while a suspended
+  neighbour survives untouched.
+- **Concurrency is bounded and named.** In-flight dispatches have a fixed
+  ceiling; the request past it is refused with an explicit error rather than
+  queued without limit. Each in-flight dispatch keeps its own cancellation
+  token, and disposal still cancels every dispatch owned by the disposed scope.
+- **Nesting rules are per chain.** `pi.roots.v1.dispatch` still refuses direct
+  recursion into a root kind already on *its own* chain; two independent chains
+  running concurrently do not see each other's stack.
+
+Rejected alternative: run the long call on a second thread and keep the front
+loop reading. It restores a live screen but cannot deliver input into the
+running turn, which is the only reason to do this work. Deferred alternative:
+make the agent hold no dispatch open at all, receiving each provider event as
+its own dispatch. That is strictly more decomposed, needs a host outbox and a
+state-machine rewrite of the shipped turn, and remains additive on top of this
+decision — it is the route to concurrent sub-agents, not a precondition for
+listening.
+
 ## Public Lua product model
 
 The public surface favors a few stable, broad seams:

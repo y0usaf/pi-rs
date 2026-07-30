@@ -167,6 +167,15 @@ frontend and agent roots through `pi.roots.v1.dispatch`, and republishes **only*
 `ansi` and `shutdown` — the two action kinds Rust interprets. Every other
 action stays inside the Lua roots.
 
+Terminal size arrives as mechanism, never as a guess. The launcher measures the
+terminal before the first dispatch and passes it as
+`snapshot.context.terminal = { columns, rows }`, so the application root
+forwards it on the `startup` event and the first frame is already the right
+size. Afterwards the interactive loop re-measures while it waits for input and
+dispatches `{ kind = "resize", columns, rows }` on any change, so a window drag
+repaints without a key being pressed. 80x24 remains the fallback for a launch
+with no terminal to measure.
+
 One journey: `input` → frontend decodes and renders → `frontend_submit` →
 agent `prompt` → the settled agent batch is handed back to the frontend as one
 `agent` event → each transcript change renders, so assistant text and tool rows
@@ -208,9 +217,9 @@ presentation budgets: a streamed delta repaints only its own row, and a
 
 ## Known gaps
 
-- Terminal size is not yet a public mechanism: the frontend starts at 80×24 and
-  adopts real dimensions from a `resize` event. The launcher gains that event
-  when the size/resize mechanism lands.
+- A size change is noticed by re-measuring while the loop waits for input, so it
+  can lag a window drag by up to 100 ms. `SIGWINCH` is not handled, and the loop
+  cannot notice a change while a turn is settling; PLAN 5.4 owns that.
 - Transcript text wraps at the block width, but no canonical checkpoint records
   a wrapped transcript line, so the wrap points are pi-rs policy rather than a
   matched observation. There are no scrollback commands.
