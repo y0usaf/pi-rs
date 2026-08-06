@@ -6,7 +6,9 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::{fs, path::PathBuf, process::ExitCode};
 
 use pi_rs_host::{Host, HostConfig};
-use pi_rs_tui::ui_harness::{FrameRecorder, FrameSnapshot, first_diff};
+use pi_rs_tui::ui_harness::{
+    CompactOracle, FrameRecorder, FrameSnapshot, first_diff,
+};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -210,6 +212,31 @@ fn main() -> ExitCode {
 
 fn run() -> Result<ExitCode, HarnessError> {
     let mut args = std::env::args_os().skip(1);
+    // `--convert <oracle...>` rewrites each verbose one-object-per-cell oracle
+    // to the compact A.1 format in place (idempotent; the old format still
+    // decodes to the identical cell grid).
+    if args.next().as_deref() == Some(std::ffi::OsStr::new("--convert")) {
+        for path in args {
+            let path = PathBuf::from(path);
+            let frames: Vec<FrameSnapshot> =
+                serde_json::from_str(&read(&path)?).map_err(|source| HarnessError::Json {
+                    path: path.clone(),
+                    source,
+                })?;
+            let encoded = serde_json::to_string_pretty(&CompactOracle::encode(&frames))
+                .map_err(|source| HarnessError::Json {
+                    path: path.clone(),
+                    source,
+                })?;
+            fs::write(&path, format!("{encoded}\n")).map_err(|source| HarnessError::Io {
+                path: path.clone(),
+                source,
+            })?;
+            println!("converted {}", path.display());
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    // The scenario path defaults set here are only used when no --convert.
     let scenario_path = PathBuf::from(
         args.next()
             .unwrap_or_else(|| "tests/ui-parity/basic-turn.json".into()),
@@ -230,12 +257,13 @@ fn run() -> Result<ExitCode, HarnessError> {
                 path: raw_path,
                 source,
             })?;
-        let encoded = serde_json::to_string_pretty(&raw_snapshots(raw)).map_err(|source| {
-            HarnessError::Json {
-                path: oracle_path.clone(),
-                source,
-            }
-        })?;
+        let encoded =
+            serde_json::to_string_pretty(&CompactOracle::encode(&raw_snapshots(raw))).map_err(
+                |source| HarnessError::Json {
+                    path: oracle_path.clone(),
+                    source,
+                },
+            )?;
         fs::write(&oracle_path, format!("{encoded}\n")).map_err(|source| HarnessError::Io {
             path: oracle_path.clone(),
             source,
@@ -249,11 +277,12 @@ fn run() -> Result<ExitCode, HarnessError> {
             path: scenario_path.clone(),
             source,
         })?;
-    let expected: Vec<FrameSnapshot> =
+    let expected_oracle: CompactOracle =
         serde_json::from_str(&read(&oracle_path)?).map_err(|source| HarnessError::Json {
             path: oracle_path.clone(),
             source,
         })?;
+    let expected = expected_oracle.decode();
     // Scenario files land in a fresh temp cwd, mirroring the Pi driver's
     // mkdtemp; renderers only surface the relative paths from the args.
     // Session-UI scenarios (PLAN 6.3) instead pin `fixedCwd` — an absolute
