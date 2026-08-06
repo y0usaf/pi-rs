@@ -71,8 +71,39 @@ crate pi_rs_ai
 │   │   ├── struct BlockMeta: pub(self)
 │   │   ├── struct PreparedRequest: pub(self)
 │   │   └── struct ResolvedCompat: pub(self)
+│   ├── mod azure_openai_responses: pub
+│   │   └── struct AzureOpenAIResponsesOptions: pub
+│   ├── mod bedrock: pub
+│   │   ├── struct BedrockOptions: pub
+│   │   ├── enum BedrockThinkingDisplay: pub
+│   │   ├── enum BedrockToolChoice: pub
+│   │   └── struct StreamBlock: pub(self)
 │   ├── mod cloudflare: pub
 │   ├── mod copilot_headers: pub
+│   ├── mod google: pub
+│   │   ├── struct GoogleOptions: pub
+│   │   ├── struct GoogleThinking: pub
+│   │   ├── enum GoogleThinkingLevel: pub
+│   │   └── enum GoogleToolChoice: pub
+│   ├── mod google_shared: pub(crate)
+│   ├── mod google_vertex: pub
+│   │   ├── struct AdcAccessToken: pub(self)
+│   │   ├── struct AwsCredentials: pub(self)
+│   │   ├── struct ExternalSubjectToken: pub(self)
+│   │   └── struct GoogleVertexOptions: pub
+│   ├── mod mistral: pub
+│   │   ├── struct MistralOptions: pub
+│   │   ├── enum MistralReasoningEffort: pub
+│   │   ├── enum MistralToolChoice: pub
+│   │   └── struct ToolMeta: pub(self)
+│   ├── mod openai_codex_responses: pub
+│   │   ├── struct CachedSocket: pub(self)
+│   │   ├── enum CodexReasoningSummary: pub
+│   │   ├── type CodexWebSocket: pub(self)
+│   │   ├── struct Continuation: pub(self)
+│   │   ├── struct OpenAICodexResponsesOptions: pub
+│   │   ├── struct OpenAICodexWebSocketDebugStats: pub
+│   │   └── enum WebSocketFailure: pub(self)
 │   ├── mod openai_completions: pub
 │   │   ├── struct OpenAICompletionsOptions: pub
 │   │   ├── enum OpenAIToolChoice: pub
@@ -80,6 +111,15 @@ crate pi_rs_ai
 │   │   ├── struct ResolvedCompat: pub(self)
 │   │   └── struct ToolMeta: pub(self)
 │   ├── mod openai_prompt_cache: pub
+│   ├── mod openai_responses: pub
+│   │   ├── struct Compat: pub(self)
+│   │   ├── enum CurrentBlock: pub(self)
+│   │   ├── type HttpSseReader: pub(self)
+│   │   ├── struct OpenAIResponsesOptions: pub
+│   │   ├── struct PreparedRequest: pub(self)
+│   │   ├── enum ReasoningSummary: pub
+│   │   ├── enum ResponsesEventSource: pub(crate)
+│   │   └── enum ResponsesFlavor: pub(crate)
 │   ├── mod options: pub
 │   │   ├── type PayloadHook: pub
 │   │   ├── type ResponseHook: pub
@@ -240,10 +280,15 @@ crate pi_rs_ai_types
 
 crate pi_rs_app
 ├── mod builtins: pub
+│   └── mod manifest: pub
+│       ├── struct BuiltinManifest: pub
+│       ├── struct BuiltinPackage: pub
+│       └── enum ManifestError: pub
 ├── mod cli: pub
 │   ├── mod args: pub
 │   │   ├── struct Args: pub
 │   │   └── struct Diagnostic: pub
+│   ├── mod extensions: pub
 │   ├── mod list_models: pub
 │   │   └── struct Row: pub(self)
 │   ├── mod login: pub
@@ -269,16 +314,20 @@ crate pi_rs_app
 crate pi_rs_host
 ├── struct CommandInfo: pub
 ├── struct EmbeddedPack: pub
+├── struct FlagInfo: pub
 ├── struct Host: pub
 ├── struct HostConfig: pub
 ├── struct LoadError: pub
 ├── struct LoadReport: pub
 ├── struct Outcome: pub
 ├── struct ProviderInfo: pub
+├── struct RoleInfo: pub
 ├── struct ToolInfo: pub
 ├── type ToolUpdateCallback: pub
 ├── mod ai: pub(crate)
 │   ├── struct LuaAbortSignal: pub(crate)
+│   ├── struct ProviderHookCallbacks: pub(self)
+│   ├── enum ProviderHookRequest: pub(self)
 │   └── type SharedRegistry: pub(self)
 ├── mod api: pub(crate)
 │   ├── struct LuaAutocompleteProvider: pub(self)
@@ -297,7 +346,8 @@ crate pi_rs_host
 │   ├── struct LuaText: pub(self)
 │   ├── struct LuaTruncatedText: pub(self)
 │   ├── struct LuaTui: pub(self)
-│   └── struct ResolvedCommand: pub(crate)
+│   ├── struct ResolvedCommand: pub(crate)
+│   └── struct ResolvedRole: pub(crate)
 ├── mod auth: pub(crate)
 │   ├── struct CancelState: pub(self)
 │   ├── struct ChannelCallbacks: pub(self)
@@ -314,6 +364,9 @@ crate pi_rs_host
 ├── mod clipboard: pub(crate)
 │   ├── struct ClipboardImage: pub(crate)
 │   └── type Env: pub(self)
+├── mod config: pub
+│   ├── struct ConfigSnapshot: pub
+│   └── struct ResourceSelector: pub
 ├── mod convert: pub(crate)
 ├── mod discover: pub
 ├── mod error: pub(crate)
@@ -346,6 +399,7 @@ crate pi_rs_host
 │       ├── struct Frame: pub(crate)
 │       ├── struct Inner: pub(crate)
 │       └── struct Run: pub(self)
+├── mod http: pub(crate)
 ├── mod image: pub
 │   ├── struct EncodedCandidate: pub(self)
 │   ├── struct ImageResizeOptions: pub
@@ -486,6 +540,10 @@ crate pi_rs_tui
 │   ├── struct MarkdownTheme: pub
 │   └── type StyleFn: pub
 ├── mod process: pub
+│   ├── struct ContinueSignal: pub(self) #[cfg(unix)]
+│   ├── struct IgnoredSignal: pub(self) #[cfg(unix)]
+│   ├── struct InheritedProcessAction: pub
+│   ├── struct InheritedProcessResult: pub
 │   ├── struct ProcessControl: pub
 │   ├── enum ProcessError: pub
 │   ├── enum ProcessEvent: pub
