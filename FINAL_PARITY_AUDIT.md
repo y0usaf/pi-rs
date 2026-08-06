@@ -55,7 +55,7 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | `tui.extension-composition` | `open` | PLAN 9.5 | 2 | Overlay/custom-component composition and public rendering middleware remain open even though the default terminal renderer is proven. Evidence: `PLAN.md`. |
 | `tui.platform-modifiers` | `open` | PLAN 11 | 2 | Pi uses native macOS/Windows modifier polling to recover Shift+Tab and Ctrl+Space when terminals lose modifier state; pi-rs has no equivalent platform fixture/mechanism yet. Evidence: `DESIGN.md`. |
 | `tui.mechanisms` | `parity` | closed | 23 | Editor/autocomplete/input/component/image/cell behavior is pinned by focused TUI ports and the complete interactive frame suite. Evidence: `crates/pi-rs-tui/src/ui_harness.rs`, `crates/pi-rs-tui/src/editor.rs`, `tests/ui-parity/editor-turn.pi.json`. |
-| `coding.assembly` | `open` | PLAN 9.1b | 3 | The Rust launcher still names product roles and composition instead of selecting generic public declarations from a builtins manifest. Evidence: `PLAN.md`. |
+| `coding.assembly` | `open` | PLAN 11 | 3 | Generic role assembly is implemented (zero-pack boot, per-package suppression, file-backed replacement per construction-inventory implemented rows); the final side-by-side CLI differential remains the PLAN 11 gate. Evidence: `PLAN.md`. |
 | `coding.noninteractive` | `open` | PLAN 10 | 11 | Print, JSON/RPC, complete argument/file-input behavior, and serialized stdout/stderr/exit contracts remain prerequisites. Evidence: `PLAN.md`. |
 | `coding.extension-context` | `open` | PLAN 9.2 | 3 | Complete contexts in every mode plus session actions, cancellation, rebinding, and command-only restrictions remain open. Evidence: `PLAN.md`. |
 | `coding.extension-events` | `open` | PLAN 9.3 | 4 | The complete event vocabulary, fold/middleware semantics, and lifecycle ordering are not yet emitted at every real product seam. Evidence: `PLAN.md`. |
@@ -65,9 +65,9 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | `coding.resources-packages` | `open` | PLAN 9.7 | 9 | Resource discovery, Lua modules, prompt/skill/theme provenance, package transport, and pi config remain open. Evidence: `PLAN.md`. |
 | `coding.public-assembly` | `open` | PLAN 9.10 | 2 | The coding-agent barrel still exposes policy implemented through monolithic/private composition; decomposition, ablation, and replacement must close before its public capability map can be accepted. Evidence: `PLAN.md`. |
 | `coding.highlight-catalog` | `open` | PLAN 11 | 1 | The checked highlight mechanism has 41 of Pi highlight.js’s 191 registered grammars; unknown reachable fence tags still fall back differently. Evidence: `DESIGN.md`. |
-| `coding.platform-clipboard` | `open` | PLAN 11 | 1 | Pi can use its optional native clipboard addon on macOS/Windows/X11; pi-rs currently only matches Pi’s addon-unavailable fallback. Evidence: `PLAN.md`. |
+| `coding.platform-clipboard` | `open` | PLAN 11 | 1 | Pi can use its optional native clipboard addon on macOS/Windows/X11; pi-rs currently only matches Pi’s addon-unavailable fallback. Evidence: `DESIGN.md`. |
 | `coding.footer-git` | `open` | PLAN 11 | 2 | The default footer lacks Pi’s live git-branch discovery/watcher and extension-status data provider; frame fixtures currently inject deterministic footer data. Evidence: `crates/pi-rs-app/src/builtins/interactive/PARITY.md`. |
-| `coding.platform-update` | `open` | PLAN 11 | 2 | Windows self-update and sandbox/Bun environment restoration have no equivalent platform differential evidence on the current base. Evidence: `PLAN.md`. |
+| `coding.platform-update` | `open` | PLAN 11 | 2 | Windows self-update and sandbox/Bun environment restoration have no equivalent platform differential evidence on the current base. Evidence: `DESIGN.md`. |
 | `coding.tools` | `parity` | closed | 15 | The 65-case Pi tool oracle compares arguments, outputs/details/errors, effects, truncation, cancellation, and images byte-for-byte. Evidence: `tests/tool-parity/oracle.json`, `crates/pi-rs-app/tests/tool_parity.rs`. |
 | `coding.export` | `parity` | closed | 8 | HTML/JSONL transfer uses a Pi-generated exact embedded-payload/full-document oracle plus product command fixtures. Evidence: `tests/export-html-parity/oracle.json`, `crates/pi-rs-app/tests/export_html_parity.rs`. |
 | `coding.sessions-compaction` | `parity` | closed | 9 | Session persistence/resume/tree/branch/compaction and next-request reconstruction have Pi-derived oracles and product replays. Evidence: `tests/session-parity/oracle.json`, `tests/compaction-parity/oracle.json`, `crates/pi-rs-app/tests/interactive_compaction.rs`. |
@@ -119,9 +119,9 @@ Reference rows (2):
 - `packages/tui/src/native-modifiers.ts`
 - `packages/tui/src/terminal.ts`
 
-### PLAN 9.1b — `coding.assembly`
+### PLAN 11 — `coding.assembly`
 
-The Rust launcher still names product roles and composition instead of selecting generic public declarations from a builtins manifest.
+Generic role assembly is implemented (zero-pack boot, per-package suppression, file-backed replacement per construction-inventory implemented rows); the final side-by-side CLI differential remains the PLAN 11 gate.
 
 Reference rows (3):
 
