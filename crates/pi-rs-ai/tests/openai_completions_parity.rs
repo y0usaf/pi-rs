@@ -116,7 +116,7 @@ fn normalize_request(raw: &str) -> Value {
         let value = value.trim();
         if !DROP.contains(&name.as_str())
             && !name.starts_with("x-stainless-")
-            && !(name == "user-agent" && !value.starts_with("claude-cli/"))
+            && (name != "user-agent" || value.starts_with("claude-cli/"))
         {
             headers.insert(name, value.to_string());
         }

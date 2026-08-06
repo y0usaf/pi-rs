@@ -404,7 +404,6 @@ async fn run(args: Args) -> ExitCode {
         None,
         SettingsManagerCreateOptions {
             project_trusted: Some(project_trusted),
-            ..Default::default()
         },
     );
 

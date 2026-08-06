@@ -106,6 +106,10 @@ fn serve(scenario: &Value) -> (std::net::SocketAddr, Captured) {
                     let handshake_copy = Arc::clone(&handshake);
                     let Ok(mut websocket) = tokio_tungstenite::accept_hdr_async(
                         socket,
+                        // tungstenite's callback contract fixes the Err as `Response` (a large
+                        // type); the Err variant is never produced here, so the large-result lint
+                        // is a false positive on an externally imposed signature.
+                        #[allow(clippy::result_large_err)]
                         move |request: &Request, response: Response| {
                             let headers =
                                 selected(request.headers().iter().filter_map(|(key, value)| {

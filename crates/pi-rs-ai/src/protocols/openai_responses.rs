@@ -667,13 +667,13 @@ pub(crate) async fn process_responses_events(
                     _ => {}
                 }
             }
-            "response.reasoning_summary_part.added" => {
-                if current_item.get("type").and_then(Value::as_str) == Some("reasoning") {
-                    if let Some(summary) = current_item["summary"].as_array_mut() {
-                        summary.push(event["part"].clone());
-                    } else {
-                        current_item["summary"] = json!([event["part"].clone()]);
-                    }
+            "response.reasoning_summary_part.added"
+                if current_item.get("type").and_then(Value::as_str) == Some("reasoning") =>
+            {
+                if let Some(summary) = current_item["summary"].as_array_mut() {
+                    summary.push(event["part"].clone());
+                } else {
+                    current_item["summary"] = json!([event["part"].clone()]);
                 }
             }
             "response.reasoning_summary_text.delta" => {
@@ -737,19 +737,18 @@ pub(crate) async fn process_responses_events(
                     });
                 }
             }
-            "response.content_part.added" => {
+            "response.content_part.added"
                 if current_item.get("type").and_then(Value::as_str) == Some("message")
                     && matches!(
                         event.pointer("/part/type").and_then(Value::as_str),
                         Some("output_text" | "refusal")
-                    )
-                {
-                    if !current_item.get("content").is_some_and(Value::is_array) {
-                        current_item["content"] = json!([]);
-                    }
-                    if let Some(content) = current_item["content"].as_array_mut() {
-                        content.push(event["part"].clone());
-                    }
+                    ) =>
+            {
+                if !current_item.get("content").is_some_and(Value::is_array) {
+                    current_item["content"] = json!([]);
+                }
+                if let Some(content) = current_item["content"].as_array_mut() {
+                    content.push(event["part"].clone());
                 }
             }
             "response.output_text.delta" | "response.refusal.delta" => {

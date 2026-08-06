@@ -419,17 +419,16 @@ mod tests {
     #[test]
     fn normalizes_only_bare_azure_hosts() {
         assert_eq!(
-            normalize_azure_base_url("https://x.openai.azure.com").unwrap(),
-            "https://x.openai.azure.com/openai/v1"
+            normalize_azure_base_url("https://x.openai.azure.com").ok(),
+            Some("https://x.openai.azure.com/openai/v1".to_string())
         );
         assert_eq!(
-            normalize_azure_base_url("https://x.cognitiveservices.azure.com/openai/?old=1")
-                .unwrap(),
-            "https://x.cognitiveservices.azure.com/openai/v1"
+            normalize_azure_base_url("https://x.cognitiveservices.azure.com/openai/?old=1").ok(),
+            Some("https://x.cognitiveservices.azure.com/openai/v1".to_string())
         );
         assert_eq!(
-            normalize_azure_base_url("https://example.test/custom/").unwrap(),
-            "https://example.test/custom"
+            normalize_azure_base_url("https://example.test/custom/").ok(),
+            Some("https://example.test/custom".to_string())
         );
     }
 }
