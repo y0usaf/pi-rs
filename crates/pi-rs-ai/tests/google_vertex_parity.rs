@@ -488,7 +488,7 @@ async fn run(case: &Value, models: &Value) -> Value {
         "AWS_SECRET_ACCESS_KEY",
         "AWS_SESSION_TOKEN",
     ];
-    let old_aws = aws_names.map(|name| std::env::var_os(name));
+    let old_aws = aws_names.map(std::env::var_os);
     if let Some(kind) = case.get("adc").and_then(Value::as_str) {
         let credentials = match kind {
             "authorized-user" => {

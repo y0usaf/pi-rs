@@ -29,7 +29,6 @@ pub(crate) fn install(
         None,
         SettingsManagerCreateOptions {
             project_trusted: Some(project_trusted),
-            ..Default::default()
         },
     )));
     let table = lua.create_table()?;

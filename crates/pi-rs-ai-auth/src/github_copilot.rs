@@ -65,18 +65,17 @@ pub fn normalize_github_domain(input: &str) -> Option<String> {
 }
 
 pub fn github_copilot_base_url(token: Option<&str>, enterprise_domain: Option<&str>) -> String {
-    if let Some(token) = token {
-        if let Some(proxy_host) = token
+    if let Some(token) = token
+        && let Some(proxy_host) = token
             .split(';')
             .find_map(|part| part.strip_prefix("proxy-ep="))
             .filter(|host| !host.is_empty())
-        {
-            let api_host = proxy_host
-                .strip_prefix("proxy.")
-                .map(|host| format!("api.{host}"))
-                .unwrap_or_else(|| proxy_host.to_owned());
-            return format!("https://{api_host}");
-        }
+    {
+        let api_host = proxy_host
+            .strip_prefix("proxy.")
+            .map(|host| format!("api.{host}"))
+            .unwrap_or_else(|| proxy_host.to_owned());
+        return format!("https://{api_host}");
     }
     enterprise_domain
         .map(|domain| format!("https://copilot-api.{domain}"))
