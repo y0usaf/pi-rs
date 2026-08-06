@@ -243,7 +243,7 @@ claim.
 |---|---|---|
 | 01 extension-first core | follows | Every shipped product feature is an ordinary Lua builtin package using the public surface. Rust contains only mechanisms; zero-pack and replacement tests enforce the split. |
 | 02 snapshot in, actions out | follows | Lua receives immutable snapshots/generation-safe read handles and emits validated queued actions. Every dispatch is watchdog-bounded; async resources are scoped and cancellable. |
-| 03 state-owning daemon, thin client | deferred | The current product is single-process and no live state must outlive its viewer; durable data lives in files. Detachable/multi-viewer sessions would trigger a separate daemon + versioned-wire design, not hidden coupling now. |
+| 03 state-owning daemon, thin client | follows (on the `prime-agent` branch) | The base product remains single-process, but the Prime Agent workstream activates this doctrine: a supervisor (`pi-rs-daemon`) owns live session reducers, their record-store writers, the job scheduler, kernel lifetimes, and attachment cursors, behind a versioned Unix-socket wire. See \"Prime Agent on pi-rs\" (D-P3). The base single-process path remains supported and shares one dispatch engine. |
 | 04 declarative front, idempotent executor | not applicable | pi-rs is not an activation-time system configuration executor. Lua product declarations and atomic reload are runtime extension concerns, not a Nix-to-manifest appliance. |
 | 05 one declaration mechanism | follows | Builtins and users declare each repeated kind through one registry/path; no hand-wired product exception. Singular mechanisms are not forced into registries. |
 | 06 bare core must boot | follows | With no builtins/config/extensions, the kernel can load a file-backed Lua application, accept input, render, run an effect, and exit; missing/broken product packages diagnose usefully. |
@@ -272,3 +272,86 @@ The release gate is `nix flake check` plus release `nix build`/`nix run` on a
 clean checkout. The implementation must also pass zero-pack, per-package,
 whole-root replacement, stale-handle, watchdog, cancellation, cleanup, XDG,
 focused experience, provider/auth, and measured-budget checks described above.
+
+
+## Prime Agent on pi-rs — product pending (this branch)
+
+The goal is to build the **Prime Agent** value layer (the RLM loop, continual
+harness `/refine`, recursive subagents + agent-to-agent messaging, persistent
+Python/REPL tool, daemon-backed continuity, heartbeats/schedules/goals,
+autonomy) on top of this substrate, ported faithfully from Prime Agent (TS),
+which itself is a fork of pi. phi is the predecessor learning project that
+established the doctrine this design already follows: mechanism in Rust,
+product as policy, do not redesign what is already right.
+
+### Locked decisions
+
+- **D-P1 — this is a branch, not a fork, and not a product in pi-rs core.**
+  Work proceeds on the `prime-agent` branch as a development workspace /
+  iteration baseline against pi-rs `main`. The shipped Prime product is a
+  **Lua package overlay** loaded through the same public loader as file-backed
+  user packages (no-privileged-path). Prime-specific policy never enters
+  pi-rs core; a bare-core/ablation job proves it is removable. (`Fork` was
+  proposed in planning and rejected here: because pi-rs is Lua-configured by
+  design, the product is an overlay, so a separate repo buys nothing that a
+  branch + package-overlay does not.)
+- **D-P2 — the Python/IPython bridge (`pi-rs-repl`) is mechanism.** A
+  long-lived Python child per agent scope running a vendored IPython shim over
+  framed JSON-lines on stdio (not Jupyter/ZMQ), with `host_request`
+  mid-execution frames from day one, per-cell watchdog (SIGINT→SIGKILL→
+  respawn), byte-capped streams, snapshot/revive. It is a generic mechanism,
+  Prime-agnostic; it may be upstreamed to pi-rs `main` independently.
+- **D-P3 — the daemon (`pi-rs-daemon`) activates doctrine 03.** The existing
+  doctrine-03 row flips from `deferred` to `follows` for this branch. The
+  supervisor owns: live session reducers + their record-store writers + the
+  job scheduler + kernel subprocess lifetimes + attachment cursors. One
+  dispatch engine shared with the single-process path (in-process vs socket
+  action batches must be identical). Unix socket under `$XDG_STATE_HOME/pi`,
+  framed JSON, one integer `DAEMON_WIRE_VERSION`, versioned/capability-gated
+  like the REPL. It is a generic mechanism and remains upstreamable.
+- **D-P4 — the RLM loop is a replaceable Lua agent root.** Ported faithfully
+  from Prime Agent (TS) — read the TS loop in full first, port control flow
+  1:1; divergence forced by the snapshot/action shape is recorded here with a
+  reason. No redesign until parity is green. Registered through the public
+  `roots.register` seam at priority > 0 (replacing `pi.builtins.agent`, not
+  privileged). Rust never owns agent decisions.
+- **D-P5 — parity strategy per layer.** provider/auth = existing oracle
+  fixtures (untouched, permanently green); Python bridge + RLM loop +
+  subagents = scripted-LM + REPL-trace over a real Python subprocess (seeded
+  from phi's 82 test scenarios); harness/daemon/autonomy/experience =
+  canonical fixtures. Nix is the only verification sentence.
+- **D-P6 — RLM depth control.** Product depth limit = Lua policy counter as
+  explicit configurable snapshot data at spawn admission; the kernel's
+  existing `MAX_NEST_DEPTH = 8` is retained only as the hard mechanism
+  backstop.
+
+### Mechanism / policy placement (Prime delta)
+
+| Prime feature | Placement | Kind |
+|---|---|---|
+| RLM agent loop (turn protocol, tool loop, compaction, prose-stop) | Lua package (`rlm/`) over `roots.register` | policy |
+| Python/REPL bridge | new crate `pi-rs-repl` | mechanism (upstreamable) |
+| Continual harness `/refine`, memories, skills, prompts | Lua package (`harness/`) over `pi.records.v1` | policy |
+| Recursive subagents + messaging | Lua package (`subagents/`) over daemon `spawn_background` + durable-record mailbox | policy (+ small supervisor routing mechanism) |
+| Daemon continuity | new crate `pi-rs-daemon` (activates doctrine 03) | mechanism (upstreamable) |
+| Heartbeats / schedules / goals / autonomy | Lua package (`autonomy/`) over daemon scheduler | policy |
+
+### Reconciliation with pi-rs DESIGN (best of both worlds)
+
+- **Mechanism** (`pi-rs-repl`, `pi-rs-daemon`) is written as generic, reusable,
+  Prime-agnostic crates under the kernel namespace and may be upstreamed; Rust
+  must not know what a memory, heartbeat, or RLM turn is.
+- **Product** (everything else) is a separable Lua package overlay; it is not
+  merged into pi-rs core and is removable by the ablation gates.
+- The branch is a **development topoology**, not the delivery topology. Because
+  the product is packages, syncing with pi-rs `main` is near-trivial.
+- The two new crates are created at their phase (least-code), not as empty
+  skeletons.
+
+### Roadmap phases (reconciled; see `docs/prime-agent-plan.md` for the full gated plan)
+
+P0 DESIGN + CI/bare-core baseline → P1 `pi-rs-repl` (∥ P2 record-store CRUD) →
+P3 RLM loop (faithful Lua) → P4 continual harness → P5 `pi-rs-daemon` →
+P6 subagents + messaging → P7 heartbeats/goals/autonomy → P8 experience +
+performance + release. Each phase has Rust/Lua scope, exact crate/package
+placement, and a runnable `nix` gate documented in the plan doc.
