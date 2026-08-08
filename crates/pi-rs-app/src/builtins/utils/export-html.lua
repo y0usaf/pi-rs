@@ -234,6 +234,32 @@ local function replace_literal(value, marker, replacement)
   return prefix .. table.concat(expanded) .. suffix
 end
 
+local function render_and_write(session_data, theme_data, app_name, session_file, output_path)
+  local encoded = base64_encode(pi.json.encode(session_data, false))
+  local colors = resolved_colors(theme_data)
+  local derived = derived_export_colors(colors.userMessageBg or "#343541")
+  local export = theme_data.export or {}
+  local vars = {}
+  for _, key in ipairs(COLOR_ORDER) do vars[#vars + 1] = "--" .. key .. ": " .. tostring(colors[key]) .. ";" end
+  vars[#vars + 1] = "--exportPageBg: " .. (export.pageBg or derived.pageBg) .. ";"
+  vars[#vars + 1] = "--exportCardBg: " .. (export.cardBg or derived.cardBg) .. ";"
+  vars[#vars + 1] = "--exportInfoBg: " .. (export.infoBg or derived.infoBg) .. ";"
+  local css = replace_literal(EXPORT_TEMPLATE_CSS, "{{THEME_VARS}}", table.concat(vars, "\n      "))
+  css = replace_literal(css, "{{BODY_BG}}", export.pageBg or derived.pageBg)
+  css = replace_literal(css, "{{CONTAINER_BG}}", export.cardBg or derived.cardBg)
+  css = replace_literal(css, "{{INFO_BG}}", export.infoBg or derived.infoBg)
+  local html = replace_literal(EXPORT_TEMPLATE_HTML, "{{CSS}}", css)
+  html = replace_literal(html, "{{JS}}", EXPORT_TEMPLATE_JS)
+  html = replace_literal(html, "{{SESSION_DATA}}", encoded)
+  html = replace_literal(html, "{{MARKED_JS}}", EXPORT_MARKED_JS)
+  html = replace_literal(html, "{{HIGHLIGHT_JS}}", EXPORT_HIGHLIGHT_JS)
+  if not output_path then
+    output_path = app_name .. "-session-" .. pi.path.basename(session_file, ".jsonl") .. ".html"
+  else output_path = pi.path.normalize(output_path) end
+  pi.fs.write_file(output_path, html)
+  return output_path
+end
+
 function export_html.generate(state, output_path)
   local manager, session_file = state.session_manager, state.session_manager:get_session_file()
   if not session_file then error("Cannot export in-memory session to HTML", 0) end
@@ -252,31 +278,39 @@ function export_html.generate(state, output_path)
   session_data.header, session_data.entries, session_data.leafId = manager:get_header(), entries, manager:get_leaf_id()
   session_data.systemPrompt, session_data.tools = agent_state.systemPrompt, tools
   session_data.renderedTools = pre_render_tools(entries, state.theme, state.cwd)
-  local encoded = base64_encode(pi.json.encode(session_data, false))
-  local colors = resolved_colors(state.theme_data)
-  local derived = derived_export_colors(colors.userMessageBg or "#343541")
-  local export = state.theme_data.export or {}
-  local vars = {}
-  for _, key in ipairs(COLOR_ORDER) do vars[#vars + 1] = "--" .. key .. ": " .. tostring(colors[key]) .. ";" end
-  vars[#vars + 1] = "--exportPageBg: " .. (export.pageBg or derived.pageBg) .. ";"
-  vars[#vars + 1] = "--exportCardBg: " .. (export.cardBg or derived.cardBg) .. ";"
-  vars[#vars + 1] = "--exportInfoBg: " .. (export.infoBg or derived.infoBg) .. ";"
-  local css = replace_literal(EXPORT_TEMPLATE_CSS, "{{THEME_VARS}}", table.concat(vars, "\n      "))
-  css = replace_literal(css, "{{BODY_BG}}", export.pageBg or derived.pageBg)
-  css = replace_literal(css, "{{CONTAINER_BG}}", export.cardBg or derived.cardBg)
-  css = replace_literal(css, "{{INFO_BG}}", export.infoBg or derived.infoBg)
-  local html = replace_literal(EXPORT_TEMPLATE_HTML, "{{CSS}}", css)
-  html = replace_literal(html, "{{JS}}", EXPORT_TEMPLATE_JS)
-  html = replace_literal(html, "{{SESSION_DATA}}", encoded)
-  html = replace_literal(html, "{{MARKED_JS}}", EXPORT_MARKED_JS)
-  html = replace_literal(html, "{{HIGHLIGHT_JS}}", EXPORT_HIGHLIGHT_JS)
-
-  if not output_path then
-    output_path = state.app_name .. "-session-" .. pi.path.basename(session_file, ".jsonl") .. ".html"
-  else output_path = pi.path.normalize(output_path) end
-  pi.fs.write_file(output_path, html)
-  return output_path
+  return render_and_write(session_data, state.theme_data, state.app_name, session_file, output_path)
 end
 
-export_html_lib = export_html
+-- Spec: exportFromFile -- standalone session-file export without AgentState.
+-- systemPrompt/tools/renderedTools stay absent from the embedded payload
+-- (JSON.stringify omits undefined), unlike generate()'s explicit null slots.
+function export_html.export_from_file(manager, output_path, theme_data)
+  local session_file = manager:get_session_file()
+  if not session_file then error("Cannot export in-memory session to HTML", 0) end
+  if not pi.fs.exists(session_file) then error("Nothing to export yet - start a conversation first", 0) end
+  local session_data = pi.json.decode('{"header":null,"entries":null,"leafId":null}')
+  session_data.header, session_data.entries, session_data.leafId = manager:get_header(), manager:get_entries(), manager:get_leaf_id()
+  return render_and_write(session_data, theme_data, "pi", session_file, output_path)
+end
+
+-- Public exact-version module: HTML export generation and pre-rendering
+-- policy. The embedded template/vendor resources stay chunk-local; the
+-- policy table is published for file-backed packages through the same
+-- public require path (replaces the former export_html_lib global).
+pi.module.define({
+  name = "pi.utils.export-html",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      generate = export_html.generate,
+      export_from_file = export_html.export_from_file,
+      pre_render_tools = pre_render_tools,
+      ansi_to_html = ansi_to_html,
+      ansi_lines_to_html = ansi_lines_to_html,
+      derived_export_colors = derived_export_colors,
+      base64_encode = base64_encode,
+    }
+  end,
+})
 end

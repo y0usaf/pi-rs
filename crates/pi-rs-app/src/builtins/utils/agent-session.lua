@@ -6,6 +6,7 @@
 -- the chunk argument. The mechanism (JSONL trees, entry shapes, leaf
 -- bookkeeping) is `pi.session.*`; this file decides *what* persists and
 -- what a reopened session restores.
+do
 local pi = ...
 
 -- agent-session.ts _handleAgentEvent — the session-persistence slice:
@@ -140,4 +141,29 @@ local function session_startup_from_request(session, request)
     cliThinking = request.thinkingFromCli and request.thinkingLevel or nil,
     defaultThinkingLevel = pi.settings.default_thinking_level(),
   })
+end
+
+-- Public exact-version module: agent-session persistence and restore policy
+-- shared by the coding-agent and interactive packs. Define-once; later
+-- packs reuse the same value through the public require path.
+if not (function()
+  for _, m in ipairs(pi.module.list()) do
+    if m.name == "pi.utils.agent-session" and m.version == "1" then return true end
+  end
+  return false
+end)() then
+  pi.module.define({
+    name = "pi.utils.agent-session",
+    version = "1",
+    dependencies = {},
+    factory = function()
+      return {
+        persist_agent_event = persist_agent_event,
+        session_startup = session_startup,
+        construct_session = construct_session,
+        session_startup_from_request = session_startup_from_request,
+      }
+    end,
+  })
+end
 end

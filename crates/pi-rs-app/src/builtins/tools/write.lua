@@ -5,6 +5,13 @@
 
 -- JS String.prototype.length: UTF-16 code units of a UTF-8 Lua string
 -- (the spec's success message interpolates content.length).
+do
+local pi = ...
+local prelude = pi.module.require("pi.tools.prelude", "1")
+local path_utils = pi.module.require("pi.tools.path-utils", "1")
+local hints = pi.module.require("pi.tools.keybinding-hints", "1")
+local render = pi.module.require("pi.tools.render", "1")
+local fmq = pi.module.require("pi.tools.file-mutation-queue", "1")
 local function js_string_length(s)
   local units, i, n = 0, 1, #s
   while i <= n do
@@ -18,37 +25,37 @@ end
 
 local function write_raw_path(args)
   if args == nil then return "" end
-  if args.file_path ~= nil then return str(args.file_path) end
-  return str(args.path)
+  if args.file_path ~= nil then return render.str(args.file_path) end
+  return render.str(args.path)
 end
 
 local function format_write_call(args, options, theme, base_cwd)
   local raw_path = write_raw_path(args)
   local file_content = ""
-  if args ~= nil then file_content = str(args.content) end
-  local path_display = render_tool_path(raw_path, theme, base_cwd)
+  if args ~= nil then file_content = render.str(args.content) end
+  local path_display = render.render_tool_path(raw_path, theme, base_cwd)
   local text = theme:fg("toolTitle", theme:bold("write")) .. " " .. path_display
 
   if file_content == nil then
     text = text .. "\n\n" .. theme:fg("error", "[invalid content arg - expected string]")
   elseif file_content ~= "" then
-    local lang = (raw_path ~= nil and raw_path ~= "") and get_language_from_path(raw_path) or nil
+    local lang = (raw_path ~= nil and raw_path ~= "") and render.get_language_from_path(raw_path) or nil
     local rendered_lines = lang
-      and highlight_code(replace_tabs(normalize_display_text(file_content)), lang, theme)
-      or split(normalize_display_text(file_content), "\n")
-    local lines = trim_trailing_empty_lines(rendered_lines)
+      and render.highlight_code(render.replace_tabs(render.normalize_display_text(file_content)), lang, theme)
+      or prelude.split(render.normalize_display_text(file_content), "\n")
+    local lines = render.trim_trailing_empty_lines(rendered_lines)
     local total_lines = #lines
     local max_lines = options.expanded and #lines or 10
     local remaining = #lines - max_lines
     local display = {}
     for i = 1, math.min(max_lines, #lines) do
       local line = lines[i]
-      display[i] = lang and line or theme:fg("toolOutput", replace_tabs(line))
+      display[i] = lang and line or theme:fg("toolOutput", render.replace_tabs(line))
     end
     text = text .. "\n\n" .. table.concat(display, "\n")
     if remaining > 0 then
       text = text .. theme:fg("muted", ("\n... (%d more lines, %d total,"):format(remaining, total_lines))
-        .. " " .. key_hint(theme, "app.tools.expand", "to expand") .. theme:fg("muted", ")")
+        .. " " .. hints.key_hint(theme, "app.tools.expand", "to expand") .. theme:fg("muted", ")")
     end
   end
   return text
@@ -83,9 +90,9 @@ pi.register_tool({
   },
   execute = function(_tool_call_id, params, signal)
     local path, content = params.path, params.content
-    local absolute_path = resolve_to_cwd(path)
+    local absolute_path = path_utils.resolve_to_cwd(path)
     local dir = pi.path.dirname(absolute_path)
-    return with_file_mutation_queue(absolute_path, function()
+    return fmq.with_file_mutation_queue(absolute_path, function()
       if signal and signal:is_aborted() then error("Operation aborted", 0) end
       -- Create parent directories if needed, then write.
       pi.fs.mkdir(dir)
@@ -96,7 +103,7 @@ pi.register_tool({
     end)
   end,
   renderCall = function(args, theme, context)
-    return text_component(
+    return render.text_component(
       format_write_call(args, { expanded = context.expanded, isPartial = context.isPartial }, theme, context.cwd),
       0, 0)
   end,
@@ -105,6 +112,7 @@ pi.register_tool({
     if not output then
       return function() return {} end
     end
-    return text_component(output, 0, 0)
+    return render.text_component(output, 0, 0)
   end,
 })
+end

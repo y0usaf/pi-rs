@@ -7,23 +7,33 @@
 -- the non-resizing branch is not ported.
 
 -- formatReadLineRange: ":start" or ":start-end" in warning color.
+do
+local pi = ...
+local prelude = pi.module.require("pi.tools.prelude", "1")
+local truncate = pi.module.require("pi.tools.truncate", "1")
+local path_utils = pi.module.require("pi.tools.path-utils", "1")
+local mime = pi.module.require("pi.tools.mime", "1")
+local render = pi.module.require("pi.tools.render", "1")
+local hints = pi.module.require("pi.tools.keybinding-hints", "1")
+
+
 local function format_read_line_range(args, theme)
   if args == nil or (args.offset == nil and args.limit == nil) then return "" end
   local start_line = args.offset or 1
   local end_line = args.limit ~= nil and (start_line + args.limit - 1) or nil
   -- JS renders no suffix for a falsy endLine (including 0).
-  local suffix = (end_line ~= nil and end_line ~= 0) and ("-" .. fmt_num(end_line)) or ""
-  return theme:fg("warning", ":" .. fmt_num(start_line) .. suffix)
+  local suffix = (end_line ~= nil and end_line ~= 0) and ("-" .. prelude.fmt_num(end_line)) or ""
+  return theme:fg("warning", ":" .. prelude.fmt_num(start_line) .. suffix)
 end
 
 local function read_raw_path(args)
   if args == nil then return "" end
-  if args.file_path ~= nil then return str(args.file_path) end
-  return str(args.path)
+  if args.file_path ~= nil then return render.str(args.file_path) end
+  return render.str(args.path)
 end
 
 local function format_read_call(args, theme, base_cwd)
-  local path_display = render_tool_path(read_raw_path(args), theme, base_cwd)
+  local path_display = render.render_tool_path(read_raw_path(args), theme, base_cwd)
   return theme:fg("toolTitle", theme:bold("read")) .. " " .. path_display
     .. format_read_line_range(args, theme)
 end
@@ -36,7 +46,7 @@ local COMPACT_RESOURCE_FILE_NAMES = {
 local function get_compact_read_classification(args, base_cwd)
   local raw_path = read_raw_path(args)
   if raw_path == nil or raw_path == "" then return nil end
-  local absolute_path = resolve_to_cwd(raw_path, base_cwd)
+  local absolute_path = path_utils.resolve_to_cwd(raw_path, base_cwd)
   local file_name = pi.path.basename(absolute_path)
   if file_name == "SKILL.md" then
     local label = pi.path.basename(pi.path.dirname(absolute_path))
@@ -44,13 +54,13 @@ local function get_compact_read_classification(args, base_cwd)
     return { kind = "skill", label = label }
   end
   if COMPACT_RESOURCE_FILE_NAMES[file_name] then
-    return { kind = "resource", label = format_path_relative_to_cwd_or_absolute(absolute_path, base_cwd) }
+    return { kind = "resource", label = path_utils.format_path_relative_to_cwd_or_absolute(absolute_path, base_cwd) }
   end
   return nil
 end
 
 local function format_compact_read_call(classification, args, theme)
-  local expand_hint = theme:fg("dim", " (" .. key_text("app.tools.expand") .. " to expand)")
+  local expand_hint = theme:fg("dim", " (" .. hints.key_text("app.tools.expand") .. " to expand)")
   if classification.kind == "skill" then
     return theme:fg("customMessageLabel", "\27[1m[skill]\27[22m ")
       .. theme:fg("customMessageText", classification.label)
@@ -66,35 +76,35 @@ end
 local function format_read_result(args, result, options, theme, show_images, _base_cwd, is_error)
   if not options.expanded and not is_error then return "" end
   local raw_path = read_raw_path(args)
-  local output = get_text_output(result, show_images)
-  local lang = (raw_path ~= nil and raw_path ~= "") and get_language_from_path(raw_path) or nil
-  local rendered_lines = lang and highlight_code(replace_tabs(output), lang, theme) or split(output, "\n")
-  local lines = trim_trailing_empty_lines(rendered_lines)
+  local output = render.get_text_output(result, show_images)
+  local lang = (raw_path ~= nil and raw_path ~= "") and render.get_language_from_path(raw_path) or nil
+  local rendered_lines = lang and render.highlight_code(render.replace_tabs(output), lang, theme) or prelude.split(output, "\n")
+  local lines = render.trim_trailing_empty_lines(rendered_lines)
   local max_lines = options.expanded and #lines or 10
   local remaining = #lines - max_lines
   local display = {}
   for i = 1, math.min(max_lines, #lines) do
     local line = lines[i]
-    display[i] = lang and replace_tabs(line) or theme:fg("toolOutput", replace_tabs(line))
+    display[i] = lang and render.replace_tabs(line) or theme:fg("toolOutput", render.replace_tabs(line))
   end
   local text = "\n" .. table.concat(display, "\n")
   if remaining > 0 then
     text = text .. theme:fg("muted", ("\n... (%d more lines,"):format(remaining))
-      .. " " .. key_hint(theme, "app.tools.expand", "to expand") .. theme:fg("muted", ")")
+      .. " " .. hints.key_hint(theme, "app.tools.expand", "to expand") .. theme:fg("muted", ")")
   end
   local truncation = result.details and result.details.truncation
   if truncation and truncation.truncated then
     if truncation.firstLineExceedsLimit then
       text = text .. "\n" .. theme:fg("warning",
-        ("[First line exceeds %s limit]"):format(format_size(truncation.maxBytes or DEFAULT_MAX_BYTES)))
+        ("[First line exceeds %s limit]"):format(truncate.format_size(truncation.maxBytes or truncate.DEFAULT_MAX_BYTES)))
     elseif truncation.truncatedBy == "lines" then
       text = text .. "\n" .. theme:fg("warning",
         ("[Truncated: showing %d of %d lines (%d line limit)]"):format(
-          truncation.outputLines, truncation.totalLines, truncation.maxLines or DEFAULT_MAX_LINES))
+          truncation.outputLines, truncation.totalLines, truncation.maxLines or truncate.DEFAULT_MAX_LINES))
     else
       text = text .. "\n" .. theme:fg("warning",
         ("[Truncated: %d lines shown (%s limit)]"):format(
-          truncation.outputLines, format_size(truncation.maxBytes or DEFAULT_MAX_BYTES)))
+          truncation.outputLines, truncate.format_size(truncation.maxBytes or truncate.DEFAULT_MAX_BYTES)))
     end
   end
   return text
@@ -105,8 +115,8 @@ local function format_dimension_note(resized)
   if not resized.wasResized then return nil end
   local scale = resized.originalWidth / resized.width
   return ("[Image: original %sx%s, displayed at %sx%s. Multiply coordinates by %s to map to original image.]")
-    :format(fmt_num(resized.originalWidth), fmt_num(resized.originalHeight),
-      fmt_num(resized.width), fmt_num(resized.height), ("%.2f"):format(scale))
+    :format(prelude.fmt_num(resized.originalWidth), prelude.fmt_num(resized.originalHeight),
+      prelude.fmt_num(resized.width), prelude.fmt_num(resized.height), ("%.2f"):format(scale))
 end
 
 -- read.ts getNonVisionImageNote.
@@ -127,7 +137,7 @@ pi.register_tool({
     .. " Images are sent as attachments. For text files, output is truncated to %d lines"
     .. " or %dKB (whichever is hit first). Use offset/limit for large files. When you"
     .. " need the full file, continue with offset until complete."
-  ):format(DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES // 1024),
+  ):format(truncate.DEFAULT_MAX_LINES, truncate.DEFAULT_MAX_BYTES // 1024),
   promptSnippet = "Read file contents",
   promptGuidelines = { "Use read to examine files instead of cat or sed." },
   parameters = {
@@ -142,13 +152,13 @@ pi.register_tool({
   execute = function(_tool_call_id, params, signal, _on_update, ctx)
     if signal and signal:is_aborted() then error("Operation aborted", 0) end
     local path, offset, limit = params.path, params.offset, params.limit
-    local absolute_path = resolve_read_path(path)
+    local absolute_path = path_utils.resolve_read_path(path)
     -- Spec ops.access(R_OK): Node-shaped error so callers can match ENOENT.
     if not pi.fs.exists(absolute_path) then
       error(("ENOENT: no such file or directory, access '%s'"):format(absolute_path), 0)
     end
     local buffer = pi.fs.read_bytes(absolute_path)
-    local mime_type = detect_supported_image_mime_type(buffer:sub(1, IMAGE_TYPE_SNIFF_BYTES))
+    local mime_type = mime.detect_supported_image_mime_type(buffer:sub(1, mime.IMAGE_TYPE_SNIFF_BYTES))
 
     local non_vision_image_note = get_non_vision_image_note(ctx and ctx.model or nil)
     if mime_type then
@@ -173,15 +183,15 @@ pi.register_tool({
       }
     end
 
-    local text_content = utf8_lossy(buffer)
-    local all_lines = split(text_content, "\n")
+    local text_content = prelude.utf8_lossy(buffer)
+    local all_lines = prelude.split(text_content, "\n")
     local total_file_lines = #all_lines
     -- Convert from 1-indexed input to 0-indexed access (spec keeps the
     -- 0-indexed startLine variable; array reads below convert back).
     local start_line = offset and math.max(0, offset - 1) or 0
     local start_line_display = start_line + 1
     if start_line >= total_file_lines then
-      error(("Offset %s is beyond end of file (%d lines total)"):format(fmt_num(offset), total_file_lines), 0)
+      error(("Offset %s is beyond end of file (%d lines total)"):format(prelude.fmt_num(offset), total_file_lines), 0)
     end
 
     local selected_content
@@ -194,19 +204,19 @@ pi.register_tool({
       selected_content = table.concat(all_lines, "\n", start_line + 1, total_file_lines)
     end
 
-    local truncation = truncate_head(selected_content)
+    local truncation = truncate.truncate_head(selected_content)
     local output_text
     local details
     if truncation.firstLineExceedsLimit then
       -- First line alone exceeds the byte limit: point at a bash fallback.
-      local first_line_size = format_size(#all_lines[start_line + 1])
+      local first_line_size = truncate.format_size(#all_lines[start_line + 1])
       output_text = ("[Line %d is %s, exceeds %s limit. Use bash: sed -n '%dp' %s | head -c %d]"):format(
         start_line_display,
         first_line_size,
-        format_size(DEFAULT_MAX_BYTES),
+        truncate.format_size(truncate.DEFAULT_MAX_BYTES),
         start_line_display,
         path,
-        DEFAULT_MAX_BYTES
+        truncate.DEFAULT_MAX_BYTES
       )
       details = { truncation = truncation }
     elseif truncation.truncated then
@@ -228,7 +238,7 @@ pi.register_tool({
             start_line_display,
             end_line_display,
             total_file_lines,
-            format_size(DEFAULT_MAX_BYTES),
+            truncate.format_size(truncate.DEFAULT_MAX_BYTES),
             next_offset
           )
       end
@@ -252,11 +262,12 @@ pi.register_tool({
     local classification = (not context.expanded) and get_compact_read_classification(args, context.cwd) or nil
     local text = classification and format_compact_read_call(classification, args, theme)
       or format_read_call(args, theme, context.cwd)
-    return text_component(text, 0, 0)
+    return render.text_component(text, 0, 0)
   end,
   renderResult = function(result, options, theme, context)
-    return text_component(
+    return render.text_component(
       format_read_result(context.args, result, options, theme, context.showImages, context.cwd, context.isError),
       0, 0)
   end,
 })
+end

@@ -4,6 +4,8 @@
 -- `src/builtins/mod.rs`, one fragment per spec module, so parity audits
 -- stay file-shaped. This prelude holds the chunk arguments and the JS
 -- string helpers the ports share.
+do
+local pi = ...
 local pi = ...
 
 -- The loader-injected working directory (spec: the `cwd` argument of the
@@ -77,4 +79,21 @@ local function utf8_lossy(s)
     end
   end
   return table.concat(out)
+end
+
+-- Public exact-version module: builtin and file-backed packages import the
+-- same closures. No _G export or load-order-only global remains.
+pi.module.define({
+  name = "pi.tools.prelude",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      split = split,
+      fmt_num = fmt_num,
+      utf8_lossy = utf8_lossy,
+      cwd = cwd,
+    }
+  end,
+})
 end

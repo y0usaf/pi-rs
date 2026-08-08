@@ -1,10 +1,18 @@
 -- edit.ts -- exact/fuzzy single-file replacement through the public API.
 -- Abort: spec checks signal.aborted inside the mutation queue (never an
 -- abort listener, so the queue stays locked until the op settles).
+do
+local pi = ...
+local prelude = pi.module.require("pi.tools.prelude", "1")
+local path_utils = pi.module.require("pi.tools.path-utils", "1")
+local render = pi.module.require("pi.tools.render", "1")
+local diff_mod = pi.module.require("pi.tools.diff", "1")
+local edit_diff = pi.module.require("pi.tools.edit-diff", "1")
+local fmq = pi.module.require("pi.tools.file-mutation-queue", "1")
 local function edit_raw_path(args)
   if args == nil then return "" end
-  if args.file_path ~= nil then return str(args.file_path) end
-  return str(args.path)
+  if args.file_path ~= nil then return render.str(args.file_path) end
+  return render.str(args.path)
 end
 
 -- getRenderablePreviewInput: a path plus a well-formed edits array (or
@@ -32,7 +40,7 @@ local function get_renderable_preview_input(args)
 end
 
 local function format_edit_call(args, theme, base_cwd)
-  local path_display = render_tool_path(edit_raw_path(args), theme, base_cwd)
+  local path_display = render.render_tool_path(edit_raw_path(args), theme, base_cwd)
   return theme:fg("toolTitle", theme:bold("edit")) .. " " .. path_display
 end
 
@@ -51,7 +59,7 @@ local function format_edit_result(args, preview, result, theme, is_error)
   end
   local result_diff = result.details and result.details.diff
   if result_diff and result_diff ~= preview_diff then
-    return render_diff(result_diff, theme, { filePath = raw_path })
+    return diff_mod.render_diff(result_diff, theme, { filePath = raw_path })
   end
   return nil
 end
@@ -75,15 +83,15 @@ end
 -- reflected without an explicit rebuild.
 local function build_edit_call_component(state, args, theme, base_cwd)
   return function(width)
-    local children = { text_component(format_edit_call(args, theme, base_cwd), 0, 0) }
+    local children = { render.text_component(format_edit_call(args, theme, base_cwd), 0, 0) }
     if state.preview then
       local body = state.preview.error ~= nil and theme:fg("error", state.preview.error)
-        or render_diff(state.preview.diff, theme)
-      children[#children + 1] = spacer_component(1)
-      children[#children + 1] = text_component(body, 0, 0)
+        or diff_mod.render_diff(state.preview.diff, theme)
+      children[#children + 1] = render.spacer_component(1)
+      children[#children + 1] = render.text_component(body, 0, 0)
     end
     local bg = get_edit_header_bg(state.preview, state.settledError, theme)
-    return box_component(children, 1, 1, bg)(width)
+    return render.box_component(children, 1, 1, bg)(width)
   end
 end
 
@@ -127,20 +135,20 @@ pi.register_tool({
   execute = function(_tool_call_id, params, signal)
     local path, edits = params.path, params.edits
     if type(edits) ~= "table" or #edits == 0 then error("Edit tool input is invalid. edits must contain at least one replacement.", 0) end
-    local absolute_path = resolve_to_cwd(path)
-    return with_file_mutation_queue(absolute_path, function()
+    local absolute_path = path_utils.resolve_to_cwd(path)
+    return fmq.with_file_mutation_queue(absolute_path, function()
       if signal and signal:is_aborted() then error("Operation aborted", 0) end
       if not pi.fs.exists(absolute_path) then error("Could not edit file: " .. path .. ". Error code: ENOENT.", 0) end
-      local raw = utf8_lossy(pi.fs.read_bytes(absolute_path))
+      local raw = prelude.utf8_lossy(pi.fs.read_bytes(absolute_path))
       local bom = ""
       if raw:sub(1, 3) == "\239\187\191" then bom, raw = "\239\187\191", raw:sub(4) end
-      local ending = detect_line_ending(raw)
-      local base, changed = apply_edits_to_normalized_content(normalize_to_lf(raw), edits, path)
-      pi.fs.write_file(absolute_path, bom .. restore_line_endings(changed, ending))
-      local diff, first = generate_diff_string(base, changed)
+      local ending = edit_diff.detect_line_ending(raw)
+      local base, changed = edit_diff.apply_edits_to_normalized_content(edit_diff.normalize_to_lf(raw), edits, path)
+      pi.fs.write_file(absolute_path, bom .. edit_diff.restore_line_endings(changed, ending))
+      local diff, first = edit_diff.generate_diff_string(base, changed)
       return {
         content = { { type = "text", text = ("Successfully replaced %d block(s) in %s."):format(#edits, path) } },
-        details = { diff = diff, patch = generate_unified_patch(path, base, changed), firstChangedLine = first },
+        details = { diff = diff, patch = edit_diff.generate_unified_patch(path, base, changed), firstChangedLine = first },
       }
     end)
   end,
@@ -156,7 +164,7 @@ pi.register_tool({
     if context.argsComplete and preview_input and state.preview == nil then
       -- Spec computes the preview asynchronously and invalidates; the Lua
       -- port awaits the same file read inline within the render pass.
-      state.preview = compute_edits_diff(preview_input.path, preview_input.edits, context.cwd)
+      state.preview = edit_diff.compute_edits_diff(preview_input.path, preview_input.edits, context.cwd)
     end
     return build_edit_call_component(state, args, theme, context.cwd)
   end,
@@ -183,3 +191,4 @@ pi.register_tool({
     end
   end,
 })
+end

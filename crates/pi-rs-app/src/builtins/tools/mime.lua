@@ -1,6 +1,8 @@
 -- utils/mime.ts — supported-image MIME detection from file magic (never
 -- from the extension). Offsets stay 0-indexed like the spec; the byte
 -- accessors convert.
+do
+local pi = ...
 local IMAGE_TYPE_SNIFF_BYTES = 4100
 
 local function read_u32_be(buf, offset)
@@ -62,4 +64,19 @@ local function detect_supported_image_mime_type(buf)
     return "image/webp"
   end
   return nil
+end
+
+-- Public exact-version module: builtin and file-backed packages import the
+-- same closures. No _G export or load-order-only global remains.
+pi.module.define({
+  name = "pi.tools.mime",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      detect_supported_image_mime_type = detect_supported_image_mime_type,
+      IMAGE_TYPE_SNIFF_BYTES = IMAGE_TYPE_SNIFF_BYTES,
+    }
+  end,
+})
 end

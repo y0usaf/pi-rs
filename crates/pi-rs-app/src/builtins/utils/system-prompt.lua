@@ -17,6 +17,7 @@
 -- - the loader's --system-prompt/--append-system-prompt resolution
 --   (resolvePromptInput) and skills loading join with PLAN items 7/9;
 --   callers pass customPrompt/appendSystemPrompt/skills through unchanged.
+do
 local pi = ...
 
 local function sp_trim(text)
@@ -270,4 +271,31 @@ local function build_session_system_prompt(args)
     examplesPath = args.examplesPath,
     now = args.now,
   })
+end
+
+-- Public exact-version module: system-prompt composition shared by the
+-- coding-agent and interactive packs. Define-once; later packs reuse the
+-- same value through the public require path.
+if not (function()
+  for _, m in ipairs(pi.module.list()) do
+    if m.name == "pi.utils.system-prompt" and m.version == "1" then return true end
+  end
+  return false
+end)() then
+  pi.module.define({
+    name = "pi.utils.system-prompt",
+    version = "1",
+    dependencies = {},
+    factory = function()
+      return {
+        build_system_prompt = build_system_prompt,
+        load_project_context_files = load_project_context_files,
+        load_context_file_from_dir = load_context_file_from_dir,
+        build_session_system_prompt = build_session_system_prompt,
+        normalize_prompt_snippet = normalize_prompt_snippet,
+        normalize_prompt_guidelines = normalize_prompt_guidelines,
+      }
+    end,
+  })
+end
 end

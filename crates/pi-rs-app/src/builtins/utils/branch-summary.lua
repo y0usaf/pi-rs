@@ -6,6 +6,8 @@
 --
 -- Shared fragment: included after utils/messages.lua and extensions.lua. Its
 -- export is namespaced on the pack-local policy table, never `_G`.
+do
+local pi = ...
 EXTENSION_POLICY.branch_summary = (function(pi, convert_to_llm)
   -- ---- compaction.ts estimateTokens (the entry-token slice) ----
 
@@ -435,4 +437,36 @@ Keep each section concise. Preserve exact file paths, function names, and error 
     iso_ms = iso_ms,
     SUMMARIZATION_SYSTEM_PROMPT = SUMMARIZATION_SYSTEM_PROMPT,
   }
-end)(pi, convert_to_llm)
+end)(pi, pi.module.require("pi.utils.messages", "1").convert_to_llm)
+
+-- Public exact-version module: branch-summary policy shared by the
+-- coding-agent and interactive packs. Define-once; later packs reuse the
+-- same value through the public require path.
+if not (function()
+  for _, m in ipairs(pi.module.list()) do
+    if m.name == "pi.utils.branch-summary" and m.version == "1" then return true end
+  end
+  return false
+end)() then
+  pi.module.define({
+    name = "pi.utils.branch-summary",
+    version = "1",
+    dependencies = {},
+    factory = function()
+      return {
+        collect_entries_for_branch_summary = EXTENSION_POLICY.branch_summary.collect_entries_for_branch_summary,
+        prepare_branch_entries = EXTENSION_POLICY.branch_summary.prepare_branch_entries,
+        generate_branch_summary = EXTENSION_POLICY.branch_summary.generate_branch_summary,
+        serialize_conversation = EXTENSION_POLICY.branch_summary.serialize_conversation,
+        estimate_tokens = EXTENSION_POLICY.branch_summary.estimate_tokens,
+        create_file_ops = EXTENSION_POLICY.branch_summary.create_file_ops,
+        extract_file_ops_from_message = EXTENSION_POLICY.branch_summary.extract_file_ops_from_message,
+        compute_file_lists = EXTENSION_POLICY.branch_summary.compute_file_lists,
+        format_file_operations = EXTENSION_POLICY.branch_summary.format_file_operations,
+        iso_ms = EXTENSION_POLICY.branch_summary.iso_ms,
+        SUMMARIZATION_SYSTEM_PROMPT = EXTENSION_POLICY.branch_summary.SUMMARIZATION_SYSTEM_PROMPT,
+      }
+    end,
+  })
+end
+end

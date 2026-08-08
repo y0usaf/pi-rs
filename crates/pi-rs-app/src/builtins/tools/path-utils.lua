@@ -5,6 +5,11 @@
 -- Divergences noted: the NFD filename variants (macOS stores filenames
 -- decomposed) need a unicode-normalize binding — carried in PLAN.md; the
 -- AM/PM and curly-quote variants are byte-level and ported.
+do
+local pi = ...
+local prelude = pi.module.require("pi.tools.prelude", "1")
+
+
 local NARROW_NO_BREAK_SPACE = "\226\128\175" -- U+202F
 
 -- utils/paths.ts UNICODE_SPACES: [\u00A0\u2000-\u200A\u202F\u205F\u3000]
@@ -48,7 +53,7 @@ end
 -- absolute paths (spec resolveToCwd(path, cwd) — the base defaults to
 -- the loader-injected cwd; render contexts pass their own).
 local function resolve_to_cwd(file_path, base)
-  return pi.path.resolve(base or cwd, normalize_path_input(file_path))
+  return pi.path.resolve(base or prelude.cwd, normalize_path_input(file_path))
 end
 
 -- utils/paths.ts formatPathRelativeToCwdOrAbsolute: cwd-relative display
@@ -93,4 +98,24 @@ local function resolve_read_path(file_path)
     return curly_variant
   end
   return resolved
+end
+
+-- Public exact-version module: builtin and file-backed packages import the
+-- same closures. No _G export or load-order-only global remains.
+pi.module.define({
+  name = "pi.tools.path-utils",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      normalize_unicode_spaces = normalize_unicode_spaces,
+      normalize_path_input = normalize_path_input,
+      resolve_to_cwd = resolve_to_cwd,
+      format_path_relative_to_cwd_or_absolute = format_path_relative_to_cwd_or_absolute,
+      try_macos_screenshot_path = try_macos_screenshot_path,
+      try_curly_quote_variant = try_curly_quote_variant,
+      resolve_read_path = resolve_read_path,
+    }
+  end,
+})
 end

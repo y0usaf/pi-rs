@@ -7,6 +7,8 @@
 --
 -- Shared fragment: included after extensions.lua. Its export is namespaced on
 -- the pack-local policy table, not `_G`.
+do
+local pi = ...
 EXTENSION_POLICY.bash_executor = (function(pi)
   local function strip_ansi(text)
     text = text:gsub("\27%][^\7\27]*\7", "")
@@ -176,3 +178,20 @@ EXTENSION_POLICY.bash_executor = (function(pi)
     execute_bash_with_operations = execute_bash_with_operations,
   }
 end)(pi)
+
+-- Public exact-version module: interactive bash execution and output
+-- persistence policy. Loaded once by the interactive pack; file-backed
+-- packages import the same closures through the public require path.
+pi.module.define({
+  name = "pi.utils.bash-executor",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      get_shell_config = EXTENSION_POLICY.bash_executor.get_shell_config,
+      create_local_bash_operations = EXTENSION_POLICY.bash_executor.create_local_bash_operations,
+      execute_bash_with_operations = EXTENSION_POLICY.bash_executor.execute_bash_with_operations,
+    }
+  end,
+})
+end

@@ -2,33 +2,40 @@
 -- Abort: entry check plus kill-the-child via pi.exec's signal option;
 -- an abort observed after the child settles rejects "Operation aborted"
 -- before any exit-code handling (spec: the close-handler order).
+do
+local pi = ...
+local prelude = pi.module.require("pi.tools.prelude", "1")
+local truncate = pi.module.require("pi.tools.truncate", "1")
+local path_utils = pi.module.require("pi.tools.path-utils", "1")
+local hints = pi.module.require("pi.tools.keybinding-hints", "1")
+local render = pi.module.require("pi.tools.render", "1")
 local GREP_DEFAULT_LIMIT = 100
 
 local function format_grep_call(args, theme)
   local pattern, raw_path, glob, limit
   if args ~= nil then
-    pattern = str(args.pattern)
-    raw_path = str(args.path)
-    glob = str(args.glob)
+    pattern = render.str(args.pattern)
+    raw_path = render.str(args.path)
+    glob = render.str(args.glob)
     limit = args.limit
   else
     pattern, raw_path, glob = "", "", ""
   end
-  local display_path = raw_path ~= nil and shorten_path(raw_path ~= "" and raw_path or ".") or nil
-  local invalid_arg = invalid_arg_text(theme)
+  local display_path = raw_path ~= nil and render.shorten_path(raw_path ~= "" and raw_path or ".") or nil
+  local invalid_arg = render.invalid_arg_text(theme)
   local text = theme:fg("toolTitle", theme:bold("grep")) .. " "
     .. (pattern == nil and invalid_arg or theme:fg("accent", "/" .. pattern .. "/"))
     .. theme:fg("toolOutput", " in " .. (display_path == nil and invalid_arg or display_path))
   if glob ~= nil and glob ~= "" then text = text .. theme:fg("toolOutput", " (" .. glob .. ")") end
-  if limit ~= nil then text = text .. theme:fg("toolOutput", " limit " .. fmt_num(limit)) end
+  if limit ~= nil then text = text .. theme:fg("toolOutput", " limit " .. prelude.fmt_num(limit)) end
   return text
 end
 
 local function format_grep_result(result, options, theme, show_images)
-  local output = js_trim(get_text_output(result, show_images))
+  local output = render.js_trim(render.get_text_output(result, show_images))
   local text = ""
   if output ~= "" then
-    local lines = split(output, "\n")
+    local lines = prelude.split(output, "\n")
     local max_lines = options.expanded and #lines or 15
     local remaining = #lines - max_lines
     local display = {}
@@ -38,7 +45,7 @@ local function format_grep_result(result, options, theme, show_images)
     text = text .. "\n" .. table.concat(display, "\n")
     if remaining > 0 then
       text = text .. theme:fg("muted", ("\n... (%d more lines,"):format(remaining))
-        .. " " .. key_hint(theme, "app.tools.expand", "to expand") .. theme:fg("muted", ")")
+        .. " " .. hints.key_hint(theme, "app.tools.expand", "to expand") .. theme:fg("muted", ")")
     end
   end
 
@@ -47,9 +54,9 @@ local function format_grep_result(result, options, theme, show_images)
   local lines_truncated = result.details and result.details.linesTruncated
   if match_limit or (truncation and truncation.truncated) or lines_truncated then
     local warnings = {}
-    if match_limit then warnings[#warnings + 1] = fmt_num(match_limit) .. " matches limit" end
+    if match_limit then warnings[#warnings + 1] = prelude.fmt_num(match_limit) .. " matches limit" end
     if truncation and truncation.truncated then
-      warnings[#warnings + 1] = format_size(truncation.maxBytes or DEFAULT_MAX_BYTES) .. " limit"
+      warnings[#warnings + 1] = truncate.format_size(truncation.maxBytes or truncate.DEFAULT_MAX_BYTES) .. " limit"
     end
     if lines_truncated then warnings[#warnings + 1] = "some lines truncated" end
     text = text .. "\n" .. theme:fg("warning", "[Truncated: " .. table.concat(warnings, ", ") .. "]")
@@ -93,7 +100,7 @@ pi.register_tool({
   },
   execute = function(_tool_call_id, params, signal)
     if signal and signal:is_aborted() then error("Operation aborted", 0) end
-    local search_path = resolve_to_cwd((params.path ~= nil and params.path ~= "") and params.path or ".")
+    local search_path = path_utils.resolve_to_cwd((params.path ~= nil and params.path ~= "") and params.path or ".")
     local ok_stat, stat = pcall(pi.fs.stat, search_path)
     if not ok_stat then error("Path not found: " .. search_path, 0) end
     local is_directory = stat.type == "dir"
@@ -117,7 +124,7 @@ pi.register_tool({
     end
 
     local matches = {}
-    for _, line in ipairs(split(result.stdout or "", "\n")) do
+    for _, line in ipairs(prelude.split(result.stdout or "", "\n")) do
       if line ~= "" and #matches < effective_limit then
         local ok, event = pcall(pi.json.decode, line)
         if ok and event.type == "match" and event.data and event.data.path then
@@ -138,7 +145,7 @@ pi.register_tool({
     local output_lines, lines_truncated, file_cache = {}, false, {}
     local function append_line(prefix, text)
       local sanitized = (text or ""):gsub("\r", "")
-      local truncated = truncate_line(sanitized)
+      local truncated = truncate.truncate_line(sanitized)
       if truncated.wasTruncated then lines_truncated = true end
       output_lines[#output_lines + 1] = prefix .. truncated.text
     end
@@ -153,7 +160,7 @@ pi.register_tool({
           local ok, content = pcall(pi.fs.read_file, match.path)
           if ok then
             content = content:gsub("\r\n", "\n"):gsub("\r", "\n")
-            lines = split(content, "\n")
+            lines = prelude.split(content, "\n")
           else
             lines = false
           end
@@ -172,7 +179,7 @@ pi.register_tool({
       end
     end
 
-    local truncation = truncate_head(table.concat(output_lines, "\n"), { maxLines = MAX_SAFE_INTEGER })
+    local truncation = truncate.truncate_head(table.concat(output_lines, "\n"), { maxLines = MAX_SAFE_INTEGER })
     local output, details, notices = truncation.content, {}, {}
     local limit_reached = #matches >= effective_limit
     if limit_reached then
@@ -180,20 +187,21 @@ pi.register_tool({
       details.matchLimitReached = effective_limit
     end
     if truncation.truncated then
-      notices[#notices + 1] = format_size(DEFAULT_MAX_BYTES) .. " limit reached"
+      notices[#notices + 1] = truncate.format_size(truncate.DEFAULT_MAX_BYTES) .. " limit reached"
       details.truncation = truncation
     end
     if lines_truncated then
-      notices[#notices + 1] = ("Some lines truncated to %d chars. Use read tool to see full lines"):format(GREP_MAX_LINE_LENGTH)
+      notices[#notices + 1] = ("Some lines truncated to %d chars. Use read tool to see full lines"):format(truncate.GREP_MAX_LINE_LENGTH)
       details.linesTruncated = true
     end
     if #notices > 0 then output = output .. "\n\n[" .. table.concat(notices, ". ") .. "]" end
     return { content = { { type = "text", text = output } }, details = next(details) and details or nil }
   end,
   renderCall = function(args, theme, _context)
-    return text_component(format_grep_call(args, theme), 0, 0)
+    return render.text_component(format_grep_call(args, theme), 0, 0)
   end,
   renderResult = function(result, options, theme, context)
-    return text_component(format_grep_result(result, options, theme, context.showImages), 0, 0)
+    return render.text_component(format_grep_result(result, options, theme, context.showImages), 0, 0)
   end,
 })
+end

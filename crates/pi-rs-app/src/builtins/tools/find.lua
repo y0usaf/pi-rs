@@ -2,33 +2,40 @@
 -- Abort: entry check, a post-ensureTool check, kill-the-child via
 -- pi.exec's signal option, and a close-time check ahead of exit-code
 -- handling (spec: the settle order in execute).
+do
+local pi = ...
+local prelude = pi.module.require("pi.tools.prelude", "1")
+local truncate = pi.module.require("pi.tools.truncate", "1")
+local path_utils = pi.module.require("pi.tools.path-utils", "1")
+local hints = pi.module.require("pi.tools.keybinding-hints", "1")
+local render = pi.module.require("pi.tools.render", "1")
 local FIND_DEFAULT_LIMIT = 1000
 
 local function format_find_call(args, theme)
   local pattern, raw_path, limit
   if args ~= nil then
-    pattern = str(args.pattern)
-    raw_path = str(args.path)
+    pattern = render.str(args.pattern)
+    raw_path = render.str(args.path)
     limit = args.limit
   else
     pattern, raw_path = "", ""
   end
-  local display_path = raw_path ~= nil and shorten_path(raw_path ~= "" and raw_path or ".") or nil
-  local invalid_arg = invalid_arg_text(theme)
+  local display_path = raw_path ~= nil and render.shorten_path(raw_path ~= "" and raw_path or ".") or nil
+  local invalid_arg = render.invalid_arg_text(theme)
   local text = theme:fg("toolTitle", theme:bold("find")) .. " "
     .. (pattern == nil and invalid_arg or theme:fg("accent", pattern))
     .. theme:fg("toolOutput", " in " .. (display_path == nil and invalid_arg or display_path))
   if limit ~= nil then
-    text = text .. theme:fg("toolOutput", " (limit " .. fmt_num(limit) .. ")")
+    text = text .. theme:fg("toolOutput", " (limit " .. prelude.fmt_num(limit) .. ")")
   end
   return text
 end
 
 local function format_find_result(result, options, theme, show_images)
-  local output = js_trim(get_text_output(result, show_images))
+  local output = render.js_trim(render.get_text_output(result, show_images))
   local text = ""
   if output ~= "" then
-    local lines = split(output, "\n")
+    local lines = prelude.split(output, "\n")
     local max_lines = options.expanded and #lines or 20
     local remaining = #lines - max_lines
     local display = {}
@@ -38,7 +45,7 @@ local function format_find_result(result, options, theme, show_images)
     text = text .. "\n" .. table.concat(display, "\n")
     if remaining > 0 then
       text = text .. theme:fg("muted", ("\n... (%d more lines,"):format(remaining))
-        .. " " .. key_hint(theme, "app.tools.expand", "to expand") .. theme:fg("muted", ")")
+        .. " " .. hints.key_hint(theme, "app.tools.expand", "to expand") .. theme:fg("muted", ")")
     end
   end
 
@@ -46,9 +53,9 @@ local function format_find_result(result, options, theme, show_images)
   local truncation = result.details and result.details.truncation
   if result_limit or (truncation and truncation.truncated) then
     local warnings = {}
-    if result_limit then warnings[#warnings + 1] = fmt_num(result_limit) .. " results limit" end
+    if result_limit then warnings[#warnings + 1] = prelude.fmt_num(result_limit) .. " results limit" end
     if truncation and truncation.truncated then
-      warnings[#warnings + 1] = format_size(truncation.maxBytes or DEFAULT_MAX_BYTES) .. " limit"
+      warnings[#warnings + 1] = truncate.format_size(truncation.maxBytes or truncate.DEFAULT_MAX_BYTES) .. " limit"
     end
     text = text .. "\n" .. theme:fg("warning", "[Truncated: " .. table.concat(warnings, ", ") .. "]")
   end
@@ -77,7 +84,7 @@ pi.register_tool({
   },
   execute = function(_tool_call_id, params, signal)
     if signal and signal:is_aborted() then error("Operation aborted", 0) end
-    local search_path = resolve_to_cwd((params.path ~= nil and params.path ~= "") and params.path or ".")
+    local search_path = path_utils.resolve_to_cwd((params.path ~= nil and params.path ~= "") and params.path or ".")
     -- Spec: no existence pre-check on the fd path ("Path not found" is
     -- the custom-glob branch only) — a missing path surfaces fd's stderr.
     local effective_limit = params.limit or FIND_DEFAULT_LIMIT
@@ -114,7 +121,7 @@ pi.register_tool({
     end
 
     local paths = {}
-    for _, raw in ipairs(split(stdout, "\n")) do
+    for _, raw in ipairs(prelude.split(stdout, "\n")) do
       local line = find_trim(raw:gsub("\r$", ""))
       if line ~= "" then
         local trailing = line:sub(-1) == "/" or line:sub(-1) == "\\"
@@ -133,23 +140,24 @@ pi.register_tool({
       return { content = { { type = "text", text = "No files found matching pattern" } } }
     end
 
-    local truncation = truncate_head(table.concat(paths, "\n"), { maxLines = MAX_SAFE_INTEGER })
+    local truncation = truncate.truncate_head(table.concat(paths, "\n"), { maxLines = MAX_SAFE_INTEGER })
     local output, details, notices = truncation.content, {}, {}
     if #paths >= effective_limit then
       notices[#notices + 1] = ("%d results limit reached. Use limit=%d for more, or refine pattern"):format(effective_limit, effective_limit * 2)
       details.resultLimitReached = effective_limit
     end
     if truncation.truncated then
-      notices[#notices + 1] = format_size(DEFAULT_MAX_BYTES) .. " limit reached"
+      notices[#notices + 1] = truncate.format_size(truncate.DEFAULT_MAX_BYTES) .. " limit reached"
       details.truncation = truncation
     end
     if #notices > 0 then output = output .. "\n\n[" .. table.concat(notices, ". ") .. "]" end
     return { content = { { type = "text", text = output } }, details = next(details) and details or nil }
   end,
   renderCall = function(args, theme, _context)
-    return text_component(format_find_call(args, theme), 0, 0)
+    return render.text_component(format_find_call(args, theme), 0, 0)
   end,
   renderResult = function(result, options, theme, context)
-    return text_component(format_find_result(result, options, theme, context.showImages), 0, 0)
+    return render.text_component(format_find_result(result, options, theme, context.showImages), 0, 0)
   end,
 })
+end

@@ -1,6 +1,8 @@
 -- modes/interactive/components/visual-truncate.ts — truncate text to the
 -- last N visual lines, accounting for wrapping at the render width, via
 -- the pi-tui Text mechanism.
+do
+local pi = ...
 local function truncate_to_visual_lines(text, max_visual_lines, width, padding_x)
   if text == "" then
     return { visualLines = {}, skippedCount = 0 }
@@ -23,3 +25,4 @@ pi.module.define({
     return { truncate_to_visual_lines = truncate_to_visual_lines }
   end,
 })
+end

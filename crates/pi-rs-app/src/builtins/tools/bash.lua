@@ -3,6 +3,15 @@
 -- owning frontend/context mechanisms. Abort: the tool signal reaches
 -- pi.exec (spec: createLocalBashOperations' killProcessTree-on-abort)
 -- and surfaces as "Command aborted" after the partial output.
+do
+local pi = ...
+local prelude = pi.module.require("pi.tools.prelude", "1")
+local truncate = pi.module.require("pi.tools.truncate", "1")
+local shell_mod = pi.module.require("pi.tools.shell", "1")
+local output_accumulator = pi.module.require("pi.tools.output-accumulator", "1")
+local hints = pi.module.require("pi.tools.keybinding-hints", "1")
+local visual_truncate = pi.module.require("pi.tui.visual-truncate", "1")
+local render = pi.module.require("pi.tools.render", "1")
 local BASH_PREVIEW_LINES = 5
 
 local function format_duration(ms)
@@ -11,14 +20,14 @@ end
 
 local function format_bash_call(args, theme)
   local command = ""
-  if args ~= nil then command = str(args.command) end
+  if args ~= nil then command = render.str(args.command) end
   local timeout = args ~= nil and args.timeout or nil
   -- JS truthiness: no suffix for a missing or zero timeout.
   local timeout_suffix = (type(timeout) == "number" and timeout ~= 0)
-    and theme:fg("muted", " (timeout " .. fmt_num(timeout) .. "s)") or ""
+    and theme:fg("muted", " (timeout " .. prelude.fmt_num(timeout) .. "s)") or ""
   local command_display
   if command == nil then
-    command_display = invalid_arg_text(theme)
+    command_display = render.invalid_arg_text(theme)
   elseif command ~= "" then
     command_display = command
   else
@@ -34,7 +43,7 @@ end
 local function bash_result_component(result, options, theme, context, started_at, ended_at)
   return function(width)
     local lines = {}
-    local output = js_trim(get_text_output(result, context.showImages))
+    local output = render.js_trim(render.get_text_output(result, context.showImages))
     local truncation = result.details and result.details.truncation
     local full_output_path = result.details and result.details.fullOutputPath
     if not options.isPartial and truncation and truncation.truncated
@@ -55,7 +64,7 @@ local function bash_result_component(result, options, theme, context, started_at
 
     if output ~= "" then
       local styled_parts = {}
-      for _, line in ipairs(split(output, "\n")) do
+      for _, line in ipairs(prelude.split(output, "\n")) do
         styled_parts[#styled_parts + 1] = theme:fg("toolOutput", line)
       end
       local styled_output = table.concat(styled_parts, "\n")
@@ -64,10 +73,10 @@ local function bash_result_component(result, options, theme, context, started_at
           lines[#lines + 1] = line
         end
       else
-        local preview = truncate_to_visual_lines(styled_output, BASH_PREVIEW_LINES, width)
+        local preview = visual_truncate.truncate_to_visual_lines(styled_output, BASH_PREVIEW_LINES, width)
         if preview.skippedCount > 0 then
           local hint = theme:fg("muted", ("... (%d earlier lines,"):format(preview.skippedCount))
-            .. " " .. key_hint(theme, "app.tools.expand", "to expand") .. theme:fg("muted", ")")
+            .. " " .. hints.key_hint(theme, "app.tools.expand", "to expand") .. theme:fg("muted", ")")
           lines[#lines + 1] = ""
           lines[#lines + 1] = pi.tui.truncate(hint, width, "...", false)
         else
@@ -88,7 +97,7 @@ local function bash_result_component(result, options, theme, context, started_at
             truncation.outputLines, truncation.totalLines)
         else
           warnings[#warnings + 1] = ("Truncated: %d lines shown (%s limit)"):format(
-            truncation.outputLines, format_size(truncation.maxBytes or DEFAULT_MAX_BYTES))
+            truncation.outputLines, truncate.format_size(truncation.maxBytes or truncate.DEFAULT_MAX_BYTES))
         end
       end
       local warning_text = "\n" .. theme:fg("warning", "[" .. table.concat(warnings, ". ") .. "]")
@@ -124,12 +133,12 @@ pi.register_tool({
     required = { "command" },
   },
   execute = function(tool_call_id, params, signal, on_update)
-    if not pi.fs.exists(cwd) then
-      error("Working directory does not exist: " .. cwd .. "\nCannot execute bash commands.")
+    if not pi.fs.exists(prelude.cwd) then
+      error("Working directory does not exist: " .. prelude.cwd .. "\nCannot execute bash commands.")
     end
     local safe = tostring(tool_call_id):gsub("[^%w_.-]", "-")
     local full_path = pi.fs.create_temp_file("pi-bash-" .. safe .. "-", "")
-    local output = new_output_accumulator(full_path)
+    local output = output_accumulator.new_output_accumulator(full_path)
     local last_update_ms, dirty = -math.huge, false
     local function update(force)
       if not on_update or not dirty then return end
@@ -146,7 +155,7 @@ pi.register_tool({
       dirty, last_update_ms = false, now
     end
     if on_update then on_update({ content = {} }) end
-    local shell, args = shell_config()
+    local shell, args = shell_mod.shell_config()
     args[#args + 1] = params.command
     local timeout = type(params.timeout) == "number" and params.timeout > 0
       and params.timeout * 1000 or nil
@@ -155,7 +164,7 @@ pi.register_tool({
     -- without spawning; mid-run aborts kill the process tree.
     if not (signal and signal:is_aborted()) then
       result = pi.exec(shell, args, {
-        cwd = cwd,
+        cwd = prelude.cwd,
         timeout = timeout,
         signal = signal,
         onData = function(data)
@@ -178,14 +187,14 @@ pi.register_tool({
       local first = truncation.totalLines - truncation.outputLines + 1
       local last = truncation.totalLines
       if truncation.lastLinePartial then
-        text = text .. "\n\n[Showing last " .. format_size(truncation.outputBytes) .. " of line " .. last
-          .. " (line is " .. format_size(output.last_line_bytes()) .. "). Full output: " .. snapshot.fullOutputPath .. "]"
+        text = text .. "\n\n[Showing last " .. truncate.format_size(truncation.outputBytes) .. " of line " .. last
+          .. " (line is " .. truncate.format_size(output.last_line_bytes()) .. "). Full output: " .. snapshot.fullOutputPath .. "]"
       elseif truncation.truncatedBy == "lines" then
         text = text .. "\n\n[Showing lines " .. first .. "-" .. last .. " of " .. truncation.totalLines
           .. ". Full output: " .. snapshot.fullOutputPath .. "]"
       else
         text = text .. "\n\n[Showing lines " .. first .. "-" .. last .. " of " .. truncation.totalLines
-          .. " (" .. format_size(DEFAULT_MAX_BYTES) .. " limit). Full output: " .. snapshot.fullOutputPath .. "]"
+          .. " (" .. truncate.format_size(truncate.DEFAULT_MAX_BYTES) .. " limit). Full output: " .. snapshot.fullOutputPath .. "]"
       end
     end
     -- Spec appendStatus over formatOutput: the abort/timeout paths
@@ -198,7 +207,7 @@ pi.register_tool({
     local error_text = snapshot.content ~= "" and text or ""
     -- Spec order: aborted wins over the timeout's killed flag.
     if signal and signal:is_aborted() then fail(error_text, "Command aborted") end
-    if result.killed then fail(error_text, "Command timed out after " .. fmt_num(params.timeout) .. " seconds") end
+    if result.killed then fail(error_text, "Command timed out after " .. prelude.fmt_num(params.timeout) .. " seconds") end
     if result.code ~= 0 then fail(text, "Command exited with code " .. result.code) end
     return { content = { { type = "text", text = text } }, details = details }
   end,
@@ -208,7 +217,7 @@ pi.register_tool({
       state.startedAt = context.now_ms()
       state.endedAt = nil
     end
-    return text_component(format_bash_call(args, theme), 0, 0)
+    return render.text_component(format_bash_call(args, theme), 0, 0)
   end,
   renderResult = function(result, options, theme, context)
     local state = context.state
@@ -220,3 +229,4 @@ pi.register_tool({
     return bash_result_component(result, options, theme, context, state.startedAt, state.endedAt)
   end,
 })
+end

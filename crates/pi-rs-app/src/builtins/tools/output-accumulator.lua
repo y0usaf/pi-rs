@@ -1,6 +1,12 @@
 -- output-accumulator.ts — bounded streaming collection and tail snapshots.
 -- Raw persistence is performed by pi.exec; this object retains only enough
 -- bytes to calculate the exact displayed tail and exact aggregate counters.
+do
+local pi = ...
+local prelude = pi.module.require("pi.tools.prelude", "1")
+local truncate = pi.module.require("pi.tools.truncate", "1")
+
+
 local function new_output_accumulator(full_path)
   local tail, total_bytes, newline_count = "", 0, 0
   local last_was_newline, finished = false, false
@@ -8,7 +14,7 @@ local function new_output_accumulator(full_path)
   -- across tail trims (getLastLineBytes reports the true line size).
   local current_line_bytes = 0
   -- Extra bytes let utf8_lossy repair a character split at the rolling edge.
-  local RETAIN_BYTES = DEFAULT_MAX_BYTES + 4
+  local RETAIN_BYTES = truncate.DEFAULT_MAX_BYTES + 4
 
   local function trim_tail()
     if #tail > RETAIN_BYTES then
@@ -40,15 +46,15 @@ local function new_output_accumulator(full_path)
     end,
     finish = function() finished = true end,
     snapshot = function()
-      local truncation = truncate_tail(utf8_lossy(tail))
+      local truncation = truncate.truncate_tail(prelude.utf8_lossy(tail))
       local total_lines = totals()
-      local globally_truncated = total_bytes > #tail or total_bytes > DEFAULT_MAX_BYTES
-        or total_lines > DEFAULT_MAX_LINES
+      local globally_truncated = total_bytes > #tail or total_bytes > truncate.DEFAULT_MAX_BYTES
+        or total_lines > truncate.DEFAULT_MAX_LINES
       truncation.totalBytes = total_bytes
       truncation.totalLines = total_lines
       truncation.truncated = globally_truncated
       if globally_truncated and not truncation.truncatedBy then
-        truncation.truncatedBy = total_lines > DEFAULT_MAX_LINES and "lines" or "bytes"
+        truncation.truncatedBy = total_lines > truncate.DEFAULT_MAX_LINES and "lines" or "bytes"
       end
       return {
         content = truncation.content,
@@ -60,4 +66,18 @@ local function new_output_accumulator(full_path)
       return current_line_bytes
     end,
   }
+end
+
+-- Public exact-version module: builtin and file-backed packages import the
+-- same closures. No _G export or load-order-only global remains.
+pi.module.define({
+  name = "pi.tools.output-accumulator",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      new_output_accumulator = new_output_accumulator,
+    }
+  end,
+})
 end
