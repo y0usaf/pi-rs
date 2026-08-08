@@ -12,38 +12,12 @@
 //! This file is its own test binary: it owns the process-global
 //! `PI_CODING_AGENT_DIR`.
 
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+mod common;
+
+use std::io::Write;
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
-
-use pi_rs_app::builtins::{CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
-use pi_rs_host::{Host, HostConfig};
-
-fn read_request(stream: &mut TcpStream) -> serde_json::Value {
-    let mut bytes = Vec::new();
-    let mut chunk = [0u8; 4096];
-    loop {
-        let count = stream.read(&mut chunk).unwrap();
-        if count == 0 {
-            break;
-        }
-        bytes.extend_from_slice(&chunk[..count]);
-        if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
-            let headers = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
-            let length = headers
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length:"))
-                .and_then(|value| value.trim().parse::<usize>().ok())
-                .unwrap_or(0);
-            if bytes.len() >= end + 4 + length {
-                let body = &bytes[end + 4..end + 4 + length];
-                return serde_json::from_slice(body).unwrap_or(serde_json::Value::Null);
-            }
-        }
-    }
-    serde_json::Value::Null
-}
 
 /// One scripted assistant text turn as an SSE body.
 fn text_sse(text: &str) -> String {
@@ -74,7 +48,7 @@ fn spawn_stub() -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
     thread::spawn(move || {
         for conn in listener.incoming() {
             let Ok(mut stream) = conn else { break };
-            let request = read_request(&mut stream);
+            let request = common::read_request(&mut stream);
             seen.lock().unwrap().push(request);
             let body = text_sse("ok");
             let response = format!(
@@ -91,61 +65,19 @@ fn spawn_stub() -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
 /// A reasoning model whose `thinkingLevelMap` marks `minimal` unsupported
 /// (the explicit-null semantics 120 catalog rows use) and maps `xhigh`.
 fn stub_model(base_url: &str) -> serde_json::Value {
-    serde_json::json!({
-        "id": "claude-parity-1", "name": "Claude Parity",
-        "api": "anthropic-messages", "provider": "anthropic",
-        "baseUrl": base_url, "reasoning": true,
-        "thinkingLevelMap": { "minimal": null, "xhigh": "max" },
-        "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-        "contextWindow": 200000, "maxTokens": 16384
-    })
+    let mut model = common::stub_model(base_url);
+    model["reasoning"] = serde_json::json!(true);
+    model["thinkingLevelMap"] = serde_json::json!({ "minimal": null, "xhigh": "max" });
+    model["maxTokens"] = serde_json::json!(16384);
+    model
 }
 
-fn host(cwd: &str) -> Host {
-    let host = Host::new(HostConfig {
-        cwd: Some(cwd.to_owned()),
-        ..HostConfig::default()
-    })
-    .unwrap();
-    let report = host.load_embedded(&[
-        pi_rs_agent::PACK,
-        TOOLS_PACK,
-        CODING_AGENT_PACK,
-        INTERACTIVE_PACK,
-    ]);
-    assert!(report.errors.is_empty(), "{:?}", report.errors);
-    host
-}
-
-/// `PI_CODING_AGENT_DIR` is process-global and read at `Host::new`.
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-struct Fixture {
-    _temp: tempfile::TempDir,
-    cwd: String,
-    agent_dir: std::path::PathBuf,
-    sessions: std::path::PathBuf,
-}
-
-fn fixture() -> Fixture {
-    let temp = tempfile::tempdir().unwrap();
-    let agent_dir = temp.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    // SAFETY: serialized by ENV_LOCK; this binary owns the env.
-    unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
-    let cwd = temp.path().to_string_lossy().into_owned();
-    let sessions = temp.path().join("sessions");
-    std::fs::create_dir_all(&sessions).unwrap();
-    Fixture {
-        _temp: temp,
-        cwd,
-        agent_dir,
-        sessions,
-    }
-}
-
-fn run_sequence(fixture: &Fixture, base_url: &str, steps: serde_json::Value) -> serde_json::Value {
-    host(&fixture.cwd)
+fn run_sequence(
+    fixture: &common::Fixture,
+    base_url: &str,
+    steps: serde_json::Value,
+) -> serde_json::Value {
+    common::host(&fixture.cwd)
         .call_command(
             "interactive-bash-parity-sequence",
             &serde_json::json!({
@@ -163,20 +95,6 @@ fn run_sequence(fixture: &Fixture, base_url: &str, steps: serde_json::Value) -> 
         .expect("result")
 }
 
-fn session_entries(fixture: &Fixture) -> Vec<serde_json::Value> {
-    let mut files: Vec<_> = std::fs::read_dir(&fixture.sessions)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .collect();
-    files.sort();
-    assert_eq!(files.len(), 1, "expected one session file: {files:?}");
-    std::fs::read_to_string(&files[0])
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
-}
-
 fn thinking_entries(entries: &[serde_json::Value]) -> Vec<String> {
     entries
         .iter()
@@ -192,8 +110,8 @@ const SHIFT_TAB: &str = "\u{1b}[Z";
 /// provider request carries the anthropic thinking budget for it.
 #[test]
 fn new_sessions_default_to_medium_clamped_to_the_model() {
-    let _env = ENV_LOCK.lock().unwrap();
-    let fixture = fixture();
+    let _env = common::ENV_LOCK.lock().unwrap();
+    let fixture = common::fixture();
     let (base_url, requests) = spawn_stub();
 
     run_sequence(
@@ -202,7 +120,7 @@ fn new_sessions_default_to_medium_clamped_to_the_model() {
         serde_json::json!([{ "name": "turn", "input": ["hello", "\r"] }]),
     );
 
-    let entries = session_entries(&fixture);
+    let entries = common::session_entries(&fixture);
     assert_eq!(thinking_entries(&entries), vec!["medium"]);
     let captured = requests.lock().unwrap();
     assert_eq!(captured.len(), 1, "{captured:?}");
@@ -218,8 +136,8 @@ fn new_sessions_default_to_medium_clamped_to_the_model() {
 /// provider request streams with the new level's budget.
 #[test]
 fn cycling_skips_null_map_levels_and_persists_to_session_settings_and_requests() {
-    let _env = ENV_LOCK.lock().unwrap();
-    let fixture = fixture();
+    let _env = common::ENV_LOCK.lock().unwrap();
+    let fixture = common::fixture();
     // Config default "off": one cycle pins the null-map skip.
     std::fs::write(
         fixture.agent_dir.join("config.lua"),
@@ -240,7 +158,7 @@ fn cycling_skips_null_map_levels_and_persists_to_session_settings_and_requests()
 
     // JSONL: the startup entry ("off" from settings), then the cycled
     // level — "low", skipping the null-marked "minimal".
-    let entries = session_entries(&fixture);
+    let entries = common::session_entries(&fixture);
     assert_eq!(thinking_entries(&entries), vec!["off", "low"]);
 
     // The interactive mutation persists back into the managed config.lua block.

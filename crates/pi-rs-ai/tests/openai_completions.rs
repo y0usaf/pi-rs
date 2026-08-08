@@ -5,93 +5,26 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
 
 use pi_rs_ai::protocols::openai_completions::{
-    OpenAICompletionsOptions, stream_openai_completions,
-    stream_simple_openai_completions,
+    OpenAICompletionsOptions, stream_openai_completions, stream_simple_openai_completions,
 };
 use pi_rs_ai::protocols::options::{SimpleStreamOptions, StreamOptions};
-use pi_rs_ai_types::{
-    AssistantMessage, AssistantMessageEvent, Context, Model, ThinkingLevel,
-};
+use pi_rs_ai_types::{AssistantMessage, AssistantMessageEvent, Context, Model, ThinkingLevel};
 use serde_json::{Value, json};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 // ---------------------------------------------------------------------
 // Loopback SSE server with request capture
 // ---------------------------------------------------------------------
-
-type Captured = Arc<Mutex<Vec<String>>>;
 
 fn sse_response(body: &str) -> String {
     format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
         body.len()
     )
-}
-
-/// Serve one canned response per connection, capturing raw requests.
-fn serve(responses: Vec<String>) -> (SocketAddr, Captured) {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.set_nonblocking(true).unwrap();
-    let addr = listener.local_addr().unwrap();
-    let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-    let captured: Captured = Arc::new(Mutex::new(Vec::new()));
-    let capture = Arc::clone(&captured);
-    tokio::spawn(async move {
-        let mut responses = responses.into_iter();
-        loop {
-            let (mut sock, _) = match listener.accept().await {
-                Ok(conn) => conn,
-                Err(_) => return,
-            };
-            let request = read_request(&mut sock).await;
-            capture.lock().unwrap().push(request);
-            match responses.next() {
-                Some(response) => {
-                    let _ = sock.write_all(response.as_bytes()).await;
-                    let _ = sock.shutdown().await;
-                }
-                None => return,
-            }
-        }
-    });
-    (addr, captured)
-}
-
-/// Read one HTTP request: headers plus a content-length body.
-async fn read_request(sock: &mut tokio::net::TcpStream) -> String {
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 1024];
-    loop {
-        let n = match sock.read(&mut tmp).await {
-            Ok(0) | Err(_) => break,
-            Ok(n) => n,
-        };
-        buf.extend_from_slice(&tmp[..n]);
-        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-            let head = String::from_utf8_lossy(&buf[..pos]).to_lowercase();
-            let content_length: usize = head
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length:"))
-                .and_then(|v| v.trim().parse().ok())
-                .unwrap_or(0);
-            while buf.len() - (pos + 4) < content_length {
-                let n = match sock.read(&mut tmp).await {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => n,
-                };
-                if n == 0 {
-                    break;
-                }
-                buf.extend_from_slice(&tmp[..n]);
-            }
-            break;
-        }
-    }
-    String::from_utf8_lossy(&buf).into_owned()
 }
 
 fn request_body(request: &str) -> Value {
@@ -182,7 +115,7 @@ fn minimal_transcript(finish_reason: &str) -> String {
 
 #[tokio::test]
 async fn deepseek_thinking_format_and_reasoning_content() {
-    let (addr, captured) = serve(vec![sse_response(&minimal_transcript("stop"))]);
+    let (addr, captured) = common::serve(vec![sse_response(&minimal_transcript("stop"))]);
     let model = model_for(addr, "deepseek", "deepseek-reasoner");
 
     let context: Context = serde_json::from_value(json!({
@@ -223,7 +156,7 @@ async fn deepseek_thinking_format_and_reasoning_content() {
 
 #[tokio::test]
 async fn openrouter_anthropic_models_get_cache_control() {
-    let (addr, captured) = serve(vec![sse_response(&minimal_transcript("stop"))]);
+    let (addr, captured) = common::serve(vec![sse_response(&minimal_transcript("stop"))]);
     let model = model_for(addr, "openrouter", "anthropic/claude-sonnet-4.5");
 
     let context: Context = serde_json::from_value(json!({
@@ -269,7 +202,7 @@ async fn moonshot_compat_and_choice_usage_fallback() {
         "data: {\"id\":\"chatcmpl-m\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\",\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}]}\n\n",
         "data: [DONE]\n\n",
     );
-    let (addr, captured) = serve(vec![sse_response(transcript)]);
+    let (addr, captured) = common::serve(vec![sse_response(transcript)]);
     let model = model_for(addr, "moonshotai", "kimi-k2");
 
     let context: Context = serde_json::from_value(json!({
@@ -306,7 +239,7 @@ async fn moonshot_compat_and_choice_usage_fallback() {
 
 #[tokio::test]
 async fn tool_history_without_tools_sends_empty_tools() {
-    let (addr, captured) = serve(vec![sse_response(&minimal_transcript("stop"))]);
+    let (addr, captured) = common::serve(vec![sse_response(&minimal_transcript("stop"))]);
     let model = openai_model(addr);
 
     let context: Context = serde_json::from_value(json!({
@@ -351,7 +284,7 @@ async fn stream_without_finish_reason_errors() {
         "data: {\"id\":\"chatcmpl-x\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\n",
         "data: [DONE]\n\n",
     );
-    let (addr, _captured) = serve(vec![sse_response(transcript)]);
+    let (addr, _captured) = common::serve(vec![sse_response(transcript)]);
     let model = openai_model(addr);
 
     let stream = stream_openai_completions(
@@ -372,7 +305,8 @@ async fn stream_without_finish_reason_errors() {
 
 #[tokio::test]
 async fn error_stop_reasons_fold_into_error_events() {
-    let (addr, _captured) = serve(vec![sse_response(&minimal_transcript("content_filter"))]);
+    let (addr, _captured) =
+        common::serve(vec![sse_response(&minimal_transcript("content_filter"))]);
     let model = openai_model(addr);
 
     let stream = stream_openai_completions(
@@ -389,7 +323,7 @@ async fn error_stop_reasons_fold_into_error_events() {
 
 #[tokio::test]
 async fn simple_reasoning_maps_to_reasoning_effort() {
-    let (addr, captured) = serve(vec![sse_response(&minimal_transcript("stop"))]);
+    let (addr, captured) = common::serve(vec![sse_response(&minimal_transcript("stop"))]);
     let model = openai_model(addr);
 
     let options = SimpleStreamOptions {

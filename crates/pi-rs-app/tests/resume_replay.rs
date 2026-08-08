@@ -8,38 +8,12 @@
 //! This file is its own test binary: it owns the process-global
 //! `PI_CODING_AGENT_DIR`.
 
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+mod common;
+
+use std::io::Write;
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
-
-use pi_rs_app::builtins::{CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
-use pi_rs_host::{Host, HostConfig};
-
-fn read_request(stream: &mut TcpStream) -> serde_json::Value {
-    let mut bytes = Vec::new();
-    let mut chunk = [0u8; 4096];
-    loop {
-        let count = stream.read(&mut chunk).unwrap();
-        if count == 0 {
-            break;
-        }
-        bytes.extend_from_slice(&chunk[..count]);
-        if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
-            let headers = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
-            let length = headers
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length:"))
-                .and_then(|value| value.trim().parse::<usize>().ok())
-                .unwrap_or(0);
-            if bytes.len() >= end + 4 + length {
-                let body = &bytes[end + 4..end + 4 + length];
-                return serde_json::from_slice(body).unwrap_or(serde_json::Value::Null);
-            }
-        }
-    }
-    serde_json::Value::Null
-}
 
 /// One scripted assistant text turn ("done") as an SSE body.
 const DONE_SSE: &str = concat!(
@@ -65,7 +39,7 @@ fn spawn_stub() -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
     thread::spawn(move || {
         for conn in listener.incoming() {
             let Ok(mut stream) = conn else { break };
-            let request = read_request(&mut stream);
+            let request = common::read_request(&mut stream);
             seen.lock().unwrap().push(request);
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
@@ -79,13 +53,9 @@ fn spawn_stub() -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
 }
 
 fn stub_model(base_url: &str) -> serde_json::Value {
-    serde_json::json!({
-        "id": "claude-parity-1", "name": "Claude Parity",
-        "api": "anthropic-messages", "provider": "anthropic",
-        "baseUrl": base_url, "reasoning": true,
-        "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-        "contextWindow": 200000, "maxTokens": 1024
-    })
+    let mut model = common::stub_model(base_url);
+    model["reasoning"] = serde_json::json!(true);
+    model
 }
 
 /// A prior single-turn session, optionally with a thinking entry and a
@@ -136,26 +106,6 @@ fn write_session_fixture(
     path.to_string_lossy().into_owned()
 }
 
-fn host(cwd: &str) -> Host {
-    let host = Host::new(HostConfig {
-        cwd: Some(cwd.to_owned()),
-        ..HostConfig::default()
-    })
-    .unwrap();
-    let report = host.load_embedded(&[
-        pi_rs_agent::PACK,
-        TOOLS_PACK,
-        CODING_AGENT_PACK,
-        INTERACTIVE_PACK,
-    ]);
-    assert!(report.errors.is_empty(), "{:?}", report.errors);
-    host
-}
-
-/// `PI_CODING_AGENT_DIR` is process-global and read at `Host::new`;
-/// each test sets its own agent dir, so they must not overlap.
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
 fn entry_types(path: &str) -> Vec<String> {
     std::fs::read_to_string(path)
         .unwrap()
@@ -171,7 +121,7 @@ fn entry_types(path: &str) -> Vec<String> {
 
 #[test]
 fn resume_replays_context_exactly_once_and_appends_only_new_entries() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = common::ENV_LOCK.lock().unwrap();
     let temp = tempfile::tempdir().unwrap();
     let agent_dir = temp.path().join("agent");
     std::fs::create_dir_all(&agent_dir).unwrap();
@@ -186,7 +136,7 @@ fn resume_replays_context_exactly_once_and_appends_only_new_entries() {
     );
 
     let (base_url, requests) = spawn_stub();
-    let result = host(&cwd)
+    let result = common::host(&cwd)
         .call_role(
             "print",
             &serde_json::json!({
@@ -259,7 +209,7 @@ fn resume_replays_context_exactly_once_and_appends_only_new_entries() {
 
 #[test]
 fn model_restore_prefers_saved_model_and_falls_back_with_warning() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = common::ENV_LOCK.lock().unwrap();
     let temp = tempfile::tempdir().unwrap();
     let agent_dir = temp.path().join("agent");
     std::fs::create_dir_all(&agent_dir).unwrap();
@@ -281,7 +231,7 @@ fn model_restore_prefers_saved_model_and_falls_back_with_warning() {
         ("anthropic", "claude-opus-4-8"),
         Some("off"),
     );
-    let result = host(&cwd)
+    let result = common::host(&cwd)
         .call_command(
             "interactive-provider-parity-sequence",
             &serde_json::json!({
@@ -308,7 +258,7 @@ fn model_restore_prefers_saved_model_and_falls_back_with_warning() {
         None,
     );
     let (base_url, requests) = spawn_stub();
-    let result = host(&cwd)
+    let result = common::host(&cwd)
         .call_role(
             "print",
             &serde_json::json!({

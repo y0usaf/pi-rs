@@ -7,12 +7,10 @@ use pi_rs_ai::protocols::bedrock::{
 };
 use pi_rs_ai::protocols::options::{SimpleStreamOptions, StreamOptions};
 use pi_rs_ai_types::{Context, Model, ThinkingLevel};
-use serde_json::{Value, json};
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+mod common;
 
-type Captured = Arc<Mutex<Vec<String>>>;
+use serde_json::{Value, json};
+
 fn crc32(bytes: &[u8]) -> u32 {
     let mut crc = 0xffff_ffffu32;
     for byte in bytes {
@@ -76,54 +74,6 @@ fn response(value: &Value) -> Vec<u8> {
     );
     [head.into_bytes(), body].concat()
 }
-async fn read_request(socket: &mut tokio::net::TcpStream) -> String {
-    let mut all = Vec::new();
-    let mut buffer = [0; 1024];
-    loop {
-        let count = socket.read(&mut buffer).await.unwrap_or(0);
-        if count == 0 {
-            break;
-        }
-        all.extend_from_slice(&buffer[..count]);
-        if let Some(position) = all.windows(4).position(|part| part == b"\r\n\r\n") {
-            let head = String::from_utf8_lossy(&all[..position]).to_lowercase();
-            let length = head
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length:"))
-                .and_then(|value| value.trim().parse::<usize>().ok())
-                .unwrap_or(0);
-            if all.len() >= position + 4 + length {
-                break;
-            }
-        }
-    }
-    String::from_utf8_lossy(&all).into_owned()
-}
-fn serve(responses: Vec<Vec<u8>>) -> (std::net::SocketAddr, Captured) {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.set_nonblocking(true).unwrap();
-    let address = listener.local_addr().unwrap();
-    let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-    let captured = Arc::new(Mutex::new(Vec::new()));
-    let copy = Arc::clone(&captured);
-    tokio::spawn(async move {
-        let mut index = 0;
-        loop {
-            let Ok((mut socket, _)) = listener.accept().await else {
-                return;
-            };
-            let request = read_request(&mut socket).await;
-            copy.lock().unwrap().push(request);
-            let Some(value) = responses.get(index).or_else(|| responses.last()) else {
-                return;
-            };
-            index += 1;
-            let _ = socket.write_all(value).await;
-            let _ = socket.shutdown().await;
-        }
-    });
-    (address, captured)
-}
 const DROP: &[&str] = &[
     "host",
     "content-length",
@@ -135,24 +85,6 @@ const DROP: &[&str] = &[
     "amz-sdk-request",
     "x-amz-user-agent",
 ];
-fn normalize_request(raw: &str) -> Value {
-    let (head, body) = raw.split_once("\r\n\r\n").unwrap_or((raw, ""));
-    let mut lines = head.lines();
-    let mut first = lines.next().unwrap_or("").split(' ');
-    let method = first.next().unwrap_or("");
-    let path = first.next().unwrap_or("");
-    let mut headers = BTreeMap::new();
-    for line in lines {
-        let Some((name, value)) = line.split_once(':') else {
-            continue;
-        };
-        let name = name.trim().to_lowercase();
-        if !DROP.contains(&name.as_str()) {
-            headers.insert(name, value.trim().to_string());
-        }
-    }
-    json!({"method":method,"path":path,"headers":headers,"body":if body.is_empty(){Value::Null}else{serde_json::from_str(body).unwrap()}})
-}
 fn thinking(value: &Value) -> Option<ThinkingLevel> {
     value.as_str().map(|value| match value {
         "minimal" => ThinkingLevel::Minimal,
@@ -253,7 +185,7 @@ async fn run(case: &Value, models: &Value) -> Value {
         .iter()
         .map(response)
         .collect();
-    let (address, captured) = serve(responses);
+    let (address, captured) = common::serve_bytes(responses);
     let mut model = models[case["model"].as_str().unwrap()].clone();
     model["baseUrl"] = json!(format!("http://{address}"));
     let model: Model = serde_json::from_value(model).unwrap();
@@ -294,7 +226,7 @@ async fn run(case: &Value, models: &Value) -> Value {
         .lock()
         .unwrap()
         .iter()
-        .map(|raw| normalize_request(raw))
+        .map(|raw| common::normalize_drop(raw, DROP))
         .collect::<Vec<_>>();
     json!({"name":case["name"],"requests":requests,"events":events,"result":result})
 }

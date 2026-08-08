@@ -12,38 +12,12 @@
 //! This file is its own test binary: it owns the process-global
 //! `PI_CODING_AGENT_DIR`.
 
+mod common;
+
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
-
-use pi_rs_app::builtins::{CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
-use pi_rs_host::{Host, HostConfig};
-
-fn read_request(stream: &mut TcpStream) -> serde_json::Value {
-    let mut bytes = Vec::new();
-    let mut chunk = [0u8; 4096];
-    loop {
-        let count = stream.read(&mut chunk).unwrap();
-        if count == 0 {
-            break;
-        }
-        bytes.extend_from_slice(&chunk[..count]);
-        if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
-            let headers = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
-            let length = headers
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length:"))
-                .and_then(|value| value.trim().parse::<usize>().ok())
-                .unwrap_or(0);
-            if bytes.len() >= end + 4 + length {
-                let body = &bytes[end + 4..end + 4 + length];
-                return serde_json::from_slice(body).unwrap_or(serde_json::Value::Null);
-            }
-        }
-    }
-    serde_json::Value::Null
-}
 
 /// One scripted summary turn as an SSE body.
 const SUMMARY_SSE: &str = concat!(
@@ -69,7 +43,7 @@ fn spawn_stub() -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
     thread::spawn(move || {
         for conn in listener.incoming() {
             let Ok(mut stream) = conn else { break };
-            let request = read_request(&mut stream);
+            let request = common::read_request(&mut stream);
             seen.lock().unwrap().push(request);
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
@@ -80,16 +54,6 @@ fn spawn_stub() -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
         }
     });
     (format!("http://{address}"), requests)
-}
-
-fn stub_model(base_url: &str) -> serde_json::Value {
-    serde_json::json!({
-        "id": "claude-parity-1", "name": "Claude Parity",
-        "api": "anthropic-messages", "provider": "anthropic",
-        "baseUrl": base_url, "reasoning": false,
-        "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-        "contextWindow": 200000, "maxTokens": 1024
-    })
 }
 
 /// A branched session: root chain e1..e4, branch A (e5 user, e6 assistant
@@ -158,41 +122,9 @@ fn write_branched_session(dir: &std::path::Path, cwd: &str) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn host(cwd: &str) -> Host {
-    let host = Host::new(HostConfig {
-        cwd: Some(cwd.to_owned()),
-        ..HostConfig::default()
-    })
-    .unwrap();
-    let report = host.load_embedded(&[
-        pi_rs_agent::PACK,
-        TOOLS_PACK,
-        CODING_AGENT_PACK,
-        INTERACTIVE_PACK,
-    ]);
-    assert!(report.errors.is_empty(), "{:?}", report.errors);
-    host
-}
-
-/// `PI_CODING_AGENT_DIR` is process-global and read at `Host::new`;
-/// each test sets its own agent dir, so they must not overlap.
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn paste(text: &str) -> String {
-    format!("\x1b[200~{text}\x1b[201~")
-}
-
-fn jsonl_entries(path: &str) -> Vec<serde_json::Value> {
-    std::fs::read_to_string(path)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
-}
-
 #[test]
 fn summarize_navigation_sends_the_branch_summary_request_and_appends_the_entry() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = common::ENV_LOCK.lock().unwrap();
     let temp = tempfile::tempdir().unwrap();
     let agent_dir = temp.path().join("agent");
     std::fs::create_dir_all(&agent_dir).unwrap();
@@ -203,12 +135,12 @@ fn summarize_navigation_sends_the_branch_summary_request_and_appends_the_entry()
     let s1 = write_branched_session(&sessions, &cwd);
 
     let (base_url, requests) = spawn_stub();
-    let result = host(&cwd)
+    let result = common::host(&cwd)
         .call_command(
             "interactive-tree-parity-sequence",
             &serde_json::json!({
                 "columns": 80, "rows": 30,
-                "model": stub_model(&base_url), "apiKey": "test-key",
+                "model": common::stub_model(&base_url), "apiKey": "test-key",
                 "runtimeApiKey": "test-key",
                 "cwd": cwd, "agentDir": agent_dir.to_string_lossy(),
                 "sessionFile": s1, "sessionDir": sessions.to_string_lossy(),
@@ -219,7 +151,7 @@ fn summarize_navigation_sends_the_branch_summary_request_and_appends_the_entry()
                 "steps": [
                     // /tree → select e5 ("try A", the abandoned-branch
                     // user message) → "Summarize".
-                    { "name": "open", "input": [paste("/tree"), "\r"] },
+                    { "name": "open", "input": [common::paste("/tree"), "\r"] },
                     // Tree rows (default filter, active branch B first):
                     // e3, e4, e8, e9, e5, e6, e7 — selection starts on e9
                     // (nearest visible from the label-entry leaf).
@@ -263,7 +195,7 @@ fn summarize_navigation_sends_the_branch_summary_request_and_appends_the_entry()
     // The branch_summary entry landed at the navigation target (e4, the
     // parent of the selected user message), with preamble + summary and
     // empty file lists (no read/write tool calls on the abandoned path).
-    let entries = jsonl_entries(&s1);
+    let entries = common::jsonl_entries(&s1);
     let summary = entries
         .iter()
         .find(|entry| entry["type"] == "branch_summary")
@@ -283,7 +215,7 @@ fn summarize_navigation_sends_the_branch_summary_request_and_appends_the_entry()
 
 #[test]
 fn escape_aborts_summarization_and_navigation_is_cancelled() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = common::ENV_LOCK.lock().unwrap();
     let temp = tempfile::tempdir().unwrap();
     let agent_dir = temp.path().join("agent");
     std::fs::create_dir_all(&agent_dir).unwrap();
@@ -309,19 +241,19 @@ fn escape_aborts_summarization_and_navigation_is_cancelled() {
         }
     });
 
-    let result = host(&cwd)
+    let result = common::host(&cwd)
         .call_command(
             "interactive-tree-parity-sequence",
             &serde_json::json!({
                 "columns": 80, "rows": 30,
-                "model": stub_model(&base_url), "apiKey": "test-key",
+                "model": common::stub_model(&base_url), "apiKey": "test-key",
                 "runtimeApiKey": "test-key",
                 "cwd": cwd, "agentDir": agent_dir.to_string_lossy(),
                 "sessionFile": s1, "sessionDir": sessions.to_string_lossy(),
                 "modelFromCli": true, "thinkingFromCli": false,
                 "nowMs": 1_782_900_000_000i64,
                 "steps": [
-                    { "name": "open", "input": [paste("/tree"), "\r"] },
+                    { "name": "open", "input": [common::paste("/tree"), "\r"] },
                     { "name": "to-a", "input": ["\u{1b}[B"] },
                     { "name": "choose", "input": ["\r"] },
                     // Select "Summarize" but do not settle: the spawned
@@ -351,7 +283,7 @@ fn escape_aborts_summarization_and_navigation_is_cancelled() {
 
 #[test]
 fn fork_copies_the_path_before_the_selected_user_message_into_a_new_session() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = common::ENV_LOCK.lock().unwrap();
     let temp = tempfile::tempdir().unwrap();
     let agent_dir = temp.path().join("agent");
     std::fs::create_dir_all(&agent_dir).unwrap();
@@ -363,12 +295,12 @@ fn fork_copies_the_path_before_the_selected_user_message_into_a_new_session() {
     let s1_before = std::fs::read_to_string(&s1).unwrap();
 
     let (base_url, _requests) = spawn_stub();
-    let result = host(&cwd)
+    let result = common::host(&cwd)
         .call_command(
             "interactive-tree-parity-sequence",
             &serde_json::json!({
                 "columns": 80, "rows": 30,
-                "model": stub_model(&base_url), "apiKey": "test-key",
+                "model": common::stub_model(&base_url), "apiKey": "test-key",
                 "runtimeApiKey": "test-key",
                 "cwd": cwd, "agentDir": agent_dir.to_string_lossy(),
                 "sessionFile": s1, "sessionDir": sessions.to_string_lossy(),
@@ -377,7 +309,7 @@ fn fork_copies_the_path_before_the_selected_user_message_into_a_new_session() {
                 "steps": [
                     // /fork → user messages [start, try A, try B]; the
                     // most recent (try B) starts selected; up once → try A.
-                    { "name": "open", "input": [paste("/fork"), "\r"] },
+                    { "name": "open", "input": [common::paste("/fork"), "\r"] },
                     { "name": "up", "input": ["\u{1b}[A"] },
                     { "name": "select", "input": ["\r"] },
                 ],
@@ -392,7 +324,7 @@ fn fork_copies_the_path_before_the_selected_user_message_into_a_new_session() {
     let forked = result["sessionFile"].as_str().unwrap().to_owned();
     assert_ne!(forked, s1);
     assert_eq!(result["editorText"].as_str().unwrap(), "try A");
-    let entries = jsonl_entries(&forked);
+    let entries = common::jsonl_entries(&forked);
     assert_eq!(entries[0]["type"], "session");
     assert_eq!(entries[0]["parentSession"].as_str().unwrap(), s1);
     let ids: Vec<&str> = entries[1..]
@@ -406,7 +338,7 @@ fn fork_copies_the_path_before_the_selected_user_message_into_a_new_session() {
 
 #[test]
 fn clone_duplicates_the_session_at_the_leaf_with_path_labels_recreated() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = common::ENV_LOCK.lock().unwrap();
     let temp = tempfile::tempdir().unwrap();
     let agent_dir = temp.path().join("agent");
     std::fs::create_dir_all(&agent_dir).unwrap();
@@ -417,19 +349,19 @@ fn clone_duplicates_the_session_at_the_leaf_with_path_labels_recreated() {
     let s1 = write_branched_session(&sessions, &cwd);
 
     let (base_url, _requests) = spawn_stub();
-    let result = host(&cwd)
+    let result = common::host(&cwd)
         .call_command(
             "interactive-tree-parity-sequence",
             &serde_json::json!({
                 "columns": 80, "rows": 30,
-                "model": stub_model(&base_url), "apiKey": "test-key",
+                "model": common::stub_model(&base_url), "apiKey": "test-key",
                 "runtimeApiKey": "test-key",
                 "cwd": cwd, "agentDir": agent_dir.to_string_lossy(),
                 "sessionFile": s1, "sessionDir": sessions.to_string_lossy(),
                 "modelFromCli": true, "thinkingFromCli": false,
                 "nowMs": 1_782_900_000_000i64,
                 "steps": [
-                    { "name": "clone", "input": [paste("/clone"), "\r"] },
+                    { "name": "clone", "input": [common::paste("/clone"), "\r"] },
                 ],
             })
             .to_string(),
@@ -443,7 +375,7 @@ fn clone_duplicates_the_session_at_the_leaf_with_path_labels_recreated() {
     // target is on the path are recreated — e5 is not, so none are).
     let cloned = result["sessionFile"].as_str().unwrap().to_owned();
     assert_ne!(cloned, s1);
-    let entries = jsonl_entries(&cloned);
+    let entries = common::jsonl_entries(&cloned);
     assert_eq!(entries[0]["parentSession"].as_str().unwrap(), s1);
     let ids: Vec<&str> = entries[1..]
         .iter()
