@@ -34,6 +34,30 @@ use crate::{
 /// Check the watchdog deadline every N VM instructions.
 const NTH_INSTRUCTION: u32 = 1000;
 
+thread_local! {
+    /// Depth of nested `dispatch` calls on the VM thread. The bare-host
+    /// `ExtensionContext.isIdle` fallback reports idle only when no
+    /// handler dispatch is active (a product loop reports its own idle
+    /// state through the context it builds).
+    static DISPATCH_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// RAII guard: decrements `DISPATCH_DEPTH` when a dispatch returns or
+/// unwinds (watchdog kill, Lua error) so `isIdle` never sticks.
+struct DispatchGuard;
+impl DispatchGuard {
+    fn enter() -> Self {
+        DISPATCH_DEPTH.with(|depth| depth.set(depth.get() + 1));
+        DispatchGuard
+    }
+}
+impl Drop for DispatchGuard {
+    fn drop(&mut self) {
+        DISPATCH_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+    }
+}
+
+
 pub(crate) enum Msg {
     /// Execute an extension chunk (registrations happen as side effects).
     /// The chunk runs on the coroutine path too, so top-level awaits work.
@@ -232,6 +256,12 @@ fn vm_main(config: HostConfig, rx: Receiver<Msg>, init_tx: SyncSender<Result<(),
             }
         }
     }
+    // PLAN 9.9 shutdown contract: the host dropped the VM; dispose every
+    // session-scoped resource so no process/task/socket/watcher/timer
+    // survives its owner.
+    let _ = crate::resources::dispose_all();
+    let _ = crate::timer::dispose_all();
+    let _ = crate::watch::dispose_all();
 }
 
 fn tools_mirror(lua: &mlua::Lua) -> Result<Vec<ToolInfo>, HostError> {
@@ -473,8 +503,31 @@ fn invocation_context(
         .map_err(|error| HostError::Lua(error.to_string()))?;
     ctx.set("signal", signal)
         .map_err(|error| HostError::Lua(error.to_string()))?;
-    ctx.set("isIdle", false)
+    // ExtensionContext.isIdle is a function in the pinned surface; the
+    // bare-host fallback reports idle only when no handler dispatch is
+    // active on this VM (a product loop reports its own idle state
+    // through the context it builds).
+    let is_idle = lua
+        .create_function(|_, ()| {
+            let idle = DISPATCH_DEPTH.with(|depth| depth.get() == 0);
+            Ok(idle)
+        })
         .map_err(|error| HostError::Lua(error.to_string()))?;
+    ctx.set("isIdle", is_idle)
+        .map_err(|error| HostError::Lua(error.to_string()))?;
+    // Bare-host ctx.sessionManager: the most recently created
+    // pi.session handle (the product installs its own snapshot facade
+    // over the live session in utils/extensions.lua).
+    if let Ok(registry) = crate::api::registry_table(lua)
+        && let Ok(session) = registry.get::<Option<mlua::AnyUserData>>("current_session")
+            && let Some(session) = session
+                && let Ok(handle) = session.borrow::<crate::session::SessionHandle>() {
+                    let facade = crate::session::session_manager_facade(lua, &handle)
+                        .map_err(|error| HostError::Lua(error.to_string()))?;
+                    ctx.set("sessionManager", facade)
+                        .map_err(|error| HostError::Lua(error.to_string()))?;
+                }
+
     Ok(ctx)
 }
 
@@ -541,6 +594,7 @@ fn dispatch(
     func: mlua::Function,
     args: impl mlua::IntoLuaMulti,
 ) -> Result<mlua::Value, HostError> {
+    let _dispatch_guard = DispatchGuard::enter();
     let budget_ms = config.dispatch_timeout_ms;
     let state = Arc::new(WatchdogState::new(budget_ms));
 
@@ -571,8 +625,95 @@ fn dispatch(
         // still pending when the dispatch returns are dropped with the
         // LocalSet (spawned work lives within its dispatch).
         let local = tokio::task::LocalSet::new();
+        // The drive loop also ticks PLAN 9.9 timers and file watchers:
+        // while the dispatched coroutine is suspended awaiting a host
+        // future (pi.sleep, provider streams, subprocess pipes), due timer
+        // callbacks and changed-file watcher callbacks run as coroutines on
+        // the same LocalSet. A pending callback coroutine stays in the
+        // firing set until it completes; errors are discarded (a timer
+        // callback failure must not kill the dispatch).
+        let drive = async {
+            let main = Box::pin(local.run_until(fut));
+            let mut main = main;
+            let mut firing: Vec<
+                Pin<Box<dyn Future<Output = mlua::Result<()>>>>,
+            > = Vec::new();
+            // Re-evaluation cadence: the dispatched coroutine may register
+            // timers/watchers at any suspension, so the loop re-checks state
+            // at least every 10ms even when no wake is scheduled yet.
+            let mut ticker = tokio::time::interval(std::time::Duration::from_millis(10));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                // Advance the dispatched coroutine to its next suspension
+                // first: timers/watchers it registers become visible before
+                // the wake cadence below is computed.
+                // now_or_never polls main exactly once: the coroutine
+                // advances to its next suspension, then the wake cadence
+                // below is recomputed from the timer/watcher state it set.
+                let mut advanced =
+                    futures_util::future::poll_fn(|cx| main.as_mut().poll(cx));
+                if let Some(result) = futures_util::FutureExt::now_or_never(&mut advanced) {
+                    break result;
+                }
+                for entry in crate::timer::take_due() {
+                    let func = entry.func;
+                    firing.push(Box::pin(async move {
+                        func.call_async::<mlua::Value>(()).await.map(|_| ())
+                    }));
+                }
+                if crate::watch::count() > 0 {
+                    for entry in crate::watch::poll().await {
+                        let func = entry.func;
+                        let path = entry.path.clone();
+                        firing.push(Box::pin(async move {
+                            func.call_async::<mlua::Value>((path, "change"))
+                                .await
+                                .map(|_| ())
+                        }));
+                    }
+                }
+                // Wake at the earliest timer due; when file watchers are
+                // live, also wake on the watch poll cadence so changes are
+                // observed even with no timers registered.
+                let mut next = crate::timer::next_due();
+                let watch_poll = if crate::watch::count() > 0 {
+                    Some(std::time::Instant::now() + std::time::Duration::from_millis(100))
+                } else {
+                    None
+                };
+                if let (Some(timer_due), Some(watch_due)) = (next, watch_poll) {
+                    next = Some(timer_due.min(watch_due));
+                } else if next.is_none() {
+                    next = watch_poll;
+                }
+                let has_next = next.is_some();
+                let timer_sleep = async {
+                    match next {
+                        Some(due) => {
+                            let until = tokio::time::Instant::from_std(due);
+                            tokio::time::sleep_until(until).await;
+                        }
+                        None => std::future::pending::<()>().await,
+                    }
+                };
+                tokio::pin!(timer_sleep);
+                tokio::select! {
+                    biased;
+                    res = &mut main => break res,
+                    _ = &mut timer_sleep, if has_next => {}
+                    _ = ticker.tick() => {}
+                    _ = async {
+                        if let Some(first) = firing.first_mut() {
+                            let _ = first.await;
+                        } else {
+                            std::future::pending::<()>().await;
+                        }
+                    }, if !firing.is_empty() => { std::mem::drop(firing.remove(0)); }
+                }
+            }
+        };
         rt.block_on(Watched {
-            inner: Box::pin(local.run_until(fut)),
+            inner: Box::pin(drive),
             state: Arc::clone(&state),
         })
         .map_err(|e| HostError::from_lua_message(e.to_string(), budget_ms))

@@ -23,12 +23,13 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use mlua::{Lua, Table, UserData, UserDataMethods, Value};
+use mlua::{Lua, ObjectLike, Table, UserData, UserDataMethods, Value};
 
 use pi_rs_session::{NewSessionOptions, SessionManager};
 
 use crate::convert::{json_to_lua, lua_to_json};
 
+#[derive(Clone)]
 pub(crate) struct SessionHandle(Rc<RefCell<SessionManager>>);
 
 fn runtime_err<E: std::fmt::Display>(error: E) -> mlua::Error {
@@ -319,6 +320,38 @@ fn handle(manager: SessionManager) -> SessionHandle {
     SessionHandle(Rc::new(RefCell::new(manager)))
 }
 
+/// Bare-host ctx.sessionManager fallback: remember the most recently
+/// created session so the invocation context can expose it (the product
+/// builds its own snapshot facade in utils/extensions.lua).
+/// Dot-callable facade matching the product's session snapshot: a plain
+/// table of read methods over the remembered session handle (the host's
+/// pi.session constructors return userdata, which Lua calls with colon;
+/// the context surface is a table, so extensions use dot).
+pub(crate) fn session_manager_facade(lua: &Lua, handle: &SessionHandle) -> mlua::Result<Table> {
+    let facade = lua.create_table()?;
+    let ud = lua.create_userdata((*handle).clone())?;
+    const METHODS: [&str; 12] = [
+        "get_branch", "get_entries", "get_entry", "get_session_name",
+        "get_session_id", "get_session_file", "get_cwd", "get_leaf_id",
+        "get_header", "build_session_context", "is_persisted", "get_tree",
+    ];
+    for name in METHODS {
+        let ud = ud.clone();
+        facade.set(
+            name,
+            lua.create_function(move |_, args: mlua::MultiValue| {
+                ud.call_method::<mlua::Value>(name, args)
+            })?,
+        )?;
+    }
+    Ok(facade)
+}
+fn remember_current(lua: &Lua, handle: &SessionHandle) -> mlua::Result<()> {
+    let registry = lua.named_registry_value::<Table>(crate::api::REGISTRY_KEY)?;
+    registry.set("current_session", lua.create_userdata((*handle).clone())?)?;
+    Ok(())
+}
+
 pub(crate) fn install(lua: &Lua, pi: &Table, cwd: &str) -> mlua::Result<()> {
     let table = lua.create_table()?;
     let vm_cwd = cwd.to_owned();
@@ -328,7 +361,7 @@ pub(crate) fn install(lua: &Lua, pi: &Table, cwd: &str) -> mlua::Result<()> {
     let default_cwd = vm_cwd.clone();
     table.set(
         "create",
-        lua.create_function(move |_, options: Option<Table>| {
+        lua.create_function(move |lua, options: Option<Table>| {
             let (cwd, session_dir, agent_dir, new_options) = match &options {
                 Some(options) => (
                     opt_string(options, "cwd")?,
@@ -346,7 +379,9 @@ pub(crate) fn install(lua: &Lua, pi: &Table, cwd: &str) -> mlua::Result<()> {
             let manager =
                 SessionManager::create(&cwd, session_dir.as_deref(), &agent_dir, new_options)
                     .map_err(runtime_err)?;
-            Ok(handle(manager))
+            let handle = handle(manager);
+            remember_current(lua, &handle)?;
+            Ok(handle)
         })?,
     )?;
 
@@ -354,7 +389,7 @@ pub(crate) fn install(lua: &Lua, pi: &Table, cwd: &str) -> mlua::Result<()> {
     // — without an override the cwd comes from the session header.
     table.set(
         "open",
-        lua.create_function(move |_, options: Table| {
+        lua.create_function(move |lua, options: Table| {
             let path: String = options.get("path")?;
             let session_dir = opt_string(&options, "sessionDir")?;
             let cwd = opt_string(&options, "cwd")?;
@@ -363,7 +398,9 @@ pub(crate) fn install(lua: &Lua, pi: &Table, cwd: &str) -> mlua::Result<()> {
             let manager =
                 SessionManager::open(&path, session_dir.as_deref(), cwd.as_deref(), &agent_dir)
                     .map_err(runtime_err)?;
-            Ok(handle(manager))
+            let handle = handle(manager);
+            remember_current(lua, &handle)?;
+            Ok(handle)
         })?,
     )?;
 
@@ -413,13 +450,15 @@ pub(crate) fn install(lua: &Lua, pi: &Table, cwd: &str) -> mlua::Result<()> {
     // Spec: `SessionManager.inMemory(cwd?)` — never persists.
     table.set(
         "in_memory",
-        lua.create_function(move |_, options: Option<Table>| {
+        lua.create_function(move |lua, options: Option<Table>| {
             let cwd = match &options {
                 Some(options) => opt_string(options, "cwd")?,
                 None => None,
             };
             let cwd = cwd.unwrap_or_else(|| vm_cwd.clone());
-            Ok(handle(SessionManager::in_memory_at(&cwd)))
+            let handle = handle(SessionManager::in_memory_at(&cwd));
+            remember_current(lua, &handle)?;
+            Ok(handle)
         })?,
     )?;
 
