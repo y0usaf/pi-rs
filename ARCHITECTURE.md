@@ -289,6 +289,7 @@ crate pi_rs_app
 │   │   ├── struct Args: pub
 │   │   └── struct Diagnostic: pub
 │   ├── mod extensions: pub
+│   ├── mod file_processor: pub
 │   ├── mod list_models: pub
 │   │   └── struct Row: pub(self)
 │   ├── mod login: pub
@@ -368,6 +369,8 @@ crate pi_rs_host
 │   ├── struct ConfigSnapshot: pub
 │   └── struct ResourceSelector: pub
 ├── mod convert: pub(crate)
+├── mod crypto: pub(crate)
+│   └── struct LuaHash: pub(self)
 ├── mod discover: pub
 ├── mod error: pub(crate)
 │   └── enum HostError: pub
@@ -416,12 +419,42 @@ crate pi_rs_host
 ├── mod model_registry: pub
 │   ├── struct ModelRegistry: pub
 │   └── enum ResolvedRequestAuth: pub
+├── mod net: pub(crate)
+│   ├── struct LuaSocket: pub(self)
+│   └── struct SocketState: pub(self)
 ├── mod os: pub(crate)
+│   ├── struct LuaFileHandle: pub(self)
+│   └── struct LuaWatcher: pub(self)
+├── mod packages: pub
+│   ├── struct ConfiguredPackage: pub
+│   ├── struct GitSource: pub
+│   ├── struct LocalSource: pub
+│   ├── struct NpmSource: pub
+│   ├── struct PackageManager: pub
+│   ├── enum ParsedSource: pub
+│   └── enum Scope: pub
 ├── mod paths: pub(crate)
+├── mod process: pub(crate)
+│   ├── struct ChildState: pub(self)
+│   ├── struct ExitInfo: pub(self)
+│   ├── struct LuaChild: pub(self)
+│   └── enum Pipe: pub(self)
 ├── mod resolve_config_value: pub
 │   ├── enum ConfigValueError: pub
 │   ├── enum ConfigValueReference: pub(self)
 │   └── enum TemplatePart: pub(self)
+├── mod resource_loader: pub
+│   ├── struct Accumulator: pub(self)
+│   ├── struct IgnoreMatcher: pub(self)
+│   ├── enum Origin: pub
+│   ├── struct PathMetadata: pub
+│   ├── struct ResolvedPaths: pub
+│   ├── struct ResolvedResource: pub
+│   ├── type ResourceIndex: pub(self)
+│   ├── struct ResourceLoader: pub
+│   └── enum ResourceType: pub
+├── mod resources: pub(crate)
+│   └── struct Resource: pub(crate)
 ├── mod schema: pub(crate)
 │   └── struct SchemaError: pub(crate)
 ├── mod session: pub(crate)
@@ -441,6 +474,8 @@ crate pi_rs_host
 │   ├── enum SettingsManagerError: pub
 │   ├── enum SettingsScope: pub
 │   └── enum SettingsStorage: pub
+├── mod timer: pub(crate)
+│   └── struct TimerEntry: pub(crate)
 ├── mod trust: pub
 │   ├── struct ProjectTrustStore: pub
 │   ├── struct ResolveProjectTrust: pub
@@ -452,11 +487,14 @@ crate pi_rs_host
 │   ├── struct TrustOption: pub
 │   ├── enum TrustResolution: pub
 │   └── struct TrustUpdate: pub
-└── mod vm: pub(crate)
-    ├── enum Msg: pub(crate)
-    ├── struct ToolInvocation: pub(self)
-    ├── struct WatchdogState: pub(self)
-    └── struct Watched: pub(self)
+├── mod vm: pub(crate)
+│   ├── struct DispatchGuard: pub(self)
+│   ├── enum Msg: pub(crate)
+│   ├── struct ToolInvocation: pub(self)
+│   ├── struct WatchdogState: pub(self)
+│   └── struct Watched: pub(self)
+└── mod watch: pub(crate)
+    └── struct WatcherEntry: pub(crate)
 ```
 
 ### `pi-rs-session`
@@ -594,6 +632,9 @@ crate pi_rs_tui
 │   └── enum TuiError: pub
 ├── mod ui_harness: pub
 │   ├── struct CellSnapshot: pub
+│   ├── struct CompactFrame: pub
+│   ├── struct CompactOracle: pub
+│   ├── struct CompactStyle: pub
 │   ├── struct FrameDiff: pub
 │   ├── struct FrameRecorder: pub
 │   └── struct FrameSnapshot: pub

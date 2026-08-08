@@ -392,6 +392,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07bbe89c50d7a535e539b8c17bc0b49bdb77747034daa8087407d655f3f7cc1d"
 dependencies = [
  "futures-core",
+ "futures-sink",
 ]
 
 [[package]]
@@ -1022,6 +1023,7 @@ dependencies = [
 name = "pi-rs-app"
 version = "0.1.0"
 dependencies = [
+ "fancy-regex",
  "pi-rs-agent",
  "pi-rs-ai",
  "pi-rs-ai-auth",
@@ -1029,9 +1031,11 @@ dependencies = [
  "pi-rs-host",
  "pi-rs-session",
  "pi-rs-tui",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",
+ "signal-hook",
  "tempfile",
  "thiserror",
  "tokio",
@@ -1044,6 +1048,7 @@ dependencies = [
  "base64",
  "fancy-regex",
  "futures-util",
+ "getrandom 0.3.4",
  "image",
  "jpeg-decoder",
  "libc",
@@ -1056,10 +1061,13 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "tokio",
+ "twox-hash",
  "unicode-normalization",
+ "url",
 ]
 
 [[package]]
@@ -1328,6 +1336,7 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64",
  "bytes",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2",
@@ -1871,6 +1880,15 @@ dependencies = [
  "sha1",
  "thiserror",
  "utf-8",
+]
+
+[[package]]
+name = "twox-hash"
+version = "2.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ea3136b675547379c4bd395ca6b938e5ad3c3d20fad76e7fe85f9e0d011419c"
+dependencies = [
+ "rand 0.9.5",
 ]
 
 [[package]]
