@@ -14,11 +14,6 @@
 
 mod common;
 
-use std::io::{Read, Write};
-use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
-use std::thread;
-
 /// One scripted summary turn as an SSE body.
 const SUMMARY_SSE: &str = concat!(
     "event: message_start\n",
@@ -34,27 +29,6 @@ const SUMMARY_SSE: &str = concat!(
     "event: message_stop\n",
     "data: {\"type\":\"message_stop\"}\n\n"
 );
-
-fn spawn_stub() -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    let requests = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
-    let seen = Arc::clone(&requests);
-    thread::spawn(move || {
-        for conn in listener.incoming() {
-            let Ok(mut stream) = conn else { break };
-            let request = common::read_request(&mut stream);
-            seen.lock().unwrap().push(request);
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-                SUMMARY_SSE.len(),
-                SUMMARY_SSE
-            );
-            let _ = stream.write_all(response.as_bytes());
-        }
-    });
-    (format!("http://{address}"), requests)
-}
 
 /// A branched session: root chain e1..e4, branch A (e5 user, e6 assistant
 /// with a read toolCall, e7 toolResult), branch B (e8 user, e9 assistant),
@@ -134,7 +108,7 @@ fn summarize_navigation_sends_the_branch_summary_request_and_appends_the_entry()
     let sessions = temp.path().join("sessions");
     let s1 = write_branched_session(&sessions, &cwd);
 
-    let (base_url, requests) = spawn_stub();
+    let (base_url, requests) = common::spawn_stub(vec![common::StubResponse::Sse(SUMMARY_SSE.to_owned())]);
     let result = common::host(&cwd)
         .call_command(
             "interactive-tree-parity-sequence",
@@ -227,20 +201,7 @@ fn escape_aborts_summarization_and_navigation_is_cancelled() {
     let before = std::fs::read_to_string(&s1).unwrap();
 
     // A hanging stub: never responds, so only an abort settles the task.
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let base_url = format!("http://{}", listener.local_addr().unwrap());
-    thread::spawn(move || {
-        for conn in listener.incoming() {
-            let Ok(stream) = conn else { break };
-            // Hold the connection open; the client aborts.
-            thread::spawn(move || {
-                let mut stream = stream;
-                let mut sink = [0u8; 64];
-                while matches!(stream.read(&mut sink), Ok(n) if n > 0) {}
-            });
-        }
-    });
-
+    let (base_url, _requests) = common::spawn_stub(vec![common::StubResponse::Hang(String::new())]);
     let result = common::host(&cwd)
         .call_command(
             "interactive-tree-parity-sequence",
@@ -294,7 +255,7 @@ fn fork_copies_the_path_before_the_selected_user_message_into_a_new_session() {
     let s1 = write_branched_session(&sessions, &cwd);
     let s1_before = std::fs::read_to_string(&s1).unwrap();
 
-    let (base_url, _requests) = spawn_stub();
+    let (base_url, _requests) = common::spawn_stub(vec![common::StubResponse::Sse(SUMMARY_SSE.to_owned())]);
     let result = common::host(&cwd)
         .call_command(
             "interactive-tree-parity-sequence",
@@ -348,7 +309,7 @@ fn clone_duplicates_the_session_at_the_leaf_with_path_labels_recreated() {
     let sessions = temp.path().join("sessions");
     let s1 = write_branched_session(&sessions, &cwd);
 
-    let (base_url, _requests) = spawn_stub();
+    let (base_url, _requests) = common::spawn_stub(vec![common::StubResponse::Sse(SUMMARY_SSE.to_owned())]);
     let result = common::host(&cwd)
         .call_command(
             "interactive-tree-parity-sequence",

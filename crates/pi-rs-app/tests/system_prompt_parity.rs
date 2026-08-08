@@ -12,7 +12,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use pi_rs_host::{Host, HostConfig};
-
+mod common;
 const README_PATH: &str = "/pi-rs-pkg/README.md";
 const DOCS_PATH: &str = "/pi-rs-pkg/docs";
 const EXAMPLES_PATH: &str = "/pi-rs-pkg/examples";
@@ -33,16 +33,6 @@ fn host() -> Host {
     ]);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     host
-}
-
-/// An empty Lua table crosses the boundary as `{}`; the oracle's empty
-/// context-file list is `[]`. Normalize the encoding artifact.
-fn normalize_empty(value: &mut serde_json::Value) {
-    if let Some(map) = value.as_object()
-        && map.is_empty()
-    {
-        *value = serde_json::Value::Array(Vec::new());
-    }
 }
 
 #[test]
@@ -88,7 +78,7 @@ fn system_prompt_matches_pi_oracle() {
             .call_command("system-prompt-parity", &request.to_string())
             .unwrap()
             .unwrap();
-        normalize_empty(&mut result["contextFiles"]);
+        common::normalize_empty_object(&mut result["contextFiles"]);
         let prompt = result["prompt"]
             .as_str()
             .unwrap()

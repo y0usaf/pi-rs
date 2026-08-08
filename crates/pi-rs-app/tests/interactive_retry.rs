@@ -6,11 +6,6 @@
 
 mod common;
 
-use std::io::Write;
-use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
-use std::thread;
-
 fn success_sse(text: &str) -> String {
     concat!(
         "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
@@ -21,43 +16,6 @@ fn success_sse(text: &str) -> String {
         "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
     )
     .replace("TEXT", &serde_json::Value::String(text.to_owned()).to_string())
-}
-
-enum Response {
-    Retryable,
-    Success,
-}
-
-fn stub(responses: Vec<Response>) -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    let requests = Arc::new(Mutex::new(Vec::new()));
-    let seen = Arc::clone(&requests);
-    thread::spawn(move || {
-        for (index, connection) in listener.incoming().enumerate() {
-            let Ok(mut stream) = connection else { break };
-            seen.lock().unwrap().push(common::read_request(&mut stream));
-            let response = match responses.get(index) {
-                Some(Response::Retryable) => {
-                    let body = r#"{"type":"error","error":{"type":"invalid_request_error","message":"429 overloaded"}}"#;
-                    format!(
-                        "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
-                    )
-                }
-                Some(Response::Success) => {
-                    let body = success_sse("recovered");
-                    format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
-                    )
-                }
-                None => break,
-            };
-            stream.write_all(response.as_bytes()).unwrap();
-        }
-    });
-    (format!("http://{address}"), requests)
 }
 
 fn run(
@@ -100,7 +58,7 @@ fn retryable_error_retries_then_recovers() {
     )
     .unwrap();
     unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
-    let (base_url, requests) = stub(vec![Response::Retryable, Response::Success]);
+    let (base_url, requests) = common::spawn_stub(vec![common::StubResponse::Json(400, r#"{"type":"error","error":{"type":"invalid_request_error","message":"429 overloaded"}}"#.to_owned()), common::StubResponse::Sse(success_sse("recovered"))]);
     run(
         &base_url,
         temp.path().to_str().unwrap(),
@@ -136,7 +94,7 @@ fn escape_cancels_retry_backoff_without_another_request() {
     )
     .unwrap();
     unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
-    let (base_url, requests) = stub(vec![Response::Retryable]);
+    let (base_url, requests) = common::spawn_stub(vec![common::StubResponse::Json(400, r#"{"type":"error","error":{"type":"invalid_request_error","message":"429 overloaded"}}"#.to_owned())]);
     let result = run(
         &base_url,
         temp.path().to_str().unwrap(),

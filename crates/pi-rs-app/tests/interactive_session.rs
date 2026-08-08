@@ -12,11 +12,6 @@
 
 mod common;
 
-use std::io::Write;
-use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
-use std::thread;
-
 /// One scripted assistant text turn ("done") as an SSE body.
 const DONE_SSE: &str = concat!(
     "event: message_start\n",
@@ -32,27 +27,6 @@ const DONE_SSE: &str = concat!(
     "event: message_stop\n",
     "data: {\"type\":\"message_stop\"}\n\n"
 );
-
-fn spawn_stub() -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    let requests = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
-    let seen = Arc::clone(&requests);
-    thread::spawn(move || {
-        for conn in listener.incoming() {
-            let Ok(mut stream) = conn else { break };
-            let request = common::read_request(&mut stream);
-            seen.lock().unwrap().push(request);
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-                DONE_SSE.len(),
-                DONE_SSE
-            );
-            let _ = stream.write_all(response.as_bytes());
-        }
-    });
-    (format!("http://{address}"), requests)
-}
 
 /// A single-turn session fixture (`user_text` → `assistant_text`).
 fn write_session_fixture(
@@ -154,7 +128,7 @@ fn resume_switches_the_live_runtime_and_new_starts_fresh() {
     );
     let s1_before = std::fs::read_to_string(&s1).unwrap();
 
-    let (base_url, requests) = spawn_stub();
+    let (base_url, requests) = common::spawn_stub(vec![common::StubResponse::Sse(DONE_SSE.to_owned())]);
     let result = common::host(&cwd)
         .call_command(
             "interactive-session-parity-sequence",

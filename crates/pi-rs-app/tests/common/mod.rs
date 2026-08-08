@@ -7,15 +7,21 @@
 //! so the `ENV_LOCK` static is per-binary — exactly what the tests need
 //! (they serialize the process-global `PI_CODING_AGENT_DIR`).
 //!
+//! Shared here: the scripted loopback HTTP/SSE stub server
+//! (`spawn_stub`/`StubResponse`), the one-turn SSE body builder
+//! `text_sse`, the Lua `{}`/`[]` encoding-artifact normalizer
+//! `normalize_empty_object`, and the product-host/fixture helpers below.
+//!
 //! Per-test machinery — the `run_sequence` request envelopes (different
-//! commands, `sessionFile` vs `sessionDir`, `nowMs`), the scripted SSE
-//! stubs (`Scripted`/`Response` enums, `text_sse`/`success_sse`/`hang_sse`,
-//! `spawn_stub`), and the session writers — stays local to each test.
+//! commands, `sessionFile` vs `sessionDir`, `nowMs`), scenario-specific
+//! SSE bodies (`hang_sse`, `SUMMARY_SSE`, `DONE_SSE`, `success_sse`),
+//! and the session writers — stays local to each test.
 #![allow(dead_code, clippy::unwrap_used)]
 
-use std::io::Read;
-use std::net::TcpStream;
-use std::sync::Mutex;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 use pi_rs_app::builtins::{CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
 use pi_rs_host::{Host, HostConfig};
@@ -66,6 +72,88 @@ pub fn read_request(stream: &mut TcpStream) -> serde_json::Value {
     serde_json::Value::Null
 }
 
+/// One scripted HTTP response for `spawn_stub`.
+pub enum StubResponse {
+    /// 200 text/event-stream with Content-Length and Connection: close.
+    Sse(String),
+    /// 200 text/event-stream with no Content-Length: the body runs until
+    /// close, which never comes — the client must abort.
+    Hang(String),
+    /// Non-stream response: status line plus JSON body.
+    Json(u16, String),
+}
+
+/// A scripted loopback HTTP server. Each incoming connection is served
+/// the next scripted response (falling back to the last, so a
+/// single-response stub serves every connection), and every request body
+/// is recorded. Returns the base URL and the recorded requests.
+pub fn spawn_stub(responses: Vec<StubResponse>) -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let requests = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+    let seen = Arc::clone(&requests);
+    thread::spawn(move || {
+        for (index, conn) in listener.incoming().enumerate() {
+            let Ok(mut stream) = conn else { break };
+            let request = read_request(&mut stream);
+            seen.lock().unwrap().push(request);
+            match responses.get(index).or_else(|| responses.last()) {
+                Some(StubResponse::Sse(body)) => {
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                }
+                Some(StubResponse::Hang(body)) => {
+                    let response =
+                        format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n{body}");
+                    let _ = stream.write_all(response.as_bytes());
+                    thread::spawn(move || {
+                        let mut sink = [0u8; 64];
+                        let _ = stream.read(&mut sink);
+                    });
+                }
+                Some(StubResponse::Json(code, body)) => {
+                    let response = format!(
+                        "HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                }
+                None => break,
+            }
+        }
+    });
+    (format!("http://{address}"), requests)
+}
+
+/// One scripted assistant text turn as an SSE body (message id
+/// `msg_01`, model `claude-parity-1`, scripted usage, stop reason
+/// `end_turn`).
+pub fn text_sse(text: &str, input_tokens: u64) -> String {
+    format!(
+        concat!(
+            "event: message_start\n",
+            "data: {{\"type\":\"message_start\",\"message\":{{\"id\":\"msg_01\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-parity-1\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{{\"input_tokens\":{input},\"output_tokens\":1}}}}}}\n\n",
+            "event: content_block_start\n",
+            "data: {{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{{\"type\":\"text\",\"text\":\"\"}}}}\n\n",
+            "event: content_block_delta\n",
+            "data: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"text_delta\",\"text\":{text}}}}}\n\n",
+            "event: content_block_stop\n",
+            "data: {{\"type\":\"content_block_stop\",\"index\":0}}\n\n",
+            "event: message_delta\n",
+            "data: {{\"type\":\"message_delta\",\"delta\":{{\"stop_reason\":\"end_turn\",\"stop_sequence\":null}},\"usage\":{{\"output_tokens\":4}}}}\n\n",
+            "event: message_stop\n",
+            "data: {{\"type\":\"message_stop\"}}\n\n"
+        ),
+        input = input_tokens,
+        text = serde_json::Value::String(text.to_owned()),
+    )
+}
+
 /// Bracketed-paste wrapper (`\x1b[200~…\x1b[201~`).
 pub fn paste(text: &str) -> String {
     format!("\x1b[200~{text}\x1b[201~")
@@ -83,7 +171,7 @@ pub fn stub_model(base_url: &str) -> serde_json::Value {
 }
 
 /// A tempdir fixture: cwd, `agent_dir`, `sessions` dir, with
-/// `PI_CODING_AGENT_DIR` set (call under [`ENV_LOCK`]).
+/// `PI_CODING_AGENT_DIR` set (call under `ENV_LOCK`).
 pub struct Fixture {
     _temp: tempfile::TempDir,
     pub cwd: String,
@@ -105,6 +193,28 @@ pub fn fixture() -> Fixture {
         cwd,
         agent_dir,
         sessions,
+    }
+}
+
+/// Recursively fold Lua's `{}`/`[]` encoding artifact: any empty
+/// object (a Lua table has one empty value for both encodings) compares
+/// as an empty array.
+pub fn normalize_empty_object(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) if map.is_empty() => {
+            *value = serde_json::Value::Array(Vec::new());
+        }
+        serde_json::Value::Object(map) => {
+            for (_, item) in map.iter_mut() {
+                normalize_empty_object(item);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                normalize_empty_object(item);
+            }
+        }
+        _ => {}
     }
 }
 
