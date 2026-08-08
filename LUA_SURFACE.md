@@ -20,6 +20,34 @@ These APIs promise their documented Lua contract, not Node module emulation or P
 
 A module may use the Pi-compatible and additive APIs, but any host capability it needs must already be public in one of those API tiers. Embedded and file-backed packages resolve the same declared module graph. Chunk-local helpers, concatenation-order globals, and undeclared cross-pack globals are not packaged modules and do not count as public authoring surface.
 
+The shipped exact-version public modules (defined with `pi.module.define`, imported with `pi.module.require`, identical for embedded and file-backed packages):
+
+| Module | Version | Source unit | Exports |
+|---|---|---|---|
+| `pi.tools.prelude` | 1 | `builtins/tools/prelude.lua` | `split`, `fmt_num`, `utf8_lossy`, `cwd` |
+| `pi.tools.truncate` | 1 | `builtins/tools/truncate.lua` | `truncate_head`, `truncate_tail`, `truncate_line`, `format_size`, limits |
+| `pi.tools.path-utils` | 1 | `builtins/tools/path-utils.lua` | path normalization/resolution helpers |
+| `pi.tools.mime` | 1 | `builtins/tools/mime.lua` | MIME detection helpers |
+| `pi.tools.shell` | 1 | `builtins/tools/shell.lua` | `shell_config` |
+| `pi.tools.output-accumulator` | 1 | `builtins/tools/output-accumulator.lua` | `new_output_accumulator` |
+| `pi.tools.keybinding-hints` | 1 | `builtins/tools/keybinding-hints.lua` | key text/hint renderers, `HINT_KEYBINDINGS` |
+| `pi.tui.visual-truncate` | 1 | `builtins/tools/visual-truncate.lua` | `truncate_to_visual_lines` |
+| `pi.tools.render` | 1 | `builtins/tools/render-utils.lua` | ANSI/binary/path/line render helpers, `highlight_code` |
+| `pi.tools.diff` | 1 | `builtins/tools/diff.lua` | diff line parsing and rendering |
+| `pi.tools.edit-diff` | 1 | `builtins/tools/edit-diff.lua` | edit matching/application and diff generation |
+| `pi.tools.file-mutation-queue` | 1 | `builtins/tools/file-mutation-queue.lua` | per-file mutation queue policy |
+| `pi.utils.syntax-highlight` | 1 | `builtins/utils/syntax-highlight.lua` | `theme_highlight_code`, `markdown_highlight_code` |
+| `pi.utils.messages` | 1 | `builtins/utils/messages.lua` | `bash_execution_to_text`, `convert_to_llm`, `convert_to_llm_with_block_images` |
+| `pi.utils.extensions` | 1 | `builtins/utils/extensions.lua` | `context_policy`, `headless_ui` |
+| `pi.utils.branch-summary` | 1 | `builtins/utils/branch-summary.lua` | branch summary/token estimation exports |
+| `pi.utils.system-prompt` | 1 | `builtins/utils/system-prompt.lua` | `build_system_prompt`, `build_session_system_prompt`, context-file loading |
+| `pi.utils.agent-session` | 1 | `builtins/utils/agent-session.lua` | `persist_agent_event`, `session_startup`, `construct_session` |
+| `pi.utils.bash-executor` | 1 | `builtins/utils/bash-executor.lua` | interactive bash execution policy |
+| `pi.utils.export-html` | 1 | `builtins/utils/export-html.lua` | `generate`, export rendering helpers |
+
+`examples/extensions/module-demo.lua` is the file-backed consumer proof: it imports the modules above through the same `pi.module.require` path the builtin packs use and verifies the full registry (`pi.module.list`).
+
+
 ## No embedded/private tier
 
 There is no embedded/private tier. `include_str!`, a synthetic `<pack:…>` source key, or builtin-package membership records provenance only. It must not change API-table members, module visibility, declaration semantics, precedence, snapshots/actions, watchdog treatment, or runtime/session/dispatch lifecycle.

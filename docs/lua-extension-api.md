@@ -23,65 +23,65 @@ Lua-native capabilities and do not change this Pi-compatible vocabulary.
 
 | Pi member | Lua | Status |
 |---|---|---|
-| `appendEntry` | `pi.append_entry` | planned 9.4 |
+| `appendEntry` | `pi.append_entry` | implemented |
 | `events` | `pi.events` | implemented |
 | `exec` | `pi.exec` | implemented |
-| `getActiveTools` | `pi.get_active_tools` | planned 9.4 |
-| `getAllTools` | `pi.get_all_tools` | planned 9.4 |
+| `getActiveTools` | `pi.get_active_tools` | implemented |
+| `getAllTools` | `pi.get_all_tools` | implemented |
 | `getCommands` | `pi.get_commands` | implemented |
 | `getFlag` | `pi.get_flag` | implemented |
-| `getSessionName` | `pi.get_session_name` | planned 9.4 |
-| `getThinkingLevel` | `pi.get_thinking_level` | planned 9.4 |
+| `getSessionName` | `pi.get_session_name` | implemented |
+| `getThinkingLevel` | `pi.get_thinking_level` | implemented |
 | `on` | `pi.on` | implemented |
 | `registerCommand` | `pi.register_command` | implemented |
 | `registerFlag` | `pi.register_flag` | implemented |
-| `registerMessageRenderer` | `pi.register_message_renderer` | planned 9.4 |
+| `registerMessageRenderer` | `pi.register_message_renderer` | implemented |
 | `registerProvider` | `pi.register_provider` | implemented |
 | `registerShortcut` | `pi.register_shortcut` | implemented |
 | `registerTool` | `pi.register_tool` | implemented |
-| `sendMessage` | `pi.send_message` | planned 9.4 |
-| `sendUserMessage` | `pi.send_user_message` | planned 9.4 |
-| `setActiveTools` | `pi.set_active_tools` | planned 9.4 |
-| `setLabel` | `pi.set_label` | planned 9.4 |
-| `setModel` | `pi.set_model` | planned 9.4 |
-| `setSessionName` | `pi.set_session_name` | planned 9.4 |
-| `setThinkingLevel` | `pi.set_thinking_level` | planned 9.4 |
+| `sendMessage` | `pi.send_message` | implemented |
+| `sendUserMessage` | `pi.send_user_message` | implemented |
+| `setActiveTools` | `pi.set_active_tools` | implemented |
+| `setLabel` | `pi.set_label` | implemented |
+| `setModel` | `pi.set_model` | implemented |
+| `setSessionName` | `pi.set_session_name` | implemented |
+| `setThinkingLevel` | `pi.set_thinking_level` | implemented |
 | `unregisterProvider` | `pi.unregister_provider` | implemented |
 
 ## Events
 
 | Event | Status |
 |---|---|
-| `after_provider_response` | planned 9.3 |
-| `agent_end` | planned 9.3 |
-| `agent_start` | planned 9.3 |
-| `before_agent_start` | planned 9.3 |
-| `before_provider_request` | planned 9.3 |
-| `context` | planned 9.3 |
-| `input` | planned 9.3 |
-| `message_end` | planned 9.3 |
-| `message_start` | planned 9.3 |
-| `message_update` | planned 9.3 |
-| `model_select` | planned 9.3 |
-| `project_trust` | planned 9.3 |
-| `resources_discover` | planned 9.3 |
-| `session_before_compact` | planned 9.3 |
-| `session_before_fork` | planned 9.3 |
-| `session_before_switch` | planned 9.3 |
-| `session_before_tree` | planned 9.3 |
-| `session_compact` | planned 9.3 |
-| `session_shutdown` | planned 9.3 |
-| `session_start` | planned 9.3 |
-| `session_tree` | planned 9.3 |
-| `thinking_level_select` | planned 9.3 |
-| `tool_call` | planned 9.3 |
-| `tool_execution_end` | planned 9.3 |
-| `tool_execution_start` | planned 9.3 |
-| `tool_execution_update` | planned 9.3 |
-| `tool_result` | planned 9.3 |
-| `turn_end` | planned 9.3 |
-| `turn_start` | planned 9.3 |
-| `user_bash` | planned 9.3 |
+| `after_provider_response` | implemented |
+| `agent_end` | implemented |
+| `agent_start` | implemented |
+| `before_agent_start` | implemented |
+| `before_provider_request` | implemented |
+| `context` | implemented |
+| `input` | implemented |
+| `message_end` | implemented |
+| `message_start` | implemented |
+| `message_update` | implemented |
+| `model_select` | implemented |
+| `project_trust` | implemented |
+| `resources_discover` | implemented |
+| `session_before_compact` | implemented |
+| `session_before_fork` | implemented |
+| `session_before_switch` | implemented |
+| `session_before_tree` | implemented |
+| `session_compact` | implemented |
+| `session_shutdown` | implemented |
+| `session_start` | implemented |
+| `session_tree` | implemented |
+| `thinking_level_select` | implemented |
+| `tool_call` | implemented |
+| `tool_execution_end` | implemented |
+| `tool_execution_start` | implemented |
+| `tool_execution_update` | implemented |
+| `tool_result` | implemented |
+| `turn_end` | implemented |
+| `turn_start` | implemented |
+| `user_bash` | implemented |
 
 ## ExtensionContext
 
@@ -120,34 +120,34 @@ Lua-native capabilities and do not change this Pi-compatible vocabulary.
 
 | Pi-compatible field/action | Status |
 |---|---|
-| `ctx.ui.addAutocompleteProvider` | planned 9.5 |
+| `ctx.ui.addAutocompleteProvider` | implemented |
 | `ctx.ui.confirm` | implemented |
-| `ctx.ui.custom` | planned 9.5 |
-| `ctx.ui.editor` | planned 9.5 |
-| `ctx.ui.getAllThemes` | planned 9.5 |
-| `ctx.ui.getEditorComponent` | planned 9.5 |
-| `ctx.ui.getEditorText` | planned 9.5 |
-| `ctx.ui.getTheme` | planned 9.5 |
-| `ctx.ui.getToolsExpanded` | planned 9.5 |
-| `ctx.ui.input` | planned 9.5 |
+| `ctx.ui.custom` | implemented |
+| `ctx.ui.editor` | implemented |
+| `ctx.ui.getAllThemes` | implemented |
+| `ctx.ui.getEditorComponent` | implemented |
+| `ctx.ui.getEditorText` | implemented |
+| `ctx.ui.getTheme` | implemented |
+| `ctx.ui.getToolsExpanded` | implemented |
+| `ctx.ui.input` | implemented |
 | `ctx.ui.notify` | implemented |
-| `ctx.ui.onTerminalInput` | planned 9.5 |
-| `ctx.ui.pasteToEditor` | planned 9.5 |
+| `ctx.ui.onTerminalInput` | implemented |
+| `ctx.ui.pasteToEditor` | implemented |
 | `ctx.ui.select` | implemented |
-| `ctx.ui.setEditorComponent` | planned 9.5 |
-| `ctx.ui.setEditorText` | planned 9.5 |
-| `ctx.ui.setFooter` | planned 9.5 |
-| `ctx.ui.setHeader` | planned 9.5 |
-| `ctx.ui.setHiddenThinkingLabel` | planned 9.5 |
-| `ctx.ui.setStatus` | planned 9.5 |
-| `ctx.ui.setTheme` | planned 9.5 |
-| `ctx.ui.setTitle` | planned 9.5 |
-| `ctx.ui.setToolsExpanded` | planned 9.5 |
-| `ctx.ui.setWidget` | planned 9.5 |
-| `ctx.ui.setWorkingIndicator` | planned 9.5 |
-| `ctx.ui.setWorkingMessage` | planned 9.5 |
-| `ctx.ui.setWorkingVisible` | planned 9.5 |
-| `ctx.ui.theme` | planned 9.5 |
+| `ctx.ui.setEditorComponent` | implemented |
+| `ctx.ui.setEditorText` | implemented |
+| `ctx.ui.setFooter` | implemented |
+| `ctx.ui.setHeader` | implemented |
+| `ctx.ui.setHiddenThinkingLabel` | implemented |
+| `ctx.ui.setStatus` | implemented |
+| `ctx.ui.setTheme` | implemented |
+| `ctx.ui.setTitle` | implemented |
+| `ctx.ui.setToolsExpanded` | implemented |
+| `ctx.ui.setWidget` | implemented |
+| `ctx.ui.setWorkingIndicator` | implemented |
+| `ctx.ui.setWorkingMessage` | implemented |
+| `ctx.ui.setWorkingVisible` | implemented |
+| `ctx.ui.theme` | implemented |
 
 ## Reference translation matrix
 

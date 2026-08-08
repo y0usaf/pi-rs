@@ -25,6 +25,12 @@ pi.register_provider("my-proxy", {
   },
 })
 
+-- Custom stream callback: stays Lua-side with the config (the JSON
+-- mirror strips it; the product invokes it when a custom stream runs).
+pi.register_provider("my-proxy", {
+  streamSimple = function(request, onEvent) onEvent({ type = "done", final = {} }) end,
+})
+
 -- Re-registration merges defined keys over the stored config
 -- (spec upsertRegisteredProvider): the models above survive.
 pi.register_provider("my-proxy", { name = "My Proxy" })
