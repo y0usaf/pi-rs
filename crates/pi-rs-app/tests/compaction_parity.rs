@@ -18,27 +18,7 @@ use pi_rs_host::{Host, HostConfig};
 const CASES: &str = include_str!("../../../tests/compaction-parity/cases.json");
 const ORACLE: &str = include_str!("../../../tests/compaction-parity/oracle.json");
 
-/// Fold Lua's `{}`/`[]` encoding artifact: any empty object compares as
-/// an empty array.
-fn normalize(value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::Object(map) if map.is_empty() => {
-            *value = serde_json::Value::Array(Vec::new());
-        }
-        serde_json::Value::Object(map) => {
-            for (_, item) in map.iter_mut() {
-                normalize(item);
-            }
-        }
-        serde_json::Value::Array(items) => {
-            for item in items {
-                normalize(item);
-            }
-        }
-        _ => {}
-    }
-}
-
+mod common;
 #[test]
 fn compaction_pipeline_matches_pi_for_every_oracle_case() {
     let cases: serde_json::Value = serde_json::from_str(CASES).unwrap();
@@ -72,8 +52,8 @@ fn compaction_pipeline_matches_pi_for_every_oracle_case() {
         actual["name"] = serde_json::json!(name);
 
         let mut expected = expected.clone();
-        normalize(&mut expected);
-        normalize(&mut actual);
+        common::normalize_empty_object(&mut expected);
+        common::normalize_empty_object(&mut actual);
         assert_eq!(actual, expected, "{name}");
     }
     for _ in oracle["cases"].as_array().unwrap() {

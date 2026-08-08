@@ -3,37 +3,15 @@
 //! PLAN 7.10 — Pi-derived AgentSession retry classification, attempt/event
 //! order, context removal, exhaustion, disabled, and cancellation matrix.
 
-use std::sync::Mutex;
-
-use pi_rs_app::builtins::{INTERACTIVE_PACK, TOOLS_PACK};
+mod common;
 use pi_rs_host::{Host, HostConfig};
+use pi_rs_app::builtins::{INTERACTIVE_PACK, TOOLS_PACK};
 
 const CASES: &str = include_str!("../../../tests/retry-parity/cases.json");
 const ORACLE: &str = include_str!("../../../tests/retry-parity/oracle.json");
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn normalize(value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::Object(map) if map.is_empty() => {
-            *value = serde_json::Value::Array(Vec::new());
-        }
-        serde_json::Value::Object(map) => {
-            for item in map.values_mut() {
-                normalize(item);
-            }
-        }
-        serde_json::Value::Array(items) => {
-            for item in items {
-                normalize(item);
-            }
-        }
-        _ => {}
-    }
-}
-
 #[test]
 fn retry_policy_matches_pi_for_every_oracle_case() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _guard = common::ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let spec: serde_json::Value = serde_json::from_str(CASES).unwrap();
     let oracle: serde_json::Value = serde_json::from_str(ORACLE).unwrap();
     unsafe {
@@ -87,8 +65,8 @@ fn retry_policy_matches_pi_for_every_oracle_case() {
             .unwrap();
         actual["name"] = serde_json::json!(name);
         let mut expected = expected.clone();
-        normalize(&mut actual);
-        normalize(&mut expected);
+        common::normalize_empty_object(&mut actual);
+        common::normalize_empty_object(&mut expected);
         assert_eq!(actual, expected, "{name}");
     }
 }

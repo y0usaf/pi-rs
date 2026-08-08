@@ -10,11 +10,6 @@
 
 mod common;
 
-use std::io::Write;
-use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
-use std::thread;
-
 /// One scripted assistant text turn ("done") as an SSE body.
 const DONE_SSE: &str = concat!(
     "event: message_start\n",
@@ -30,27 +25,6 @@ const DONE_SSE: &str = concat!(
     "event: message_stop\n",
     "data: {\"type\":\"message_stop\"}\n\n"
 );
-
-fn spawn_stub() -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    let requests = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
-    let seen = Arc::clone(&requests);
-    thread::spawn(move || {
-        for conn in listener.incoming() {
-            let Ok(mut stream) = conn else { break };
-            let request = common::read_request(&mut stream);
-            seen.lock().unwrap().push(request);
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-                DONE_SSE.len(),
-                DONE_SSE
-            );
-            let _ = stream.write_all(response.as_bytes());
-        }
-    });
-    (format!("http://{address}"), requests)
-}
 
 fn stub_model(base_url: &str) -> serde_json::Value {
     let mut model = common::stub_model(base_url);
@@ -135,7 +109,7 @@ fn resume_replays_context_exactly_once_and_appends_only_new_entries() {
         Some("low"),
     );
 
-    let (base_url, requests) = spawn_stub();
+    let (base_url, requests) = common::spawn_stub(vec![common::StubResponse::Sse(DONE_SSE.to_owned())]);
     let result = common::host(&cwd)
         .call_role(
             "print",
@@ -257,7 +231,7 @@ fn model_restore_prefers_saved_model_and_falls_back_with_warning() {
         ("ghost", "model-x"),
         None,
     );
-    let (base_url, requests) = spawn_stub();
+    let (base_url, requests) = common::spawn_stub(vec![common::StubResponse::Sse(DONE_SSE.to_owned())]);
     let result = common::host(&cwd)
         .call_role(
             "print",

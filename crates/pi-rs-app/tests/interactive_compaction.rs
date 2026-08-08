@@ -14,68 +14,6 @@
 
 mod common;
 
-use std::io::Write;
-use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
-use std::thread;
-
-/// One scripted assistant text turn as an SSE body, with scripted usage.
-fn text_sse(text: &str, input_tokens: u64) -> String {
-    format!(
-        concat!(
-            "event: message_start\n",
-            "data: {{\"type\":\"message_start\",\"message\":{{\"id\":\"msg_01\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-parity-1\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{{\"input_tokens\":{input},\"output_tokens\":1}}}}}}\n\n",
-            "event: content_block_start\n",
-            "data: {{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{{\"type\":\"text\",\"text\":\"\"}}}}\n\n",
-            "event: content_block_delta\n",
-            "data: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"text_delta\",\"text\":{text}}}}}\n\n",
-            "event: content_block_stop\n",
-            "data: {{\"type\":\"content_block_stop\",\"index\":0}}\n\n",
-            "event: message_delta\n",
-            "data: {{\"type\":\"message_delta\",\"delta\":{{\"stop_reason\":\"end_turn\",\"stop_sequence\":null}},\"usage\":{{\"output_tokens\":4}}}}\n\n",
-            "event: message_stop\n",
-            "data: {{\"type\":\"message_stop\"}}\n\n"
-        ),
-        input = input_tokens,
-        text = serde_json::Value::String(text.to_owned()),
-    )
-}
-
-enum Scripted {
-    Sse(String),
-    Status(u16, String),
-}
-
-fn spawn_stub(responses: Vec<Scripted>) -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    let requests = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
-    let seen = Arc::clone(&requests);
-    thread::spawn(move || {
-        for (index, conn) in listener.incoming().enumerate() {
-            let Ok(mut stream) = conn else { break };
-            let request = common::read_request(&mut stream);
-            seen.lock().unwrap().push(request);
-            let scripted = responses.get(index).or_else(|| responses.last());
-            let response = match scripted {
-                Some(Scripted::Sse(body)) => format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-                    body.len(),
-                    body
-                ),
-                Some(Scripted::Status(code, body)) => format!(
-                    "HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-                    body.len(),
-                    body
-                ),
-                None => break,
-            };
-            let _ = stream.write_all(response.as_bytes());
-        }
-    });
-    (format!("http://{address}"), requests)
-}
-
 /// A linear two-turn session sized so keepRecentTokens=15 cuts at e5:
 /// the summarized history is [e3 user, e4 assistant].
 fn write_session(dir: &std::path::Path, cwd: &str) -> String {
@@ -189,9 +127,9 @@ const COMPACTED_CONTEXT_PREFIX: &str = "The conversation history before this poi
 fn manual_compact_sends_the_request_appends_the_entry_and_cuts_context() {
     let _env = common::ENV_LOCK.lock().unwrap();
     let fixture = fixture(Some(15));
-    let (base_url, requests) = spawn_stub(vec![
-        Scripted::Sse(text_sse("## Goal\nShip it.", 1)),
-        Scripted::Sse(text_sse("compacted reply", 1)),
+    let (base_url, requests) = common::spawn_stub(vec![
+        common::StubResponse::Sse(common::text_sse("## Goal\nShip it.", 1)),
+        common::StubResponse::Sse(common::text_sse("compacted reply", 1)),
     ]);
 
     run_sequence(
@@ -265,8 +203,7 @@ fn escape_cancels_compaction_without_appending() {
     let _env = common::ENV_LOCK.lock().unwrap();
     let fixture = fixture(Some(15));
     let before = std::fs::read_to_string(&fixture.session_file).unwrap();
-    let (base_url, requests) = spawn_stub(vec![Scripted::Sse(text_sse("unused", 1))]);
-
+    let (base_url, requests) = common::spawn_stub(vec![common::StubResponse::Sse(common::text_sse("unused", 1))]);
     let result = run_sequence(
         &fixture,
         &base_url,
@@ -303,9 +240,9 @@ fn escape_cancels_compaction_without_appending() {
 fn messages_queued_during_compaction_flush_afterwards() {
     let _env = common::ENV_LOCK.lock().unwrap();
     let fixture = fixture(Some(15));
-    let (base_url, requests) = spawn_stub(vec![
-        Scripted::Sse(text_sse("## Goal\nShip it.", 1)),
-        Scripted::Sse(text_sse("flushed reply", 1)),
+    let (base_url, requests) = common::spawn_stub(vec![
+        common::StubResponse::Sse(common::text_sse("## Goal\nShip it.", 1)),
+        common::StubResponse::Sse(common::text_sse("flushed reply", 1)),
     ]);
 
     let result = run_sequence(
@@ -363,9 +300,9 @@ fn big_usage_turn_triggers_threshold_auto_compaction() {
     // Default settings: reserve 16384 over a 200000 window — the scripted
     // usage (190000 input) crosses the threshold.
     let fixture = fixture(None);
-    let (base_url, requests) = spawn_stub(vec![
-        Scripted::Sse(text_sse("big reply", 190_000)),
-        Scripted::Sse(text_sse("## Goal\nShip it.", 1)),
+    let (base_url, requests) = common::spawn_stub(vec![
+        common::StubResponse::Sse(common::text_sse("big reply", 190_000)),
+        common::StubResponse::Sse(common::text_sse("## Goal\nShip it.", 1)),
     ]);
 
     let result = run_sequence(
@@ -408,15 +345,15 @@ fn big_usage_turn_triggers_threshold_auto_compaction() {
 fn context_overflow_compacts_and_retries_once() {
     let _env = common::ENV_LOCK.lock().unwrap();
     let fixture = fixture(Some(15));
-    let (base_url, requests) = spawn_stub(vec![
-        Scripted::Status(
+    let (base_url, requests) = common::spawn_stub(vec![
+        common::StubResponse::Json(
             400,
             serde_json::json!({"type": "error", "error": {"type": "invalid_request_error",
                 "message": "prompt is too long: 213462 tokens > 200000 maximum"}})
             .to_string(),
         ),
-        Scripted::Sse(text_sse("## Goal\nShip it.", 1)),
-        Scripted::Sse(text_sse("retried reply", 1)),
+        common::StubResponse::Sse(common::text_sse("## Goal\nShip it.", 1)),
+        common::StubResponse::Sse(common::text_sse("retried reply", 1)),
     ]);
 
     let result = run_sequence(

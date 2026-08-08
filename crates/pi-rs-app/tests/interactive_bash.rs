@@ -13,32 +13,6 @@
 
 mod common;
 
-use std::io::{Read, Write};
-use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
-use std::thread;
-
-/// One scripted assistant text turn as an SSE body.
-fn text_sse(text: &str) -> String {
-    format!(
-        concat!(
-            "event: message_start\n",
-            "data: {{\"type\":\"message_start\",\"message\":{{\"id\":\"msg_01\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-parity-1\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{{\"input_tokens\":10,\"output_tokens\":1}}}}}}\n\n",
-            "event: content_block_start\n",
-            "data: {{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{{\"type\":\"text\",\"text\":\"\"}}}}\n\n",
-            "event: content_block_delta\n",
-            "data: {{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{{\"type\":\"text_delta\",\"text\":{text}}}}}\n\n",
-            "event: content_block_stop\n",
-            "data: {{\"type\":\"content_block_stop\",\"index\":0}}\n\n",
-            "event: message_delta\n",
-            "data: {{\"type\":\"message_delta\",\"delta\":{{\"stop_reason\":\"end_turn\",\"stop_sequence\":null}},\"usage\":{{\"output_tokens\":4}}}}\n\n",
-            "event: message_stop\n",
-            "data: {{\"type\":\"message_stop\"}}\n\n"
-        ),
-        text = serde_json::Value::String(text.to_owned()),
-    )
-}
-
 /// The bash-turn fixture's hanging stream: partial text, then the socket
 /// stays open until the client aborts.
 fn hang_sse() -> String {
@@ -53,48 +27,6 @@ fn hang_sse() -> String {
         "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"time\"}}\n\n",
     )
     .to_owned()
-}
-
-enum Scripted {
-    Sse(String),
-    Hang(String),
-}
-
-fn spawn_stub(responses: Vec<Scripted>) -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    let requests = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
-    let seen = Arc::clone(&requests);
-    thread::spawn(move || {
-        for (index, conn) in listener.incoming().enumerate() {
-            let Ok(mut stream) = conn else { break };
-            let request = common::read_request(&mut stream);
-            seen.lock().unwrap().push(request);
-            match responses.get(index).or_else(|| responses.last()) {
-                Some(Scripted::Sse(body)) => {
-                    let response = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-                        body.len(),
-                        body
-                    );
-                    let _ = stream.write_all(response.as_bytes());
-                }
-                Some(Scripted::Hang(body)) => {
-                    // No content-length: the body runs until close, which
-                    // never comes — the client must abort.
-                    let response =
-                        format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n{body}");
-                    let _ = stream.write_all(response.as_bytes());
-                    thread::spawn(move || {
-                        let mut sink = [0u8; 64];
-                        let _ = stream.read(&mut sink);
-                    });
-                }
-                None => break,
-            }
-        }
-    });
-    (format!("http://{address}"), requests)
 }
 
 fn run_sequence(
@@ -124,8 +56,7 @@ fn run_sequence(
 fn idle_bash_persists_and_reaches_the_next_request_as_text() {
     let _env = common::ENV_LOCK.lock().unwrap();
     let fixture = common::fixture();
-    let (base_url, requests) = spawn_stub(vec![Scripted::Sse(text_sse("done"))]);
-
+    let (base_url, requests) = common::spawn_stub(vec![common::StubResponse::Sse(common::text_sse("done", 10))]);
     run_sequence(
         &fixture,
         &base_url,
@@ -165,8 +96,7 @@ fn idle_bash_persists_and_reaches_the_next_request_as_text() {
 fn excluded_bash_persists_but_never_reaches_the_provider() {
     let _env = common::ENV_LOCK.lock().unwrap();
     let fixture = common::fixture();
-    let (base_url, requests) = spawn_stub(vec![Scripted::Sse(text_sse("done"))]);
-
+    let (base_url, requests) = common::spawn_stub(vec![common::StubResponse::Sse(common::text_sse("done", 10))]);
     run_sequence(
         &fixture,
         &base_url,
@@ -196,9 +126,9 @@ fn excluded_bash_persists_but_never_reaches_the_provider() {
 fn deferred_bash_flushes_after_the_turn_settles() {
     let _env = common::ENV_LOCK.lock().unwrap();
     let fixture = common::fixture();
-    let (base_url, requests) = spawn_stub(vec![
-        Scripted::Hang(hang_sse()),
-        Scripted::Sse(text_sse("you're welcome")),
+    let (base_url, requests) = common::spawn_stub(vec![
+        common::StubResponse::Hang(hang_sse()),
+        common::StubResponse::Sse(common::text_sse("you're welcome", 10)),
     ]);
 
     run_sequence(
