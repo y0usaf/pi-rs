@@ -37,7 +37,7 @@ die() { echo "source-language-gate: $*" >&2; exit 1; }
 declare -a TRACKED=()
 if [ -d "$ROOT/.git" ]; then
   # Authoritative file set: exactly what git tracks (excludes target/, ref/,
-  # prime-agent/, and any other untracked/generated tree).
+  # and any other untracked/generated tree).
   while IFS= read -r -d '' f; do
     TRACKED+=("$f")
   done < <(cd "$ROOT" && git ls-files -z)
