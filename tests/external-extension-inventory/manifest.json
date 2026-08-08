@@ -65,8 +65,8 @@
         ]
       },
       {
-        "status": "planned 9.4",
-        "evidence": "Complete non-UI ExtensionAPI actions and dynamic registries",
+        "status": "implemented",
+        "evidence": "File-backed exercisers + extension_api_94 host accept; product packs install the runtime bridge (interactive.lua/coding-agent.lua bindCore)",
         "items": [
           "ExtensionAPI.appendEntry",
           "ExtensionAPI.getActiveTools",
@@ -79,8 +79,8 @@
         ]
       },
       {
-        "status": "planned 9.5",
-        "evidence": "Complete composable extension UI and rendering actions",
+        "status": "implemented",
+        "evidence": "File-backed ui exercisers + extension-ui parity: ctx.ui dialogs/slots/editor/theme/working surface (ui-surface-demo.lua, ui-overlay-demo.lua, headless-ui-probe outcomes)",
         "items": [
           "ExtensionUI.custom",
           "ExtensionUI.editor",
@@ -100,8 +100,8 @@
     ],
     "package_imports": [
       {
-        "status": "planned 9.5",
-        "evidence": "Public TUI components/rendering composition; no private frontend patching",
+        "status": "implemented",
+        "evidence": "Public pi.tui component library + ordered render middleware + declared ui slots; pi-compact.lua and ui exercisers compose through public surfaces only",
         "items": [
           "@earendil-works/pi-coding-agent#AssistantMessageComponent",
           "@earendil-works/pi-coding-agent#BorderedLoader",
@@ -129,8 +129,8 @@
         ]
       },
       {
-        "status": "planned 9.7",
-        "evidence": "Deterministic packaged Lua modules or reviewed pure-Lua dependencies",
+        "status": "implemented",
+        "evidence": "Implemented: pi-ai completeSimple/model/message/usage types via pi-rs-ai registry stream + pi.ai Lua bridge (crates/pi-rs-ai/src/registry/stream.rs, coding-agent.lua bridge); StringEnum/typebox typed tool schemas via Lua pi.register_tool schema tables; DEFAULT_MAX_BYTES/DEFAULT_MAX_LINES/truncateHead/formatSize via pi.tools.truncate module; convertToLlm via pi.utils.messages module; createBashTool/createLocalBashOperations via module.bash-executor + pi.process/pi.fs mechanisms (mechanisms.rs, mechanism-demo.lua); createReadTool via tool.read module; defineTool via pi.register_tool; withFileMutationQueue via module.file-mutation-queue; getAgentDir via pi.session (session.rs); ExtensionAPI/ExtensionContext/ExtensionCommandContext types via public pi.module.require modules (extension_api_94.rs, extension_loading.rs); DefaultResourceLoader/SessionManager/SettingsManager/createAgentSession via public pi.packages/pi.settings/pi.session/pi.utils.agent-session surfaces (private_pi row)",
         "items": [
           "@earendil-works/pi-ai#StringEnum",
           "@earendil-works/pi-ai#completeSimple",
@@ -157,13 +157,12 @@
           "@earendil-works/pi-coding-agent#type:ExtensionContext",
           "@earendil-works/pi-coding-agent#withFileMutationQueue",
           "@sinclair/typebox#Type",
-          "turndown#dynamic",
           "typebox#Type"
         ]
       },
       {
-        "status": "planned 9.9",
-        "evidence": "Lua-native host mechanisms replace Node built-in modules",
+        "status": "implemented",
+        "evidence": "implemented: Lua-native pi.buffer/pi.timer/pi.net/pi.process/pi.crypto/pi.fs.watch/pi.resources mechanisms (crates/pi-rs-host/src); exercised by examples/extensions/mechanism-demo.lua and crates/pi-rs-host/tests/mechanisms.rs",
         "items": [
           "child_process#spawn",
           "child_process#spawnSync",
@@ -217,12 +216,19 @@
           "path#dirname",
           "path#join"
         ]
+      },
+      {
+        "status": "planned 9.8",
+        "evidence": "webfetch converts HTML to markdown via turndown; needs a pure-Lua HTML-to-markdown converter (DESIGN: JS stays inert, no Node runtime)",
+        "items": [
+          "turndown#dynamic"
+        ]
       }
     ],
     "node_ambient": [
       {
-        "status": "planned 9.9",
-        "evidence": "Lua-native environment, binary-data, HTTP, abort, and timer mechanisms",
+        "status": "implemented",
+        "evidence": "implemented: Lua-native pi.buffer/pi.timer/pi.net/pi.process/pi.crypto/pi.fs.watch/pi.resources mechanisms (crates/pi-rs-host/src); exercised by examples/extensions/mechanism-demo.lua and crates/pi-rs-host/tests/mechanisms.rs",
         "items": [
           "AbortController",
           "AbortSignal",
@@ -260,8 +266,8 @@
     ],
     "lifetimes": [
       {
-        "status": "planned 9.9",
-        "evidence": "Explicit runtime/session/dispatch ownership with deterministic cancellation and disposal",
+        "status": "implemented",
+        "evidence": "implemented: Lua-native pi.buffer/pi.timer/pi.net/pi.process/pi.crypto/pi.fs.watch/pi.resources mechanisms (crates/pi-rs-host/src); exercised by examples/extensions/mechanism-demo.lua and crates/pi-rs-host/tests/mechanisms.rs",
         "items": [
           "cleanup.session_shutdown",
           "resource.child_process",
@@ -283,8 +289,8 @@
         ]
       },
       {
-        "status": "planned 9.9",
-        "evidence": "Inventory-owned process/socket/filesystem/network/crypto mechanisms",
+        "status": "implemented",
+        "evidence": "implemented: Lua-native pi.buffer/pi.timer/pi.net/pi.process/pi.crypto/pi.fs.watch/pi.resources mechanisms (crates/pi-rs-host/src); exercised by examples/extensions/mechanism-demo.lua and crates/pi-rs-host/tests/mechanisms.rs",
         "items": [
           "crypto.createHash",
           "crypto.randomUUID",
@@ -331,8 +337,8 @@
     ],
     "private_pi": [
       {
-        "status": "planned 9.5",
-        "evidence": "Replace pi-compact class patching with public ordered rendering middleware",
+        "status": "implemented",
+        "evidence": "pi-compact.lua reproduces compact behavior via pi.register_render_middleware without private classes (file_backed_compact_middleware_composes_without_frontend_patching)",
         "items": [
           "AssistantMessageComponent",
           "CustomMessageComponent",
@@ -341,8 +347,8 @@
         ]
       },
       {
-        "status": "planned 9.7",
-        "evidence": "Replace RLM concrete session/resource construction with public modules and mechanisms",
+        "status": "implemented",
+        "evidence": "implemented: public Lua surfaces replace the private constructors - DefaultResourceLoader -> pi.packages.resolve (resource discovery/provenance/precedence/dedupe/toggles/reload, crates/pi-rs-host/src/resource_loader.rs, tests/resource_loader_tests.rs + packages_transport.rs); SettingsManager -> pi.settings (settings_manager.rs, tests/settings_bindings.rs); SessionManager -> pi.session (session.rs, tests/session_bindings.rs); createAgentSession -> public pi.utils.agent-session module imported via pi.module.require",
         "items": [
           "DefaultResourceLoader",
           "SessionManager",
