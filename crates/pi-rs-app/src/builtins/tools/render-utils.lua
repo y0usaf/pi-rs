@@ -10,6 +10,12 @@
 
 -- utils/ansi.ts stripAnsi (ansi-regex): CSI sequences, OSC terminated by
 -- BEL or ST, and other single ESC-introduced sequences.
+do
+local pi = ...
+local prelude = pi.module.require("pi.tools.prelude", "1")
+local syntax = pi.module.require("pi.utils.syntax-highlight", "1")
+
+
 local function strip_ansi(value)
   if not value:find("\27", 1, true) and not value:find("\155", 1, true) then
     return value
@@ -136,7 +142,7 @@ local EXT_TO_LANG = {
 }
 
 local function get_language_from_path(file_path)
-  local parts = split(file_path, ".")
+  local parts = prelude.split(file_path, ".")
   local ext = parts[#parts]
   if ext == nil or ext == "" then return nil end
   return EXT_TO_LANG[ext:lower()]
@@ -145,7 +151,7 @@ end
 -- theme.ts highlightCode over the pi.hljs engine; the port lives in the
 -- shared utils/syntax-highlight.lua fragment.
 local function highlight_code(code, lang, theme)
-  return theme_highlight_code(code, lang, theme)
+  return syntax.theme_highlight_code(code, lang, theme)
 end
 
 -- Shared by the read/write renderers (each spec module defines its own
@@ -217,6 +223,14 @@ pi.module.define({
     return {
       strip_ansi = strip_ansi,
       sanitize_binary_output = sanitize_binary_output,
+      image_fallback = image_fallback,
+      link_path = link_path,
+      js_trim = js_trim,
+      replace_tabs = replace_tabs,
+      normalize_display_text = normalize_display_text,
+      invalid_arg_text = invalid_arg_text,
+      highlight_code = highlight_code,
+      sanitize_binary_output = sanitize_binary_output,
       shorten_path = shorten_path,
       str = str,
       get_text_output = get_text_output,
@@ -229,3 +243,4 @@ pi.module.define({
     }
   end,
 })
+end

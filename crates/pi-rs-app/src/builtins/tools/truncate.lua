@@ -8,6 +8,11 @@
 -- `truncatedBy: null` serializes as an absent key here (Lua tables have
 -- no null values); JS string.length is bytes here (Lua strings are byte
 -- strings — equal for the spec's byte-length uses).
+do
+local pi = ...
+local prelude = pi.module.require("pi.tools.prelude", "1")
+
+
 local DEFAULT_MAX_LINES = 2000
 local DEFAULT_MAX_BYTES = 50 * 1024
 local GREP_MAX_LINE_LENGTH = 500 -- max chars per grep match line
@@ -16,7 +21,7 @@ local function split_lines_for_counting(content)
   if content == "" then
     return {}
   end
-  local lines = split(content, "\n")
+  local lines = prelude.split(content, "\n")
   if content:sub(-1) == "\n" then
     lines[#lines] = nil
   end
@@ -218,8 +223,10 @@ pi.module.define({
       truncate_tail = truncate_tail,
       truncate_line = truncate_line,
       format_size = format_size,
+      GREP_MAX_LINE_LENGTH = GREP_MAX_LINE_LENGTH,
       DEFAULT_MAX_LINES = DEFAULT_MAX_LINES,
       DEFAULT_MAX_BYTES = DEFAULT_MAX_BYTES,
     }
   end,
 })
+end

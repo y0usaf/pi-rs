@@ -1,6 +1,12 @@
 -- edit-diff.ts -- matching, line endings, and diff details. Diff
 -- computation goes through the jsdiff mechanism (pi.diff, jsdiff 8.0.4
 -- parity) exactly like the spec's `import * as Diff from "diff"`.
+do
+local pi = ...
+local prelude = pi.module.require("pi.tools.prelude", "1")
+local path_utils = pi.module.require("pi.tools.path-utils", "1")
+
+
 local function normalize_to_lf(text)
   return (text:gsub("\r\n", "\n"):gsub("\r", "\n"))
 end
@@ -18,7 +24,7 @@ end
 
 local function normalize_for_fuzzy_match(text)
   text = pi.text.nfkc(text)
-  local lines = split(text, "\n")
+  local lines = prelude.split(text, "\n")
   for i = 1, #lines do lines[i] = lines[i]:gsub("%s+$", "") end
   text = table.concat(lines, "\n")
   for _, q in ipairs({ "‘", "’", "‚", "‛" }) do text = text:gsub(q, "'") end
@@ -101,7 +107,7 @@ local function generate_diff_string(old_content, new_content, context)
   local parts = pi.diff.lines(old_content, new_content)
   local output = {}
 
-  local max_line_num = math.max(#split(old_content, "\n"), #split(new_content, "\n"))
+  local max_line_num = math.max(#prelude.split(old_content, "\n"), #prelude.split(new_content, "\n"))
   local width = #tostring(max_line_num)
   local function pad(n) return string.format("%" .. width .. "d", n) end
   local blank = string.rep(" ", width)
@@ -111,7 +117,7 @@ local function generate_diff_string(old_content, new_content, context)
   local first_changed_line
 
   for i, part in ipairs(parts) do
-    local raw = split(part.value, "\n")
+    local raw = prelude.split(part.value, "\n")
     if raw[#raw] == "" then table.remove(raw) end
 
     if part.added or part.removed then
@@ -193,12 +199,12 @@ end
 -- it (drives the edit renderCall's diff preview). Returns
 -- { diff, firstChangedLine } or { error }.
 local function compute_edits_diff(path, edits, base_cwd)
-  local absolute_path = resolve_to_cwd(path, base_cwd)
+  local absolute_path = path_utils.resolve_to_cwd(path, base_cwd)
   if not pi.fs.exists(absolute_path) then
     return { error = "Could not edit file: " .. path .. ". Error code: ENOENT." }
   end
   local ok, result = pcall(function()
-    local raw = utf8_lossy(pi.fs.read_bytes(absolute_path))
+    local raw = prelude.utf8_lossy(pi.fs.read_bytes(absolute_path))
     local _, content = strip_bom(raw)
     local base, changed = apply_edits_to_normalized_content(normalize_to_lf(content), edits, path)
     local diff, first = generate_diff_string(base, changed)
@@ -206,4 +212,29 @@ local function compute_edits_diff(path, edits, base_cwd)
   end)
   if ok then return result end
   return { error = tostring(result) }
+end
+
+-- Public exact-version module: builtin and file-backed packages import the
+-- same closures. No _G export or load-order-only global remains.
+pi.module.define({
+  name = "pi.tools.edit-diff",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      normalize_to_lf = normalize_to_lf,
+      detect_line_ending = detect_line_ending,
+      restore_line_endings = restore_line_endings,
+      normalize_for_fuzzy_match = normalize_for_fuzzy_match,
+      fuzzy_find_text = fuzzy_find_text,
+      count_occurrences = count_occurrences,
+      indexed_message = indexed_message,
+      apply_edits_to_normalized_content = apply_edits_to_normalized_content,
+      generate_diff_string = generate_diff_string,
+      generate_unified_patch = generate_unified_patch,
+      strip_bom = strip_bom,
+      compute_edits_diff = compute_edits_diff,
+    }
+  end,
+})
 end

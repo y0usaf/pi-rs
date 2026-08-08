@@ -4,6 +4,8 @@
 //! precedence order; async/failing initialization is isolated; translated
 //! hello + permission-gate execute through product Lua composition.
 
+mod common;
+
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
@@ -171,6 +173,7 @@ fn queued_extension_ui_actions_match_pi_examples() {
     let root = tempfile::tempdir().unwrap();
     let agent_dir = root.path().join("agent");
     // SAFETY: this integration-test process owns its environment.
+    let _env_guard = common::ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
     let host = Host::new(HostConfig::default()).unwrap();
     let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
@@ -207,6 +210,7 @@ fn extension_context_snapshots_and_shutdown_match_pi() {
     let agent_dir = root.path().join("agent");
     std::fs::create_dir_all(&cwd).unwrap();
     // SAFETY: this integration-test process owns its environment.
+    let _env_guard = common::ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
     let host = Host::new(HostConfig {
         cwd: Some(cwd.to_string_lossy().into_owned()),
@@ -586,6 +590,7 @@ pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:aft
     // Isolate auth from the developer's real ~/.pi credentials before the VM
     // constructs its per-host AuthStorage.
     // SAFETY: this integration-test process owns its environment.
+    let _env_guard = common::ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
     let host = Host::new(HostConfig {
         cwd: Some(cwd.to_string_lossy().into_owned()),
@@ -821,6 +826,7 @@ fn real_product_seams_follow_pi_generated_event_order() {
     let agent_dir = root.path().join("agent");
     std::fs::create_dir_all(&cwd).unwrap();
     // SAFETY: this integration-test process owns its environment.
+    let _env_guard = common::ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -956,6 +962,398 @@ fn real_product_seams_follow_pi_generated_event_order() {
         .unwrap();
     filtered.drain(..first_input);
     assert_eq!(serde_json::Value::Array(filtered), expected["productTrace"]);
+}
+#[test]
+fn provider_failure_folds_through_real_product_seams() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("project");
+    let agent_dir = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    // SAFETY: this integration-test process owns its environment.
+    let _env_guard = common::ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&requests);
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        seen.lock().unwrap().push(read_request(&mut stream));
+        let body = r#"{"type":"error","error":{"type":"api_error","message":"provider exploded"}}"#;
+        let response = format!(
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+    });
+
+    let host = Host::new(HostConfig {
+        cwd: Some(cwd.to_string_lossy().into_owned()),
+        project_trusted: true,
+        ..HostConfig::default()
+    })
+    .unwrap();
+    let embedded = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
+    assert!(embedded.errors.is_empty(), "{:?}", embedded.errors);
+    host.load(
+        "01-first",
+        include_str!("../../../tests/extension-event-parity/01-first.lua"),
+    )
+    .unwrap();
+    host.load(
+        "02-second",
+        include_str!("../../../tests/extension-event-parity/02-second.lua"),
+    )
+    .unwrap();
+    let model = serde_json::json!({
+        "id":"claude-test", "name":"Claude Test", "api":"anthropic-messages",
+        "provider":"anthropic", "baseUrl":format!("http://{address}"), "reasoning":false,
+        "input":["text"], "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},
+        "contextWindow":100000, "maxTokens":1024
+    });
+    let result = host
+        .call_role(
+            "print",
+            &serde_json::json!({
+                "model":model,"apiKey":"test-key","prompt":"go",
+                "cwd":cwd,"agentDir":agent_dir,"projectTrusted":true,
+                "readmePath":"/pi-rs-pkg/README.md","docsPath":"/pi-rs-pkg/docs",
+                "examplesPath":"/pi-rs-pkg/examples"
+            })
+            .to_string(),
+        )
+        .unwrap()
+        .unwrap();
+
+    server.join().unwrap();
+    // The provider-failure message still flows through the message_end fold:
+    // 01-first replaces the assistant text, 02-second's role change is an
+    // attributed error, and the folded message becomes the final transcript.
+    assert_eq!(result["text"], "first replacement");
+    let errors = result["extensionErrors"].as_array().unwrap();
+    // Provider failure settles like the success path: every message_end fold
+    // runs (02-second's role change is an attributed error on each fold), and
+    // 01-first's agent_end error is attributed last.
+    assert_eq!(errors.len(), 4);
+    for err in errors.iter().take(3) {
+        assert_eq!(err["extensionPath"], "02-second");
+        assert_eq!(err["event"], "message_end");
+        assert_eq!(
+            err["error"],
+            "message_end handlers must return a message with the same role"
+        );
+    }
+    assert_eq!(errors[3]["extensionPath"], "01-first");
+    assert_eq!(errors[3]["event"], "agent_end");
+    assert_eq!(errors[3]["error"], "first agent error");
+    // The transformed prompt/payload reached the provider request unchanged.
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["first"], true);
+    assert_eq!(requests[0]["second"], true);
+    drop(requests);
+
+    // The error/abort stop path settles turn and agent in the same order the
+    // success path does: message_end folds, then turn_end, then agent_end.
+    let trace = host.call_command("event-trace", "").unwrap().unwrap();
+    let significant = [
+        "input",
+        "before_agent_start",
+        "agent_start",
+        "turn_start",
+        "message_start",
+        "message_end",
+        "turn_end",
+        "agent_end",
+    ];
+    let mut filtered = trace
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| {
+            let kind = entry.as_str().unwrap().split_once(':').unwrap().1;
+            significant.contains(&kind)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let first_input = filtered
+        .iter()
+        .position(|entry| entry == "first:input")
+        .unwrap();
+    filtered.drain(..first_input);
+    assert_eq!(
+        serde_json::Value::Array(filtered),
+        serde_json::json!([
+            "first:input","second:input",
+            "first:before_agent_start","second:before_agent_start",
+            "first:agent_start","second:agent_start",
+            "first:turn_start","second:turn_start",
+            "first:message_start","second:message_start",
+            "first:message_end","second:message_end",
+            "first:message_start","second:message_start",
+            "first:message_end","second:message_end",
+            "first:message_start","second:message_start",
+            "first:message_end","second:message_end",
+            "first:message_start","second:message_start",
+            "first:message_end","second:message_end",
+            "first:turn_end","second:turn_end",
+            "first:agent_end","second:agent_end"
+        ])
+    );
+}
+
+#[test]
+fn aborted_turn_folds_through_real_product_seams() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("project");
+    let agent_dir = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    // SAFETY: this integration-test process owns its environment.
+    let _env_guard = common::ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&requests);
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        seen.lock().unwrap().push(read_request(&mut stream));
+        // The provider streams a partial turn then stops with stop_reason
+        // "aborted" -- the abort settle path (message_end -> turn_end ->
+        // agent_end) is the same one provider errors use.
+        let body = concat!(
+            "event: message_start\n",
+            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_abort\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
+            "event: content_block_start\n",
+            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+            "event: content_block_delta\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n",
+            "event: content_block_stop\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+            "event: message_delta\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"aborted\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":1}}\n\n",
+            "event: message_stop\n",
+            "data: {\"type\":\"message_stop\"}\n\n"
+        );
+        write_sse_response(&mut stream, body);
+    });
+
+    let host = Host::new(HostConfig {
+        cwd: Some(cwd.to_string_lossy().into_owned()),
+        project_trusted: true,
+        ..HostConfig::default()
+    })
+    .unwrap();
+    let embedded = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
+    assert!(embedded.errors.is_empty(), "{:?}", embedded.errors);
+    host.load(
+        "01-first",
+        include_str!("../../../tests/extension-event-parity/01-first.lua"),
+    )
+    .unwrap();
+    host.load(
+        "02-second",
+        include_str!("../../../tests/extension-event-parity/02-second.lua"),
+    )
+    .unwrap();
+    let model = serde_json::json!({
+        "id":"claude-test", "name":"Claude Test", "api":"anthropic-messages",
+        "provider":"anthropic", "baseUrl":format!("http://{address}"), "reasoning":false,
+        "input":["text"], "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},
+        "contextWindow":100000, "maxTokens":1024
+    });
+    let result = host
+        .call_role(
+            "print",
+            &serde_json::json!({
+                "model":model,"apiKey":"test-key","prompt":"go",
+                "cwd":cwd,"agentDir":agent_dir,"projectTrusted":true,
+                "readmePath":"/pi-rs-pkg/README.md","docsPath":"/pi-rs-pkg/docs",
+                "examplesPath":"/pi-rs-pkg/examples"
+            })
+            .to_string(),
+        )
+        .unwrap()
+        .unwrap();
+
+    server.join().unwrap();
+    // An aborted turn settles exactly like a provider failure: the message_end
+    // folds run (02-second's role change is an attributed error each fold),
+    // 01-first's agent_end error is attributed last, and the turn/agent settle
+    // in the same order the success path does.
+    assert_eq!(result["text"], "first replacement");
+    let errors = result["extensionErrors"].as_array().unwrap();
+    assert_eq!(errors.len(), 4);
+    for err in errors.iter().take(3) {
+        assert_eq!(err["extensionPath"], "02-second");
+        assert_eq!(err["event"], "message_end");
+        assert_eq!(
+            err["error"],
+            "message_end handlers must return a message with the same role"
+        );
+    }
+    assert_eq!(errors[3]["extensionPath"], "01-first");
+    assert_eq!(errors[3]["event"], "agent_end");
+    assert_eq!(errors[3]["error"], "first agent error");
+    // The transformed prompt/payload reached the provider request unchanged.
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["first"], true);
+    assert_eq!(requests[0]["second"], true);
+    drop(requests);
+
+    // The abort stop path settles message_end folds, then turn_end, then
+    // agent_end -- after_provider_response precedes the settle fold because
+    // the stream succeeded before aborting.
+    let trace = host.call_command("event-trace", "").unwrap().unwrap();
+    let significant = [
+        "input",
+        "before_agent_start",
+        "agent_start",
+        "turn_start",
+        "message_start",
+        "message_end",
+        "after_provider_response",
+        "turn_end",
+        "agent_end",
+    ];
+    let mut filtered = trace
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| {
+            let kind = entry.as_str().unwrap().split_once(':').unwrap().1;
+            significant.contains(&kind)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let first_input = filtered
+        .iter()
+        .position(|entry| entry == "first:input")
+        .unwrap();
+    filtered.drain(..first_input);
+    assert_eq!(
+        serde_json::Value::Array(filtered),
+        serde_json::json!([
+            "first:input","second:input",
+            "first:before_agent_start","second:before_agent_start",
+            "first:agent_start","second:agent_start",
+            "first:turn_start","second:turn_start",
+            "first:message_start","second:message_start",
+            "first:message_end","second:message_end",
+            "first:message_start","second:message_start",
+            "first:message_end","second:message_end",
+            "first:message_start","second:message_start",
+            "first:message_end","second:message_end",
+            "first:after_provider_response","second:after_provider_response",
+            "first:message_start","second:message_start",
+            "first:message_end","second:message_end",
+            "first:turn_end","second:turn_end",
+            "first:agent_end","second:agent_end"
+        ])
+    );
+}
+
+#[test]
+fn reload_emits_session_lifecycle_events_through_product_policy() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("project");
+    let agent_dir = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    let context_path = cwd.join("AGENTS.md");
+    std::fs::write(&context_path, "initial project rule").unwrap();
+    let settings_path = agent_dir.join("config.lua");
+    std::fs::write(
+        &settings_path,
+        "local pi = ...\npi.config.settings({ theme = 'dark' })\n",
+    )
+    .unwrap();
+    // SAFETY: this integration-test process owns its environment.
+    let _env_guard = common::ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    unsafe {
+        std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir);
+    }
+
+    let host = Host::new(HostConfig {
+        cwd: Some(cwd.to_string_lossy().into_owned()),
+        project_trusted: true,
+        ..HostConfig::default()
+    })
+    .unwrap();
+    let embedded =
+        host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK, INTERACTIVE_PACK]);
+    assert!(embedded.errors.is_empty(), "{:?}", embedded.errors);
+    host.load(
+        "01-first",
+        include_str!("../../../tests/extension-event-parity/01-first.lua"),
+    )
+    .unwrap();
+    host.load(
+        "02-second",
+        include_str!("../../../tests/extension-event-parity/02-second.lua"),
+    )
+    .unwrap();
+
+    // Establish a baseline so only the reload's own session lifecycle events
+    // are counted below.
+    let before = host.call_command("event-trace", "").unwrap().unwrap();
+    // An empty Lua trace serializes as {} rather than [], so tolerate both.
+    let before_len = before.as_array().map(|entries| entries.len()).unwrap_or(0);
+
+    let request = serde_json::json!({
+        "theme": "dark",
+        "colorMode": "truecolor",
+        "version": "0.79.0",
+        "cwd": cwd,
+        "home": root.path(),
+        "agentDir": agent_dir,
+        "contextPath": context_path,
+        "contextAfter": "reloaded project rule",
+        "settingsPath": settings_path,
+        "settingsAfter": "local pi = ...\npi.config.settings({ theme = 'light' })\n",
+        "model": {
+            "id": "claude-parity-1",
+            "name": "Claude Parity",
+            "provider": "anthropic",
+            "api": "anthropic-messages",
+            "reasoning": false,
+            "contextWindow": 200000,
+            "maxTokens": 8192,
+            "input": ["text"],
+            "cost": { "input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75 },
+            "baseUrl": "http://127.0.0.1:1"
+        }
+    });
+    let result = host
+        .call_command("interactive-reload-behavior", &request.to_string())
+        .unwrap()
+        .unwrap();
+    assert_eq!(result["failed"], false);
+    assert_eq!(result["theme"], "light");
+
+    // The real reload seam emits session_shutdown (reason=reload) followed by
+    // session_start (reason=reload) through the same extension policy the
+    // fold oracle pins.
+    let after = host.call_command("event-trace", "").unwrap().unwrap();
+    let entries = after.as_array().unwrap();
+    let new_entries = entries[before_len..].to_vec();
+    let kinds = new_entries
+        .iter()
+        .map(|entry| entry.as_str().unwrap().split_once(':').unwrap().1)
+        .collect::<Vec<_>>();
+    assert!(kinds.contains(&"session_shutdown"), "{kinds:?}");
+    assert!(kinds.contains(&"session_start"), "{kinds:?}");
+    assert!(kinds.contains(&"resources_discover"), "{kinds:?}");
+    // Both extensions saw the lifecycle events (middleware chaining over the
+    // same session seam Pi's runner uses).
+    assert!(new_entries.iter().any(|entry| entry == "first:session_shutdown"));
+    assert!(new_entries.iter().any(|entry| entry == "second:session_shutdown"));
+    assert!(new_entries.iter().any(|entry| entry == "first:session_start"));
+    assert!(new_entries.iter().any(|entry| entry == "second:session_start"));
 }
 
 #[test]

@@ -3,7 +3,9 @@
 -- fold semantics. Every product seam dispatches through extension_handlers;
 -- there is no embedded-only callback path. Each product pack gets an isolated
 -- policy table while using the same public API.
+local pi = ...
 local EXTENSION_POLICY = { api = pi }
+do
 
 function EXTENSION_POLICY.active_tools()
   local active, names = {}, {}
@@ -320,7 +322,7 @@ end
 -- ExtensionContext policy shared by every product mode. Values are copied or
 -- exposed through read-only facades; mutations are plain queued actions. The
 -- mode loop is the only action applier.
-EXTENSION_CONTEXT_POLICY = EXTENSION_CONTEXT_POLICY or {}
+local EXTENSION_CONTEXT_POLICY = {}
 
 EXTENSION_CONTEXT_POLICY.stale_message = "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload()."
 
@@ -557,7 +559,7 @@ end
 
 -- Pi runner.ts noOpUIContext for print/json modes. Mutations are inert and
 -- dialog calls return the pinned no-UI outcomes without touching frontend state.
-EXTENSION_HEADLESS_UI = EXTENSION_HEADLESS_UI or (function()
+local EXTENSION_HEADLESS_UI = (function()
   local theme = {
     fg = function(_, _, text) return text end, bg = function(_, _, text) return text end,
     bold = function(_, text) return text end, italic = function(_, text) return text end,
@@ -581,3 +583,27 @@ EXTENSION_HEADLESS_UI = EXTENSION_HEADLESS_UI or (function()
   }
 end)()
 
+
+-- Public exact-version module: the cross-pack context policy and headless
+-- UI declarations, shared identically by embedded and file-backed packages.
+-- EXTENSION_POLICY stays pack-local (isolated per product pack by design);
+-- this module exports the pieces that were previously undeclared globals.
+if not (function()
+  for _, m in ipairs(pi.module.list()) do
+    if m.name == "pi.utils.extensions" and m.version == "1" then return true end
+  end
+  return false
+end)() then
+  pi.module.define({
+    name = "pi.utils.extensions",
+    version = "1",
+    dependencies = {},
+    factory = function()
+      return {
+        context_policy = EXTENSION_CONTEXT_POLICY,
+        headless_ui = EXTENSION_HEADLESS_UI,
+      }
+    end,
+  })
+end
+end

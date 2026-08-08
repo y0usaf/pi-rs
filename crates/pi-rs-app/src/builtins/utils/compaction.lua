@@ -8,6 +8,8 @@
 --
 -- Shared fragment: included after utils/branch-summary.lua and messages.lua.
 -- Its export stays on the pack-local policy namespace.
+do
+local pi = ...
 EXTENSION_POLICY.compaction = (function(pi, bs, convert_to_llm)
   -- ---- DEFAULT_COMPACTION_SETTINGS ----
   local DEFAULT_COMPACTION_SETTINGS =
@@ -614,4 +616,5 @@ Be concise. Focus on what's needed to understand the kept suffix.]]
     is_context_overflow = is_context_overflow,
     get_message_from_entry = get_message_from_entry,
   }
-end)(pi, EXTENSION_POLICY.branch_summary, convert_to_llm)
+end)(pi, EXTENSION_POLICY.branch_summary, pi.module.require("pi.utils.messages", "1").convert_to_llm)
+end

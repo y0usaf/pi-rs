@@ -5,6 +5,7 @@
 --
 -- Shared fragment: included by the interactive pack and the one-shot
 -- coding-agent pack, so it only assumes the chunk argument.
+do
 local pi = ...
 
 -- JS `${number}`: integral values print without a fraction.
@@ -116,4 +117,29 @@ local function convert_to_llm_with_block_images(messages)
     result[i] = out
   end
   return result
+end
+
+-- Public exact-version module shared by the coding-agent and interactive
+-- packs. The first loaded pack defines it; later packs reuse the same value
+-- through the public require path (define-once, exact-version).
+if not (function()
+  for _, m in ipairs(pi.module.list()) do
+    if m.name == "pi.utils.messages" and m.version == "1" then return true end
+  end
+  return false
+end)() then
+  pi.module.define({
+    name = "pi.utils.messages",
+    version = "1",
+    dependencies = {},
+    factory = function()
+      return {
+        msg_num = msg_num,
+        bash_execution_to_text = bash_execution_to_text,
+        convert_to_llm = convert_to_llm,
+        convert_to_llm_with_block_images = convert_to_llm_with_block_images,
+      }
+    end,
+  })
+end
 end

@@ -8,6 +8,7 @@
 -- Shared fragment: included by both the tools pack (read/write renderers)
 -- and the interactive pack (markdown code blocks), so it only assumes the
 -- chunk argument.
+do
 local pi = ...
 
 -- JS String.prototype.split("\n") (plain, keeps empty segments).
@@ -260,4 +261,28 @@ local function markdown_highlight_code(code, lang, theme)
   local lines = try_highlight_lines(code, lang, theme)
   if lines == nil or lines == false then return md_code_block_lines(code, theme) end
   return lines
+end
+
+-- Public exact-version module shared by the tools and interactive packs.
+-- The first loaded pack defines it; later packs reuse the same value
+-- through the public require path (define-once, exact-version).
+local function module_registered(name, version)
+  for _, m in ipairs(pi.module.list()) do
+    if m.name == name and m.version == version then return true end
+  end
+  return false
+end
+if not module_registered("pi.utils.syntax-highlight", "1") then
+  pi.module.define({
+    name = "pi.utils.syntax-highlight",
+    version = "1",
+    dependencies = {},
+    factory = function()
+      return {
+        theme_highlight_code = theme_highlight_code,
+        markdown_highlight_code = markdown_highlight_code,
+      }
+    end,
+  })
+end
 end

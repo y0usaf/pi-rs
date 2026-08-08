@@ -4,6 +4,11 @@
 -- Lua port receives the same theme object from the caller.
 
 -- parseDiffLine: /^([+-\s])(\s*\d*)\s(.*)$/
+do
+local pi = ...
+local prelude = pi.module.require("pi.tools.prelude", "1")
+
+
 local function parse_diff_line(line)
   local prefix, line_num, content = line:match("^([+%-%s])(%s*%d*)%s(.*)$")
   if prefix == nil then return nil end
@@ -48,7 +53,7 @@ local function render_intra_line_diff(old_content, new_content, theme)
 end
 
 local function render_diff(diff_text, theme, _options)
-  local lines = split(diff_text, "\n")
+  local lines = prelude.split(diff_text, "\n")
   local result = {}
   local i = 1
   while i <= #lines do
@@ -96,4 +101,21 @@ local function render_diff(diff_text, theme, _options)
     end
   end
   return table.concat(result, "\n")
+end
+
+-- Public exact-version module: builtin and file-backed packages import the
+-- same closures. No _G export or load-order-only global remains.
+pi.module.define({
+  name = "pi.tools.diff",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      parse_diff_line = parse_diff_line,
+      diff_replace_tabs = diff_replace_tabs,
+      render_intra_line_diff = render_intra_line_diff,
+      render_diff = render_diff,
+    }
+  end,
+})
 end
