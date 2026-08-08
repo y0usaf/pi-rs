@@ -51,7 +51,20 @@
               || (lib.hasSuffix ".base64" path)
               || (lib.hasSuffix ".hex" path)
               || (lib.hasSuffix ".pem" path)
-              || (lib.hasSuffix ".sse" path);
+              || (lib.hasSuffix ".sse" path)
+              # PLAN A.3: inert .ts fixtures (tests/model-catalog-update/*.generated.ts)
+              # are parsed as data by the Rust update-model-catalog binary; keep them
+              # in the source snapshot for the model-catalog-update check. They are
+              # never executed (source-language-gate allowlists them as inert).
+              || (lib.hasSuffix ".ts" path)
+              # The autocomplete ui-parity scenario's deterministic fd
+              # stand-in has no extension; keep it in the source tree so the
+              # @-file-picker renders identically in the sandbox.
+              || (lib.hasInfix "tests/ui-parity/fd-stub" path)
+              # A.3: the gate script + its test tree are extensionless; keep
+              # them in the source snapshot for the source-language-gate check.
+              || (lib.hasInfix "scripts/source-language-gate" path)
+              || (lib.hasInfix "tests/source-language-gate" path);
           };
 
           commonEnv = {
@@ -95,6 +108,8 @@
           ];
           cargoExtraArgs = "-p pi-rs-app";
           doCheck = false;
+          # nixpkgs strip.sh bug: exit_code unbound when all strips succeed
+          dontStrip = true;
           meta.mainProgram = "pi";
         };
 
@@ -163,6 +178,7 @@
           nativeBuildInputs = c.commonEnv.nativeBuildInputs ++ [
             c.pkgs.ripgrep
             c.pkgs.fd
+            c.pkgs.nodejs # npm for the packages_transport git/npm transport tests
           ];
           cargoExtraArgs = "--workspace";
         };
@@ -214,6 +230,32 @@
           dontInstall = true;
         };
 
+      # A.3 — Rust/Lua closure: fail-closed source-language gate over tracked
+      # executable files and shebangs. Rejects any new first-party .ts/.py/.sh,
+      # Python/shell shebang, or .js outside the browser-export allowlist that is
+      # not in tests/source-language-gate/allowlist.json. The allowlist SHRINKS
+      # as first-party source is ported to Rust/Lua or moved to a pinned oracle.
+      # Intentional: this check executes bash/jq/find (mechanism), not any
+      # repository-owned foreign-language program.
+      mkSourceLanguageGate =
+        system:
+        let
+          pkgs = mkPkgs system;
+        in
+        pkgs.runCommand "source-language-gate"
+          {
+            nativeBuildInputs = [
+              pkgs.bash
+              pkgs.coreutils
+              pkgs.findutils
+              pkgs.jq
+            ];
+          }
+          ''
+            bash ${self}/scripts/source-language-gate ${self}
+            touch $out
+          '';
+
       # Closed, offline Pi extension surface + translation/API-doc freshness gate.
       mkExtensionParity =
         system:
@@ -229,29 +271,30 @@
             touch $out
           '';
 
-      # Offline, fixture-backed normalization and rejection tests for the
-      # reviewed model-catalog update path.
+      # PLAN A.3 — the model-catalog workflow is owned by Rust: the fixture-backed
+      # normalization/rejection tests run the update-model-catalog binary against
+      # the checked tests/model-catalog-update fixtures (Rust port of the deleted
+      # scripts/test-model-catalog-update).
       mkModelCatalogUpdateTest =
         system:
         let
-          pkgs = mkPkgs system;
+          c = mkCraneLib system;
         in
-        pkgs.runCommand "model-catalog-update-test"
-          {
-            nativeBuildInputs = [
-              pkgs.bash
-              pkgs.bun
-              pkgs.jq
-            ];
-          }
-          ''
-            bash ${self}/scripts/test-model-catalog-update
-            touch $out
-          '';
+        c.craneLib.cargoTest {
+          inherit (c) src cargoArtifacts;
+          pname = "model-catalog-update-test";
+          version = "0.1.0";
+          nativeBuildInputs = c.commonEnv.nativeBuildInputs;
+          cargoExtraArgs = "-p pi-rs-app --test model_catalog_update";
+        };
 
       # Fail-closed first-party construction inventory: embedded source units,
       # declarations, Rust launch/composition seams, and named open risks must
       # all remain classified; negative controls pin rejection behavior.
+      # PLAN A.3: the checker logic is the Rust test
+      # crates/pi-rs-app/tests/construction_inventory_checker.rs, covered by the
+      # workspace-test check; this check keeps the python oracle generator
+      # (port_eligible, not yet ported) as its inventory-freshness gate.
       mkConstructionInventoryTest =
         system:
         let
@@ -263,7 +306,6 @@
           }
           ''
             python3 ${self}/scripts/construction-inventory --check
-            python3 ${self}/tests/construction-inventory/test_checker.py
             touch $out
           '';
 
@@ -291,6 +333,10 @@
       # Offline maintained-extension fixture/provenance gate. The behavioral
       # source revision is checked into the contract; no sibling pi-flake checkout
       # is consulted by normal builds.
+      # PLAN A.3: the contract check logic is the Rust test
+      # crates/pi-rs-app/tests/dogfood_contract.rs, covered by the workspace-test
+      # check; this check keeps the python oracle generator (port_eligible, not
+      # yet ported) as its DOGFOOD_SUITE.md freshness gate.
       mkDogfoodFixtureTest =
         system:
         let
@@ -301,7 +347,6 @@
             nativeBuildInputs = [ pkgs.python3 ];
           }
           ''
-            python3 ${self}/tests/dogfood-suite/test_contract.py
             python3 ${self}/scripts/dogfood-oracle --check
             touch $out
           '';
@@ -309,6 +354,35 @@
       # Closed, offline source/public-surface audit against the pinned Pi
       # extraction. Reference regeneration is explicit and never reads an
       # ambient sibling checkout during normal checks.
+      # PLAN A.1 — retained UI checkpoints compare continuously. Builds the
+      # pi-rs package (compiled ui-diff) and runs the comparison loop.
+      mkUiParity =
+        system:
+        let
+          piRs = mkPiRs system;
+        in
+        piRs.overrideAttrs (
+          final: prev: {
+            nativeBuildInputs = prev.nativeBuildInputs or [ ] ++ [ (mkPkgs system).bash ];
+            # Keep crane's default installPhase (installs the built `pi` and
+            # `ui-diff` binaries to $out/bin via installFromCargoBuildLog) before
+            # running the comparison loop; overrideAttrs would otherwise replace
+            # it and leave $out/bin empty.
+            installPhase = prev.installPhase + ''
+              set -euo pipefail
+              for name in basic-turn markdown-turn editor-turn autocomplete-turn shell-turn \
+                provider-turn retry-turn bash-turn resume-turn session-turn tree-turn \
+                compaction-turn tool-turn highlight-turn highlight-tool-turn selector-turn \
+                login-turn model-turn thinking-turn settings-turn scoped-models-turn trust-turn \
+                startup-changelog-turn reload-turn easter-eggs-turn extension-ui-turn; do
+                $out/bin/ui-diff tests/ui-parity/$name.json tests/ui-parity/$name.pi.json \
+                  >/dev/null || { echo "ui-parity: $name FAILED" >&2; exit 1; }
+              done
+            '';
+            doCheck = false;
+          }
+        );
+
       mkFinalParityAudit =
         system:
         let
@@ -324,20 +398,22 @@
             touch $out
           '';
 
+      # PLAN A.3 — the model-catalog updater is owned by Rust: the binary
+      # (crates/pi-rs-app/src/bin/update-model-catalog.rs) discovers, downloads,
+      # normalizes, and reviews the catalog; the deleted TypeScript counterpart
+      # is gone. gnutar extracts the pinned npm tarball at runtime.
       mkModelCatalogUpdater =
         system:
         let
-          pkgs = mkPkgs system;
+          c = mkCraneLib system;
         in
-        pkgs.writeShellApplication {
-          name = "update-model-catalog";
-          runtimeInputs = [
-            pkgs.bun
-            pkgs.git
-          ];
-          text = ''
-            exec bun ${self}/scripts/update-model-catalog.ts "$@"
-          '';
+        c.craneLib.buildPackage {
+          inherit (c) src cargoArtifacts;
+          pname = "update-model-catalog";
+          version = "0.1.0";
+          nativeBuildInputs = c.commonEnv.nativeBuildInputs ++ [ c.pkgs.gnutar ];
+          cargoExtraArgs = "-p pi-rs-app --bin update-model-catalog";
+          doCheck = false;
         };
 
       mkDemo =
@@ -381,8 +457,10 @@
         model-catalog-update = mkModelCatalogUpdateTest system;
         construction-inventory = mkConstructionInventoryTest system;
         external-extension-inventory = mkExternalExtensionInventoryTest system;
+        source-language-gate = mkSourceLanguageGate system;
         extension-parity = mkExtensionParity system;
         dogfood-fixtures = mkDogfoodFixtureTest system;
+        ui-parity = mkUiParity system;
         final-parity-audit = mkFinalParityAudit system;
       });
 

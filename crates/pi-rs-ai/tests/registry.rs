@@ -34,18 +34,18 @@ fn global_lock() -> MutexGuard<'static, ()> {
 // Catalog (models.ts registry half + generated data)
 // ---------------------------------------------------------------------
 
-/// Pin the generation: 35 providers / 1057 models, in the spec's
-/// `MODELS` declaration order (first key: amazon-bedrock).
+/// Pin the generation: 39 providers / 1220 models, in the spec's
+/// provider data declaration order (first key: amazon-bedrock).
 #[test]
 fn catalog_counts_and_order_pin_the_generation() {
     let providers = get_providers();
-    assert_eq!(providers.len(), 35, "provider count");
+    assert_eq!(providers.len(), 39, "provider count");
     assert_eq!(providers.first().copied(), Some("amazon-bedrock"));
     assert!(providers.contains(&"anthropic"));
     assert!(providers.contains(&"openai"));
 
     let total: usize = providers.iter().map(|p| get_models(p).len()).sum();
-    assert_eq!(total, 1057, "model count");
+    assert_eq!(total, 1220, "model count");
 }
 
 #[test]
@@ -262,6 +262,19 @@ fn env_api_key_injection_and_explicit_precedence() {
     assert_eq!(find_env_keys("deepseek"), Some(vec!["DEEPSEEK_API_KEY"]));
     assert_eq!(get_env_api_key("deepseek"), Some("sk-env-key".to_owned()));
     assert_eq!(get_env_api_key("provider-with-no-env"), None);
+    // New-provider env mapping (vars set so find_env_keys reports them).
+    unsafe {
+        std::env::set_var("BASETEN_API_KEY", "x");
+        std::env::set_var("QWEN_TOKEN_PLAN_API_KEY", "x");
+        std::env::set_var("QWEN_TOKEN_PLAN_CN_API_KEY", "x");
+    }
+    assert_eq!(find_env_keys("baseten"), Some(vec!["BASETEN_API_KEY"]));
+    assert_eq!(find_env_keys("qwen-token-plan"), Some(vec!["QWEN_TOKEN_PLAN_API_KEY"]));
+    assert_eq!(find_env_keys("qwen-token-plan-cn"), Some(vec!["QWEN_TOKEN_PLAN_CN_API_KEY"]));
+    assert_eq!(
+        find_env_keys("qwen-token-plan-individual"),
+        Some(vec!["QWEN_TOKEN_PLAN_API_KEY"])
+    );
 
     let (provider, captured) = capture_provider("test-api-env");
     register_api_provider(provider, Some("test-env"));

@@ -51,6 +51,10 @@ fn get_api_key_env_vars(provider: &str) -> Option<&'static [&'static str]> {
         "xiaomi-token-plan-cn" => &["XIAOMI_TOKEN_PLAN_CN_API_KEY"],
         "xiaomi-token-plan-ams" => &["XIAOMI_TOKEN_PLAN_AMS_API_KEY"],
         "xiaomi-token-plan-sgp" => &["XIAOMI_TOKEN_PLAN_SGP_API_KEY"],
+        "baseten" => &["BASETEN_API_KEY"],
+        "qwen-token-plan" => &["QWEN_TOKEN_PLAN_API_KEY"],
+        "qwen-token-plan-cn" => &["QWEN_TOKEN_PLAN_CN_API_KEY"],
+        "qwen-token-plan-individual" => &["QWEN_TOKEN_PLAN_API_KEY"],
         _ => return None,
     };
     Some(vars)
