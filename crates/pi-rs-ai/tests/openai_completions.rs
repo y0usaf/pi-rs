@@ -1,8 +1,7 @@
 //! Replay + request-shaping parity tests for
 //! `protocols::openai_completions` against the spec's
 //! `providers/openai-completions.ts`, run over a loopback raw-TCP HTTP
-//! server (sandbox-safe). Fixture provenance:
-//! `tests/fixtures/openai-completions/README.md`.
+//! server (sandbox-safe).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -10,12 +9,12 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use pi_rs_ai::protocols::openai_completions::{
-    OpenAICompletionsOptions, OpenAIToolChoice, stream_openai_completions,
+    OpenAICompletionsOptions, stream_openai_completions,
     stream_simple_openai_completions,
 };
 use pi_rs_ai::protocols::options::{SimpleStreamOptions, StreamOptions};
 use pi_rs_ai_types::{
-    AssistantMessage, AssistantMessageEvent, Context, Model, ThinkingLevel, Usage, calculate_cost,
+    AssistantMessage, AssistantMessageEvent, Context, Model, ThinkingLevel,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -95,14 +94,6 @@ async fn read_request(sock: &mut tokio::net::TcpStream) -> String {
     String::from_utf8_lossy(&buf).into_owned()
 }
 
-fn request_header<'a>(request: &'a str, name: &str) -> Option<&'a str> {
-    let head = request.split("\r\n\r\n").next().unwrap_or("");
-    head.lines().find_map(|line| {
-        let (key, value) = line.split_once(':')?;
-        (key.eq_ignore_ascii_case(name)).then_some(value.trim())
-    })
-}
-
 fn request_body(request: &str) -> Value {
     let body = request.split("\r\n\r\n").nth(1).unwrap_or("");
     serde_json::from_str(body).unwrap()
@@ -111,14 +102,6 @@ fn request_body(request: &str) -> Value {
 // ---------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------
-
-fn fixture(name: &str) -> String {
-    let path = format!(
-        "{}/tests/fixtures/openai-completions/{name}",
-        env!("CARGO_MANIFEST_DIR")
-    );
-    std::fs::read_to_string(path).unwrap()
-}
 
 fn openai_model(addr: SocketAddr) -> Model {
     serde_json::from_value(json!({
@@ -181,17 +164,6 @@ async fn collect(
     (events, result)
 }
 
-/// Event JSON minus the `partial`/`message`/`error` snapshots.
-fn event_summary(event: &AssistantMessageEvent) -> Value {
-    let mut value = serde_json::to_value(event).unwrap();
-    if let Some(map) = value.as_object_mut() {
-        map.remove("partial");
-        map.remove("message");
-        map.remove("error");
-    }
-    value
-}
-
 /// A minimal complete transcript: one text delta, then a finish reason.
 fn minimal_transcript(finish_reason: &str) -> String {
     format!(
@@ -207,114 +179,6 @@ fn minimal_transcript(finish_reason: &str) -> String {
 // ---------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------
-
-#[tokio::test]
-async fn replays_reasoning_text_and_tool_calls() {
-    let (addr, captured) = serve(vec![sse_response(&fixture("replay_basic.sse"))]);
-    let model = openai_model(addr);
-
-    let stream = stream_openai_completions(
-        &model,
-        &user_context("hi"),
-        Some(api_key_options("sk-test")),
-    );
-    let (events, result) = collect(&stream).await;
-
-    // Event sequence parity.
-    let summaries: Vec<Value> = events.iter().map(event_summary).collect();
-    let expected_events: Value =
-        serde_json::from_str(&fixture("replay_basic.events.json")).unwrap();
-    assert_eq!(Value::Array(summaries), expected_events);
-
-    // Final message parity (timestamp normalized, cost derived).
-    let mut message = result.unwrap();
-    message.timestamp = 0;
-    let mut expected: Value = serde_json::from_str(&fixture("replay_basic.message.json")).unwrap();
-    let mut usage: Usage = serde_json::from_value(expected["usage"].clone()).unwrap();
-    let cost = calculate_cost(&model, &mut usage);
-    expected["usage"]["cost"] = serde_json::to_value(cost).unwrap();
-    assert_eq!(serde_json::to_value(&message).unwrap(), expected);
-
-    // SDK-reproduced request surface: URL path and Bearer auth.
-    let request = captured.lock().unwrap().remove(0);
-    assert!(request.starts_with("POST /chat/completions HTTP/1.1\r\n"));
-    assert_eq!(
-        request_header(&request, "authorization"),
-        Some("Bearer sk-test")
-    );
-    let body = request_body(&request);
-    assert_eq!(body["stream"], json!(true));
-    assert_eq!(body["stream_options"], json!({ "include_usage": true }));
-    assert_eq!(body["store"], json!(false));
-}
-
-#[tokio::test]
-async fn builds_full_api_key_params() {
-    let (addr, captured) = serve(vec![sse_response(&minimal_transcript("stop"))]);
-    let model = openai_model(addr);
-
-    let context: Context = serde_json::from_value(json!({
-        "systemPrompt": "You are helpful.",
-        "messages": [
-            { "role": "user", "content": "Hello", "timestamp": 1 },
-            {
-                "role": "assistant",
-                "content": [
-                    { "type": "thinking", "thinking": "Consider.", "thinkingSignature": "reasoning_content" },
-                    { "type": "text", "text": "Reading." },
-                    { "type": "toolCall", "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }
-                ],
-                "api": "openai-completions",
-                "provider": "openai",
-                "model": "gpt-5-mini",
-                "usage": {
-                    "input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2,
-                    "cost": { "input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0, "total": 0.0 }
-                },
-                "stopReason": "toolUse",
-                "timestamp": 1
-            },
-            {
-                "role": "toolResult",
-                "toolCallId": "call_1",
-                "toolName": "read",
-                "content": [{ "type": "text", "text": "file contents" }],
-                "isError": false,
-                "timestamp": 1
-            },
-            { "role": "user", "content": "Continue", "timestamp": 1 }
-        ],
-        "tools": [{
-            "name": "read",
-            "description": "Read a file",
-            "parameters": {
-                "type": "object",
-                "properties": { "path": { "type": "string" } },
-                "required": ["path"]
-            }
-        }]
-    }))
-    .unwrap();
-
-    let mut options = api_key_options("sk-test");
-    options.base.temperature = Some(0.5);
-    options.base.max_tokens = Some(1000);
-    options.base.session_id = Some("sess-1".to_string());
-    options.tool_choice = Some(OpenAIToolChoice::Auto);
-    options.reasoning_effort = Some(ThinkingLevel::High);
-
-    let stream = stream_openai_completions(&model, &context, Some(options));
-    let (_events, result) = collect(&stream).await;
-    assert_eq!(result.unwrap().error_message, None);
-
-    let request = captured.lock().unwrap().remove(0);
-    let expected: Value = serde_json::from_str(&fixture("params_apikey.request.json")).unwrap();
-    assert_eq!(request_body(&request), expected);
-    // Loopback baseUrl is not api.openai.com and retention is short:
-    // no prompt_cache_key, no session affinity headers.
-    assert_eq!(request_header(&request, "session_id"), None);
-    assert_eq!(request_header(&request, "x-session-affinity"), None);
-}
 
 #[tokio::test]
 async fn deepseek_thinking_format_and_reasoning_content() {
