@@ -9,10 +9,12 @@ use pi_rs_ai::protocols::openai_codex_responses::{
 };
 use pi_rs_ai::protocols::options::StreamOptions;
 use pi_rs_ai_types::{Context, Model, Transport};
+mod common;
+
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 
@@ -31,30 +33,6 @@ fn selected<'a>(headers: impl Iterator<Item = (&'a str, &'a str)>) -> Value {
         .map(|(key, value)| (key.to_string(), value.to_string()))
         .collect();
     json!(map)
-}
-
-async fn read_http(socket: &mut tokio::net::TcpStream) -> String {
-    let mut all = Vec::new();
-    let mut buf = [0; 1024];
-    loop {
-        let n = socket.read(&mut buf).await.unwrap_or(0);
-        if n == 0 {
-            break;
-        }
-        all.extend_from_slice(&buf[..n]);
-        if let Some(pos) = all.windows(4).position(|part| part == b"\r\n\r\n") {
-            let head = String::from_utf8_lossy(&all[..pos]).to_lowercase();
-            let len = head
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length:"))
-                .and_then(|value| value.trim().parse::<usize>().ok())
-                .unwrap_or(0);
-            if all.len() >= pos + 4 + len {
-                break;
-            }
-        }
-    }
-    String::from_utf8_lossy(&all).into_owned()
 }
 
 fn normalize_http(raw: &str) -> Value {
@@ -154,7 +132,7 @@ fn serve(scenario: &Value) -> (std::net::SocketAddr, Captured) {
                         turn += 1;
                     }
                 } else {
-                    let raw = read_http(&mut socket).await;
+                    let raw = common::read_request(&mut socket).await;
                     copy.http.lock().unwrap().push(normalize_http(&raw));
                     let body = scenario["turns"][0]["events"]
                         .as_array()

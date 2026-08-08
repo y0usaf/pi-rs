@@ -12,38 +12,12 @@
 //! This file is its own test binary: it owns the process-global
 //! `PI_CODING_AGENT_DIR`.
 
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+mod common;
+
+use std::io::Write;
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
-
-use pi_rs_app::builtins::{CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
-use pi_rs_host::{Host, HostConfig};
-
-fn read_request(stream: &mut TcpStream) -> serde_json::Value {
-    let mut bytes = Vec::new();
-    let mut chunk = [0u8; 4096];
-    loop {
-        let count = stream.read(&mut chunk).unwrap();
-        if count == 0 {
-            break;
-        }
-        bytes.extend_from_slice(&chunk[..count]);
-        if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
-            let headers = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
-            let length = headers
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length:"))
-                .and_then(|value| value.trim().parse::<usize>().ok())
-                .unwrap_or(0);
-            if bytes.len() >= end + 4 + length {
-                let body = &bytes[end + 4..end + 4 + length];
-                return serde_json::from_slice(body).unwrap_or(serde_json::Value::Null);
-            }
-        }
-    }
-    serde_json::Value::Null
-}
 
 /// One scripted assistant text turn as an SSE body, with scripted usage.
 fn text_sse(text: &str, input_tokens: u64) -> String {
@@ -80,7 +54,7 @@ fn spawn_stub(responses: Vec<Scripted>) -> (String, Arc<Mutex<Vec<serde_json::Va
     thread::spawn(move || {
         for (index, conn) in listener.incoming().enumerate() {
             let Ok(mut stream) = conn else { break };
-            let request = read_request(&mut stream);
+            let request = common::read_request(&mut stream);
             seen.lock().unwrap().push(request);
             let scripted = responses.get(index).or_else(|| responses.last());
             let response = match scripted {
@@ -100,16 +74,6 @@ fn spawn_stub(responses: Vec<Scripted>) -> (String, Arc<Mutex<Vec<serde_json::Va
         }
     });
     (format!("http://{address}"), requests)
-}
-
-fn stub_model(base_url: &str) -> serde_json::Value {
-    serde_json::json!({
-        "id": "claude-parity-1", "name": "Claude Parity",
-        "api": "anthropic-messages", "provider": "anthropic",
-        "baseUrl": base_url, "reasoning": false,
-        "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-        "contextWindow": 200000, "maxTokens": 1024
-    })
 }
 
 /// A linear two-turn session sized so keepRecentTokens=15 cuts at e5:
@@ -158,26 +122,6 @@ fn write_session(dir: &std::path::Path, cwd: &str) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn host(cwd: &str) -> Host {
-    let host = Host::new(HostConfig {
-        cwd: Some(cwd.to_owned()),
-        ..HostConfig::default()
-    })
-    .unwrap();
-    let report = host.load_embedded(&[
-        pi_rs_agent::PACK,
-        TOOLS_PACK,
-        CODING_AGENT_PACK,
-        INTERACTIVE_PACK,
-    ]);
-    assert!(report.errors.is_empty(), "{:?}", report.errors);
-    host
-}
-
-/// `PI_CODING_AGENT_DIR` is process-global and read at `Host::new`;
-/// each test sets its own agent dir, so they must not overlap.
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
 struct Fixture {
     _temp: tempfile::TempDir,
     cwd: String,
@@ -217,12 +161,12 @@ fn fixture(keep_recent_tokens: Option<u64>) -> Fixture {
 }
 
 fn run_sequence(fixture: &Fixture, base_url: &str, steps: serde_json::Value) -> serde_json::Value {
-    host(&fixture.cwd)
+    common::host(&fixture.cwd)
         .call_command(
             "interactive-tree-parity-sequence",
             &serde_json::json!({
                 "columns": 90, "rows": 30,
-                "model": stub_model(base_url), "apiKey": "test-key",
+                "model": common::stub_model(base_url), "apiKey": "test-key",
                 "runtimeApiKey": "test-key",
                 "cwd": fixture.cwd, "agentDir": fixture.agent_dir.to_string_lossy(),
                 "sessionFile": fixture.session_file,
@@ -237,39 +181,13 @@ fn run_sequence(fixture: &Fixture, base_url: &str, steps: serde_json::Value) -> 
         .expect("result")
 }
 
-fn paste(text: &str) -> String {
-    format!("\x1b[200~{text}\x1b[201~")
-}
-
-fn jsonl_entries(path: &str) -> Vec<serde_json::Value> {
-    std::fs::read_to_string(path)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
-}
-
-fn message_texts(request: &serde_json::Value) -> Vec<String> {
-    request["messages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|message| {
-            message["content"][0]["text"]
-                .as_str()
-                .unwrap_or_default()
-                .to_owned()
-        })
-        .collect()
-}
-
 const SUMMARIZATION_SYSTEM_PROMPT: &str = "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.";
 
 const COMPACTED_CONTEXT_PREFIX: &str = "The conversation history before this point was compacted into the following summary:\n\n<summary>\n";
 
 #[test]
 fn manual_compact_sends_the_request_appends_the_entry_and_cuts_context() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = common::ENV_LOCK.lock().unwrap();
     let fixture = fixture(Some(15));
     let (base_url, requests) = spawn_stub(vec![
         Scripted::Sse(text_sse("## Goal\nShip it.", 1)),
@@ -280,8 +198,8 @@ fn manual_compact_sends_the_request_appends_the_entry_and_cuts_context() {
         &fixture,
         &base_url,
         serde_json::json!([
-            { "name": "compact", "input": [paste("/compact"), "\r"] },
-            { "name": "next", "input": [paste("next question"), "\r"] },
+            { "name": "compact", "input": [common::paste("/compact"), "\r"] },
+            { "name": "next", "input": [common::paste("next question"), "\r"] },
         ]),
     );
 
@@ -313,7 +231,7 @@ fn manual_compact_sends_the_request_appends_the_entry_and_cuts_context() {
 
     // The compaction entry: summary, cut point, tokensBefore from the
     // last assistant usage, explicit fromHook false, empty file lists.
-    let entries = jsonl_entries(&fixture.session_file);
+    let entries = common::jsonl_entries(&fixture.session_file);
     let compaction = entries
         .iter()
         .find(|entry| entry["type"] == "compaction")
@@ -331,7 +249,7 @@ fn manual_compact_sends_the_request_appends_the_entry_and_cuts_context() {
     // The next provider request carries the compacted context exactly
     // once: summary message, kept turn, new user message — the
     // summarized history is gone.
-    let texts = message_texts(&requests[1]);
+    let texts = common::message_texts(&requests[1]);
     assert_eq!(texts.len(), 4, "{texts:?}");
     assert_eq!(
         texts[0],
@@ -344,7 +262,7 @@ fn manual_compact_sends_the_request_appends_the_entry_and_cuts_context() {
 
 #[test]
 fn escape_cancels_compaction_without_appending() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = common::ENV_LOCK.lock().unwrap();
     let fixture = fixture(Some(15));
     let before = std::fs::read_to_string(&fixture.session_file).unwrap();
     let (base_url, requests) = spawn_stub(vec![Scripted::Sse(text_sse("unused", 1))]);
@@ -356,7 +274,7 @@ fn escape_cancels_compaction_without_appending() {
             // Arm the trigger, submit /compact, and settle in the next
             // step: the escape fires synchronously at compaction_start,
             // before the summarization request leaves.
-            { "input": [paste("/compact"), "\r"], "settle": false,
+            { "input": [common::paste("/compact"), "\r"], "settle": false,
               "captures": [{ "event": "compaction_start", "action": "escape", "name": "cancelling" }] },
             { "name": "cancelled" },
         ]),
@@ -383,7 +301,7 @@ fn escape_cancels_compaction_without_appending() {
 
 #[test]
 fn messages_queued_during_compaction_flush_afterwards() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = common::ENV_LOCK.lock().unwrap();
     let fixture = fixture(Some(15));
     let (base_url, requests) = spawn_stub(vec![
         Scripted::Sse(text_sse("## Goal\nShip it.", 1)),
@@ -396,7 +314,7 @@ fn messages_queued_during_compaction_flush_afterwards() {
         serde_json::json!([
             // The submit trigger runs at compaction_start: isCompacting
             // is true, so the text queues instead of prompting.
-            { "input": [paste("/compact"), "\r"], "settle": false,
+            { "input": [common::paste("/compact"), "\r"], "settle": false,
               "captures": [{ "event": "compaction_start", "action": "submit",
                              "text": "queued question", "name": "queued" }] },
             { "name": "done" },
@@ -420,11 +338,11 @@ fn messages_queued_during_compaction_flush_afterwards() {
     // carries the compacted context plus the queued question.
     let requests = requests.lock().unwrap();
     assert_eq!(requests.len(), 2);
-    let texts = message_texts(&requests[1]);
+    let texts = common::message_texts(&requests[1]);
     assert_eq!(texts.last().unwrap(), "queued question");
     assert!(texts[0].starts_with(COMPACTED_CONTEXT_PREFIX), "{texts:?}");
     // The flushed turn persisted after the compaction entry.
-    let entries = jsonl_entries(&fixture.session_file);
+    let entries = common::jsonl_entries(&fixture.session_file);
     let compaction_index = entries
         .iter()
         .position(|entry| entry["type"] == "compaction")
@@ -441,7 +359,7 @@ fn messages_queued_during_compaction_flush_afterwards() {
 
 #[test]
 fn big_usage_turn_triggers_threshold_auto_compaction() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = common::ENV_LOCK.lock().unwrap();
     // Default settings: reserve 16384 over a 200000 window — the scripted
     // usage (190000 input) crosses the threshold.
     let fixture = fixture(None);
@@ -454,7 +372,7 @@ fn big_usage_turn_triggers_threshold_auto_compaction() {
         &fixture,
         &base_url,
         serde_json::json!([
-            { "name": "turn", "input": [paste("hello"), "\r"],
+            { "name": "turn", "input": [common::paste("hello"), "\r"],
               "captures": [{ "event": "compaction_start", "name": "compacting" }] },
         ]),
     );
@@ -482,13 +400,13 @@ fn big_usage_turn_triggers_threshold_auto_compaction() {
     );
 
     // The compaction entry landed.
-    let entries = jsonl_entries(&fixture.session_file);
+    let entries = common::jsonl_entries(&fixture.session_file);
     assert!(entries.iter().any(|entry| entry["type"] == "compaction"));
 }
 
 #[test]
 fn context_overflow_compacts_and_retries_once() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = common::ENV_LOCK.lock().unwrap();
     let fixture = fixture(Some(15));
     let (base_url, requests) = spawn_stub(vec![
         Scripted::Status(
@@ -505,7 +423,7 @@ fn context_overflow_compacts_and_retries_once() {
         &fixture,
         &base_url,
         serde_json::json!([
-            { "name": "turn", "input": [paste("hello"), "\r"],
+            { "name": "turn", "input": [common::paste("hello"), "\r"],
               "captures": [{ "event": "compaction_start", "name": "overflow" }] },
         ]),
     );
@@ -514,7 +432,7 @@ fn context_overflow_compacts_and_retries_once() {
     let requests = requests.lock().unwrap();
     assert_eq!(requests.len(), 3);
     // The retry carries the compacted context and not the error message.
-    let texts = message_texts(&requests[2]);
+    let texts = common::message_texts(&requests[2]);
     assert!(texts[0].starts_with(COMPACTED_CONTEXT_PREFIX), "{texts:?}");
     assert_eq!(texts.last().unwrap(), "hello");
     assert!(
@@ -538,7 +456,7 @@ fn context_overflow_compacts_and_retries_once() {
 
     // Session history keeps the error turn, the compaction entry, and the
     // retried assistant reply, in order.
-    let entries = jsonl_entries(&fixture.session_file);
+    let entries = common::jsonl_entries(&fixture.session_file);
     let error_index = entries
         .iter()
         .position(|entry| entry["message"]["stopReason"] == "error")

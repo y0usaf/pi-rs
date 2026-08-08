@@ -4,13 +4,15 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use std::net::SocketAddr;
 
 use pi_rs_ai::transport::{
     AbortSignal, RetryOptions, TransportError, post_with_retry, response_sse_reader,
 };
 use reqwest::header::HeaderMap;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 
 fn http_response(status: u16, reason: &str, extra_headers: &str, body: &str) -> String {
     format!(
@@ -34,7 +36,7 @@ fn serve(responses: Vec<String>, hang_after: bool) -> SocketAddr {
                 Ok(conn) => conn,
                 Err(_) => return,
             };
-            read_request(&mut sock).await;
+            let _ = common::read_request(&mut sock).await;
             match responses.next() {
                 Some(response) => {
                     let _ = sock.write_all(response.as_bytes()).await;
@@ -49,34 +51,6 @@ fn serve(responses: Vec<String>, hang_after: bool) -> SocketAddr {
 }
 
 /// Read one HTTP request: headers plus a content-length body.
-async fn read_request(sock: &mut tokio::net::TcpStream) {
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 1024];
-    loop {
-        let n = match sock.read(&mut tmp).await {
-            Ok(0) | Err(_) => return,
-            Ok(n) => n,
-        };
-        buf.extend_from_slice(&tmp[..n]);
-        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-            let head = String::from_utf8_lossy(&buf[..pos]).to_lowercase();
-            let content_length: usize = head
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length:"))
-                .and_then(|v| v.trim().parse().ok())
-                .unwrap_or(0);
-            while buf.len() - (pos + 4) < content_length {
-                let n = match sock.read(&mut tmp).await {
-                    Ok(0) | Err(_) => return,
-                    Ok(n) => n,
-                };
-                buf.extend_from_slice(&tmp[..n]);
-            }
-            return;
-        }
-    }
-}
-
 fn url(addr: SocketAddr) -> String {
     format!("http://{addr}/v1/responses")
 }
