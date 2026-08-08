@@ -11,8 +11,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+mod common;
 
 use pi_rs_ai::protocols::anthropic::{
     AnthropicOptions, AnthropicThinkingDisplay, AnthropicToolChoice, stream_anthropic,
@@ -22,16 +21,13 @@ use pi_rs_ai::protocols::options::{SimpleStreamOptions, StreamOptions};
 use pi_rs_ai::transport::AbortSignal;
 use pi_rs_ai_types::{Context, Model};
 use serde_json::{Value, json};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 // ---------------------------------------------------------------------
-// Scripted loopback server (sandbox-safe raw TCP)
+// Scripted response framing (protocol-specific: `event:` + `data:` SSE)
 // ---------------------------------------------------------------------
-
-type Captured = Arc<Mutex<Vec<String>>>;
 
 /// Render one scripted response from cases.json to raw HTTP bytes plus
-/// its hang flag.
+/// its hang flag. Anthropic frames each SSE item as `event:` + `data:`.
 fn scripted_response(response: &Value, shared_sse: &Value) -> (String, bool) {
     let status = response["status"].as_u64().unwrap();
     let hang = response["hang"].as_bool().unwrap_or(false);
@@ -90,123 +86,6 @@ fn scripted_response(response: &Value, shared_sse: &Value) -> (String, bool) {
     }
 }
 
-/// Read one HTTP request: headers plus a content-length body.
-async fn read_request(sock: &mut tokio::net::TcpStream) -> String {
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 1024];
-    loop {
-        let n = match sock.read(&mut tmp).await {
-            Ok(0) | Err(_) => break,
-            Ok(n) => n,
-        };
-        buf.extend_from_slice(&tmp[..n]);
-        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-            let head = String::from_utf8_lossy(&buf[..pos]).to_lowercase();
-            let content_length: usize = head
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length:"))
-                .and_then(|v| v.trim().parse().ok())
-                .unwrap_or(0);
-            while buf.len() - (pos + 4) < content_length {
-                let n = match sock.read(&mut tmp).await {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => n,
-                };
-                if n == 0 {
-                    break;
-                }
-                buf.extend_from_slice(&tmp[..n]);
-            }
-            break;
-        }
-    }
-    String::from_utf8_lossy(&buf).into_owned()
-}
-
-/// Serve the case's scripted responses (one connection per request,
-/// last response repeated like the oracle driver), capturing raw
-/// requests. Hanging sockets are parked so they stay open.
-fn serve(responses: Vec<(String, bool)>) -> (std::net::SocketAddr, Captured) {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.set_nonblocking(true).unwrap();
-    let addr = listener.local_addr().unwrap();
-    let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-    let captured: Captured = Arc::new(Mutex::new(Vec::new()));
-    let capture = Arc::clone(&captured);
-    tokio::spawn(async move {
-        let mut index = 0usize;
-        loop {
-            let (mut sock, _) = match listener.accept().await {
-                Ok(conn) => conn,
-                Err(_) => return,
-            };
-            let request = read_request(&mut sock).await;
-            capture.lock().unwrap().push(request);
-            let Some((response, hang)) = responses.get(index).or_else(|| responses.last()).cloned()
-            else {
-                return;
-            };
-            index += 1;
-            let _ = sock.write_all(response.as_bytes()).await;
-            if hang {
-                // Park the connection; dropped when the runtime ends.
-                tokio::spawn(async move {
-                    let mut sink = [0u8; 64];
-                    let _ = sock.read(&mut sink).await;
-                    std::future::pending::<()>().await;
-                });
-            } else {
-                let _ = sock.shutdown().await;
-            }
-        }
-    });
-    (addr, captured)
-}
-
-// ---------------------------------------------------------------------
-// Request normalization (mirrors gen-oracle.ts)
-// ---------------------------------------------------------------------
-
-const DROPPED_HEADERS: &[&str] = &[
-    "host",
-    "content-length",
-    "connection",
-    "accept-encoding",
-    "accept-language",
-    "sec-fetch-mode",
-];
-
-fn normalize_request(raw: &str) -> Value {
-    let mut parts = raw.split("\r\n\r\n");
-    let head = parts.next().unwrap_or("");
-    let body = parts.next().unwrap_or("");
-    let mut lines = head.lines();
-    let request_line = lines.next().unwrap_or("");
-    let mut request_parts = request_line.split(' ');
-    let method = request_parts.next().unwrap_or("");
-    let path = request_parts.next().unwrap_or("");
-    let mut headers: BTreeMap<String, String> = BTreeMap::new();
-    for line in lines {
-        let Some((name, value)) = line.split_once(':') else {
-            continue;
-        };
-        let name = name.trim().to_lowercase();
-        let value = value.trim().to_string();
-        if DROPPED_HEADERS.contains(&name.as_str()) || name.starts_with("x-stainless-") {
-            continue;
-        }
-        if name == "user-agent" && !value.starts_with("claude-cli/") {
-            continue;
-        }
-        headers.insert(name, value);
-    }
-    let body: Value = if body.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_str(body).unwrap()
-    };
-    json!({ "method": method, "path": path, "headers": headers, "body": body })
-}
 
 // ---------------------------------------------------------------------
 // Option mapping (cases.json → typed options)
@@ -333,7 +212,7 @@ async fn run_case(case: &Value, shared_sse: &Value, models: &Value) -> Value {
         .iter()
         .map(|response| scripted_response(response, shared_sse))
         .collect();
-    let (addr, captured) = serve(responses);
+    let (addr, captured) = common::serve_hang(responses);
 
     let mut model_json = models[case["model"].as_str().unwrap()].clone();
     model_json["baseUrl"] = Value::String(format!("http://{addr}"));
@@ -380,7 +259,7 @@ async fn run_case(case: &Value, shared_sse: &Value, models: &Value) -> Value {
         .lock()
         .unwrap()
         .iter()
-        .map(|raw| normalize_request(raw))
+        .map(|raw| common::normalize_claude(raw))
         .collect();
     json!({
         "name": case["name"],

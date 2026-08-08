@@ -1,12 +1,12 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use pi_rs_host::{Host, HostConfig};
-
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+mod common;
 
 #[test]
 fn reload_rereads_settings_and_project_context_through_product_policy() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _guard = common::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let temp = tempfile::tempdir().unwrap();
     let cwd = temp.path().join("project");
     let agent_dir = temp.path().join("agent");
@@ -25,17 +25,7 @@ fn reload_rereads_settings_and_project_context_through_product_policy() {
         std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir);
         std::env::set_var("PI_OFFLINE", "1");
     }
-    let host = Host::new(HostConfig {
-        cwd: Some(cwd.to_string_lossy().into_owned()),
-        ..Default::default()
-    })
-    .unwrap();
-    let report = host.load_embedded(&[
-        pi_rs_agent::PACK,
-        pi_rs_app::builtins::TOOLS_PACK,
-        pi_rs_app::builtins::INTERACTIVE_PACK,
-    ]);
-    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    let host = common::host(&cwd.to_string_lossy());
 
     let request = serde_json::json!({
         "theme": "dark",

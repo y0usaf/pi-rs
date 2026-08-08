@@ -11,38 +11,12 @@
 //! This file is its own test binary: it owns the process-global
 //! `PI_CODING_AGENT_DIR`.
 
+mod common;
+
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
-
-use pi_rs_app::builtins::{CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
-use pi_rs_host::{Host, HostConfig};
-
-fn read_request(stream: &mut TcpStream) -> serde_json::Value {
-    let mut bytes = Vec::new();
-    let mut chunk = [0u8; 4096];
-    loop {
-        let count = stream.read(&mut chunk).unwrap();
-        if count == 0 {
-            break;
-        }
-        bytes.extend_from_slice(&chunk[..count]);
-        if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
-            let headers = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
-            let length = headers
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length:"))
-                .and_then(|value| value.trim().parse::<usize>().ok())
-                .unwrap_or(0);
-            if bytes.len() >= end + 4 + length {
-                let body = &bytes[end + 4..end + 4 + length];
-                return serde_json::from_slice(body).unwrap_or(serde_json::Value::Null);
-            }
-        }
-    }
-    serde_json::Value::Null
-}
 
 /// One scripted assistant text turn as an SSE body.
 fn text_sse(text: &str) -> String {
@@ -94,7 +68,7 @@ fn spawn_stub(responses: Vec<Scripted>) -> (String, Arc<Mutex<Vec<serde_json::Va
     thread::spawn(move || {
         for (index, conn) in listener.incoming().enumerate() {
             let Ok(mut stream) = conn else { break };
-            let request = read_request(&mut stream);
+            let request = common::read_request(&mut stream);
             seen.lock().unwrap().push(request);
             match responses.get(index).or_else(|| responses.last()) {
                 Some(Scripted::Sse(body)) => {
@@ -123,66 +97,17 @@ fn spawn_stub(responses: Vec<Scripted>) -> (String, Arc<Mutex<Vec<serde_json::Va
     (format!("http://{address}"), requests)
 }
 
-fn stub_model(base_url: &str) -> serde_json::Value {
-    serde_json::json!({
-        "id": "claude-parity-1", "name": "Claude Parity",
-        "api": "anthropic-messages", "provider": "anthropic",
-        "baseUrl": base_url, "reasoning": false,
-        "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-        "contextWindow": 200000, "maxTokens": 1024
-    })
-}
-
-fn host(cwd: &str) -> Host {
-    let host = Host::new(HostConfig {
-        cwd: Some(cwd.to_owned()),
-        ..HostConfig::default()
-    })
-    .unwrap();
-    let report = host.load_embedded(&[
-        pi_rs_agent::PACK,
-        TOOLS_PACK,
-        CODING_AGENT_PACK,
-        INTERACTIVE_PACK,
-    ]);
-    assert!(report.errors.is_empty(), "{:?}", report.errors);
-    host
-}
-
-/// `PI_CODING_AGENT_DIR` is process-global and read at `Host::new`.
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-struct Fixture {
-    _temp: tempfile::TempDir,
-    cwd: String,
-    agent_dir: std::path::PathBuf,
-    sessions: std::path::PathBuf,
-}
-
-fn fixture() -> Fixture {
-    let temp = tempfile::tempdir().unwrap();
-    let agent_dir = temp.path().join("agent");
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    // SAFETY: serialized by ENV_LOCK; this binary owns the env.
-    unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
-    let cwd = temp.path().to_string_lossy().into_owned();
-    let sessions = temp.path().join("sessions");
-    std::fs::create_dir_all(&sessions).unwrap();
-    Fixture {
-        _temp: temp,
-        cwd,
-        agent_dir,
-        sessions,
-    }
-}
-
-fn run_sequence(fixture: &Fixture, base_url: &str, steps: serde_json::Value) -> serde_json::Value {
-    host(&fixture.cwd)
+fn run_sequence(
+    fixture: &common::Fixture,
+    base_url: &str,
+    steps: serde_json::Value,
+) -> serde_json::Value {
+    common::host(&fixture.cwd)
         .call_command(
             "interactive-bash-parity-sequence",
             &serde_json::json!({
                 "columns": 90, "rows": 30,
-                "model": stub_model(base_url), "apiKey": "test-key",
+                "model": common::stub_model(base_url), "apiKey": "test-key",
                 "runtimeApiKey": "test-key",
                 "cwd": fixture.cwd, "agentDir": fixture.agent_dir.to_string_lossy(),
                 "sessionDir": fixture.sessions.to_string_lossy(),
@@ -195,55 +120,23 @@ fn run_sequence(fixture: &Fixture, base_url: &str, steps: serde_json::Value) -> 
         .expect("result")
 }
 
-fn paste(text: &str) -> String {
-    format!("\x1b[200~{text}\x1b[201~")
-}
-
-fn session_entries(fixture: &Fixture) -> Vec<serde_json::Value> {
-    let mut files: Vec<_> = std::fs::read_dir(&fixture.sessions)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .collect();
-    files.sort();
-    assert_eq!(files.len(), 1, "expected one session file: {files:?}");
-    std::fs::read_to_string(&files[0])
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
-}
-
-fn message_texts(request: &serde_json::Value) -> Vec<String> {
-    request["messages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|message| {
-            message["content"][0]["text"]
-                .as_str()
-                .unwrap_or_default()
-                .to_owned()
-        })
-        .collect()
-}
-
 #[test]
 fn idle_bash_persists_and_reaches_the_next_request_as_text() {
-    let _env = ENV_LOCK.lock().unwrap();
-    let fixture = fixture();
+    let _env = common::ENV_LOCK.lock().unwrap();
+    let fixture = common::fixture();
     let (base_url, requests) = spawn_stub(vec![Scripted::Sse(text_sse("done"))]);
 
     run_sequence(
         &fixture,
         &base_url,
         serde_json::json!([
-            { "name": "bash", "input": [paste("!printf hi"), "\r"], "waitBash": true },
-            { "name": "next", "input": [paste("next question"), "\r"] },
+            { "name": "bash", "input": [common::paste("!printf hi"), "\r"], "waitBash": true },
+            { "name": "next", "input": [common::paste("next question"), "\r"] },
         ]),
     );
 
     // The bashExecution entry persisted with the executor's result shape.
-    let entries = session_entries(&fixture);
+    let entries = common::session_entries(&fixture);
     let bash = entries
         .iter()
         .find(|entry| entry["type"] == "message" && entry["message"]["role"] == "bashExecution")
@@ -260,7 +153,7 @@ fn idle_bash_persists_and_reaches_the_next_request_as_text() {
     let requests = requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(
-        message_texts(&requests[0]),
+        common::message_texts(&requests[0]),
         vec![
             "Ran `printf hi`\n```\nhi\n```".to_owned(),
             "next question".to_owned(),
@@ -270,20 +163,20 @@ fn idle_bash_persists_and_reaches_the_next_request_as_text() {
 
 #[test]
 fn excluded_bash_persists_but_never_reaches_the_provider() {
-    let _env = ENV_LOCK.lock().unwrap();
-    let fixture = fixture();
+    let _env = common::ENV_LOCK.lock().unwrap();
+    let fixture = common::fixture();
     let (base_url, requests) = spawn_stub(vec![Scripted::Sse(text_sse("done"))]);
 
     run_sequence(
         &fixture,
         &base_url,
         serde_json::json!([
-            { "name": "bash", "input": [paste("!!printf hi"), "\r"], "waitBash": true },
-            { "name": "next", "input": [paste("next question"), "\r"] },
+            { "name": "bash", "input": [common::paste("!!printf hi"), "\r"], "waitBash": true },
+            { "name": "next", "input": [common::paste("next question"), "\r"] },
         ]),
     );
 
-    let entries = session_entries(&fixture);
+    let entries = common::session_entries(&fixture);
     let bash = entries
         .iter()
         .find(|entry| entry["type"] == "message" && entry["message"]["role"] == "bashExecution")
@@ -294,15 +187,15 @@ fn excluded_bash_persists_but_never_reaches_the_provider() {
     let requests = requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(
-        message_texts(&requests[0]),
+        common::message_texts(&requests[0]),
         vec!["next question".to_owned()]
     );
 }
 
 #[test]
 fn deferred_bash_flushes_after_the_turn_settles() {
-    let _env = ENV_LOCK.lock().unwrap();
-    let fixture = fixture();
+    let _env = common::ENV_LOCK.lock().unwrap();
+    let fixture = common::fixture();
     let (base_url, requests) = spawn_stub(vec![
         Scripted::Hang(hang_sse()),
         Scripted::Sse(text_sse("you're welcome")),
@@ -313,20 +206,20 @@ fn deferred_bash_flushes_after_the_turn_settles() {
         &base_url,
         serde_json::json!([
             {
-                "input": [paste("Tell me a story"), "\r"],
+                "input": [common::paste("Tell me a story"), "\r"],
                 "waitIdle": false,
                 "captures": [{ "name": "streaming", "event": "message_update", "count": 3 }],
             },
-            { "name": "deferred", "input": [paste("!printf deferred"), "\r"],
+            { "name": "deferred", "input": [common::paste("!printf deferred"), "\r"],
               "waitBash": true, "waitIdle": false },
             { "name": "aborted", "input": ["\u{1b}"] },
-            { "name": "thanks", "input": [paste("thanks"), "\r"] },
+            { "name": "thanks", "input": [common::paste("thanks"), "\r"] },
         ]),
     );
 
     // JSONL order: the aborted assistant settles before the deferred
     // bashExecution flushes (agent-session.ts _runAgentPrompt finally).
-    let entries = session_entries(&fixture);
+    let entries = common::session_entries(&fixture);
     let roles: Vec<String> = entries
         .iter()
         .filter(|entry| entry["type"] == "message")
@@ -349,7 +242,7 @@ fn deferred_bash_flushes_after_the_turn_settles() {
     // transformMessages drops errored/aborted assistant messages).
     let requests = requests.lock().unwrap();
     assert_eq!(requests.len(), 2);
-    let texts = message_texts(&requests[1]);
+    let texts = common::message_texts(&requests[1]);
     assert_eq!(
         texts,
         vec![

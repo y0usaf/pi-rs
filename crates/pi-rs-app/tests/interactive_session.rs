@@ -10,38 +10,12 @@
 //! This file is its own test binary: it owns the process-global
 //! `PI_CODING_AGENT_DIR`.
 
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+mod common;
+
+use std::io::Write;
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
-
-use pi_rs_app::builtins::{CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
-use pi_rs_host::{Host, HostConfig};
-
-fn read_request(stream: &mut TcpStream) -> serde_json::Value {
-    let mut bytes = Vec::new();
-    let mut chunk = [0u8; 4096];
-    loop {
-        let count = stream.read(&mut chunk).unwrap();
-        if count == 0 {
-            break;
-        }
-        bytes.extend_from_slice(&chunk[..count]);
-        if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
-            let headers = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
-            let length = headers
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length:"))
-                .and_then(|value| value.trim().parse::<usize>().ok())
-                .unwrap_or(0);
-            if bytes.len() >= end + 4 + length {
-                let body = &bytes[end + 4..end + 4 + length];
-                return serde_json::from_slice(body).unwrap_or(serde_json::Value::Null);
-            }
-        }
-    }
-    serde_json::Value::Null
-}
 
 /// One scripted assistant text turn ("done") as an SSE body.
 const DONE_SSE: &str = concat!(
@@ -67,7 +41,7 @@ fn spawn_stub() -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
     thread::spawn(move || {
         for conn in listener.incoming() {
             let Ok(mut stream) = conn else { break };
-            let request = read_request(&mut stream);
+            let request = common::read_request(&mut stream);
             seen.lock().unwrap().push(request);
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
@@ -78,16 +52,6 @@ fn spawn_stub() -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
         }
     });
     (format!("http://{address}"), requests)
-}
-
-fn stub_model(base_url: &str) -> serde_json::Value {
-    serde_json::json!({
-        "id": "claude-parity-1", "name": "Claude Parity",
-        "api": "anthropic-messages", "provider": "anthropic",
-        "baseUrl": base_url, "reasoning": false,
-        "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-        "contextWindow": 200000, "maxTokens": 1024
-    })
 }
 
 /// A single-turn session fixture (`user_text` → `assistant_text`).
@@ -129,45 +93,6 @@ fn write_session_fixture(
     path.to_string_lossy().into_owned()
 }
 
-fn host(cwd: &str) -> Host {
-    let host = Host::new(HostConfig {
-        cwd: Some(cwd.to_owned()),
-        ..HostConfig::default()
-    })
-    .unwrap();
-    let report = host.load_embedded(&[
-        pi_rs_agent::PACK,
-        TOOLS_PACK,
-        CODING_AGENT_PACK,
-        INTERACTIVE_PACK,
-    ]);
-    assert!(report.errors.is_empty(), "{:?}", report.errors);
-    host
-}
-
-/// `PI_CODING_AGENT_DIR` is process-global and read at `Host::new`;
-/// each test sets its own agent dir, so they must not overlap.
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn paste(text: &str) -> String {
-    format!("\x1b[200~{text}\x1b[201~")
-}
-
-fn user_texts(request: &serde_json::Value) -> Vec<String> {
-    request["messages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|message| message["role"] == "user")
-        .map(|message| {
-            message["content"][0]["text"]
-                .as_str()
-                .unwrap_or_default()
-                .to_owned()
-        })
-        .collect()
-}
-
 fn decode_base64(input: &str) -> Vec<u8> {
     let mut output = Vec::new();
     let mut chunk = [0u8; 4];
@@ -200,7 +125,7 @@ fn decode_base64(input: &str) -> Vec<u8> {
 
 #[test]
 fn resume_switches_the_live_runtime_and_new_starts_fresh() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = common::ENV_LOCK.lock().unwrap();
     let temp = tempfile::tempdir().unwrap();
     let agent_dir = temp.path().join("agent");
     std::fs::create_dir_all(&agent_dir).unwrap();
@@ -230,12 +155,12 @@ fn resume_switches_the_live_runtime_and_new_starts_fresh() {
     let s1_before = std::fs::read_to_string(&s1).unwrap();
 
     let (base_url, requests) = spawn_stub();
-    let result = host(&cwd)
+    let result = common::host(&cwd)
         .call_command(
             "interactive-session-parity-sequence",
             &serde_json::json!({
                 "columns": 80, "rows": 30,
-                "model": stub_model(&base_url), "apiKey": "test-key",
+                "model": common::stub_model(&base_url), "apiKey": "test-key",
                 "cwd": cwd, "agentDir": agent_dir.to_string_lossy(),
                 "sessionFile": s1, "sessionDir": sessions.to_string_lossy(),
                 "modelFromCli": true, "thinkingFromCli": false,
@@ -244,14 +169,14 @@ fn resume_switches_the_live_runtime_and_new_starts_fresh() {
                 "examplesPath": "/pi-rs-pkg/examples",
                 "steps": [
                     // /resume → selector (s2 is row 0) → Enter resumes s2.
-                    { "name": "open", "input": [paste("/resume"), "\r"] },
+                    { "name": "open", "input": [common::paste("/resume"), "\r"] },
                     { "name": "switched", "input": ["\r"] },
                     // The next prompt runs against the resumed session.
-                    { "name": "turn", "input": [paste("again"), "\r"] },
+                    { "name": "turn", "input": [common::paste("again"), "\r"] },
                     // /new replaces the runtime with a fresh session…
-                    { "name": "fresh", "input": [paste("/new"), "\r"] },
+                    { "name": "fresh", "input": [common::paste("/new"), "\r"] },
                     // …and its first prompt carries no prior context.
-                    { "name": "fresh-turn", "input": [paste("start over"), "\r"] },
+                    { "name": "fresh-turn", "input": [common::paste("start over"), "\r"] },
                 ],
             })
             .to_string(),
@@ -267,9 +192,9 @@ fn resume_switches_the_live_runtime_and_new_starts_fresh() {
     // Request 1 (after /resume): s2's context exactly once plus the prompt.
     let requests = requests.lock().unwrap();
     assert_eq!(requests.len(), 2);
-    assert_eq!(user_texts(&requests[0]), ["alpha", "again"]);
+    assert_eq!(common::user_texts(&requests[0]), ["alpha", "again"]);
     // Request 2 (after /new): only the fresh prompt.
-    assert_eq!(user_texts(&requests[1]), ["start over"]);
+    assert_eq!(common::user_texts(&requests[1]), ["start over"]);
 
     // The resumed turn persisted into s2 only; s1 is untouched.
     assert_eq!(std::fs::read_to_string(&s1).unwrap(), s1_before);
@@ -285,7 +210,7 @@ fn resume_switches_the_live_runtime_and_new_starts_fresh() {
 
 #[test]
 fn html_jsonl_import_and_copy_run_through_product_commands() {
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = common::ENV_LOCK.lock().unwrap();
     let temp = tempfile::tempdir().unwrap();
     let agent_dir = temp.path().join("agent");
     std::fs::create_dir_all(&agent_dir).unwrap();
@@ -313,22 +238,22 @@ fn html_jsonl_import_and_copy_run_through_product_commands() {
     let output = temp.path().join("exports/branch.jsonl");
     let html_output = temp.path().join("session.html");
 
-    let result = host(&cwd)
+    let result = common::host(&cwd)
         .call_command(
             "interactive-session-parity-sequence",
             &serde_json::json!({
-                "columns": 80, "rows": 30, "model": stub_model("http://127.0.0.1:1"),
+                "columns": 80, "rows": 30, "model": common::stub_model("http://127.0.0.1:1"),
                 "cwd": cwd, "agentDir": agent_dir.to_string_lossy(),
                 "sessionFile": s1, "sessionDir": sessions.to_string_lossy(),
                 "modelFromCli": true, "nowMs": 1_752_237_296_789i64,
                 "readmePath": "/pi-rs-pkg/README.md", "docsPath": "/pi-rs-pkg/docs",
                 "examplesPath": "/pi-rs-pkg/examples",
                 "steps": [
-                    { "name": "export-html", "input": [paste(&format!("/export \"{}\"", html_output.display())), "\r"] },
-                    { "name": "export", "input": [paste(&format!("/export \"{}\"", output.display())), "\r"] },
-                    { "name": "import", "input": [paste(&format!("/import \"{s2}\"")), "\r"] },
+                    { "name": "export-html", "input": [common::paste(&format!("/export \"{}\"", html_output.display())), "\r"] },
+                    { "name": "export", "input": [common::paste(&format!("/export \"{}\"", output.display())), "\r"] },
+                    { "name": "import", "input": [common::paste(&format!("/import \"{s2}\"")), "\r"] },
                     { "name": "confirm", "input": ["\r"] },
-                    { "name": "copy", "input": [paste("/copy"), "\r"] },
+                    { "name": "copy", "input": [common::paste("/copy"), "\r"] },
                 ],
             })
             .to_string(),
@@ -379,7 +304,7 @@ fn html_jsonl_import_and_copy_run_through_product_commands() {
 fn share_mounts_a_cancellable_gist_loader_and_cleans_up() {
     use std::os::unix::fs::PermissionsExt;
 
-    let _env = ENV_LOCK.lock().unwrap();
+    let _env = common::ENV_LOCK.lock().unwrap();
     let temp = tempfile::tempdir().unwrap();
     let agent_dir = temp.path().join("agent");
     let bin_dir = temp.path().join("bin");
@@ -419,18 +344,18 @@ fn share_mounts_a_cancellable_gist_loader_and_cleans_up() {
         "shareable reply",
     );
 
-    let result = host(&cwd)
+    let result = common::host(&cwd)
         .call_command(
             "interactive-session-parity-sequence",
             &serde_json::json!({
-                "columns": 80, "rows": 30, "model": stub_model("http://127.0.0.1:1"),
+                "columns": 80, "rows": 30, "model": common::stub_model("http://127.0.0.1:1"),
                 "cwd": cwd, "agentDir": agent_dir.to_string_lossy(),
                 "sessionFile": session, "sessionDir": sessions.to_string_lossy(),
                 "modelFromCli": true, "nowMs": 1_752_237_296_789i64,
                 "readmePath": "/pi-rs-pkg/README.md", "docsPath": "/pi-rs-pkg/docs",
                 "examplesPath": "/pi-rs-pkg/examples",
                 "steps": [
-                    { "name": "share-loader", "input": [paste("/share"), "\r"], "sleepMs": 100 },
+                    { "name": "share-loader", "input": [common::paste("/share"), "\r"], "sleepMs": 100 },
                     { "name": "share-cancel", "input": ["\u{1b}"] },
                 ],
             })
@@ -451,17 +376,17 @@ fn share_mounts_a_cancellable_gist_loader_and_cleans_up() {
         "#!/bin/sh\nif [ \"$1\" = auth ]; then exit 0; fi\nprintf 'https://gist.github.com/test/deadbeef\\n'\n",
     )
     .unwrap();
-    let success = host(&cwd)
+    let success = common::host(&cwd)
         .call_command(
             "interactive-session-parity-sequence",
             &serde_json::json!({
-                "columns": 80, "rows": 30, "model": stub_model("http://127.0.0.1:1"),
+                "columns": 80, "rows": 30, "model": common::stub_model("http://127.0.0.1:1"),
                 "cwd": cwd, "agentDir": agent_dir.to_string_lossy(),
                 "sessionFile": session, "sessionDir": sessions.to_string_lossy(),
                 "modelFromCli": true, "nowMs": 1_752_237_296_789i64,
                 "readmePath": "/pi-rs-pkg/README.md", "docsPath": "/pi-rs-pkg/docs",
                 "examplesPath": "/pi-rs-pkg/examples",
-                "steps": [{ "name": "share-done", "input": [paste("/share"), "\r"], "sleepMs": 50 }],
+                "steps": [{ "name": "share-done", "input": [common::paste("/share"), "\r"], "sleepMs": 50 }],
             })
             .to_string(),
         )

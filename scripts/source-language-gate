@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# A.3 source-language gate — fail-closed check over tracked executable source.
+#
+# Enforces: maintained executable source converges to Rust + Lua. A tracked file
+# is in scope if it carries a .ts/.py/.sh extension, has a Python/shell shebang,
+# or is a .js outside the browser-export allowlist. Every in-scope file must be
+# listed in tests/source-language-gate/allowlist.json:
+#   - browser_export_js  : permanent, provenance-marked browser-target JS that
+#     executes only in generated standalone export pages (never an extension,
+#     generator, test harness, or host dependency).
+#   - port_eligible      : existing first-party .ts/.py/.sh/shebang source that
+#     must be ported to Rust/Lua or moved to a pinned oracle input. This list
+#     SHRINKS as porting closes; it is never a license to add new files.
+#
+# The gate FAILS on any new tracked in-scope file (not on this allowlist).
+# Stale allowlist entries (files already deleted/ported) are tolerated and
+# reported; they should be pruned from the manifest as porting lands.
+#
+# Usage: bash scripts/source-language-gate [ROOT]  (ROOT defaults to repo root)
+set -euo pipefail
+
+ROOT="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+MANIFEST="$ROOT/tests/source-language-gate/allowlist.json"
+EXTS='.ts .py .sh'
+SHELLS='sh bash dash zsh fish ksh csh tcsh'
+PYTHONS='python python2 python3 pypy py'
+
+die() { echo "source-language-gate: $*" >&2; exit 1; }
+[ -f "$MANIFEST" ] || die "manifest not found: $MANIFEST"
+
+# ---------- 1. enumerate tracked files ----------
+declare -a TRACKED=()
+if [ -d "$ROOT/.git" ]; then
+  # Authoritative file set: exactly what git tracks (excludes target/, ref/,
+  # prime-agent/, and any other untracked/generated tree).
+  while IFS= read -r -d '' f; do
+    TRACKED+=("$f")
+  done < <(cd "$ROOT" && git ls-files -z)
+  USE_GIT=1
+else
+  # Nix store snapshot: flakes materialize only tracked files, so a plain walk
+  # (minus .git and obvious local dirs) is equivalent to git ls-files here.
+  USE_GIT=0
+  while IFS= read -r -d '' f; do
+    rel="${f#$ROOT/}"
+    case "$rel" in
+      .git/*|target/*|.direnv/*|result/*|result-*|.github/workflows/*) continue ;;
+    esac
+    [ -f "$ROOT/$rel" ] || continue
+    TRACKED+=("$rel")
+  done < <(find "$ROOT" -type f -print0)
+fi
+
+# ---------- 2. load the allowlist ----------
+mapfile -t ALLOW_JS < <(jq -r '.browser_export_js[]' "$MANIFEST")
+mapfile -t ALLOW_PORT < <(jq -r '.port_eligible[]' "$MANIFEST")
+
+# ---------- 3. resolve the interpreter of a shebang (if any) ----------
+interp_of() {
+  local f=$1 first
+  read -r first < "$ROOT/$f" || true
+  case "$first" in
+    \#!*) ;;
+    *) return 1 ;;
+  esac
+  # The interpreter is everything after the leading "#!" marker (e.g.
+  # "#!/bin/bash", "#! /usr/bin/env python3"), split on whitespace.
+  set -- ${first#"#!"}
+  local prog0 prog
+  prog0=$(basename "${1:-}")
+  if [ "$prog0" = "env" ]; then
+    [ $# -ge 2 ] || return 1
+    prog=$(basename "$2")
+  else
+    prog=$prog0
+  fi
+  [ -n "$prog" ] || return 1
+  printf '%s' "$prog"
+}
+
+# ---------- 4. classify + check every tracked file ----------
+decl_fail=0
+for f in "${TRACKED[@]}"; do
+  # Files deleted from the working tree are porting progress, not a violation;
+  # they are also absent from any Nix source snapshot.
+  [ -f "$ROOT/$f" ] || continue
+  case "$f" in
+    *.js)
+      if ! printf '%s\n' "${ALLOW_JS[@]}" | grep -qx -- "$f"; then
+        echo "source-language-gate: VIOLATION — .js outside browser-export allowlist: $f"
+        decl_fail=1
+      fi
+      ;;
+    *.ts|*.py|*.sh)
+      if ! printf '%s\n' "${ALLOW_PORT[@]}" | grep -qx -- "$f"; then
+        echo "source-language-gate: VIOLATION — new first-party source (port in scope): $f"
+        decl_fail=1
+      fi
+      ;;
+    *)
+      if i=$(interp_of "$f"); then
+        is_shell=0; is_python=0
+        for s in $SHELLS; do [ "$i" = "$s" ] && is_shell=1; done
+        for p in $PYTHONS; do [ "$i" = "$p" ] && is_python=1; done
+        if [ "$is_shell" -eq 1 ] || [ "$is_python" -eq 1 ]; then
+          if ! printf '%s\n' "${ALLOW_PORT[@]}" | grep -qx -- "$f"; then
+            echo "source-language-gate: VIOLATION — new $i shebang script: $f"
+            decl_fail=1
+          fi
+        fi
+      fi
+      ;;
+  esac
+done
+
+# ---------- 5. report stale allowlist entries (informational, not a failure) ----------
+for f in "${ALLOW_PORT[@]}"; do
+  [ -e "$ROOT/$f" ] || echo "source-language-gate: note — allowlist entry no longer present (prune): $f"
+done
+
+if [ "$decl_fail" -eq 1 ]; then
+  echo "source-language-gate: FAIL — add new in-scope files to" \
+       "tests/source-language-gate/allowlist.json only if they are genuinely" \
+       "scheduled for porting; otherwise port them to Rust/Lua or use the" \
+       "browser-export allowlist." >&2
+  exit 1
+fi
+
+echo "source-language-gate: OK — $((${#TRACKED[@]})) tracked files checked" \
+     "(${#ALLOW_PORT[@]} port-eligible, ${#ALLOW_JS[@]} browser-export js)."
+exit 0
