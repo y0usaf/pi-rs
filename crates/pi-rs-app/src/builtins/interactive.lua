@@ -1,5 +1,20 @@
+do
 local pi = ...
 pi.declare_package({ command_visibility = "internal" })
+
+-- Shared policy arrives through the same public exact-version modules
+-- a file-backed package would import; scoped in this do-block so the
+-- concatenated chunk stays well under Lua's 200-local main-function limit.
+local messages = pi.module.require("pi.utils.messages", "1")
+local system_prompt_mod = pi.module.require("pi.utils.system-prompt", "1")
+local agent_session = pi.module.require("pi.utils.agent-session", "1")
+local syntax_mod = pi.module.require("pi.utils.syntax-highlight", "1")
+local extensions_mod = pi.module.require("pi.utils.extensions", "1")
+
+-- HTML export policy arrives through the same public exact-version module
+-- a file-backed package would import (replaces the former export_html_lib
+-- chunk global). pi.module.require is resolved inline at the call sites so
+-- the concatenated chunk stays within Lua's local-variable limit.
 
 -- Product policy ported from interactive/theme/theme.ts. The built-in theme
 -- definitions are Lua tables injected ahead of this file; custom themes use
@@ -192,7 +207,7 @@ local function get_markdown_theme(theme)
     underline = function(t) return theme:underline(t) end,
     strikethrough = function(t) return theme:strikethrough(t) end,
     highlight_code = function(code, lang)
-      return markdown_highlight_code(code, lang, theme)
+      return syntax_mod.markdown_highlight_code(code, lang, theme)
     end,
   }
 end
@@ -235,7 +250,9 @@ local DEFAULT_KEYS = {
 BUILTIN_DEFAULT_KEYS = {}
 for action, binding in pairs(DEFAULT_KEYS) do BUILTIN_DEFAULT_KEYS[action] = binding end
 function reload_config_keybindings()
-  for action in pairs(DEFAULT_KEYS) do DEFAULT_KEYS[action] = nil end
+  for action in pairs(DEFAULT_KEYS) do
+    if not action:match("^__") then DEFAULT_KEYS[action] = nil end
+  end
   for action, binding in pairs(BUILTIN_DEFAULT_KEYS) do DEFAULT_KEYS[action] = binding end
   local snapshot = pi.config.snapshot()
   for action, binding in pairs(snapshot.keybindings or {}) do
@@ -1836,7 +1853,7 @@ function handle_bash_command(state, command, exclude_from_context)
     type = "user_bash", command = command,
     excludeFromContext = exclude_from_context,
     cwd = state.session_manager:get_cwd(),
-  }, EXTENSION_CONTEXT_POLICY.snapshot(state))
+  }, extensions_mod.context_policy.snapshot(state))
   local row = new_bash_execution_row(command, exclude_from_context)
   local is_deferred = state.session.is_streaming()
   if is_deferred then
@@ -2890,10 +2907,10 @@ function session_set_thinking_level(state, level)
     if supports_thinking(state) or effective ~= "off" then
       pi.settings.set_default_thinking_level(effective)
     end
-    if EXTENSION_CONTEXT_POLICY and state.session_manager then
+    if extensions_mod.context_policy and state.session_manager then
       EXTENSION_POLICY.emit_generic({ type = "thinking_level_select",
         level = effective, previousLevel = previous },
-        EXTENSION_CONTEXT_POLICY.snapshot(state))
+        extensions_mod.context_policy.snapshot(state))
     end
   end
 end
@@ -2948,10 +2965,10 @@ local function session_set_model(state, model)
     state.session_manager:append_model_change(model.provider, model.id)
   end
   session_set_thinking_level(state, thinking_level)
-  if not models_are_equal(previous_model, model) and EXTENSION_CONTEXT_POLICY then
+  if not models_are_equal(previous_model, model) and extensions_mod.context_policy then
     EXTENSION_POLICY.emit_generic({ type = "model_select", model = model,
       previousModel = previous_model, source = "set" },
-      EXTENSION_CONTEXT_POLICY.snapshot(state))
+      extensions_mod.context_policy.snapshot(state))
   end
 end
 
@@ -3047,10 +3064,10 @@ local function session_cycle_model(state, direction)
     state.session_manager:append_model_change(next_model.provider, next_model.id)
   end
   session_set_thinking_level(state, thinking_level)
-  if EXTENSION_CONTEXT_POLICY then
+  if extensions_mod.context_policy then
     EXTENSION_POLICY.emit_generic({ type = "model_select", model = next_model,
       previousModel = previous_model, source = "cycle" },
-      EXTENSION_CONTEXT_POLICY.snapshot(state))
+      extensions_mod.context_policy.snapshot(state))
   end
   return { model = next_model, thinkingLevel = state.thinking_level or "off", isScoped = is_scoped }
 end
@@ -4260,10 +4277,10 @@ end
 -- (item 6).
 local function shutdown(state)
   if state.session_manager and not state.extension_shutdown_emitted
-    and EXTENSION_CONTEXT_POLICY then
+    and extensions_mod.context_policy then
     state.extension_shutdown_emitted = true
     EXTENSION_POLICY.emit_generic({ type = "session_shutdown", reason = "quit" },
-      EXTENSION_CONTEXT_POLICY.snapshot(state))
+      extensions_mod.context_policy.snapshot(state))
   end
   state.exit = true
 end
@@ -4981,7 +4998,7 @@ local function extension_shortcut_router(state, shortcuts)
       if binding_matches(data, shortcut.shortcut) then
         pi.spawn(function()
           local ok, err = pcall(shortcut.handler,
-            EXTENSION_CONTEXT_POLICY.snapshot(state))
+            extensions_mod.context_policy.snapshot(state))
           if not ok then
             show_error(state, "Shortcut handler error: " .. tostring(err))
           end
@@ -5145,7 +5162,7 @@ local function shell_submit_actions(state)
     add_to_history = function(text) state.editor.editor:add_to_history(text) end,
     bash_command = function(command, excluded) handle_bash_command(state, command, excluded) end,
     extension_command = function(text)
-      local context = EXTENSION_CONTEXT_POLICY.snapshot(state, { command = true })
+      local context = extensions_mod.context_policy.snapshot(state, { command = true })
       return EXTENSION_POLICY.execute_command(text, context, {
         background = true,
         on_error = function(err)
@@ -5450,7 +5467,7 @@ local function handle_agent_event(state, event)
       state.streaming_row = nil
     end
     -- agent-session.ts _handleAgentEvent: session persistence.
-    persist_agent_event(state.session_manager, event)
+    agent_session.persist_agent_event(state.session_manager, event)
 
   elseif event.type == "tool_execution_start" then
     local row = state.pending_tools[event.toolCallId]
@@ -6507,7 +6524,7 @@ local function create_compaction_slice(state, agent, session_manager)
     if entry then
       EXTENSION_POLICY.emit_generic({ type = "session_compact",
         compactionEntry = entry, fromExtension = from_extension == true },
-        EXTENSION_CONTEXT_POLICY.snapshot(state))
+        extensions_mod.context_policy.snapshot(state))
     end
   end
 
@@ -6515,7 +6532,7 @@ local function create_compaction_slice(state, agent, session_manager)
     local result = EXTENSION_POLICY.emit_generic({
       type = "session_before_compact", preparation = preparation,
       branchEntries = path_entries, customInstructions = instructions, signal = signal,
-    }, EXTENSION_CONTEXT_POLICY.snapshot(state, { signal = signal }))
+    }, extensions_mod.context_policy.snapshot(state, { signal = signal }))
     if result and result.cancel then return nil, true, false end
     if result and result.compaction then return result.compaction, false, true end
     return nil, false, false
@@ -6835,7 +6852,7 @@ function bind_session_runtime(state, session_manager)
   end
   state.session_manager = session_manager
   state.cwd = session_manager:get_cwd()
-  local startup = session_startup_from_request(session_manager, request)
+  local startup = agent_session.session_startup_from_request(session_manager, request)
   state.model = startup.model or request.model
   state.thinking_level = startup.thinking_level
   state.session_context = startup.context
@@ -6852,7 +6869,7 @@ function bind_session_runtime(state, session_manager)
     readmePath = request.readmePath, docsPath = request.docsPath,
     examplesPath = request.examplesPath,
   }
-  local system_prompt = build_session_system_prompt(state.system_prompt_options)
+  local system_prompt = system_prompt_mod.build_session_system_prompt(state.system_prompt_options)
   local agent
   agent = pi.agent.new({
     initialState = {
@@ -6866,7 +6883,7 @@ function bind_session_runtime(state, session_manager)
     followUpMode = pi.settings.follow_up_mode(),
     transport = pi.settings.transport(),
     -- sdk.ts convertToLlmWithBlockImages over messages.ts convertToLlm.
-    convertToLlm = convert_to_llm_with_block_images,
+    convertToLlm = messages.convert_to_llm_with_block_images,
     streamFn = stream_fn,
     -- sdk.ts also passes settings thinkingBudgets / maxRetryDelayMs;
     -- those settings join the extension/configuration surface (item 9).
@@ -6877,25 +6894,25 @@ function bind_session_runtime(state, session_manager)
     getApiKey = function(provider) return pi.auth.get_api_key(provider) end,
     transformContext = function(messages, signal)
       return EXTENSION_POLICY.emit_context(messages,
-        EXTENSION_CONTEXT_POLICY.snapshot(state, { signal = signal }))
+        extensions_mod.context_policy.snapshot(state, { signal = signal }))
     end,
     onPayload = function(payload)
       return EXTENSION_POLICY.emit_before_provider_request(payload,
-        EXTENSION_CONTEXT_POLICY.snapshot(state,
+        extensions_mod.context_policy.snapshot(state,
           { signal = agent and agent:get_state().signal or nil }))
     end,
     onResponse = function(response)
       EXTENSION_POLICY.emit_generic({ type = "after_provider_response",
         status = response.status, headers = response.headers },
-        EXTENSION_CONTEXT_POLICY.snapshot(state,
+        extensions_mod.context_policy.snapshot(state,
           { signal = agent and agent:get_state().signal or nil }))
     end,
     createToolContext = function(signal)
-      return EXTENSION_CONTEXT_POLICY.snapshot(state, { signal = signal })
+      return extensions_mod.context_policy.snapshot(state, { signal = signal })
     end,
     beforeToolCall = function(event, signal)
       return EXTENSION_POLICY.emit_tool_call(event,
-        EXTENSION_CONTEXT_POLICY.snapshot(state, { signal = signal }))
+        extensions_mod.context_policy.snapshot(state, { signal = signal }))
     end,
     afterToolCall = function(event, signal)
       return EXTENSION_POLICY.emit_tool_result({
@@ -6903,7 +6920,7 @@ function bind_session_runtime(state, session_manager)
         toolName = event.toolCall.name, input = event.args,
         content = event.result.content, details = event.result.details,
         isError = event.isError,
-      }, EXTENSION_CONTEXT_POLICY.snapshot(state, { signal = signal }))
+      }, extensions_mod.context_policy.snapshot(state, { signal = signal }))
     end,
   })
   state.agent = agent
@@ -6963,7 +6980,7 @@ function bind_session_runtime(state, session_manager)
     clear_queues = function() agent:clear_all_queues() end,
     steer = function(text)
       local result = EXTENSION_POLICY.emit_input(text, nil, "interactive", "steer",
-        EXTENSION_CONTEXT_POLICY.snapshot(state, { signal = agent:get_state().signal }))
+        extensions_mod.context_policy.snapshot(state, { signal = agent:get_state().signal }))
       if result.action == "handled" then return false end
       local transformed = result.action == "transform" and result.text or text
       agent:steer(user_message(transformed))
@@ -6971,7 +6988,7 @@ function bind_session_runtime(state, session_manager)
     end,
     follow_up = function(text)
       local result = EXTENSION_POLICY.emit_input(text, nil, "interactive", "followUp",
-        EXTENSION_CONTEXT_POLICY.snapshot(state, { signal = agent:get_state().signal }))
+        extensions_mod.context_policy.snapshot(state, { signal = agent:get_state().signal }))
       if result.action == "handled" then return false end
       local transformed = result.action == "transform" and result.text or text
       agent:follow_up(user_message(transformed))
@@ -7011,14 +7028,14 @@ function bind_session_runtime(state, session_manager)
     prompt = function(text)
       state.turn = pi.spawn(function()
         local input = EXTENSION_POLICY.emit_input(text, nil, "interactive", nil,
-          EXTENSION_CONTEXT_POLICY.snapshot(state))
+          extensions_mod.context_policy.snapshot(state))
         if input.action == "handled" then return end
         local transformed = input.action == "transform" and input.text or text
         bash_slice.flush_pending()
         compaction.pre_prompt_compaction()
         local before = EXTENSION_POLICY.emit_before_agent_start(transformed, nil,
           system_prompt, state.system_prompt_options,
-          EXTENSION_CONTEXT_POLICY.snapshot(state))
+          extensions_mod.context_policy.snapshot(state))
         agent:set_system_prompt(before and before.systemPrompt or system_prompt)
         local prompts = { user_message(transformed) }
         for _, message in ipairs(before and before.messages or {}) do
@@ -7031,13 +7048,31 @@ function bind_session_runtime(state, session_manager)
         compaction.run_agent_prompt(prompts)
       end)
     end,
+    -- agent-session.ts _runAgentPrompt: a turn seeded by extension custom
+    -- messages (sendCustomMessage with triggerTurn). Same
+    -- before_agent_start fold and compaction path as prompt(), but the
+    -- prompt list is the caller's custom messages.
+    prompt_custom = function(custom_messages)
+      state.turn = pi.spawn(function()
+        compaction.pre_prompt_compaction()
+        local before = EXTENSION_POLICY.emit_before_agent_start("", nil,
+          agent:get_state().systemPrompt, state.system_prompt_options,
+          extensions_mod.context_policy.snapshot(state))
+        if before and before.systemPrompt then agent:set_system_prompt(before.systemPrompt) end
+        local prompts = {}
+        for _, message in ipairs(custom_messages) do
+          prompts[#prompts + 1] = message
+        end
+        compaction.run_agent_prompt(prompts)
+      end)
+    end,
   }
   agent:subscribe(function(event)
     -- A disposed runtime's late events must not reach the current UI.
     if state.agent ~= agent then return end
     local signal = agent:get_state().signal
     EXTENSION_POLICY.emit_agent_event(event,
-      EXTENSION_CONTEXT_POLICY.snapshot(state, { signal = signal }),
+      extensions_mod.context_policy.snapshot(state, { signal = signal }),
       state.wall_now_ms, state.extension_turn_state)
     if event.type == "agent_end" then
       event.willRetry = compaction.will_retry_after_agent_end(event)
@@ -7049,12 +7084,12 @@ function bind_session_runtime(state, session_manager)
   local start_event = state.next_session_start_event
     or { type = "session_start", reason = "startup" }
   state.next_session_start_event = nil
-  EXTENSION_POLICY.emit_generic(start_event, EXTENSION_CONTEXT_POLICY.snapshot(state))
+  EXTENSION_POLICY.emit_generic(start_event, extensions_mod.context_policy.snapshot(state))
   -- Resource registration itself belongs to 9.7; discovery callbacks already
   -- run at Pi's real post-session_start seam and retain attributed results.
   state.extension_resources = EXTENSION_POLICY.emit_resources_discover(state.cwd,
     start_event.reason == "reload" and "reload" or "startup",
-    EXTENSION_CONTEXT_POLICY.snapshot(state))
+    extensions_mod.context_policy.snapshot(state))
   update_available_provider_count(state)
   return startup
 end
@@ -7124,7 +7159,7 @@ end
 local function attempt_switch_session(state, session_path, cwd_override)
   local before = EXTENSION_POLICY.emit_generic({ type = "session_before_switch",
     reason = "resume", targetSessionFile = session_path },
-    EXTENSION_CONTEXT_POLICY.snapshot(state))
+    extensions_mod.context_policy.snapshot(state))
   if before and before.cancel then return false, { cancelled = true } end
   local session_manager = pi.session.open({
     path = session_path, agentDir = state.request.agentDir, cwd = cwd_override,
@@ -7134,7 +7169,7 @@ local function attempt_switch_session(state, session_path, cwd_override)
   local previous_file = state.session_manager:get_session_file()
   EXTENSION_POLICY.emit_generic({ type = "session_shutdown", reason = "resume",
     targetSessionFile = session_manager:get_session_file() },
-    EXTENSION_CONTEXT_POLICY.snapshot(state))
+    extensions_mod.context_policy.snapshot(state))
   state.extension_shutdown_emitted = true
   state.agent:abort()
   state.next_session_start_event = { type = "session_start", reason = "resume",
@@ -7187,7 +7222,7 @@ function handle_export_command(state, text)
       local resolved = pi.path.resolve(output_path)
       return state.session_manager:export_branch_jsonl(resolved, iso_from_epoch_ms(state.wall_now_ms()))
     end
-    return export_html_lib.generate(state, output_path)
+    return pi.module.require("pi.utils.export-html", "1").generate(state, output_path)
   end)
   if ok then show_status(state, "Session exported to: " .. result)
   else show_error(state, "Failed to export session: " .. tostring(result)) end
@@ -7249,7 +7284,7 @@ function handle_share_command(state)
   end
 
   local tmp_file = pi.path.join(pi.fs.tmpdir(), "session.html")
-  local exported, export_error = pcall(export_html_lib.generate, state, tmp_file)
+  local exported, export_error = pcall(pi.module.require("pi.utils.export-html", "1").generate, state, tmp_file)
   if not exported then
     show_error(state, "Failed to export session: " .. tostring(export_error))
     return
@@ -7776,7 +7811,7 @@ function handle_reload_command(state)
     local ok, err = pcall(function()
       if state.reload_impl then return state.reload_impl(state) end
       EXTENSION_POLICY.emit_generic({ type = "session_shutdown", reason = "reload" },
-        EXTENSION_CONTEXT_POLICY.snapshot(state))
+        extensions_mod.context_policy.snapshot(state))
       state.extension_shutdown_emitted = true
       state.next_session_start_event = { type = "session_start", reason = "reload" }
       pi.config.reload()
@@ -7856,7 +7891,7 @@ function handle_clear_command(state)
   local cancelled = false
   local ok, err = pcall(function()
     local before = EXTENSION_POLICY.emit_generic({ type = "session_before_switch",
-      reason = "new" }, EXTENSION_CONTEXT_POLICY.snapshot(state))
+      reason = "new" }, extensions_mod.context_policy.snapshot(state))
     if before and before.cancel then cancelled = true; return end
     local current = state.session_manager
     local previous_file = current:get_session_file()
@@ -7871,7 +7906,7 @@ function handle_clear_command(state)
     end
     EXTENSION_POLICY.emit_generic({ type = "session_shutdown", reason = "new",
       targetSessionFile = session_manager:get_session_file() },
-      EXTENSION_CONTEXT_POLICY.snapshot(state))
+      extensions_mod.context_policy.snapshot(state))
     state.extension_shutdown_emitted = true
     state.agent:abort()
     state.next_session_start_event = { type = "session_start", reason = "new",
@@ -9203,7 +9238,7 @@ function fork_session_runtime(state, entry_id, options)
   options = options or {}
   local position = options.position or "before"
   local before = EXTENSION_POLICY.emit_generic({ type = "session_before_fork",
-    entryId = entry_id, position = position }, EXTENSION_CONTEXT_POLICY.snapshot(state))
+    entryId = entry_id, position = position }, extensions_mod.context_policy.snapshot(state))
   if before and before.cancel then return { cancelled = true } end
   local sm = state.session_manager
   local selected_entry = sm:get_entry(entry_id)
@@ -9245,7 +9280,7 @@ function fork_session_runtime(state, entry_id, options)
   end
 
   EXTENSION_POLICY.emit_generic({ type = "session_shutdown", reason = "fork",
-    targetSessionFile = manager:get_session_file() }, EXTENSION_CONTEXT_POLICY.snapshot(state))
+    targetSessionFile = manager:get_session_file() }, extensions_mod.context_policy.snapshot(state))
   state.extension_shutdown_emitted = true
   state.agent:abort()
   state.next_session_start_event = { type = "session_start", reason = "fork",
@@ -9281,7 +9316,7 @@ function navigate_session_tree(state, target_id, options)
   }
   local before = EXTENSION_POLICY.emit_generic({ type = "session_before_tree",
     preparation = preparation, signal = signal },
-    EXTENSION_CONTEXT_POLICY.snapshot(state, { signal = signal }))
+    extensions_mod.context_policy.snapshot(state, { signal = signal }))
   if before and before.cancel then return { cancelled = true } end
   if before then
     if before.customInstructions ~= nil then options.customInstructions = before.customInstructions end
@@ -9349,7 +9384,7 @@ function navigate_session_tree(state, target_id, options)
     summaryEntry = summary_entry,
   }
   if summary_text then tree_event.fromExtension = from_extension end
-  EXTENSION_POLICY.emit_generic(tree_event, EXTENSION_CONTEXT_POLICY.snapshot(state))
+  EXTENSION_POLICY.emit_generic(tree_event, extensions_mod.context_policy.snapshot(state))
   return { editorText = editor_text, cancelled = false, summaryEntry = summary_entry }
 end
 
@@ -9548,7 +9583,7 @@ end
 -- captured pre-replacement contexts are already stale at that point.
 function finish_extension_replacement(state, options)
   if options and options.withSession then
-    options.withSession(EXTENSION_CONTEXT_POLICY.snapshot(state, { command = true }))
+    options.withSession(extensions_mod.context_policy.snapshot(state, { command = true }))
   end
 end
 
@@ -9653,7 +9688,7 @@ end
 -- editor wiring shared by the process-session loop (run_interactive) and
 -- the provider parity sequence.
 local function create_interactive_state(request)
-  local data = request.theme == "light" and light_json or dark_json
+  local data = (pi.settings.theme() or request.theme) == "light" and light_json or dark_json
   local theme = create_theme(data, request.colorMode or "truecolor")
   local state = {
     theme = theme, theme_data = data, md_theme = nil, model = request.model, cwd = request.cwd or pi.cwd(),
@@ -9709,7 +9744,7 @@ local function create_interactive_state(request)
   -- CLI-selected session (--continue/--session) or create a fresh one;
   -- the session's cwd is the effective runtime cwd, and the restore
   -- slice recovers the saved model, thinking level, and messages.
-  local session_manager = construct_session({
+  local session_manager = agent_session.construct_session({
     sessionFile = request.sessionFile, sessionDir = request.sessionDir,
     agentDir = request.agentDir, cwd = state.cwd,
     cwdOverride = request.cwdOverride,
@@ -9724,6 +9759,110 @@ local function create_interactive_state(request)
   state.extension_after_pump = function()
     if state.shutdown_requested and not state.session.is_streaming() then shutdown(state) end
   end
+  -- PLAN 9.4: the ExtensionAPI runtime bridge — product policy for the
+  -- non-UI members the host api.rs delegates here (spec agent-session.ts
+  -- bindCore). Reads reflect live session/agent state; mutations apply
+  -- immediately and persist through the session manager, exactly like the
+  -- builtin flows they share.
+  local runtime_bridge = {}
+  runtime_bridge.append_entry = function(custom_type, data)
+    session_manager:append_custom_entry(custom_type, data)
+  end
+  runtime_bridge.set_session_name = function(name)
+    session_manager:append_session_info(name)
+  end
+  runtime_bridge.get_session_name = function()
+    return session_manager:get_session_name()
+  end
+  runtime_bridge.set_label = function(entry_id, label)
+    -- session-manager.ts appendLabelChange throws on an unknown entry.
+    session_manager:append_label_change(entry_id, label)
+  end
+  runtime_bridge.get_active_tools = function()
+    local names = {}
+    for i, tool in ipairs(state.agent:get_state().tools or {}) do
+      names[i] = tool.name
+    end
+    return names
+  end
+  runtime_bridge.set_active_tools = function(tool_names)
+    -- agent-session.ts setActiveToolsByName: only registry-known tools
+    -- are enabled; the system prompt rebuilds for the new tool set.
+    local known = {}
+    for _, def in ipairs(pi.registered_tools()) do known[def.name] = def end
+    local tools, valid = {}, {}
+    for _, name in ipairs(tool_names) do
+      local def = known[name]
+      if def then tools[#tools + 1] = def; valid[#valid + 1] = name end
+    end
+    state.agent:set_tools(tools)
+    state.system_prompt_options.toolNames = valid
+    state.agent:set_system_prompt(
+      system_prompt_mod.build_session_system_prompt(state.system_prompt_options))
+  end
+  runtime_bridge.set_model = function(model)
+    -- bindCore: setModel answers false when auth is not configured.
+    if not state.registry.has_configured_auth(model) then return false end
+    pcall(session_set_model, state, model)
+    return true
+  end
+  runtime_bridge.get_thinking_level = function()
+    return state.thinking_level
+  end
+  runtime_bridge.set_thinking_level = function(level)
+    session_set_thinking_level(state, level)
+  end
+  runtime_bridge.send_message = function(message, options)
+    local app_message = {
+      role = "custom", customType = message.customType, content = message.content,
+      display = message.display, details = message.details,
+      timestamp = state.wall_now_ms(),
+    }
+    options = options or {}
+    local streaming = state.agent:get_state().isStreaming
+    if options.deliverAs == "nextTurn" then
+      state.pending_next_turn_messages = state.pending_next_turn_messages or {}
+      state.pending_next_turn_messages[#state.pending_next_turn_messages + 1] = app_message
+    elseif streaming then
+      -- sendCustomMessage while streaming: agent.steer/followUp directly.
+      if options.deliverAs == "followUp" then state.agent:follow_up(app_message)
+      else state.agent:steer(app_message) end
+    elseif options.triggerTurn then
+      state.session.prompt_custom({ app_message })
+    else
+      local messages = state.agent:get_state().messages
+      messages[#messages + 1] = app_message
+      session_manager:append_custom_message_entry(
+        app_message.customType, app_message.content, app_message.display, app_message.details)
+      local context = extensions_mod.context_policy.snapshot(state)
+      EXTENSION_POLICY.emit_agent_event({ type = "message_start", message = app_message },
+        context, state.wall_now_ms, state.extension_turn_state)
+      EXTENSION_POLICY.emit_agent_event({ type = "message_end", message = app_message },
+        context, state.wall_now_ms, state.extension_turn_state)
+    end
+  end
+  runtime_bridge.send_user_message = function(content, options)
+    local text, images
+    if type(content) == "string" then
+      text = content
+    else
+      local parts = {}
+      for _, part in ipairs(content) do
+        if part.type == "text" then parts[#parts + 1] = part.text
+        else images = images or {}; images[#images + 1] = part end
+      end
+      text = table.concat(parts, "\n")
+    end
+    options = options or {}
+    if state.agent:get_state().isStreaming then
+      if options.deliverAs == "followUp" then state.session.follow_up(text)
+      else state.session.steer(text) end
+    else
+      -- sendUserMessage always triggers a turn when idle (prompt()).
+      state.session.prompt(text)
+    end
+  end
+  pi.install_runtime_bridge(runtime_bridge)
 
   setup_shell_editor(state)
   -- interactive-mode.ts setupAutocompleteProvider + editor.setAutocompleteProvider.
@@ -9803,7 +9942,7 @@ local function run_interactive_state(state)
       if state.exit then return { exit = true } end
       local now = pi.monotonic_ms()
       local render = false
-      EXTENSION_CONTEXT_POLICY.pump(state)
+      extensions_mod.context_policy.pump(state)
       if EXTENSION_UI_POLICY.pump(state) then render = true end
       if state.async_render then
         state.async_render = false
@@ -10263,7 +10402,7 @@ pi.register_command("interactive-shell-parity-sequence", {
           state.submit(effect.text or effect.value or "")
         end
         pi.sleep(1)
-        EXTENSION_CONTEXT_POLICY.pump(state)
+        extensions_mod.context_policy.pump(state)
         EXTENSION_UI_POLICY.pump(state)
       end
       capture(step.name, step.resize ~= nil)
@@ -10513,10 +10652,10 @@ function extension_context_action_oracle(model, cwd)
   local function run(state, callback)
     local task = pi.spawn(callback)
     while not task:done() do
-      EXTENSION_CONTEXT_POLICY.pump(state)
+      extensions_mod.context_policy.pump(state)
       pi.sleep(1)
     end
-    EXTENSION_CONTEXT_POLICY.pump(state)
+    extensions_mod.context_policy.pump(state)
     return task:join()
   end
   local function stale_text(ok, value)
@@ -10527,7 +10666,7 @@ function extension_context_action_oracle(model, cwd)
   local modes = {}
   for _, row in ipairs({ { "print", false }, { "json", false }, { "rpc", true } }) do
     local mode_state = new_state(row[1], row[2])
-    local mode_context = EXTENSION_CONTEXT_POLICY.snapshot(mode_state)
+    local mode_context = extensions_mod.context_policy.snapshot(mode_state)
     modes[#modes + 1] = { mode = mode_context.mode, hasUI = mode_context.hasUI }
   end
 
@@ -10553,8 +10692,8 @@ function extension_context_action_oracle(model, cwd)
     end,
     reload = function() trace[#trace + 1] = "reload" end,
   }
-  local base = EXTENSION_CONTEXT_POLICY.snapshot(state)
-  local command = EXTENSION_CONTEXT_POLICY.snapshot(state, { command = true })
+  local base = extensions_mod.context_policy.snapshot(state)
+  local command = extensions_mod.context_policy.snapshot(state, { command = true })
   run(state, command.waitForIdle)
   local outcomes = {
     newSession = run(state, function()
@@ -10595,14 +10734,14 @@ function extension_context_action_oracle(model, cwd)
       replacement_state.extension_context_generation = replacement_state.extension_context_generation + 1
       replacement_trace[#replacement_trace + 1] = "rebind"
       if action.options.withSession then
-        action.options.withSession(EXTENSION_CONTEXT_POLICY.snapshot(
+        action.options.withSession(extensions_mod.context_policy.snapshot(
           replacement_state, { command = true }))
       end
       replacement_trace[#replacement_trace + 1] = "action-return"
       return { cancelled = false }
     end,
   }
-  local old = EXTENSION_CONTEXT_POLICY.snapshot(replacement_state, { command = true })
+  local old = extensions_mod.context_policy.snapshot(replacement_state, { command = true })
   local replacement_result = run(replacement_state, function()
     return old.newSession({ withSession = function(fresh)
       replacement_trace[#replacement_trace + 1] = "withSession"
@@ -10622,7 +10761,7 @@ function extension_context_action_oracle(model, cwd)
       reload_trace[#reload_trace + 1] = "reloaded"
     end,
   }
-  local reload_context = EXTENSION_CONTEXT_POLICY.snapshot(reload_state, { command = true })
+  local reload_context = extensions_mod.context_policy.snapshot(reload_state, { command = true })
   run(reload_state, reload_context.reload)
   local reload_stale = stale_text(pcall(reload_context.getSystemPrompt))
 
@@ -10665,20 +10804,20 @@ pi.register_command("interactive-extension-context-parity", {
       shutdown = function() state.exit = true end,
       compact = function() end,
     }
-    local context = EXTENSION_CONTEXT_POLICY.snapshot(state, { command = true })
+    local context = extensions_mod.context_policy.snapshot(state, { command = true })
     local found = context.modelRegistry.find(model.provider, model.id)
     local tool_result
     if request.tool then
       for _, tool in ipairs(pi.registered_tools()) do
         if tool.name == request.tool then
           tool_result = tool.execute("context-oracle", request.arguments or {}, nil, nil,
-            EXTENSION_CONTEXT_POLICY.snapshot(state))
+            extensions_mod.context_policy.snapshot(state))
         end
       end
     else
       context.shutdown()
     end
-    EXTENSION_CONTEXT_POLICY.pump(state)
+    extensions_mod.context_policy.pump(state)
     local usage = context.getContextUsage()
     local snapshot = {
       mode = context.mode, hasUI = context.hasUI, cwd = "{CWD}",
@@ -10729,7 +10868,7 @@ pi.register_command("interactive-extension-action-behavior", {
     if not registered or not observation_command then
       error("session-lifecycle-demo extension is not loaded", 0)
     end
-    local observation_context = EXTENSION_CONTEXT_POLICY.snapshot(state)
+    local observation_context = extensions_mod.context_policy.snapshot(state)
     for _, entry in ipairs(pi.extension_handlers("tool_call")) do
       local observed, observe_error = pcall(entry.handler, {
         type = "tool_call", toolCallId = "context-observation",
@@ -10737,17 +10876,17 @@ pi.register_command("interactive-extension-action-behavior", {
       }, observation_context)
       if not observed then error(entry.source .. ": " .. tostring(observe_error), 0) end
     end
-    local context = EXTENSION_CONTEXT_POLICY.snapshot(state, { command = true })
+    local context = extensions_mod.context_policy.snapshot(state, { command = true })
     local event_context = observation_command.handler("", context)
     local task = pi.spawn(function()
       return registered.handler(pi.json.encode(request.lifecycleAction or {}), context)
     end)
     while not task:done() do
-      EXTENSION_CONTEXT_POLICY.pump(state)
+      extensions_mod.context_policy.pump(state)
       EXTENSION_UI_POLICY.pump(state)
       pi.sleep(1)
     end
-    EXTENSION_CONTEXT_POLICY.pump(state)
+    extensions_mod.context_policy.pump(state)
     local result = task:join()
     return {
       result = result, eventContext = event_context,
@@ -11804,6 +11943,18 @@ pi.register_command("interactive-tree-parity-sequence", {
 -- Differential seam for core/export-html/index.ts. It drives the shipped Lua
 -- exporter with controlled AgentState metadata while the session itself still
 -- crosses the public pi.session boundary.
+-- Spec: main.ts --export -- standalone session-file export (exportFromFile).
+-- systemPrompt/tools stay absent from the payload; the dark theme is the
+-- default export theme (generateHtml's getDefaultTheme).
+pi.register_command("export-from-file", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local manager = pi.session.open({ path = request.sessionFile })
+    return { outputPath = pi.module.require("pi.utils.export-html", "1").export_from_file(manager, request.outputPath, dark_json) }
+  end,
+})
+
+
 pi.register_command("export-html-parity", {
   handler = function(args)
     local request = pi.json.decode(args)
@@ -11816,7 +11967,7 @@ pi.register_command("export-html-parity", {
       theme = create_theme(data, request.colorMode or "truecolor"),
       theme_data = data, cwd = manager:get_cwd(), app_name = request.appName or "pi",
     }
-    return { outputPath = export_html_lib.generate(state, request.outputPath) }
+    return { outputPath = pi.module.require("pi.utils.export-html", "1").generate(state, request.outputPath) }
   end,
 })
 
@@ -12014,10 +12165,17 @@ pi.register_command("interactive-reload-behavior", {
       before = before,
       after = state.agent:get_state().systemPrompt,
       theme = state.theme.name,
+      keybindings = {
+        appExit = DEFAULT_KEYS["app.exit"],
+        followUp = DEFAULT_KEYS["app.message.followUp"],
+      },
       hideThinking = state.hide_thinking_block,
       status = state.last_status and state.last_status.text or nil,
       failed = state.transcript[#state.transcript]
         and state.transcript[#state.transcript].kind == "error" or false,
+      errorText = state.transcript[#state.transcript]
+        and state.transcript[#state.transcript].kind == "error"
+        and state.transcript[#state.transcript].text or nil,
     }
   end,
 })
@@ -12131,3 +12289,4 @@ pi.register_command("interactive-easter-eggs-parity-sequence", {
     return { frames = frames }
   end,
 })
+end

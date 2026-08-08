@@ -1,15 +1,16 @@
-//! The `pi` binary — WS2.6 bare core (doctrine 06): the substrate with
-//! zero packs still boots. Three entry points: `--login`,
-//! `--list-models [search]`, and `pi "prompt"` streaming a raw
-//! completion (no tool loop — the loop is the WS4 pack). Mode
-//! selection, sessions, and the Lua frontends land with WS3+; this file
-//! stays a thin dispatcher (spec: `main.ts`).
+//! The \`pi\` binary — WS2.6 bare core (doctrine 06): the substrate with
+//! zero packs still boots. Entry points: \`--login\`,
+//! \`--list-models [search]\`, \`pi "prompt"\` streaming a raw completion,
+//! plus the PLAN 10 non-interactive mode surface (print/json/rpc/export).
+//! Mode selection, sessions, and the Lua frontends land with WS3+; this file
+//! stays a thin dispatcher (spec: \`main.ts\`).
 
-use std::io::IsTerminal;
+use std::io::{BufRead, IsTerminal, Write};
 use std::process::ExitCode;
 
 use pi_rs_app::cli::args::{Args, help_text, parse_args};
 use pi_rs_app::cli::extensions::load_product_extensions;
+use pi_rs_app::cli::file_processor::process_file_arguments;
 use pi_rs_app::cli::list_models::render_model_list;
 use pi_rs_app::cli::login::run_login;
 use pi_rs_app::cli::session_select::{SessionChoice, choose_session, session_header_cwd};
@@ -38,7 +39,7 @@ fn warning_line(text: &str) {
     eprintln!("{}", stderr_paint("33", text));
 }
 
-/// Minimal chalk analogue for stdout (`console.log(chalk.…)`).
+/// Minimal chalk analogue for stdout (\`console.log(chalk.…)\`).
 fn stdout_paint(code: &str, text: &str) -> String {
     if std::io::stdout().is_terminal() {
         format!("\x1b[{code}m{text}\x1b[0m")
@@ -47,7 +48,7 @@ fn stdout_paint(code: &str, text: &str) -> String {
     }
 }
 
-/// Spec: `promptConfirm(message)` — readline `"{message} [y/N] "`.
+/// Spec: \`promptConfirm(message)\` — readline \`"{message} [y/N] "\`.
 fn prompt_confirm(message: &str) -> bool {
     print!("{message} [y/N] ");
     let _ = std::io::Write::flush(&mut std::io::stdout());
@@ -59,7 +60,7 @@ fn prompt_confirm(message: &str) -> bool {
     answer == "y" || answer == "yes"
 }
 
-/// Create a Lua host at `cwd` with the product packs loaded (shared by
+/// Create a Lua host at \`cwd\` with the product packs loaded (shared by
 /// the pre-runtime selectors and the interactive frontend).
 fn load_host_with_trust(cwd: &str, project_trusted: bool) -> Result<pi_rs_host::Host, String> {
     let host = pi_rs_host::Host::new(pi_rs_host::HostConfig {
@@ -79,6 +80,195 @@ fn load_host_with_trust(cwd: &str, project_trusted: bool) -> Result<pi_rs_host::
 
 fn load_host(cwd: &str) -> Result<pi_rs_host::Host, String> {
     load_host_with_trust(cwd, true)
+}
+
+/// Spec: print-mode signal handling — SIGTERM exits 143, SIGHUP 129,
+/// matching \`runPrintMode\`/\`runRpcMode\`'s process.exit codes. The
+/// interactive mode owns its own terminal signal loop (pi-rs-tui).
+#[cfg(unix)]
+fn install_noninteractive_signal_handlers() {
+    use signal_hook::consts::signal::{SIGHUP, SIGTERM};
+    use signal_hook::iterator::Signals;
+
+    let mut signals = match Signals::new([SIGTERM, SIGHUP]) {
+        Ok(signals) => signals,
+        Err(_) => return,
+    };
+    std::thread::spawn(move || {
+        #[allow(clippy::never_loop)] // signals.forever() is an infinite iterator: the loop exits via process::exit
+        for signal in signals.forever() {
+            std::process::exit(if signal == SIGHUP { 129 } else { 143 });
+        }
+    });
+}
+
+#[cfg(not(unix))]
+fn install_noninteractive_signal_handlers() {}
+
+/// Spec: \`readPipedStdin\` — piped stdin becomes the initial message
+/// (trimmed); TTY stdin returns None. RPC mode never reads stdin as a
+/// message (it is the JSON-RPC channel).
+fn read_piped_stdin() -> Option<String> {
+    if std::io::stdin().is_terminal() {
+        return None;
+    }
+    let mut data = String::new();
+    let _ = std::io::Read::read_to_string(&mut std::io::stdin().lock(), &mut data);
+    let trimmed = data.trim();
+    if trimmed.is_empty() { None } else { Some(trimmed.to_owned()) }
+}
+
+/// Spec: \`buildInitialMessage\` — stdin content + \`@file\` text + the
+/// first CLI message concatenated (no separator); remaining messages are
+/// sent as additional prompts.
+fn build_initial_message(
+    stdin_content: Option<String>,
+    file_text: Option<String>,
+    messages: &mut Vec<String>,
+) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(content) = stdin_content {
+        parts.push(content);
+    }
+    if let Some(text) = file_text {
+        parts.push(text);
+    }
+    if !messages.is_empty() {
+        parts.push(messages.remove(0));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.concat())
+    }
+}
+
+/// Spec: \`--export <file> [output]\` (main.ts) — standalone HTML export
+/// before any mode/session/model resolution. Prints \`Exported to: {path}\`
+/// and exits 0; failures print \`Error: {message}\` and exit 1.
+fn run_export(input_path: &str, output_path: Option<&str>, cwd: &str) -> ExitCode {
+    let host = match load_host(cwd) {
+        Ok(host) => host,
+        Err(message) => {
+            error_line(&message);
+            return ExitCode::FAILURE;
+        }
+    };
+    let resolved = std::path::Path::new(input_path);
+    let resolved = if resolved.is_absolute() {
+        resolved.to_string_lossy().into_owned()
+    } else {
+        std::path::Path::new(cwd)
+            .join(resolved)
+            .to_string_lossy()
+            .into_owned()
+    };
+    let request = serde_json::json!({
+        "sessionFile": resolved,
+        "outputPath": output_path,
+    });
+    match host.call_command("export-from-file", &request.to_string()) {
+        Ok(Some(result)) => {
+            let path = result
+                .get("outputPath")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<unknown>");
+            println!("Exported to: {path}");
+            ExitCode::SUCCESS
+        }
+        Ok(None) => {
+            error_line("Error: export command returned no result");
+            ExitCode::FAILURE
+        }
+        Err(error) => {
+            error_line(&format!("Error: {error}"));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Write one strict JSONL record (spec: \`serializeJsonLine\`).
+fn write_json_line(value: &serde_json::Value) {
+    println!("{value}");
+    let _ = std::io::stdout().flush();
+}
+
+/// Spec: \`runRpcMode\` — stdin JSON-L command loop. The Lua rpc role owns
+/// the session and writes every JSON line (events stream live during a
+/// prompt turn); Rust reads lines, dispatches each through the generic role,
+/// and exits 0 at EOF (Pi's onInputEnd shutdown). Unknown commands and
+/// malformed lines get the spec's response shapes.
+fn run_rpc_mode(host: &pi_rs_host::Host, request: &serde_json::Value) -> ExitCode {
+    let stdin = std::io::stdin();
+    let mut reader = std::io::BufReader::new(stdin.lock());
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => return ExitCode::SUCCESS,
+            Ok(_) => {}
+            Err(error) => {
+                let response = serde_json::json!({
+                    "type": "response",
+                    "command": "parse",
+                    "success": false,
+                    "error": format!("Failed to read command: {error}"),
+                });
+                write_json_line(&response);
+                return ExitCode::FAILURE;
+            }
+        }
+        // Strict JSONL framing: strip a single trailing \n and \r.
+        let without_lf = line.strip_suffix('\n').unwrap_or(&line);
+        let trimmed = without_lf.strip_suffix('\r').unwrap_or(without_lf);
+        let command: serde_json::Value = match serde_json::from_str(trimmed) {
+            Ok(command) => command,
+            Err(error) => {
+                let response = serde_json::json!({
+                    "type": "response",
+                    "command": "parse",
+                    "success": false,
+                    "error": format!("Failed to parse command: {error}"),
+                });
+                write_json_line(&response);
+                continue;
+            }
+        };
+        let mut dispatch = request.clone();
+        dispatch["rpcCommand"] = command.clone();
+        // Spec (rpc-mode.ts handleInputLine catch): the error response
+        // carries the command's own type, not a generic "rpc" label.
+        let command_type = command
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("rpc")
+            .to_owned();
+        match host.call_role("rpc", &dispatch.to_string()) {
+            Ok(Some(_result)) => {
+                // The Lua handler wrote every JSON line (responses, events,
+                // extension_ui_request) via pi.output; result.writtenLines
+                // mirrors them for in-process tests.
+            }
+            Ok(None) => {
+                let response = serde_json::json!({
+                    "type": "response",
+                    "command": command_type,
+                    "success": false,
+                    "error": "RPC handler returned no result",
+                });
+                write_json_line(&response);
+            }
+            Err(error) => {
+                let response = serde_json::json!({
+                    "type": "response",
+                    "command": command_type,
+                    "success": false,
+                    "error": error.to_string(),
+                });
+                write_json_line(&response);
+            }
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -104,7 +294,7 @@ fn main() -> ExitCode {
     }
 
     if args.help {
-        print!("{}", help_text());
+        print!("{}", help_text(&[]));
         return ExitCode::SUCCESS;
     }
 
@@ -152,19 +342,42 @@ async fn run(args: Args) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let interactive = args.messages.is_empty()
-        && std::io::stdin().is_terminal()
-        && std::io::stdout().is_terminal();
-    if args.messages.is_empty() && !interactive {
-        // Preserve the existing headless/no-stdin behavior. Interactive mode
-        // is selected only when both sides of the terminal are live.
-        print!("{}", help_text());
-        return ExitCode::SUCCESS;
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let cwd_string = cwd.to_string_lossy().into_owned();
+
+    // Spec (main.ts): --export runs before mode/session/model resolution.
+    if let Some(export_path) = &args.export {
+        return run_export(export_path, args.messages.first().map(String::as_str), &cwd_string);
     }
 
-    // Spec (`main.ts`): the startup settings manager is created with
+    // Spec: resolveAppMode — rpc/json win; --print or a non-TTY side forces
+    // print; otherwise interactive (pi-rs keeps the bare-core rule that a
+    // positional message with a live terminal runs the one-shot print role).
+    let stdin_tty = std::io::stdin().is_terminal();
+    let stdout_tty = std::io::stdout().is_terminal();
+    let app_mode = if args.mode.as_deref() == Some("rpc") {
+        "rpc"
+    } else if args.mode.as_deref() == Some("json") {
+        "json"
+    } else if args.print || !stdin_tty || !stdout_tty {
+        "print"
+    } else if args.messages.is_empty() {
+        "interactive"
+    } else {
+        "print"
+    };
+    let interactive = app_mode == "interactive";
+
+    if app_mode == "rpc" && !args.file_args.is_empty() {
+        error_line("Error: @file arguments are not supported in RPC mode");
+        return ExitCode::FAILURE;
+    }
+    if app_mode != "interactive" {
+        install_noninteractive_signal_handlers();
+    }
+
+    // Spec (\`main.ts\`): the startup settings manager is created with
     // the default trust (the trust-prompt wiring is WS7 glue).
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let mut settings_manager =
         SettingsManager::create(&cwd, None, SettingsManagerCreateOptions::default());
     for error in settings_manager.drain_errors() {
@@ -174,27 +387,36 @@ async fn run(args: Args) -> ExitCode {
         ));
     }
 
-    // Spec (`main.ts`): the effective session dir is `--session-dir` (not
-    // landed) ?? env ?? settings; `createSessionManager` resolves the
-    // `--session`/`--continue` selection before any cwd-bound state.
+    // Spec (\`main.ts\`): the effective session dir is \`--session-dir\` ?? env
+    // ?? settings; \`createSessionManager\` resolves the
+    // \`--session\`/\`--continue\` selection before any cwd-bound state.
     let agent_dir_path = pi_rs_app::config::get_agent_dir();
     let agent_dir = agent_dir_path.to_string_lossy().into_owned();
-    let cwd_string = cwd.to_string_lossy().into_owned();
-    let session_dir = std::env::var(pi_rs_app::config::ENV_SESSION_DIR)
-        .ok()
-        .filter(|value| !value.is_empty())
+    let session_dir = args
+        .session_dir
+        .clone()
         .map(|value| {
             pi_rs_app::core::settings_manager::expand_tilde_path(&value)
                 .to_string_lossy()
                 .into_owned()
         })
         .or_else(|| {
+            std::env::var(pi_rs_app::config::ENV_SESSION_DIR)
+                .ok()
+                .filter(|value| !value.is_empty())
+                .map(|value| {
+                    pi_rs_app::core::settings_manager::expand_tilde_path(&value)
+                        .to_string_lossy()
+                        .into_owned()
+                })
+        })
+        .or_else(|| {
             settings_manager
                 .get_session_dir()
                 .map(|dir| dir.to_string_lossy().into_owned())
         });
-    // Spec (`createSessionManager`): `--session` wins, then `--resume`'s
-    // selector, then `--continue`. The picker is the Lua-authored
+    // Spec (\`createSessionManager\`): \`--session\` wins, then \`--resume\`'s
+    // selector, then \`--continue\`. The picker is the Lua-authored
     // SessionSelectorComponent in a standalone TUI (cli/session-picker.ts).
     let resume_picked = if args.resume && args.session.is_none() {
         let host = match load_host(&cwd_string) {
@@ -223,7 +445,7 @@ async fn run(args: Args) -> ExitCode {
             }
         };
         let Some(path) = picked else {
-            // Spec: `console.log(chalk.dim("No session selected"))`, exit 0
+            // Spec: \`console.log(chalk.dim("No session selected"))\`, exit 0
             // (the picker's onExit quits silently with the same status).
             println!("{}", stdout_paint("2", "No session selected"));
             return ExitCode::SUCCESS;
@@ -253,7 +475,7 @@ async fn run(args: Args) -> ExitCode {
                 path,
                 cwd: session_cwd,
             } => {
-                // Spec: a `--session` match from another project forks into
+                // Spec: a \`--session\` match from another project forks into
                 // the current directory after confirmation.
                 println!(
                     "{}",
@@ -283,7 +505,7 @@ async fn run(args: Args) -> ExitCode {
             }
         }
     };
-    // Spec (`main.ts`): a selected session whose stored cwd no longer
+    // Spec (\`main.ts\`): a selected session whose stored cwd no longer
     // exists prompts before the runtime cwd is chosen — interactive mode
     // offers Continue (use the process cwd as an override) / Cancel
     // (exit 0); headless mode fails with the MissingSessionCwdError text.
@@ -329,8 +551,8 @@ async fn run(args: Args) -> ExitCode {
         }
     }
     // Spec: the session's header cwd is the effective runtime cwd —
-    // `--session`/`--continue`/`--resume` may re-home the process to the
-    // session's project (`sessionManager.getCwd()` feeds every cwd-bound
+    // \`--session\`/\`--continue\`/\`--resume\` may re-home the process to the
+    // session's project (\`sessionManager.getCwd()\` feeds every cwd-bound
     // service); a missing-cwd override keeps the process cwd instead.
     let cwd = if cwd_override.is_some() {
         cwd
@@ -342,6 +564,14 @@ async fn run(args: Args) -> ExitCode {
             .unwrap_or(cwd)
     };
     let cwd_string = cwd.to_string_lossy().into_owned();
+
+    // Spec (main.ts): --name requires a non-empty value; the entry is
+    // appended by the Lua session constructor before model/thinking appends.
+    if let Some(name) = &args.name
+        && name.trim().is_empty() {
+            error_line("Error: --name requires a non-empty value");
+            return ExitCode::FAILURE;
+        }
 
     // project-trust.ts startup decision order. Prompt presentation is the
     // embedded Lua startup selector; Rust owns only trust-store persistence.
@@ -407,8 +637,8 @@ async fn run(args: Args) -> ExitCode {
         },
     );
 
-    // Spec (`buildSessionOptions` / `findInitialModel`): CLI model wins
-    // (a `:<thinking>` suffix applies unless --thinking is explicit),
+    // Spec (\`buildSessionOptions\` / \`findInitialModel\`): CLI model wins
+    // (a \`:<thinking>\` suffix applies unless --thinking is explicit),
     // else the settings default, else the first available model
     // preferring provider defaults.
     let model = if args.model.is_some() {
@@ -441,7 +671,7 @@ async fn run(args: Args) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    // Spec: `--api-key` requires a model selected via --model.
+    // Spec: \`--api-key\` requires a model selected via --model.
     if let Some(api_key) = &args.api_key {
         if args.model.is_none() {
             error_line(
@@ -463,7 +693,6 @@ async fn run(args: Args) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    let prompt = args.messages.join("\n\n");
     // The CLI is a thin consumer of public Lua packs. Rust resolves startup
     // resources and supplies mechanism values; frontend/loop policy is Lua.
     let host = match load_host_with_trust(&cwd_string, project_trusted) {
@@ -495,16 +724,45 @@ async fn run(args: Args) -> ExitCode {
         }
         return ExitCode::FAILURE;
     }
-    let request = serde_json::json!({
+    // Extension flag values from unknown CLI flags (spec: unknownFlags →
+    // getFlag). Only flags registered by loaded extensions are readable.
+    for (name, value) in &args.unknown_flags {
+        if let Err(error) = host.set_flag_value(name, value.clone()) {
+            warning_line(&format!("Warning: {error}"));
+        }
+    }
 
-        "model": model, "apiKey": api_key, "prompt": prompt,
+    // Spec (main.ts): piped stdin + @file text join the initial message;
+    // RPC mode never reads stdin as a message.
+    let stdin_content = if app_mode != "rpc" {
+        read_piped_stdin()
+    } else {
+        None
+    };
+    let file_text = if !args.file_args.is_empty() {
+        match process_file_arguments(&args.file_args, &cwd) {
+            Ok(text) => Some(text),
+            Err(message) => {
+                error_line(&message);
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        None
+    };
+    let mut messages = args.messages.clone();
+    let initial_message = build_initial_message(stdin_content, file_text, &mut messages);
+
+    let request = serde_json::json!({
+        "model": model, "apiKey": api_key, "prompt": initial_message,
+        "moreMessages": messages,
         // The raw --api-key override: the interactive frontend mirrors it
-        // into the VM's auth storage (spec: `setRuntimeApiKey`) so the
-        // per-request `getApiKey` seam resolves it for the model's provider.
+        // into the VM's auth storage (spec: \`setRuntimeApiKey\`) so the
+        // per-request \`getApiKey\` seam resolves it for the model's provider.
         "runtimeApiKey": args.api_key,
-        // Session construction is pack policy (`pi.session.open`/`create`
-        // per sdk.ts createAgentSession); the CLI resolves the
-        // `--continue`/`--session` selection to a file (main.ts
+        // Session construction is pack policy (pi.session.open/create per
+        // sdk.ts createAgentSession); the CLI resolves the
+        // --continue/--session selection to a file (main.ts
         // createSessionManager) and supplies cwd/agentDir.
         "sessionFile": session_file,
         "sessionDir": session_dir,
@@ -522,44 +780,116 @@ async fn run(args: Args) -> ExitCode {
         // sdk.ts restore inputs: CLI-sourced model/thinking win; a
         // restored session's saved values apply only when the flag was
         // not given (utils/agent-session.lua session_startup, which reads
-        // the settings default from the VM's own `pi.settings` store).
+        // the settings default from the VM's own pi.settings store).
         "modelFromCli": args.model.is_some(),
         "thinkingFromCli": args.thinking.is_some(),
         "projectTrusted": project_trusted,
+        // PLAN 10 non-interactive surface: output mode, CLI system-prompt
+        // overrides, and the session display name.
+        "mode": app_mode,
+        "systemPrompt": args.system_prompt,
+        "appendSystemPrompt": args.append_system_prompt,
+        "name": args.name,
     });
-    let role = if interactive { "interactive" } else { "print" };
-    match host.call_role(role, &request.to_string()) {
-        Ok(Some(result)) => {
-            if interactive {
-                // handleFatalRuntimeError → process.exit(1).
-                let exit_code = result
-                    .get("exitCode")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0);
-                return if exit_code == 0 {
+
+    match app_mode {
+        "rpc" => run_rpc_mode(&host, &request),
+        "json" => {
+            match host.call_role("print", &request.to_string()) {
+                Ok(Some(_result)) => {
+                    // The Lua print role wrote the header + event JSONL
+                    // stream; json mode always exits 0 (runPrintMode).
                     ExitCode::SUCCESS
-                } else {
+                }
+                Ok(None) => {
+                    error_line("Error: agent returned no result");
                     ExitCode::FAILURE
-                };
-            }
-            if result
-                .get("text")
-                .and_then(serde_json::Value::as_str)
-                .is_some()
-            {
-                println!();
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::FAILURE
+                }
+                Err(error) => {
+                    // Spec: runPrintMode catch prints the message without a
+                    // prefix and returns exit code 1.
+                    eprintln!("{}", stderr_paint("31", &error.to_string()));
+                    ExitCode::FAILURE
+                }
             }
         }
-        Ok(None) => {
-            error_line("Error: agent returned no result");
-            ExitCode::FAILURE
+        "print" => {
+            match host.call_role("print", &request.to_string()) {
+                Ok(Some(result)) => {
+                    // Spec (print-mode.ts): a last assistant message with
+                    // stopReason error/aborted prints its error to stderr and
+                    // exits 1; otherwise the text parts (each + "\n") go to
+                    // stdout and the process exits 0 — no text means exit 0.
+                    let stop_reason = result
+                        .get("stopReason")
+                        .and_then(serde_json::Value::as_str);
+                    if stop_reason == Some("error") || stop_reason == Some("aborted") {
+                        let message = result
+                            .get("errorMessage")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| format!("Request {}", stop_reason.unwrap_or("error")));
+                        eprintln!("{}", stderr_paint("31", &message));
+                        return ExitCode::FAILURE;
+                    }
+                    // Spec (print-mode.ts): every final assistant text part
+                    // is written followed by a newline.
+                    let parts = result
+                        .get("textParts")
+                        .and_then(serde_json::Value::as_array)
+                        .map(|parts| {
+                            parts
+                                .iter()
+                                .filter_map(serde_json::Value::as_str)
+                                .map(str::to_owned)
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_else(|| {
+                            result
+                                .get("text")
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_owned)
+                                .into_iter()
+                                .collect()
+                        });
+                    for part in parts {
+                        println!("{part}");
+                    }
+                    ExitCode::SUCCESS
+                }
+                Ok(None) => {
+                    error_line("Error: agent returned no result");
+                    ExitCode::FAILURE
+                }
+                Err(error) => {
+                    eprintln!("{}", stderr_paint("31", &error.to_string()));
+                    ExitCode::FAILURE
+                }
+            }
         }
-        Err(error) => {
-            error_line(&format!("Error: {error}"));
-            ExitCode::FAILURE
+        _ => {
+            // Interactive mode: handleFatalRuntimeError → process.exit(1).
+            match host.call_role("interactive", &request.to_string()) {
+                Ok(Some(result)) => {
+                    let exit_code = result
+                        .get("exitCode")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0);
+                    if exit_code == 0 {
+                        ExitCode::SUCCESS
+                    } else {
+                        ExitCode::FAILURE
+                    }
+                }
+                Ok(None) => {
+                    error_line("Error: agent returned no result");
+                    ExitCode::FAILURE
+                }
+                Err(error) => {
+                    error_line(&format!("Error: {error}"));
+                    ExitCode::FAILURE
+                }
+            }
         }
     }
 }

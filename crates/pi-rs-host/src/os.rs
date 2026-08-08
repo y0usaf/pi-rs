@@ -364,6 +364,7 @@ fn install_fs(lua: &mlua::Lua, pi: &mlua::Table) -> mlua::Result<()> {
         })?,
     )?;
 
+    extend_fs(lua, &fs)?;
     pi.set("fs", fs)?;
     Ok(())
 }
@@ -398,6 +399,7 @@ fn install_path(lua: &mlua::Lua, pi: &mlua::Table, cwd: &str) -> mlua::Result<()
         lua.create_function(|_, p: String| Ok(p.starts_with('/')))?,
     )?;
     let resolve_cwd = cwd.to_owned();
+
     path.set(
         "resolve",
         lua.create_function(move |_, parts: mlua::Variadic<String>| {
@@ -413,6 +415,26 @@ fn install_path(lua: &mlua::Lua, pi: &mlua::Table, cwd: &str) -> mlua::Result<()
     )?;
     pi.set("path", path)?;
     Ok(())
+}
+
+/// Read-only process environment view shared by pi.env and pi.process.env.
+pub(crate) fn env_table(lua: &mlua::Lua) -> mlua::Result<mlua::Table> {
+    let env = lua.create_table()?;
+    let mt = lua.create_table()?;
+    mt.set(
+        "__index",
+        lua.create_function(|_, (_env, key): (mlua::Table, String)| Ok(std::env::var(&key).ok()))?,
+    )?;
+    mt.set(
+        "__newindex",
+        lua.create_function(
+            |_,
+             (_env, _key, _value): (mlua::Table, mlua::Value, mlua::Value)|
+             -> mlua::Result<()> { Err(mlua::Error::runtime("pi.env is read-only")) },
+        )?,
+    )?;
+    env.set_metatable(Some(mt))?;
+    Ok(env)
 }
 
 fn install_env(lua: &mlua::Lua, pi: &mlua::Table) -> mlua::Result<()> {
@@ -483,6 +505,280 @@ pub(crate) fn install(lua: &mlua::Lua, pi: &mlua::Table, cwd: &str) -> mlua::Res
                 .stderr(std::process::Stdio::null())
                 .spawn();
             Ok(())
+        })?,
+    )?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// PLAN 9.9 fs extensions: watch / atomic / symlink / metadata / open
+// ---------------------------------------------------------------------------
+
+use std::sync::{Arc, Mutex};
+
+struct LuaWatcher {
+    id: u64,
+    path: String,
+}
+
+impl mlua::UserData for LuaWatcher {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method_mut("close", |_, this, ()| {
+            crate::watch::remove(this.id);
+            Ok(())
+        });
+        methods.add_method("path", |_, this, ()| Ok(this.path.clone()));
+    }
+}
+
+struct LuaFileHandle {
+    file: Arc<Mutex<Option<tokio::fs::File>>>,
+}
+
+impl mlua::UserData for LuaFileHandle {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_async_method_mut("read", |lua, this, max_bytes: Option<usize>| async move {
+            use tokio::io::AsyncReadExt as _;
+            let file = {
+                let mut slot = this.file.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                slot.take()
+            };
+            let Some(mut file) = file else {
+                return Err(mlua::Error::runtime("file handle closed"));
+            };
+            let max = max_bytes.unwrap_or(65536);
+            let mut buf = vec![0u8; max];
+            let read = file.read(&mut buf).await.map_err(mlua::Error::external)?;
+            let mut slot = this.file.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            *slot = Some(file);
+            if read == 0 {
+                Ok(mlua::Value::Nil)
+            } else {
+                Ok(mlua::Value::String(lua.create_string(&buf[..read])?))
+            }
+        });
+        methods.add_async_method_mut("write", |_, this, data: mlua::String| async move {
+            use tokio::io::AsyncWriteExt as _;
+            let file = {
+                let mut slot = this.file.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                slot.take()
+            };
+            let Some(mut file) = file else {
+                return Err(mlua::Error::runtime("file handle closed"));
+            };
+            file.write_all(data.as_bytes().as_ref()).await.map_err(mlua::Error::external)?;
+            let mut slot = this.file.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            *slot = Some(file);
+            Ok(())
+        });
+        methods.add_method_mut("close", |_, this, ()| {
+            let mut slot = this.file.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            slot.take();
+            Ok(())
+        });
+    }
+}
+
+fn parse_mode(mode: mlua::Value) -> mlua::Result<u32> {
+    match mode {
+        mlua::Value::Integer(n) if n >= 0 => Ok(n as u32),
+        mlua::Value::String(s) => {
+            let text: &str = &s.to_str().map_err(mlua::Error::external)?;
+            u32::from_str_radix(text, 8)
+                .map_err(|_| mlua::Error::runtime(format!("chmod: invalid mode {text}")))
+        }
+        other => Err(mlua::Error::runtime(format!("chmod: invalid mode {other:?}"))),
+    }
+}
+
+fn extend_fs(lua: &mlua::Lua, fs: &mlua::Table) -> mlua::Result<()> {
+    fs.set(
+        "watch",
+        // Accepts (path, callback) or (path, options, callback).
+        lua.create_function(
+            |lua, (path, second, third): (String, mlua::Value, Option<mlua::Function>)| {
+                let (callback, _options) = match second {
+                    mlua::Value::Function(callback) => (callback, None),
+                    mlua::Value::Table(options) => {
+                        let callback = third.ok_or_else(|| {
+                            mlua::Error::runtime("fs.watch: callback required")
+                        })?;
+                        (callback, Some(options))
+                    }
+                    other => {
+                        return Err(mlua::Error::runtime(format!(
+                            "fs.watch: expected callback or options, got {other:?}"
+                        )));
+                    }
+                };
+                let _interval_ms = match &_options {
+                    Some(options) => options.get::<Option<u64>>("interval_ms")?.unwrap_or(100),
+                    None => 100,
+                };
+                let id = crate::watch::register(path.clone(), callback);
+                Ok(mlua::Value::UserData(
+                    lua.create_userdata(LuaWatcher { id, path })?,
+                ))
+            },
+        )?,
+    )?;
+    fs.set(
+        "atomic_write",
+        lua.create_async_function(|_, (path, contents): (String, mlua::String)| async move {
+            let dir = std::path::Path::new(&path)
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            let tmp = tempfile::Builder::new()
+                .prefix(".pi-atomic-")
+                .tempfile_in(&dir)
+                .map_err(|e| io_err("atomic_write", &path, &e))?;
+            std::io::Write::write_all(&mut tmp.as_file(), contents.as_bytes().as_ref())
+                .map_err(|e| io_err("atomic_write", &path, &e))?;
+            tmp.as_file()
+                .sync_all()
+                .map_err(|e| io_err("atomic_write", &path, &e))?;
+            let tmp_path = tmp.into_temp_path();
+            tmp_path
+                .persist(&path)
+                .map_err(|e| io_err("atomic_write", &path, &e.error))?;
+            Ok(())
+        })?,
+    )?;
+    fs.set(
+        "symlink",
+        lua.create_async_function(|_, (target, path): (String, String)| async move {
+            tokio::fs::symlink(&target, &path)
+                .await
+                .map_err(|e| io_err("symlink", &path, &e))
+        })?,
+    )?;
+    fs.set(
+        "lstat",
+        lua.create_async_function(|lua, path: String| async move {
+            let md = tokio::fs::symlink_metadata(&path)
+                .await
+                .map_err(|e| io_err("lstat", &path, &e))?;
+            let stat = lua.create_table()?;
+            stat.set(
+                "type",
+                if md.file_type().is_symlink() {
+                    "symlink"
+                } else if md.is_dir() {
+                    "dir"
+                } else if md.is_file() {
+                    "file"
+                } else {
+                    "other"
+                },
+            )?;
+            stat.set("size", md.len())?;
+            let modified_ms = md
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+                .unwrap_or(0);
+            stat.set("modified_ms", modified_ms)?;
+            Ok(stat)
+        })?,
+    )?;
+    fs.set(
+        "chmod",
+        lua.create_async_function(|_, (path, mode): (String, mlua::Value)| async move {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = parse_mode(mode)?;
+            tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))
+                .await
+                .map_err(|e| io_err("chmod", &path, &e))
+        })?,
+    )?;
+    fs.set(
+        "rename",
+        lua.create_async_function(|_, (from, to): (String, String)| async move {
+            tokio::fs::rename(&from, &to)
+                .await
+                .map_err(|e| io_err("rename", &from, &e))
+        })?,
+    )?;
+    fs.set(
+        "rm",
+        lua.create_async_function(|_, (path, recursive): (String, Option<bool>)| async move {
+            let recursive = recursive.unwrap_or(false);
+            let md = tokio::fs::symlink_metadata(&path)
+                .await
+                .map_err(|e| io_err("rm", &path, &e))?;
+            if recursive && md.is_dir() {
+                tokio::fs::remove_dir_all(&path)
+                    .await
+                    .map_err(|e| io_err("rm", &path, &e))
+            } else {
+                tokio::fs::remove_file(&path)
+                    .await
+                    .map_err(|e| io_err("rm", &path, &e))
+            }
+        })?,
+    )?;
+    fs.set(
+        "mkdtemp",
+        lua.create_function(|_, prefix: String| {
+            let safe_prefix: String = prefix
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
+                .collect();
+            let dir = tempfile::Builder::new()
+                .prefix(&safe_prefix)
+                .tempdir()
+                .map_err(|e| io_err("mkdtemp", &safe_prefix, &e))?;
+            let path = dir.keep();
+            Ok(path.to_string_lossy().into_owned())
+        })?,
+    )?;
+    fs.set(
+        "access",
+        lua.create_function(|_, (path, _mode): (String, Option<u32>)| {
+            Ok(std::fs::metadata(&path).is_ok())
+        })?,
+    )?;
+    let constants = lua.create_table()?;
+    constants.set("F_OK", 0)?;
+    constants.set("R_OK", 4)?;
+    constants.set("W_OK", 2)?;
+    constants.set("X_OK", 1)?;
+    fs.set("constants", constants)?;
+    fs.set(
+        "copy_file",
+        lua.create_async_function(|_, (from, to): (String, String)| async move {
+            tokio::fs::copy(&from, &to)
+                .await
+                .map(|_| ())
+                .map_err(|e| io_err("copy_file", &from, &e))
+        })?,
+    )?;
+    fs.set(
+        "open",
+        lua.create_function(|lua, (path, mode): (String, String)| {
+            use std::fs::OpenOptions;
+            let mut options = OpenOptions::new();
+            if mode.contains('r') {
+                options.read(true);
+            }
+            if mode.contains('w') {
+                options.write(true).create(true).truncate(true);
+            }
+            if mode.contains('a') {
+                options.append(true).create(true);
+            }
+            if mode.contains('+') {
+                options.read(true).write(true);
+            }
+            let std_file = options.open(&path).map_err(|e| io_err("open", &path, &e))?;
+            let file = tokio::fs::File::from_std(std_file);
+            Ok(mlua::Value::UserData(
+                lua.create_userdata(LuaFileHandle {
+                    file: Arc::new(Mutex::new(Some(file))),
+                })?,
+            ))
         })?,
     )?;
     Ok(())

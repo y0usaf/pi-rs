@@ -897,7 +897,20 @@ fn find_matches_path_globs_and_reports_limits() {
 #[test]
 fn file_backed_extension_imports_builtin_tool_and_render_modules() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let host = host(dir.path());
+    // module-demo imports the tools modules plus the shared coding-agent /
+    // interactive policy modules, so load the full default builtin set.
+    let host = Host::new(HostConfig {
+        cwd: Some(dir.path().to_string_lossy().into_owned()),
+        ..HostConfig::default()
+    })
+    .expect("host boots");
+    let report = host.load_embedded(&[
+        pi_rs_agent::PACK,
+        pi_rs_app::builtins::TOOLS_PACK,
+        pi_rs_app::builtins::CODING_AGENT_PACK,
+        pi_rs_app::builtins::INTERACTIVE_PACK,
+    ]);
+    assert!(report.errors.is_empty(), "load errors: {:?}", report.errors);
     let example = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../examples/extensions/module-demo.lua"
@@ -907,12 +920,16 @@ fn file_backed_extension_imports_builtin_tool_and_render_modules() {
         .call_command("module-demo", "")
         .expect("module demo runs")
         .expect("module demo result");
-    assert_eq!(
-        result,
-        json!({
-            "content": "alpha\nbeta",
-            "path": "~/demo.txt",
-            "truncated": true
-        })
-    );
+    assert_eq!(result["content"], json!("alpha\nbeta"));
+    assert_eq!(result["path"], json!("~/demo.txt"));
+    assert_eq!(result["truncated"], json!(true));
+    assert_eq!(result["convertedRoles"], json!(2));
+    assert_eq!(result["bashRole"], json!("user"));
+    assert_eq!(result["estimatedTokens"], json!(3));
+    assert_eq!(result["normalizedSnippet"], json!("<description>demo</description>"));
+    assert_eq!(result["allModulesPresent"], json!(true));
+    assert_eq!(result["noUiConfirm"], json!(false));
+    assert_eq!(result["shell"], result["shell"]); // non-empty shell path; asserted below
+    assert!(result["shell"].as_str().is_some_and(|s| !s.is_empty()));
+    assert_eq!(result["base64Demo"], json!("ZGVtbw=="));
 }

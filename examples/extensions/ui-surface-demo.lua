@@ -30,6 +30,20 @@ pi.register_command("ui-showcase", {
     ctx.ui.setEditorText("seed")
     ctx.ui.pasteToEditor(" + paste")
     ctx.ui.setToolsExpanded(true)
+    -- Remaining public surface members (non-blocking; compose without dialogs).
+    ctx.ui.setWorkingVisible(true)
+    ctx.ui.addAutocompleteProvider(function(previous) return previous end)
+    local remove_input_listener = ctx.ui.onTerminalInput(function(data) return { data = data } end)
+    local dark_theme = ctx.ui.getTheme("dark")
+    if dark_theme then ctx.ui.setTheme(dark_theme) end
+    local editor_factory = ctx.ui.getEditorComponent()
+    if not editor_factory then
+      ctx.ui.setEditorComponent(function(_, theme)
+        local editor = pi.tui.editor()
+        return { editor = editor, handle_input = function(_, data) return editor:input_effect(data) end }
+      end)
+    end
+    ctx.ui.setEditorComponent(ctx.ui.getEditorComponent())
 
     local name = ctx.ui.input("Your name", "Ada", { timeout = 5000 })
     if not name then ctx.ui.notify("Input cancelled", "warning"); return end

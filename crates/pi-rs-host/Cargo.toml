@@ -7,6 +7,10 @@ description = "Lua extension host: coroutine async seam, event bus, watchdog"
 
 [dependencies]
 base64.workspace = true
+getrandom.workspace = true
+sha2.workspace = true
+twox-hash.workspace = true
+url.workspace = true
 fancy-regex.workspace = true
 libc.workspace = true
 futures-util.workspace = true

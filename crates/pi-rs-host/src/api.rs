@@ -598,6 +598,7 @@ impl UserData for LuaAutocompleteProvider {
                         cursor_line,
                         cursor_col,
                     ),
+
                 )
             },
         );
@@ -1161,6 +1162,28 @@ pub(crate) fn set_current_source(lua: &mlua::Lua, source: &str) {
         let _ = registry.set("source", source);
     }
 }
+/// The product-installed runtime bridge: a registry table of Lua policy
+/// functions the product packs install at startup (interactive.lua /
+/// coding-agent.lua). Extension API mutations delegate here; a bare host
+/// with no pack degrades to registry `runtime_state` defaults.
+fn bridge_fn(lua: &mlua::Lua, name: &str) -> mlua::Result<Option<mlua::Function>> {
+    let registry = registry_table(lua)?;
+    let Some(bridge) = registry.get::<Option<mlua::Table>>("runtime_bridge")? else {
+        return Ok(None);
+    };
+    bridge.get::<Option<mlua::Function>>(name)
+}
+
+/// Product-written read state the extension API falls back to when no
+/// bridge is installed: `session_name`, `thinking_level`,
+/// `active_tools`.
+fn runtime_state_get(lua: &mlua::Lua, key: &str) -> mlua::Result<mlua::Value> {
+    let registry = registry_table(lua)?;
+    match registry.get::<Option<mlua::Table>>("runtime_state")? {
+        Some(state) => state.get::<mlua::Value>(key),
+        None => Ok(mlua::Value::Nil),
+    }
+}
 
 /// Get-or-create the per-extension registration entry (spec: the
 /// `Extension` object in `types.ts` — per-extension maps of tools and
@@ -1192,11 +1215,14 @@ fn ext_entry(lua: &mlua::Lua, source: &str) -> mlua::Result<mlua::Table> {
     entry.set("render_middleware_order", lua.create_table()?)?;
     entry.set("ui_slots", lua.create_table()?)?;
     entry.set("ui_slot_order", lua.create_table()?)?;
+    entry.set("message_renderers", lua.create_table()?)?;
+    entry.set("message_renderer_order", lua.create_table()?)?;
     exts.set(source, &entry)?;
     let ext_order: mlua::Table = registry.get("ext_order")?;
     ext_order.push(source)?;
     Ok(entry)
 }
+
 
 fn module_key(name: &str, version: &str) -> String {
     format!("{name}\0{version}")
@@ -1314,6 +1340,9 @@ pub(crate) fn build(
     registry.set("modules", lua.create_table()?)?;
     registry.set("module_order", lua.create_table()?)?;
     registry.set("module_stack", lua.create_table()?)?;
+    registry.set("runtime_actions", lua.create_table()?)?;
+    registry.set("runtime_bridge", lua.create_table()?)?;
+    registry.set("runtime_state", lua.create_table()?)?;
     registry.set("source", "<host>")?;
     lua.set_named_registry_value(REGISTRY_KEY, registry)?;
 
@@ -1798,6 +1827,7 @@ pub(crate) fn build(
             std::io::stdout().flush().map_err(mlua::Error::external)
         })?,
     )?;
+
 
     // Package-level declaration defaults. Embedded and file-backed chunks
     // call the same function; source keys remain attribution only.
@@ -2398,6 +2428,7 @@ pub(crate) fn build(
     // host-side half — store the config per extension, merging defined
     // keys over an existing registration of the same name (spec
     // `upsertRegisteredProvider`). Function values (`streamSimple`,
+
     // `oauth.*`) stay Lua-side, invocable when their mechanisms land
     // (WS2.5 auth, WS5 custom streams); the JSON mirror strips them.
     let register_provider = lua.create_function(|lua, (name, config): (String, mlua::Table)| {
@@ -2460,6 +2491,281 @@ pub(crate) fn build(
         Ok(())
     })?;
     pi.set("unregister_provider", unregister_provider)?;
+    // ==== PLAN 9.4: non-UI ExtensionAPI actions (spec ExtensionAPI /
+    // agent-session.ts bindCore). Mutations delegate to the runtime
+    // bridge the product packs install at startup; bare-host tests
+    // install their own. Reads fall back to registry `runtime_state`
+    // (product-written) or declaration defaults. ====
+
+    // Spec `sendMessage` (agent-session.ts sendCustomMessage): session
+    // policy decides queue-vs-append-vs-turn; the host fires and forgets,
+    // matching the reference's .catch to the runner error path.
+    pi.set(
+        "send_message",
+        lua.create_function(|lua, (message, options): (mlua::Table, Option<mlua::Table>)| {
+            if let Some(send) = bridge_fn(lua, "send_message")? {
+                send.call::<mlua::Value>((message, options))?;
+            }
+            Ok(())
+        })?,
+    )?;
+
+    // Spec `sendUserMessage`: content is a string or an array of
+    // text/image parts; the bridge normalizes and queues/triggers a turn.
+    pi.set(
+        "send_user_message",
+        lua.create_function(
+            |lua, (content, options): (mlua::Value, Option<mlua::Table>)| {
+                if let Some(send) = bridge_fn(lua, "send_user_message")? {
+                    send.call::<mlua::Value>((content, options))?;
+                }
+                Ok(())
+            },
+        )?,
+    )?;
+
+    // Spec `appendEntry` (session-manager.ts appendCustomEntry): custom
+    // entry persisted to the session, never sent to the LLM.
+    pi.set(
+        "append_entry",
+        lua.create_function(|lua, (custom_type, data): (String, Option<mlua::Value>)| {
+            if let Some(append) = bridge_fn(lua, "append_entry")? {
+                append.call::<mlua::Value>((custom_type, data))?;
+            }
+            Ok(())
+        })?,
+    )?;
+
+    // Spec `setSessionName` / `getSessionName` (session-manager.ts
+    // appendSessionInfo / getSessionName).
+    pi.set(
+        "set_session_name",
+        lua.create_function(|lua, name: String| {
+            if let Some(set) = bridge_fn(lua, "set_session_name")? {
+                set.call::<mlua::Value>(name)?;
+            }
+            Ok(())
+        })?,
+    )?;
+    pi.set(
+        "get_session_name",
+        lua.create_function(|lua, ()| {
+            if let Some(get) = bridge_fn(lua, "get_session_name")? {
+                return get.call::<mlua::Value>(());
+            }
+            runtime_state_get(lua, "session_name")
+        })?,
+    )?;
+
+    // Spec `setLabel` (session-manager.ts appendLabelChange).
+    pi.set(
+        "set_label",
+        lua.create_function(|lua, (entry_id, label): (String, Option<String>)| {
+            if let Some(set) = bridge_fn(lua, "set_label")? {
+                set.call::<mlua::Value>((entry_id, label))?;
+            }
+            Ok(())
+        })?,
+    )?;
+
+    // Spec `getActiveTools` (agent-session.ts getActiveToolNames).
+    pi.set(
+        "get_active_tools",
+        lua.create_function(|lua, ()| {
+            if let Some(get) = bridge_fn(lua, "get_active_tools")? {
+                return get.call::<mlua::Value>(());
+            }
+            // Bare-host default: active-by-default declarations.
+            let result = lua.create_table()?;
+            for (_, _, def) in all_tools(lua)? {
+                if def
+                    .get::<Option<bool>>("active_by_default")?
+                    .unwrap_or(true)
+                {
+                    result.push(def.get::<String>("name")?)?;
+                }
+            }
+            Ok(mlua::Value::Table(result))
+        })?,
+    )?;
+
+    // Spec `getAllTools` (agent-session.ts getAllTools): ToolInfo rows —
+    // name, description, parameters, promptGuidelines, sourceInfo. The
+    // definition registry is host-side, so no bridge round-trip.
+    pi.set(
+        "get_all_tools",
+        lua.create_function(|lua, ()| {
+            let result = lua.create_table()?;
+            for (source, _, def) in all_tools(lua)? {
+                let entry = lua.create_table()?;
+                entry.set("name", def.get::<String>("name")?)?;
+                if let Some(description) = def.get::<Option<String>>("description")? {
+                    entry.set("description", description)?;
+                }
+                if let Some(parameters) = def.get::<Option<mlua::Value>>("parameters")? {
+                    entry.set("parameters", parameters)?;
+                }
+                if let Some(guidelines) = def.get::<Option<mlua::Value>>("promptGuidelines")? {
+                    entry.set("promptGuidelines", guidelines)?;
+                }
+                let source_info = lua.create_table()?;
+                source_info.set("path", source.as_str())?;
+                source_info.set(
+                    "source",
+                    if source.starts_with('<') && source.ends_with('>') {
+                        "temporary"
+                    } else {
+                        "local"
+                    },
+                )?;
+                source_info.set("scope", "temporary")?;
+                source_info.set("origin", "top-level")?;
+                entry.set("sourceInfo", source_info)?;
+                result.push(entry)?;
+            }
+            Ok(result)
+        })?,
+    )?;
+
+    // Spec `setActiveTools` (agent-session.ts setActiveToolsByName): the
+    // bridge filters to registry-known names and rebuilds the prompt.
+    pi.set(
+        "set_active_tools",
+        lua.create_function(|lua, tool_names: mlua::Table| {
+            if let Some(set) = bridge_fn(lua, "set_active_tools")? {
+                set.call::<mlua::Value>(tool_names)?;
+            }
+            Ok(())
+        })?,
+    )?;
+
+    // Spec `setModel` (agent-session.ts bindCore): the bridge answers
+    // false when the registry lacks configured auth for the model.
+    pi.set(
+        "set_model",
+        lua.create_function(|lua, model: mlua::Table| {
+            if let Some(set) = bridge_fn(lua, "set_model")? {
+                return set.call::<mlua::Value>(model);
+            }
+            Ok(mlua::Value::Boolean(false))
+        })?,
+    )?;
+
+    // Spec `getThinkingLevel` / `setThinkingLevel`.
+    pi.set(
+        "get_thinking_level",
+        lua.create_function(|lua, ()| {
+            if let Some(get) = bridge_fn(lua, "get_thinking_level")? {
+                return get.call::<mlua::Value>(());
+            }
+            match runtime_state_get(lua, "thinking_level")? {
+                mlua::Value::Nil => Ok(mlua::Value::String(lua.create_string("medium")?)),
+                value => Ok(value),
+            }
+        })?,
+    )?;
+    pi.set(
+        "set_thinking_level",
+        lua.create_function(|lua, level: String| {
+            if let Some(set) = bridge_fn(lua, "set_thinking_level")? {
+                set.call::<mlua::Value>(level)?;
+            }
+            Ok(())
+        })?,
+    )?;
+
+    // Spec `registerMessageRenderer` (loader.ts): per-extension map
+    // keyed by customType; re-registration replaces in place, preserving
+    // position (same shape as tools/commands).
+    pi.set(
+        "register_message_renderer",
+        lua.create_function(|lua, (custom_type, renderer): (String, mlua::Function)| {
+            if custom_type.trim().is_empty() {
+                return Err(mlua::Error::runtime(
+                    "register_message_renderer: customType must be a non-empty string",
+                ));
+            }
+            let source = current_source(lua);
+            let ext = ext_entry(lua, &source)?;
+            let renderers: mlua::Table = ext.get("message_renderers")?;
+            if renderers
+                .get::<Option<mlua::Value>>(custom_type.as_str())?
+                .is_none()
+            {
+                let order: mlua::Table = ext.get("message_renderer_order")?;
+                order.push(custom_type.as_str())?;
+            }
+            renderers.set(custom_type, renderer)?;
+            Ok(())
+        })?,
+    )?;
+    // Snapshot for the product's renderer fallback (message-renderer.ts):
+    // first registration per customType wins; wrappers restore source
+    // attribution around `render(message, { expanded }, theme)`.
+    pi.set(
+        "registered_message_renderers",
+        lua.create_function(|lua, ()| {
+            let mut seen = std::collections::HashSet::new();
+            let result = lua.create_table()?;
+            let registry = registry_table(lua)?;
+            let exts: mlua::Table = registry.get("exts")?;
+            let ext_order: mlua::Table = registry.get("ext_order")?;
+            for source in ext_order.sequence_values::<String>() {
+                let source = source?;
+                let Some(ext) = exts.get::<Option<mlua::Table>>(source.as_str())? else {
+                    continue;
+                };
+                let renderers: mlua::Table = ext.get("message_renderers")?;
+                let order: mlua::Table = ext.get("message_renderer_order")?;
+                for custom_type in order.sequence_values::<String>() {
+                    let custom_type = custom_type?;
+                    if !seen.insert(custom_type.clone()) {
+                        continue;
+                    }
+                    let Some(renderer) =
+                        renderers.get::<Option<mlua::Function>>(custom_type.as_str())?
+                    else {
+                        continue;
+                    };
+                    let entry = lua.create_table()?;
+                    entry.set("customType", custom_type)?;
+                    entry.set("source", source.as_str())?;
+                    let wrapper_source = source.clone();
+                    entry.set(
+                        "render",
+                        lua.create_function(
+                            move |lua,
+                                  (message, options, theme): (
+                                      mlua::Table,
+                                      mlua::Table,
+                                      mlua::Table,
+                                  )| {
+                                let previous = current_source(lua);
+                                set_current_source(lua, &wrapper_source);
+                                let outcome: mlua::Result<mlua::Value> =
+                                    renderer.call((message, options, theme));
+                                set_current_source(lua, &previous);
+                                outcome
+                            },
+                        )?,
+                    )?;
+                    result.push(entry)?;
+                }
+            }
+            Ok(result)
+        })?,
+    )?;
+    // Product installs its runtime bridge here once at startup (see the
+    // interactive/coding-agent packs). Validates the bridge is a table;
+    // the product owns every member's policy.
+    pi.set(
+        "install_runtime_bridge",
+        lua.create_function(|lua, bridge: mlua::Table| {
+            let registry = registry_table(lua)?;
+            registry.set("runtime_bridge", bridge)?;
+            Ok(())
+        })?,
+    )?;
 
     // TUI mechanism bindings. Components and differential cell output remain
     // policy-free Rust mechanism; Lua owns composition and frontend behavior.
@@ -2998,6 +3304,7 @@ pub(crate) fn build(
             else {
                 return Ok(mlua::Value::Nil);
             };
+
             let result = lua.create_table()?;
             result.set("width_px", dimensions.width_px)?;
             result.set("height_px", dimensions.height_px)?;
@@ -3135,8 +3442,23 @@ pub(crate) fn build(
     crate::exec::install(lua, &pi, cwd)?;
     crate::http::install(lua, &pi)?;
     crate::os::install(lua, &pi, cwd)?;
+    crate::crypto::install(lua, &pi)?;
+    crate::net::install(lua, &pi)?;
+    crate::process::install(lua, &pi, cwd)?;
+    crate::timer::install(lua, &pi)?;
+    crate::resources::install(lua, &pi)?;
+    crate::http::install(lua, &pi)?;
+    crate::os::install(lua, &pi, cwd)?;
     let settings = crate::settings::install(lua, &pi, cwd, project_trusted)?;
-    crate::config::install_runtime(lua, &pi, cwd, project_trusted, settings)?;
+    crate::config::install_runtime(lua, &pi, cwd, project_trusted, settings.clone())?;
+    crate::resource_loader::install(
+        lua,
+        &pi,
+        cwd,
+        &crate::discover::agent_dir(),
+        project_trusted,
+        settings,
+    )?;
     crate::session::install(lua, &pi, cwd)?;
     crate::trust::install(lua, &pi)?;
     crate::clipboard::install(lua, &pi)?;
