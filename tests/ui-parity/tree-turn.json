@@ -17,7 +17,9 @@
  "runtimeApiKey": "test-key",
  "apiKey": "test-key",
  "env": {
-  "PATH": ""
+  "PATH": "",
+  "TZ": "EST5EDT,M3.2.0,M11.1.0",
+  "EDITOR": "true"
  },
  "files": {
   "project/": "",

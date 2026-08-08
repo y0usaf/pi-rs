@@ -96,7 +96,7 @@ checked copies of external TypeScript extensions, Python inventory generators,
 and shell wrappers. Preserve the contracts, not their current representation.
 Complete these rungs before growing the extension surface further.
 
-- [ ] **A.1 Compact exact UI evidence without reducing coverage.** Replace the
+- [x] **A.1 Compact exact UI evidence without reducing coverage.** Replace the
       one-object-per-cell `tests/ui-parity/*.pi.json` format with one versioned,
       reviewable canonical format using a shared style palette, text/style runs,
       and frame deltas or an equally compact representation. Decode to the same
@@ -108,6 +108,18 @@ Complete these rungs before growing the extension surface further.
       and after conversion; negative controls still identify the first mismatched
       cell; regeneration is byte-idempotent; tracked UI oracle bytes fall by at
       least 95%; and no compressed opaque blobs are committed.
+
+      **Done (2026-08-07):** all 26 `tests/ui-parity/*-turn` scenarios match their
+      `.pi.json` oracles at every checkpoint (native `scripts/ui-diff`; e.g.
+      `session-turn` 42/42). `--convert` re-run on fresh oracle copies is
+      byte-identical (idempotent). Negative control: corrupted one cell in a
+      copied oracle, harness reported checkpoint `resume-open` cell (1,20) as the
+      first mismatch. Tracked oracle bytes dropped 99.3–99.8% vs pre-conversion
+      HEAD format (sampled 5 oracles). Format: glyph table + style palette + RLE
+      cells (versioned, canonical, no opaque blobs). Scenario fix: session-turn
+      gh stub wrote the gist counter without a trailing newline, so
+      `read … || count=0` reset it every call; now `printf '%s\n'` — still
+      deterministic printf, no dash/bash dependence.
 
 - [ ] **A.2 Deduplicate the permanent test contract.** Classify retained evidence
       by the distinct failure it owns: Rust mechanism invariant, Pi differential,
@@ -301,14 +313,16 @@ Complete these rungs before growing the extension surface further.
       clones. Already landed: Anthropic, OpenAI Completions baseline, OpenAI
       Responses, Codex Responses SSE/WebSocket/fallback, Azure Responses, Google
       Generative AI, and Google Vertex including authorized-user, service-account,
-      workload file/URL/executable/AWS ADC paths. Catalog dispatch currently
-      covers those families and subscription auth breadth is complete.
+      workload file/URL/executable/AWS, and certificate external-account ADC paths
+      (google_vertex.rs certificate_subject_token; verified by the
+      google-vertex-parity adc-workload-certificate case). Deterministic Pi
+      differentials and dispatch cover `mistral-conversations` and
+      `bedrock-converse-stream` (both *_parity.rs with oracle.json, registered in
+      registry/stream.rs). Catalog dispatch covers those families, and
+      subscription auth breadth and catalog/auth acceptance are complete.
 
-      **Remaining:** certificate external-account ADC; deterministic Pi
-      differentials and dispatch for `mistral-conversations` and
-      `bedrock-converse-stream`; replace the old OpenAI Completions fixtures with
-      one Pi differential; run catalog/auth acceptance and delete superseded
-      provider fixtures/harnesses under A.2.
+      **Remaining:** replace the old OpenAI Completions fixtures with one Pi
+      differential; delete superseded provider fixtures/harnesses under A.2.
 
       **Accept:** supported model inventory matches Pi's coding agent; every
       advertised API has a focused deterministic replay; three subscription
