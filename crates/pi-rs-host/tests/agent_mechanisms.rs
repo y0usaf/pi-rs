@@ -68,7 +68,7 @@ fn command_and_tool_receive_context_and_signal() {
         r#"
         local pi = ...
         pi.register_command("ctx", { handler = function(_args, ctx)
-          return { cwd = ctx.cwd, idle = ctx.isIdle,
+          return { cwd = ctx.cwd, idle = ctx.isIdle(),
                    aborted = ctx.signal:is_aborted() }
         end })
         pi.register_tool({ name = "ctx-tool", parameters = { type = "object" },
