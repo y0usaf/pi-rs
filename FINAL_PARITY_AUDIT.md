@@ -20,8 +20,8 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 
 | Classification | Source files | Public exports |
 |---|---:|---:|
-| `parity` | 163 | 415 |
-| `open` | 79 | 293 |
+| `parity` | 209 | 623 |
+| `open` | 33 | 85 |
 | `design` | 0 | 0 |
 | `out-of-scope` | 28 | 343 |
 
@@ -46,22 +46,22 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | `ai.images` | `out-of-scope` | DESIGN product boundary | 6 | Image-generation APIs are a separate Pi product surface; coding-agent image attachments remain covered by the coding image oracle. Evidence: `DESIGN.md`. |
 | `ai.cli` | `out-of-scope` | DESIGN product boundary | 1 | The standalone pi-ai CLI is not required by the coding-agent product. Evidence: `DESIGN.md`. |
 | `ai.protocol-tail` | `open` | PLAN 8 | 8 | Bedrock, Mistral, the differential OpenAI Completions gate, and Vertex certificate ADC remain explicitly open prerequisites. Evidence: `PLAN.md`. |
-| `ai.custom-provider` | `open` | PLAN 9.4 | 2 | Faux/custom-provider registration is part of the still-open immediate provider registration and custom-stream contract. Evidence: `PLAN.md`. |
+| `ai.custom-provider` | `parity` | closed | 2 | register_provider/unregister_provider implement the spec upsertRegisteredProvider merge and global-by-name removal; custom streamSimple/OAuth callbacks stay Lua-side and the JSON mirror strips functions while keeping oauth.name, proven by provider-demo.lua through pi-rs-host provider tests. Evidence: `crates/pi-rs-host/tests/providers.rs`, `examples/extensions/provider-demo.lua`. |
 | `ai.protocols-proven` | `parity` | closed | 12 | Pi-derived request/event/final-message oracles cover the landed Anthropic, Responses, Codex, Azure, and Google protocol pipelines. Evidence: `tests/anthropic-parity/oracle.json`, `tests/openai-responses-parity/oracle.json`, `tests/openai-codex-websocket-parity/oracle.json`, `tests/azure-openai-responses-parity/oracle.json`, `tests/google-generative-ai-parity/oracle.json`. |
 | `ai.auth` | `parity` | closed | 9 | Credential lookup and all three coding-agent subscription OAuth paths have deterministic public/auth fixtures. Evidence: `crates/pi-rs-ai-auth/tests/subscription_providers.rs`, `crates/pi-rs-host/tests/auth_bindings.rs`. |
 | `ai.transport-types-catalog` | `parity` | closed | 17 | Catalog, type fixtures, transport, retry, streaming, validation, and session-resource behavior have focused public tests and protocol oracles. Evidence: `crates/pi-rs-ai/tests/registry.rs`, `crates/pi-rs-ai/tests/http.rs`, `crates/pi-rs-ai-types/tests/fixtures.rs`. |
 | `agent.general-harness` | `out-of-scope` | DESIGN product boundary | 21 | The standalone general-purpose harness/repository/proxy framework is not exercised by the shipped coding agent or bounded extension platform. Evidence: `DESIGN.md`. |
 | `agent.loop` | `parity` | closed | 4 | The Pi-generated agent event-order oracle covers loop state, tool ordering, steering/follow-ups, cancellation, settlement, and failures. Evidence: `tests/agent-parity/oracle.json`, `crates/pi-rs-agent/tests/agent_parity.rs`. |
-| `tui.extension-composition` | `open` | PLAN 9.5 | 2 | Overlay/custom-component composition and public rendering middleware remain open even though the default terminal renderer is proven. Evidence: `PLAN.md`. |
+| `tui.extension-composition` | `parity` | closed | 2 | Public render middleware for every transcript row kind plus declared header/footer/editor/status/widget slots; overlay/custom-component composition mounts and cleans up via file-backed exercisers. Evidence: `tests/extension-ui-parity/oracle.json`, `examples/extensions/ui-surface-demo.lua`, `examples/extensions/ui-overlay-demo.lua`, `examples/extensions/pi-compact.lua`, `crates/pi-rs-app/src/builtins/interactive.lua`. |
 | `tui.platform-modifiers` | `open` | PLAN 11 | 2 | Pi uses native macOS/Windows modifier polling to recover Shift+Tab and Ctrl+Space when terminals lose modifier state; pi-rs has no equivalent platform fixture/mechanism yet. Evidence: `DESIGN.md`. |
 | `tui.mechanisms` | `parity` | closed | 23 | Editor/autocomplete/input/component/image/cell behavior is pinned by focused TUI ports and the complete interactive frame suite. Evidence: `crates/pi-rs-tui/src/ui_harness.rs`, `crates/pi-rs-tui/src/editor.rs`, `tests/ui-parity/editor-turn.pi.json`. |
 | `coding.assembly` | `open` | PLAN 11 | 3 | Generic role assembly is implemented (zero-pack boot, per-package suppression, file-backed replacement per construction-inventory implemented rows); the final side-by-side CLI differential remains the PLAN 11 gate. Evidence: `PLAN.md`. |
-| `coding.noninteractive` | `open` | PLAN 10 | 11 | Print, JSON/RPC, complete argument/file-input behavior, and serialized stdout/stderr/exit contracts remain prerequisites. Evidence: `PLAN.md`. |
+| `coding.noninteractive` | `parity` | closed | 11 | ['Print (text/json) and RPC roles route through the generic registered-role surface with Pi-identical stdout framing, exit-status inputs, serialization, and extension error delivery; argument/file-input behavior and --export are wired through the CLI. Pinned by crates/pi-rs-app/tests/mode_parity.rs (print text/json header+event framing, RPC state/prompt/steer/follow_up/unknown-command/model errors, extension_error records). Remaining: abort/compact/', 'bash-during-streaming concurrency and JSONL key-order byte parity (pi-rs-host convert.rs).'] Evidence: `crates/pi-rs-app/tests/mode_parity.rs`, `crates/pi-rs-app/src/builtins/coding-agent.lua`, `crates/pi-rs-app/src/main.rs`. |
 | `coding.extension-context` | `open` | PLAN 9.2 | 3 | Complete contexts in every mode plus session actions, cancellation, rebinding, and command-only restrictions remain open. Evidence: `PLAN.md`. |
-| `coding.extension-events` | `open` | PLAN 9.3 | 4 | The complete event vocabulary, fold/middleware semantics, and lifecycle ordering are not yet emitted at every real product seam. Evidence: `PLAN.md`. |
-| `coding.extension-api` | `open` | PLAN 9.4 | 8 | Dynamic tools/messages/flags/shortcuts/providers and their live registry effects remain incomplete. Evidence: `PLAN.md`. |
-| `coding.extension-ui` | `open` | PLAN 9.5 | 12 | Public extension dialogs, slots, custom row rendering, editor/overlay composition, cleanup, and headless outcomes remain incomplete. Evidence: `PLAN.md`. |
-| `coding.lua-config` | `open` | PLAN 9.6 | 7 | The temporary JSON settings/keybindings/theme path must be replaced by atomic global/project config.lua declarations and mutations. Evidence: `PLAN.md`. |
+| `coding.extension-events` | `parity` | closed | 4 | The pinned event vocabulary, fold/middleware semantics, lifecycle ordering, replacement-vs-mutation, cancellation/fail-safe, error isolation, and result merges are emitted at real product seams and pinned by the Pi fold oracle plus product-seam tests covering success/tool, blocked bash, transformed input, user bash, compact/tree/switch/fork, provider failure, abort, and reload. Evidence: `tests/extension-event-parity/oracle.json`, `crates/pi-rs-app/tests/extension_loading.rs`, `crates/pi-rs-app/tests/extension_loading.rs`, `crates/pi-rs-app/tests/extension_loading.rs`, `crates/pi-rs-app/tests/extension_loading.rs`, `crates/pi-rs-app/tests/extension_loading.rs`. |
+| `coding.extension-api` | `parity` | closed | 8 | Every non-UI ExtensionAPI member is implemented and exercised: file-backed exercisers (dynamic-tools, tool-override, message-renderer, preset, send-user-message, session-name, stateful-tools) run unprivileged through pi-rs-host accept tests; product packs install the runtime bridge binding the members to the live agent/session (bindCore), so registered tools join prompt rebuilds, validation, parallel execution, sessions, and reload like builtins. Evidence: `crates/pi-rs-host/tests/extension_api_94.rs`, `tests/extension-inventory/pinned-surface.json`. |
+| `coding.extension-ui` | `parity` | closed | 12 | Pi-equivalent select/confirm/input/editor/custom dialogs, notifications, status/widgets, working message, header/footer, title, editor text/paste, tool expansion, theme access/switching, raw input, custom editor, autocomplete providers, overlay composition, cleanup, and headless no-UI outcomes are covered by file-backed exercisers and oracle tests. Evidence: `tests/extension-ui-parity/oracle.json`, `examples/extensions/ui-surface-demo.lua`, `examples/extensions/ui-overlay-demo.lua`, `crates/pi-rs-app/src/builtins/interactive.lua`, `crates/pi-rs-app/tests/extension_loading.rs`. |
+| `coding.lua-config` | `parity` | PLAN 9.6 | 7 | Atomic global/project config.lua declarations and mutations replace the temporary JSON settings/keybindings/theme path; precedence, trust, CLI overrides, rollback, and repeated mutations are covered at the host and interactive seam. Evidence: `crates/pi-rs-host/src/config.rs`, `crates/pi-rs-host/tests/config_pipeline.rs`, `crates/pi-rs-app/tests/config_lua_accept.rs`, `PLAN.md`. |
 | `coding.resources-packages` | `open` | PLAN 9.7 | 9 | Resource discovery, Lua modules, prompt/skill/theme provenance, package transport, and pi config remain open. Evidence: `PLAN.md`. |
 | `coding.public-assembly` | `open` | PLAN 9.10 | 2 | The coding-agent barrel still exposes policy implemented through monolithic/private composition; decomposition, ablation, and replacement must close before its public capability map can be accepted. Evidence: `PLAN.md`. |
 | `coding.highlight-catalog` | `open` | PLAN 11 | 1 | The checked highlight mechanism has 41 of Pi highlight.js’s 191 registered grammars; unknown reachable fence tags still fall back differently. Evidence: `DESIGN.md`. |
@@ -92,24 +92,6 @@ Reference rows (8):
 - `packages/ai/src/providers/register-builtins.ts`
 - `packages/coding-agent/src/bun/register-bedrock.ts`
 
-### PLAN 9.4 — `ai.custom-provider`
-
-Faux/custom-provider registration is part of the still-open immediate provider registration and custom-stream contract.
-
-Reference rows (2):
-
-- `packages/ai/src/api-registry.ts`
-- `packages/ai/src/providers/faux.ts`
-
-### PLAN 9.5 — `tui.extension-composition`
-
-Overlay/custom-component composition and public rendering middleware remain open even though the default terminal renderer is proven.
-
-Reference rows (2):
-
-- `packages/tui/src/index.ts`
-- `packages/tui/src/tui.ts`
-
 ### PLAN 11 — `tui.platform-modifiers`
 
 Pi uses native macOS/Windows modifier polling to recover Shift+Tab and Ctrl+Space when terminals lose modifier state; pi-rs has no equivalent platform fixture/mechanism yet.
@@ -129,24 +111,6 @@ Reference rows (3):
 - `packages/coding-agent/src/cli.ts`
 - `packages/coding-agent/src/main.ts`
 
-### PLAN 10 — `coding.noninteractive`
-
-Print, JSON/RPC, complete argument/file-input behavior, and serialized stdout/stderr/exit contracts remain prerequisites.
-
-Reference rows (11):
-
-- `packages/coding-agent/src/cli/args.ts`
-- `packages/coding-agent/src/cli/file-processor.ts`
-- `packages/coding-agent/src/cli/initial-message.ts`
-- `packages/coding-agent/src/cli/startup-ui.ts`
-- `packages/coding-agent/src/core/output-guard.ts`
-- `packages/coding-agent/src/modes/index.ts`
-- `packages/coding-agent/src/modes/print-mode.ts`
-- `packages/coding-agent/src/modes/rpc/jsonl.ts`
-- `packages/coding-agent/src/modes/rpc/rpc-client.ts`
-- `packages/coding-agent/src/modes/rpc/rpc-mode.ts`
-- `packages/coding-agent/src/modes/rpc/rpc-types.ts`
-
 ### PLAN 9.2 — `coding.extension-context`
 
 Complete contexts in every mode plus session actions, cancellation, rebinding, and command-only restrictions remain open.
@@ -156,65 +120,6 @@ Reference rows (3):
 - `packages/coding-agent/src/core/agent-session-runtime.ts`
 - `packages/coding-agent/src/core/agent-session-services.ts`
 - `packages/coding-agent/src/core/sdk.ts`
-
-### PLAN 9.3 — `coding.extension-events`
-
-The complete event vocabulary, fold/middleware semantics, and lifecycle ordering are not yet emitted at every real product seam.
-
-Reference rows (4):
-
-- `packages/coding-agent/src/core/agent-session.ts`
-- `packages/coding-agent/src/core/diagnostics.ts`
-- `packages/coding-agent/src/core/event-bus.ts`
-- `packages/coding-agent/src/core/timings.ts`
-
-### PLAN 9.4 — `coding.extension-api`
-
-Dynamic tools/messages/flags/shortcuts/providers and their live registry effects remain incomplete.
-
-Reference rows (8):
-
-- `packages/coding-agent/src/core/experimental.ts`
-- `packages/coding-agent/src/core/extensions/index.ts`
-- `packages/coding-agent/src/core/extensions/loader.ts`
-- `packages/coding-agent/src/core/extensions/runner.ts`
-- `packages/coding-agent/src/core/extensions/types.ts`
-- `packages/coding-agent/src/core/extensions/wrapper.ts`
-- `packages/coding-agent/src/core/provider-attribution.ts`
-- `packages/coding-agent/src/core/source-info.ts`
-
-### PLAN 9.5 — `coding.extension-ui`
-
-Public extension dialogs, slots, custom row rendering, editor/overlay composition, cleanup, and headless outcomes remain incomplete.
-
-Reference rows (12):
-
-- `packages/coding-agent/src/modes/interactive/components/config-selector.ts`
-- `packages/coding-agent/src/modes/interactive/components/custom-editor.ts`
-- `packages/coding-agent/src/modes/interactive/components/custom-message.ts`
-- `packages/coding-agent/src/modes/interactive/components/extension-editor.ts`
-- `packages/coding-agent/src/modes/interactive/components/extension-input.ts`
-- `packages/coding-agent/src/modes/interactive/components/extension-selector.ts`
-- `packages/coding-agent/src/modes/interactive/components/index.ts`
-- `packages/coding-agent/src/modes/interactive/components/show-images-selector.ts`
-- `packages/coding-agent/src/modes/interactive/components/skill-invocation-message.ts`
-- `packages/coding-agent/src/modes/interactive/components/theme-selector.ts`
-- `packages/coding-agent/src/modes/interactive/components/thinking-selector.ts`
-- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
-
-### PLAN 9.6 — `coding.lua-config`
-
-The temporary JSON settings/keybindings/theme path must be replaced by atomic global/project config.lua declarations and mutations.
-
-Reference rows (7):
-
-- `packages/coding-agent/src/core/keybindings.ts`
-- `packages/coding-agent/src/core/settings-manager.ts`
-- `packages/coding-agent/src/migrations.ts`
-- `packages/coding-agent/src/modes/interactive/theme/dark.json`
-- `packages/coding-agent/src/modes/interactive/theme/light.json`
-- `packages/coding-agent/src/modes/interactive/theme/theme-schema.json`
-- `packages/coding-agent/src/modes/interactive/theme/theme.ts`
 
 ### PLAN 9.7 — `coding.resources-packages`
 
@@ -279,7 +184,7 @@ Reference rows (2):
 
 - `agent:public:.` → `packages/agent/src/index.ts`: 194 exports (out-of-scope=166, parity=28)
 - `agent:public:./node` → `packages/agent/src/node.ts`: 195 exports (out-of-scope=167, parity=28)
-- `ai:public:.` → `packages/ai/src/index.ts`: 157 exports (open=46, out-of-scope=10, parity=101)
+- `ai:public:.` → `packages/ai/src/index.ts`: 157 exports (open=27, out-of-scope=10, parity=120)
 - `ai:public:./anthropic` → `packages/ai/src/providers/anthropic.ts`: 5 exports (parity=5)
 - `ai:public:./azure-openai-responses` → `packages/ai/src/providers/azure-openai-responses.ts`: 3 exports (parity=3)
 - `ai:public:./bedrock-provider` → `packages/ai/src/bedrock-provider.ts`: 1 exports (open=1)
@@ -290,5 +195,5 @@ Reference rows (2):
 - `ai:public:./openai-codex-responses` → `packages/ai/src/providers/openai-codex-responses.ts`: 7 exports (parity=7)
 - `ai:public:./openai-completions` → `packages/ai/src/providers/openai-completions.ts`: 4 exports (open=4)
 - `ai:public:./openai-responses` → `packages/ai/src/providers/openai-responses.ts`: 3 exports (parity=3)
-- `coding-agent:public:.` → `packages/coding-agent/src/index.ts`: 337 exports (open=222, parity=115)
-- `tui:public:.` → `packages/tui/src/index.ts`: 100 exports (open=14, parity=86)
+- `coding-agent:public:.` → `packages/coding-agent/src/index.ts`: 337 exports (open=45, parity=292)
+- `tui:public:.` → `packages/tui/src/index.ts`: 100 exports (open=2, parity=98)

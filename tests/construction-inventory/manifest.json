@@ -96,7 +96,8 @@
     "command:interactive-reload-parity-sequence",
     "command:interactive-reload-behavior",
     "command:retry-policy-parity",
-    "command:interactive-easter-eggs-parity-sequence"
+    "command:interactive-easter-eggs-parity-sequence",
+    "command:export-from-file"
    ],
    "rust_entrypoints": []
   },
@@ -254,10 +255,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: file-backed package imports the public replacement module",
-   "status": "open",
+   "public_declaration": "pi.tools.prelude@1 via pi.module.define in crates/pi-rs-app/src/builtins/tools/prelude.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/prelude.lua"
@@ -273,10 +274,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public truncation module imported by file-backed package",
-   "status": "open",
+   "public_declaration": "pi.tools.truncate@1 via pi.module.define in crates/pi-rs-app/src/builtins/tools/truncate.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/truncate.lua"
@@ -292,10 +293,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public path helper module imported by file-backed package",
-   "status": "open",
+   "public_declaration": "pi.tools.path-utils@1 via pi.module.define in crates/pi-rs-app/src/builtins/tools/path-utils.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/path-utils.lua"
@@ -311,10 +312,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public MIME helper module imported by file-backed package",
-   "status": "open",
+   "public_declaration": "pi.tools.mime@1 via pi.module.define in crates/pi-rs-app/src/builtins/tools/mime.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/mime.lua"
@@ -330,10 +331,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public mutation queue used by file-backed mutating tool",
-   "status": "open",
+   "public_declaration": "pi.tools.file-mutation-queue@1 via pi.module.define in crates/pi-rs-app/src/builtins/tools/file-mutation-queue.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.9",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/file-mutation-queue.lua"
@@ -349,10 +350,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public shell operations module used by file-backed package",
-   "status": "open",
+   "public_declaration": "pi.tools.shell@1 via pi.module.define in crates/pi-rs-app/src/builtins/tools/shell.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/shell.lua"
@@ -368,10 +369,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public output helper imported by file-backed process tool",
-   "status": "open",
+   "public_declaration": "pi.tools.output-accumulator@1 via pi.module.define in crates/pi-rs-app/src/builtins/tools/output-accumulator.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/output-accumulator.lua"
@@ -387,10 +388,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public render helper imported by file-backed renderer",
-   "status": "open",
+   "public_declaration": "pi.tools.keybinding-hints@1 via pi.module.define in crates/pi-rs-app/src/builtins/tools/keybinding-hints.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/keybinding-hints.lua"
@@ -406,10 +407,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public truncation helper imported by file-backed renderer",
-   "status": "open",
+   "public_declaration": "pi.tui.visual-truncate@1 via pi.module.define in crates/pi-rs-app/src/builtins/tools/visual-truncate.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/visual-truncate.lua"
@@ -425,10 +426,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public render module imported by file-backed renderer",
-   "status": "open",
+   "public_declaration": "pi.tools.render@1 via pi.module.define in crates/pi-rs-app/src/builtins/tools/render-utils.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/render-utils.lua"
@@ -444,10 +445,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: file-backed renderer imports public diff module",
-   "status": "open",
+   "public_declaration": "pi.tools.diff@1 via pi.module.define in crates/pi-rs-app/src/builtins/tools/diff.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/diff.lua"
@@ -463,10 +464,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: file-backed edit tool imports public edit operations",
-   "status": "open",
+   "public_declaration": "pi.tools.edit-diff@1 via pi.module.define in crates/pi-rs-app/src/builtins/tools/edit-diff.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/edit-diff.lua"
@@ -483,10 +484,10 @@
     "tools",
     "interactive"
    ],
-   "public_declaration": "none; duplicated into concatenated pack scopes",
-   "disable_path": "none independently; remove from both pack concats",
-   "replacement_evidence": "target: one public module imported by embedded and file-backed renderers",
-   "status": "open",
+   "public_declaration": "pi.utils.syntax-highlight@1 via pi.module.define in crates/pi-rs-app/src/builtins/utils/syntax-highlight.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/syntax-highlight.lua"
@@ -503,10 +504,10 @@
     "coding-agent",
     "interactive"
    ],
-   "public_declaration": "none; duplicated into concatenated pack scopes",
-   "disable_path": "none independently; remove from both pack concats",
-   "replacement_evidence": "target: public messages module imported by file-backed agent policy",
-   "status": "open",
+   "public_declaration": "pi.utils.messages@1 via pi.module.define in crates/pi-rs-app/src/builtins/utils/messages.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/messages.lua"
@@ -523,10 +524,10 @@
     "coding-agent",
     "interactive"
    ],
-   "public_declaration": "none; global EXTENSION_POLICY table shared only inside pack chunks",
-   "disable_path": "none independently; remove from both pack concats",
-   "replacement_evidence": "target: public composition module imported by file-backed applications",
-   "status": "open",
+   "public_declaration": "pi.utils.extensions@1 via pi.module.define in crates/pi-rs-app/src/builtins/utils/extensions.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/extensions.lua"
@@ -543,10 +544,10 @@
     "coding-agent",
     "interactive"
    ],
-   "public_declaration": "none; duplicated into concatenated pack scopes",
-   "disable_path": "none independently; remove from both pack concats",
-   "replacement_evidence": "target: public session module imported by file-backed application",
-   "status": "open",
+   "public_declaration": "pi.utils.branch-summary@1 via pi.module.define in crates/pi-rs-app/src/builtins/utils/branch-summary.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/branch-summary.lua"
@@ -583,10 +584,10 @@
     "coding-agent",
     "interactive"
    ],
-   "public_declaration": "none; duplicated into concatenated pack scopes",
-   "disable_path": "none independently; remove from both pack concats",
-   "replacement_evidence": "target: public resource/system-prompt module used by file-backed application",
-   "status": "open",
+   "public_declaration": "pi.utils.system-prompt@1 via pi.module.define in crates/pi-rs-app/src/builtins/utils/system-prompt.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/system-prompt.lua"
@@ -603,10 +604,10 @@
     "coding-agent",
     "interactive"
    ],
-   "public_declaration": "none; duplicated into concatenated pack scopes",
-   "disable_path": "none independently; remove from both pack concats",
-   "replacement_evidence": "target: public session module used by file-backed application",
-   "status": "open",
+   "public_declaration": "pi.utils.agent-session@1 via pi.module.define in crates/pi-rs-app/src/builtins/utils/agent-session.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/agent-session.lua"
@@ -622,10 +623,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: public shell module imported by file-backed command policy",
-   "status": "open",
+   "public_declaration": "pi.utils.bash-executor@1 via pi.module.define in crates/pi-rs-app/src/builtins/utils/bash-executor.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/bash-executor.lua"
@@ -641,10 +642,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; concatenated chunk-local library",
-   "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: public export/render module imported by file-backed package",
-   "status": "open",
+   "public_declaration": "pi.utils.export-html@1 via pi.module.define in crates/pi-rs-app/src/builtins/utils/export-html.lua; builtin and file-backed packages import the same closures through pi.module.require",
+   "disable_path": "no independent unit; suppress the owning builtin package (module has no runtime hook of its own)",
+   "replacement_evidence": "implemented: pi.module.define exact-version module; file-backed examples/extensions/module-demo.lua imports it via pi.module.require (crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules)",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/export-html.lua"
@@ -662,8 +663,8 @@
    ],
    "public_declaration": "none; include_str data decoded by the interactive chunk",
    "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: file-backed theme declaration replaces the default",
-   "status": "open",
+   "replacement_evidence": "Implemented: embedded dark theme stays the rank-4 default; file-backed theme declarations override it through pi.packages.declare_resource/resolve (project 0/1, user 2/3, package/embedded 4) - resource_loader_tests precedence_project_wins_over_user_and_package_last, package_resources_resolve_with_package_origin_and_collide_last, lua_packages_surface_resolves_and_declares_resources",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/theme/dark.lua"
@@ -681,8 +682,8 @@
    ],
    "public_declaration": "none; include_str data decoded by the interactive chunk",
    "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: file-backed theme declaration replaces the default",
-   "status": "open",
+   "replacement_evidence": "Implemented: embedded light theme stays the rank-4 default; file-backed theme declarations override it through pi.packages.declare_resource/resolve (project 0/1, user 2/3, package/embedded 4) - resource_loader_tests precedence_project_wins_over_user_and_package_last, package_resources_resolve_with_package_origin_and_collide_last, lua_packages_surface_resolves_and_declares_resources",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/theme/light.lua"
@@ -700,8 +701,8 @@
    ],
    "public_declaration": "none; include_str global consumed by transcript policy",
    "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: declared package resource replacement",
-   "status": "open",
+   "replacement_evidence": "Implemented: package pi-manifest declarations resolve as declared package resources with Origin::Package attribution and collide last - resource_loader_tests package_resources_resolve_with_package_origin_and_collide_last + lua_packages_surface_resolves_and_declares_resources",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/assets/daxnuts.hex"
@@ -719,8 +720,8 @@
    ],
    "public_declaration": "none; include_str global consumed by transcript policy",
    "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: declared package resource replacement",
-   "status": "open",
+   "replacement_evidence": "Implemented: package pi-manifest declarations resolve as declared package resources with Origin::Package attribution and collide last - resource_loader_tests package_resources_resolve_with_package_origin_and_collide_last + lua_packages_surface_resolves_and_declares_resources",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/assets/clankolas.base64"
@@ -738,8 +739,8 @@
    ],
    "public_declaration": "none; include_str global consumed by command/startup policy",
    "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: declared package resource replacement",
-   "status": "open",
+   "replacement_evidence": "Implemented: package pi-manifest declarations resolve as declared package resources with Origin::Package attribution and collide last - resource_loader_tests package_resources_resolve_with_package_origin_and_collide_last + lua_packages_surface_resolves_and_declares_resources",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/changelog.md"
@@ -757,8 +758,8 @@
    ],
    "public_declaration": "none; include_str local consumed by export module",
    "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: public package resource imported by file-backed exporter",
-   "status": "open",
+   "replacement_evidence": "Implemented: versioned package transports (npm: archive, git URL/ref, local path) deliver package.json pi-manifest Lua/module/data resources with JS inert - packages_transport npm_transport_installs_archive_without_evaluating_js, git_transport_clones_ref_and_removes, local_install_persists_lists_and_config_outcome, install_roots_identity_and_dedupe_match_pi",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/export-html/template.html"
@@ -776,8 +777,8 @@
    ],
    "public_declaration": "none; include_str local consumed by export module",
    "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: public package resource imported by file-backed exporter",
-   "status": "open",
+   "replacement_evidence": "Implemented: versioned package transports (npm: archive, git URL/ref, local path) deliver package.json pi-manifest Lua/module/data resources with JS inert - packages_transport npm_transport_installs_archive_without_evaluating_js, git_transport_clones_ref_and_removes, local_install_persists_lists_and_config_outcome, install_roots_identity_and_dedupe_match_pi",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/export-html/template.css"
@@ -795,8 +796,8 @@
    ],
    "public_declaration": "none; include_str local consumed by export module",
    "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: public package resource imported by file-backed exporter",
-   "status": "open",
+   "replacement_evidence": "Implemented: versioned package transports (npm: archive, git URL/ref, local path) deliver package.json pi-manifest Lua/module/data resources with JS inert - packages_transport npm_transport_installs_archive_without_evaluating_js, git_transport_clones_ref_and_removes, local_install_persists_lists_and_config_outcome, install_roots_identity_and_dedupe_match_pi",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/export-html/template.js"
@@ -814,8 +815,8 @@
    ],
    "public_declaration": "none; include_str local consumed by export module",
    "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: versioned package dependency/resource declaration",
-   "status": "open",
+   "replacement_evidence": "Implemented: vendored browser bundle pinned as package resource data; versioned transports (npm:/git:/local) deliver pi-manifest resources with JS inert - packages_transport npm_transport_installs_archive_without_evaluating_js, git_transport_clones_ref_and_removes, local_install_persists_lists_and_config_outcome",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/export-html/vendor/marked.min.js"
@@ -833,8 +834,8 @@
    ],
    "public_declaration": "none; include_str local consumed by export module",
    "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: versioned package dependency/resource declaration",
-   "status": "open",
+   "replacement_evidence": "Implemented: vendored browser bundle pinned as package resource data; versioned transports (npm:/git:/local) deliver pi-manifest resources with JS inert - packages_transport npm_transport_installs_archive_without_evaluating_js, git_transport_clones_ref_and_removes, local_install_persists_lists_and_config_outcome",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/export-html/vendor/highlight.min.js"
@@ -865,6 +866,31 @@
    ],
    "declarations": [
     "role:print"
+   ],
+   "rust_entrypoints": []
+  },
+  {
+   "id": "role.rpc",
+   "kind": "application role",
+   "title": "JSON-L RPC application (--mode rpc)",
+   "packages": [
+    "coding-agent"
+   ],
+   "public_declaration": "pi.register_role with explicit activation and priority",
+   "disable_path": "suppress print-application in the declarative builtin manifest",
+   "replacement_evidence": "crates/pi-rs-app/tests/mode_parity.rs rpc role tests",
+   "status": "implemented",
+   "rung": "10",
+   "coverage": [],
+   "anchors": [
+    {
+     "path": "crates/pi-rs-app/src/builtins/coding-agent.lua",
+     "text": "role = \"rpc\"",
+     "count": 1
+    }
+   ],
+   "declarations": [
+    "role:rpc"
    ],
    "rust_entrypoints": []
   },
@@ -980,8 +1006,8 @@
    ],
    "public_declaration": "none; local handle_agent_event subscribed directly to agent state",
    "disable_path": "none independently; only omit the whole interactive pack",
-   "replacement_evidence": "target: public event pipeline and file-backed consumer",
-   "status": "open",
+   "replacement_evidence": "public event pipeline (pi.events) + Pi fold oracle + real product seams: success/tool, blocked bash, transformed input, user bash, compact/tree/switch, provider failure, abort, reload; interactive reload seam emits session lifecycle events through the shared policy",
+   "status": "implemented",
    "rung": "9.3",
    "coverage": [],
    "anchors": [
@@ -1026,8 +1052,8 @@
    ],
    "public_declaration": "none; transcript_lines directly switches on row.kind",
    "disable_path": "none per row kind; only omit the whole interactive pack",
-   "replacement_evidence": "target: file-backed middleware replaces every transcript row kind",
-   "status": "open",
+   "replacement_evidence": "implemented: DEFAULT_TRANSCRIPT_KINDS registers default middleware for every transcript row kind; render_transcript_row runs the ordered chain with immutable snapshots, next_render, per-row state, and pcall error fall-through (file_backed_compact_middleware_composes_without_frontend_patching, pi-compact.lua)",
+   "status": "implemented",
    "rung": "9.5",
    "coverage": [],
    "anchors": [
@@ -1064,8 +1090,8 @@
    ],
    "public_declaration": "tool definitions expose renderCall/renderResult, but frontend dispatch is local",
    "disable_path": "none independently; only omit the whole interactive pack",
-   "replacement_evidence": "target: ordered file-backed tool-row rendering middleware",
-   "status": "open",
+   "replacement_evidence": "implemented: tool rows render through ordered tool middleware layered over built-in tool_execution_lines renderCall/renderResult dispatch (pi-compact tool middleware; file_backed_compact_middleware_composes_without_frontend_patching)",
+   "status": "implemented",
    "rung": "9.5",
    "coverage": [],
    "anchors": [
@@ -1087,8 +1113,8 @@
    ],
    "public_declaration": "none; frontend_frame calls local header policy",
    "disable_path": "none independently; only omit the whole interactive pack",
-   "replacement_evidence": "target: file-backed header slot replacement",
-   "status": "open",
+   "replacement_evidence": "implemented: pi.register_ui_slot(\"header\") + default slot; render_ui_slot ordered chain; file_backed_ui_showcase replaces the default header via setHeader",
+   "status": "implemented",
    "rung": "9.5",
    "coverage": [],
    "anchors": [
@@ -1110,8 +1136,8 @@
    ],
    "public_declaration": "none; frontend_frame calls local footer policy",
    "disable_path": "none independently; only omit the whole interactive pack",
-   "replacement_evidence": "target: file-backed footer slot replacement",
-   "status": "open",
+   "replacement_evidence": "implemented: pi.register_ui_slot(\"footer\") + default slot; render_ui_slot ordered chain; file_backed_ui_showcase replaces the default footer via setFooter",
+   "status": "implemented",
    "rung": "9.5",
    "coverage": [],
    "anchors": [
@@ -1133,8 +1159,8 @@
    ],
    "public_declaration": "none; selector/editor swap is frontend-local",
    "disable_path": "none independently; only omit the whole interactive pack",
-   "replacement_evidence": "target: file-backed editor slot replacement",
-   "status": "open",
+   "replacement_evidence": "implemented: pi.register_ui_slot(\"editor\") + default slot; setEditorComponent swaps the editor; file_backed_ui_showcase drives the editor slot and custom editor",
+   "status": "implemented",
    "rung": "9.5",
    "coverage": [],
    "anchors": [
@@ -1156,8 +1182,8 @@
    ],
    "public_declaration": "none; status container and show_status are frontend-local",
    "disable_path": "none independently; only omit the whole interactive pack",
-   "replacement_evidence": "target: file-backed status slot replacement",
-   "status": "open",
+   "replacement_evidence": "implemented: pi.register_ui_slot(\"status\") + default slot; setStatus feeds the ordered status slot (file_backed_ui_showcase uiState.status)",
+   "status": "implemented",
    "rung": "9.5",
    "coverage": [],
    "anchors": [
@@ -1184,8 +1210,8 @@
    ],
    "public_declaration": "none; frontend_frame hardcodes empty/default widget containers",
    "disable_path": "no declared widget units to disable",
-   "replacement_evidence": "target: file-backed above/below widget slot replacements",
-   "status": "open",
+   "replacement_evidence": "implemented: widget_above/widget_below declared slots via pi.register_ui_slot; setWidget feeds ordered slot composition (file_backed_ui_showcase aboveWidget/belowWidget)",
+   "status": "implemented",
    "rung": "9.5",
    "coverage": [],
    "anchors": [
@@ -1233,10 +1259,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "temporary pi.settings JSON store; no config.lua declarations",
+   "public_declaration": "pi.config declaration table (settings/keybindings/providers/themes/selectors) in global <agentDir>/config.lua and trusted <cwd>/.pi/config.lua, evaluated by crates/pi-rs-host/src/config.rs install_runtime",
    "disable_path": "none independently; settings are called directly throughout frontend",
-   "replacement_evidence": "target: config.lua precedence/reload/mutation matrix",
-   "status": "open",
+   "replacement_evidence": "implemented: config.lua precedence/reload/mutation matrix (crates/pi-rs-host/tests/config_pipeline.rs, crates/pi-rs-app/tests/config_lua_accept.rs)",
+   "status": "implemented",
    "rung": "9.6",
    "coverage": [],
    "anchors": [
@@ -1258,9 +1284,9 @@
     "coding-agent",
     "interactive"
    ],
-   "public_declaration": "none; include_str concatenation creates a private module tier",
-   "disable_path": "none per helper; changing concat order can break consumers",
-   "replacement_evidence": "target: file-backed package imports the same versioned Lua modules as builtins",
+   "public_declaration": "de-inlined: shared helpers are now public exact-version pi.module.* modules (tools prelude/truncate/path-utils/mime/shell/output-accumulator/keybinding-hints/visual-truncate/render/diff/edit-diff/file-mutation-queue; utils syntax-highlight/messages/extensions/branch-summary/system-prompt/agent-session/bash-executor/export-html); include_str concatenation no longer exposes undeclared cross-pack globals (EXTENSION_CONTEXT_POLICY/EXTENSION_HEADLESS_UI/export_html_lib are locals or module values)",
+   "disable_path": "per-module: omit the module file from the pack concat; builtin entry points import via pi.module.require so a file-backed replacement module satisfies them",
+   "replacement_evidence": "implemented: file-backed examples/extensions/module-demo.lua imports the same exact-version modules the builtin packs use (pi.module.list covers all 20); crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules",
    "status": "open",
    "rung": "9.7",
    "coverage": [],
@@ -1419,7 +1445,7 @@
    "anchors": [
     {
      "path": "crates/pi-rs-app/src/main.rs",
-     "text": "let role = if interactive",
+     "text": "let app_mode = if",
      "count": 1
     }
    ],
@@ -1443,7 +1469,7 @@
     {
      "path": "crates/pi-rs-app/src/main.rs",
      "text": "host.call_role(\"",
-     "count": 3
+     "count": 7
     }
    ],
    "declarations": [],
@@ -1466,7 +1492,7 @@
     {
      "path": "crates/pi-rs-app/src/main.rs",
      "text": "let request = serde_json::json!({",
-     "count": 4
+     "count": 5
     }
    ],
    "declarations": [],
@@ -1498,8 +1524,8 @@
    ],
    "public_declaration": "none; ordered public transcript middleware does not exist yet",
    "disable_path": "external package disable only; no first-party renderer unit can be swapped",
-   "replacement_evidence": "target: file-backed compact-rendering extension without private class patching",
-   "status": "open",
+   "replacement_evidence": "implemented: examples/extensions/pi-compact.lua reproduces compact rendering with public pi.register_render_middleware only, no private classes (file_backed_compact_middleware_composes_without_frontend_patching)",
+   "status": "implemented",
    "rung": "9.5",
    "coverage": [],
    "anchors": [
@@ -1519,10 +1545,10 @@
    "packages": [
     "external-dogfood"
    ],
-   "public_declaration": "none; runtime/session scoped managed resources are incomplete",
-   "disable_path": "external package disable only; cleanup contract not implemented",
-   "replacement_evidence": "target: Gecko cancellation/reload/shutdown leak fixture",
-   "status": "open",
+   "public_declaration": "pi.process.spawn/pi.net.create_connection/pi.fs.watch/pi.timer.* via crates/pi-rs-host; every handle is a pi.resources entry disposed by dispose_all and VM shutdown",
+   "disable_path": "host mechanisms; a package that never creates a handle owns nothing (disposal is per-handle and at session shutdown)",
+   "replacement_evidence": "implemented: Lua-native managed resources (pi.process/pi.net/pi.timer/pi.fs.watch/pi.resources) in crates/pi-rs-host/src; file-backed examples/extensions/mechanism-demo.lua + crates/pi-rs-host/tests/mechanisms.rs prove cancellation, process-tree kill, timeout, shutdown, and no-leak-after-disposal contracts",
+   "status": "implemented",
    "rung": "9.9",
    "coverage": [],
    "anchors": [
@@ -1542,10 +1568,10 @@
    "packages": [
     "external-dogfood"
    ],
-   "public_declaration": "none; runtime/session scoped managed resources are incomplete",
-   "disable_path": "external package disable only; cleanup contract not implemented",
-   "replacement_evidence": "target: RLM cancellation/reload/shutdown leak fixture",
-   "status": "open",
+   "public_declaration": "pi.process.spawn/pi.net.create_connection/pi.fs.watch/pi.timer.* via crates/pi-rs-host; every handle is a pi.resources entry disposed by dispose_all and VM shutdown",
+   "disable_path": "host mechanisms; a package that never creates a handle owns nothing (disposal is per-handle and at session shutdown)",
+   "replacement_evidence": "implemented: Lua-native managed resources (pi.process/pi.net/pi.timer/pi.fs.watch/pi.resources) in crates/pi-rs-host/src; file-backed examples/extensions/mechanism-demo.lua + crates/pi-rs-host/tests/mechanisms.rs prove cancellation, process-tree kill, timeout, shutdown, and no-leak-after-disposal contracts",
+   "status": "implemented",
    "rung": "9.9",
    "coverage": [],
    "anchors": [
@@ -1565,10 +1591,10 @@
    "packages": [
     "external-dogfood"
    ],
-   "public_declaration": "none; runtime/session scoped managed resources are incomplete",
-   "disable_path": "external package disable only; cleanup contract not implemented",
-   "replacement_evidence": "target: Pomodoro cancellation/reload/shutdown timer fixture",
-   "status": "open",
+   "public_declaration": "pi.process.spawn/pi.net.create_connection/pi.fs.watch/pi.timer.* via crates/pi-rs-host; every handle is a pi.resources entry disposed by dispose_all and VM shutdown",
+   "disable_path": "host mechanisms; a package that never creates a handle owns nothing (disposal is per-handle and at session shutdown)",
+   "replacement_evidence": "implemented: Lua-native managed resources (pi.process/pi.net/pi.timer/pi.fs.watch/pi.resources) in crates/pi-rs-host/src; file-backed examples/extensions/mechanism-demo.lua + crates/pi-rs-host/tests/mechanisms.rs prove cancellation, process-tree kill, timeout, shutdown, and no-leak-after-disposal contracts",
+   "status": "implemented",
    "rung": "9.9",
    "coverage": [],
    "anchors": [
