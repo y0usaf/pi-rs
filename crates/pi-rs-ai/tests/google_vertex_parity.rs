@@ -8,10 +8,12 @@ use pi_rs_ai::protocols::google_vertex::{
 };
 use pi_rs_ai::protocols::options::{SimpleStreamOptions, StreamOptions};
 use pi_rs_ai_types::{Context, Model, ThinkingBudgets, ThinkingLevel};
+mod common;
+
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 
 type Captured = Arc<Mutex<Vec<String>>>;
 
@@ -43,30 +45,6 @@ fn response(value: &Value) -> String {
     )
 }
 
-async fn read_request(socket: &mut tokio::net::TcpStream) -> String {
-    let mut all = Vec::new();
-    let mut buffer = [0; 1024];
-    loop {
-        let count = socket.read(&mut buffer).await.unwrap_or(0);
-        if count == 0 {
-            break;
-        }
-        all.extend_from_slice(&buffer[..count]);
-        if let Some(position) = all.windows(4).position(|part| part == b"\r\n\r\n") {
-            let head = String::from_utf8_lossy(&all[..position]).to_lowercase();
-            let length = head
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length:"))
-                .and_then(|value| value.trim().parse::<usize>().ok())
-                .unwrap_or(0);
-            if all.len() >= position + 4 + length {
-                break;
-            }
-        }
-    }
-    String::from_utf8_lossy(&all).into_owned()
-}
-
 fn serve(responses: Vec<String>) -> (std::net::SocketAddr, Captured) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -80,7 +58,7 @@ fn serve(responses: Vec<String>) -> (std::net::SocketAddr, Captured) {
             let Ok((mut socket, _)) = listener.accept().await else {
                 return;
             };
-            let request = read_request(&mut socket).await;
+            let request = common::read_request(&mut socket).await;
             let path = request
                 .lines()
                 .next()

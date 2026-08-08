@@ -4,38 +4,12 @@
 //! errors are removed from live context, retried with configured backoff, and
 //! Escape cancels the pending backoff through the interactive handler.
 
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+mod common;
+
+use std::io::Write;
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
-
-use pi_rs_app::builtins::{CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
-use pi_rs_host::{Host, HostConfig};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn read_request(stream: &mut TcpStream) -> serde_json::Value {
-    let mut bytes = Vec::new();
-    let mut chunk = [0u8; 4096];
-    loop {
-        let count = stream.read(&mut chunk).unwrap();
-        if count == 0 {
-            return serde_json::Value::Null;
-        }
-        bytes.extend_from_slice(&chunk[..count]);
-        if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
-            let headers = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
-            let length = headers
-                .lines()
-                .find_map(|line| line.strip_prefix("content-length:"))
-                .and_then(|value| value.trim().parse::<usize>().ok())
-                .unwrap_or(0);
-            if bytes.len() >= end + 4 + length {
-                return serde_json::from_slice(&bytes[end + 4..end + 4 + length]).unwrap();
-            }
-        }
-    }
-}
 
 fn success_sse(text: &str) -> String {
     concat!(
@@ -62,7 +36,7 @@ fn stub(responses: Vec<Response>) -> (String, Arc<Mutex<Vec<serde_json::Value>>>
     thread::spawn(move || {
         for (index, connection) in listener.incoming().enumerate() {
             let Ok(mut stream) = connection else { break };
-            seen.lock().unwrap().push(read_request(&mut stream));
+            seen.lock().unwrap().push(common::read_request(&mut stream));
             let response = match responses.get(index) {
                 Some(Response::Retryable) => {
                     let body = r#"{"type":"error","error":{"type":"invalid_request_error","message":"429 overloaded"}}"#;
@@ -93,19 +67,8 @@ fn run(
     session_dir: &str,
     steps: serde_json::Value,
 ) -> serde_json::Value {
-    let host = Host::new(HostConfig {
-        cwd: Some(cwd.to_owned()),
-        ..HostConfig::default()
-    })
-    .unwrap();
-    let report = host.load_embedded(&[
-        pi_rs_agent::PACK,
-        TOOLS_PACK,
-        CODING_AGENT_PACK,
-        INTERACTIVE_PACK,
-    ]);
-    assert!(report.errors.is_empty(), "{:?}", report.errors);
-    host.call_command(
+    common::host(cwd)
+        .call_command(
         "interactive-tree-parity-sequence",
         &serde_json::json!({
             "columns": 72, "rows": 24, "cwd": cwd, "agentDir": agent_dir,
@@ -124,7 +87,9 @@ fn run(
 
 #[test]
 fn retryable_error_retries_then_recovers() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _guard = common::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let temp = tempfile::tempdir().unwrap();
     let agent_dir = temp.path().join("agent");
     let sessions = temp.path().join("sessions");
@@ -158,7 +123,9 @@ fn retryable_error_retries_then_recovers() {
 
 #[test]
 fn escape_cancels_retry_backoff_without_another_request() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let _guard = common::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let temp = tempfile::tempdir().unwrap();
     let agent_dir = temp.path().join("agent");
     let sessions = temp.path().join("sessions");
