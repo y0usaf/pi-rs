@@ -1071,6 +1071,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pi-rs-repl"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "pi-rs-session"
 version = "0.1.0"
 dependencies = [

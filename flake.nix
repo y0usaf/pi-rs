@@ -52,6 +52,14 @@
               || (lib.hasSuffix ".hex" path)
               || (lib.hasSuffix ".pem" path)
               || (lib.hasSuffix ".sse" path)
+              # The pi-rs-repl kernel shim (crates/pi-rs-repl/shim/kernel-shim.py)
+              # is embedded into the crate via include_str!; the .py suffix must
+              # survive the source snapshot. It is gate-allowlisted as
+              # kernel_runtime (subprocess payload, like browser-export JS).
+              || (lib.hasSuffix ".py" path)
+              # The vendored prime-agent-runtime pyproject.toml (built as a
+              # python package for the kernel env).
+              || (lib.hasSuffix ".toml" path)
               # PLAN A.3: inert .ts fixtures (tests/model-catalog-update/*.generated.ts)
               # are parsed as data by the Rust update-model-catalog binary; keep them
               # in the source snapshot for the model-catalog-update check. They are
@@ -112,6 +120,86 @@
           dontStrip = true;
           meta.mainProgram = "pi";
         };
+
+      # Python environment for the pi-rs-repl kernel: IPython cell semantics,
+      # dill snapshotting, nest-asyncio, and the vendored prime-agent-runtime
+      # rlm package (crates/pi-rs-repl/vendor, copied from the pinned
+      # ref/prime-agent oracle at c22549a). The vendored rlm is built as a
+      # python package so the kernel imports it normally; its host_request is
+      # redirected to the stdio bridge by the shim at boot.
+      mkKernelPython =
+        system:
+        let
+          c = mkCraneLib system;
+          rlmPkg = c.pkgs.python3.pkgs.buildPythonPackage {
+            pname = "prime-agent-runtime";
+            version = "0.1.0";
+            src = ./crates/pi-rs-repl/vendor/prime-agent-runtime;
+            pyproject = true;
+            nativeBuildInputs = [ c.pkgs.python3.pkgs.hatchling ];
+            propagatedBuildInputs = [
+              c.pkgs.python3.pkgs.ipykernel
+              c.pkgs.python3.pkgs.nest-asyncio
+              c.pkgs.python3.pkgs.tyro
+            ];
+            doCheck = false;
+          };
+        in
+        c.pkgs.python3.withPackages (ps: [
+          ps.ipython
+          ps.dill
+          ps.nest-asyncio
+          rlmPkg
+        ]);
+
+      # The pi-rs-repl kernel bridge (crates/pi-rs-repl). The crate's
+      # repl-smoke binary is the P1 gate consumer.
+      mkRepl =
+        system:
+        let
+          c = mkCraneLib system;
+        in
+        c.craneLib.buildPackage {
+          inherit (c) src cargoArtifacts;
+          pname = "pi-rs-repl";
+          version = "0.1.0";
+          nativeBuildInputs = c.commonEnv.nativeBuildInputs;
+          cargoExtraArgs = "-p pi-rs-repl";
+          doCheck = false;
+          # nixpkgs strip.sh bug: exit_code unbound when all strips succeed
+          dontStrip = true;
+          meta.mainProgram = "repl-smoke";
+        };
+
+      # repl-smoke P1 gate app: the smoke binary wrapped with the kernel
+      # Python env and the vendored rlm package on PYTHONPATH.
+      mkReplSmokeApp =
+        system:
+        let
+          c = mkCraneLib system;
+        in
+        c.pkgs.writeShellScriptBin "repl-smoke" ''
+          export PI_RS_REPL_PYTHON=${mkKernelPython system}/bin/python3
+          exec ${mkRepl system}/bin/repl-smoke "$@"
+        '';
+
+      # P1 gate as a flake check: runs the repl-smoke binary against the real
+      # kernel env. Requires the Nix sandbox to allow process spawns (default
+      # nix develop/run; the sandboxed check uses __noChroot or allow-builtin).
+      mkReplSmokeCheck =
+        system:
+        let
+          c = mkCraneLib system;
+        in
+        c.pkgs.runCommand "repl-smoke-check"
+          {
+            nativeBuildInputs = [ (mkReplSmokeApp system) ];
+            __noChroot = true;
+          }
+          ''
+            repl-smoke
+            touch $out
+          '';
 
       # Doctrine 06 — bare core boots: the substrate with zero packs,
       # zero config, and zero credentials still runs and does something
@@ -462,15 +550,21 @@
         dogfood-fixtures = mkDogfoodFixtureTest system;
         ui-parity = mkUiParity system;
         final-parity-audit = mkFinalParityAudit system;
+        repl-smoke = mkReplSmokeCheck system;
       });
 
       packages = forAllSystems (system: rec {
         pi-rs = mkPiRs system;
+        pi-rs-repl = mkRepl system;
         update-model-catalog = mkModelCatalogUpdater system;
         default = pi-rs;
       });
 
       apps = forAllSystems (system: {
+        repl-smoke = {
+          type = "app";
+          program = "${mkReplSmokeApp system}/bin/repl-smoke";
+        };
         demo = {
           type = "app";
           program = "${mkDemo system}/bin/pi-rs-demo";
