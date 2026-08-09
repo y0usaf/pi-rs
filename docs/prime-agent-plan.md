@@ -10,24 +10,32 @@ plan changes none of them. Where this document and `DESIGN.md` disagree,
 
 ## Sequencing
 
-Three steps, in order, no overlap in gating:
+Two tracks, in parallel, one standing rule: **a red parity check halts Prime
+work.** The parity suites (`final-parity-audit`, differential frames,
+`bare-boot`, `extension-parity`, `dogfood-fixtures`) run on every Prime
+commit; the default Pi-parity composition and its suites stay green untouched.
 
-1. **Faithful parity gate first.** Complete `PLAN.md` — A.1–A.3, 9.2–9.11,
-   8, 10, 11 — until the final parity and ablation audit is green and the
-   parity baseline is tagged. Prime Agent does not start against an unproven
-   substrate, and no Prime work may weaken, reorder, or break the parity gate.
-2. **Prime Agent value layer second.** Port the Prime Agent product from its
-   TypeScript reference: the RLM loop, the continual harness (`/refine`,
-   memories, skills, prompts), recursive subagents with agent-to-agent
-   messaging, the persistent Python/IPython tool, daemon-backed continuity,
-   heartbeats/schedules/goals, and autonomy. The engine is Rust; the product
-   is Lua policy over the faithful port's public mechanism seams. "Build it
-   in Rust" means build it on the Rust engine — repo `pi-rs`, product policy
-   in Lua. Prime is **additive**: a separate composition of ordinary Lua
-   packages loaded through the public loader. It never joins the default
-   builtins manifest, and the default Pi-parity composition and its suites
-   stay green untouched.
-3. **Lua-surface extension third.** Grow the three-tier public Lua surface
+1. **Parity track (`main`).** Complete `PLAN.md` — A.1–A.3, 9.2–9.11, 8, 10,
+   11 — until the final parity and ablation audit is green and the parity
+   baseline is tagged. This track owns the release gate: the parity tag waits
+   for it, but Prime's start no longer does.
+2. **Prime track (`prime-agent-faithful` branch).** Port the Prime Agent
+   product from its TypeScript reference: the RLM loop, the continual harness
+   (`/refine`, memories, skills, prompts), recursive subagents with
+   agent-to-agent messaging, the persistent Python/IPython tool, daemon-backed
+   continuity, heartbeats/schedules/goals, and autonomy. The engine is Rust;
+   the product is Lua policy over the faithful port's public mechanism seams.
+   "Build it in Rust" means build it on the Rust engine — repo `pi-rs`,
+   product policy in Lua. Prime is **additive**: a separate composition of
+   ordinary Lua packages loaded through the public loader. It never joins the
+   default builtins manifest. The branch tracks `main` continuously; Prime
+   merges never carry parity work backward.
+3. **Dependency gating inside the Prime track.** P1 (`pi-rs-repl`) and P2
+   (named-record CRUD) are additive, isolated crates/layers and start
+   immediately. P3 (RLM loop) lands only once the agent-policy replacement
+   seam (PLAN 9.10) exists on `main` — the loop replaces `agent-policy`
+   through the public registration seam, and that seam is not built yet.
+4. **Lua-surface extension fourth.** Grow the three-tier public Lua surface
    (`LUA_SURFACE.md`) reactively, discovered by building the products — Prime
    first, then a second non-Prime harness as the any-harness proof. No
    spec-first surface growth: a tier-2 mechanism lands only when a real
@@ -108,7 +116,9 @@ contract itself is not amended.
 ### P0 — faithful parity closure
 
 Finish `PLAN.md` exactly as written: A.1–A.3, 9.2–9.11, 8, 10, 11. This plan
-adds no work to it and no Prime code lands. Record the reference pins above,
+adds no work to it; the Prime track (P1/P2) proceeds in parallel per D-F7 and
+lands no loop code until the 9.10 agent-policy seam exists. Record the
+reference pins above,
 including the Prime Agent TypeScript oracle as a hash-locked Nix input. Record
 the seed fixture manifest: prose-only stop; one Python execution plus model
 continuation; Python state across two executions; Python exception and
@@ -384,18 +394,17 @@ Prime-specific policy expressible via the snapshot/action interface.
 
 ## Dependency spine
 
-```
-P0 faithful parity closure (PLAN.md; tag pi-parity-v0.79.0)
- ├─► P1 pi-rs-repl (Rust, hard #1) ──────┐
- └─► P2 record CRUD (Rust, small) ───┐   │   (P1 ∥ P2)
-                                     │   │
-        P3 RLM loop (Lua, faithful) ◄┴───┘
-             └─► P4 continual harness (Lua over store)
-                  └─► P5 pi-rs-daemon (Rust, hard #2; owns state defined by P3/P4)
-                       ├─► P6 subagents + messaging (composition of P1+P4+P5)
-                       └─► P7 heartbeats/goals/autonomy (daemon scheduler)
-                            └─► P8 Lua-surface consolidation + any-harness proof
-                                 └─► P9 experience + performance + release
+P0 faithful parity closure (PLAN.md; tag pi-parity-v0.79.0) — release gate only (D-F7)
+P1 pi-rs-repl (Rust, hard #1) ────────────────┐        (P0 ∥ P1 ∥ P2)
+P2 record CRUD (Rust, small) ─────────────┐   │        (P1 ∥ P2)
+                                            │   │
+       P3 RLM loop (Lua, faithful) ◄───────┴───┘   (gated on main's 9.10 seam)
+            └─► P4 continual harness (Lua over store)
+                 └─► P5 pi-rs-daemon (Rust, hard #2; owns state defined by P3/P4)
+                      ├─► P6 subagents + messaging (composition of P1+P4+P5)
+                      └─► P7 heartbeats/goals/autonomy (daemon scheduler)
+                           └─► P8 Lua-surface consolidation + any-harness proof
+                                └─► P9 experience + performance + release
 ```
 
 ## Standing checks (every phase)
@@ -428,13 +437,14 @@ section lands (`DESIGN.md` is not edited by this plan):
 | D-F4 Doctrine-03 | Activates for the Prime composition at P5 with the named owned-state set; the parity product keeps `deferred` | The daemon is Prime-only product surface; the compatibility port stays single-process |
 | D-F5 RLM depth limit | Lua spawn-admission policy — explicit configurable snapshot data; no hard mechanism ceiling is carried over from the pre-port tree; a generic bound is added only with failure evidence | The pre-port `MAX_NEST_DEPTH` does not exist in this tree; least-code until evidence |
 | D-F6 Skills | No second tool runtime: the REPL is the model's tool; Python-backed skills preload via the execute path; markdown skills are context data | One execution mechanism, one watchdog story |
-
+| D-F7 Parallel sequencing (2026-08-09) | Prime track starts before the parity gate: branch `prime-agent-faithful` from current `main`; P1/P2 immediately, P3 gated on the 9.10 agent-policy seam; parity suites stay green on every Prime commit (a red check halts Prime work); the parity tag still gates release | User directive to build both tracks concurrently; P1/P2 are additive and isolated, so substrate risk is bounded to merge churn, which continuous branch tracking absorbs. Reverses the original "no overlap in gating" sequencing. Reversed if: a Prime merge reddens a parity suite, or the 9.10 seam lands behind P1/P2 completion |
 Flagged for user input before the affected phase:
 
 1. **Prime Agent TS oracle commit.** Which commit pins the value-layer
-   behavioral spec? Recommendation: the current Prime Agent `main`
-   (`deb8d38e` at time of writing), vendored as a hash-locked Nix input per
-   the PLAN A.3 oracle rule — confirm the commit and the vendoring.
+   behavioral spec? The vendored snapshot in `ref/prime-agent/` is pinned at
+   `c22549a` ("fix(ai): use current anthropic abort model (#658)") — confirm
+   this is the intended pin, vendored as a hash-locked Nix input per the PLAN
+   A.3 oracle rule.
 2. **Prime composition identity.** The parity product's identity is locked
    (`pi`, `~/.pi/agent`, `PI_CODING_AGENT_*` overrides). Does the Prime
    composition keep the `pi` binary identity with a distinct state root and
