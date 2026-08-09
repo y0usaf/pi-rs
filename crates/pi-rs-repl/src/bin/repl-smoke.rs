@@ -33,19 +33,29 @@ fn check(name: &str, ok: bool, detail: &str) {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+    // Host_request pump: the kernel's reader task awaits replies, so the
+    // pump runs as a tokio task (never blocks a runtime thread).
+    let (host_tx, mut host_rx): (pi_rs_repl::HostRequestOutbox, _) =
+        tokio::sync::mpsc::unbounded_channel();
+    let pump = tokio::spawn(async move {
+        while let Some(req) = host_rx.recv().await {
+            let reply = if req.kind == "smoke.echo" {
+                serde_json::json!({ "echoed": req.payload })
+            } else {
+                serde_json::json!({ "error": format!("unknown request {}", req.kind) })
+            };
+            let _ = req.reply.send(reply);
+        }
+    });
+
     let cfg = KernelConfig {
         python: python(),
         watchdog_ms: 15_000,
         interrupt_grace_ms: 500,
-        host_handler: Some(std::sync::Arc::new(|kind, payload| {
-            if kind == "smoke.echo" {
-                Ok(serde_json::json!({ "echoed": payload }))
-            } else {
-                Err(format!("unknown request {kind}"))
-            }
-        })),
+        host_outbox: Some(host_tx),
         ..Default::default()
     };
+    let _ = &pump;
 
     // 1. spawn + persistence across cells
     let k = KernelManager::spawn(cfg).await.expect("kernel spawn");

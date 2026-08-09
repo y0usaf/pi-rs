@@ -26,11 +26,22 @@ use crate::protocol::{ExecuteResult, HostMsg, RestoreResult, ShimMsg, SnapshotRe
 /// The embedded kernel shim source (shim/kernel-shim.py).
 pub const KERNEL_SHIM_SOURCE: &str = include_str!("../shim/kernel-shim.py");
 
-/// Host-side handler for a kernel host_request (e.g. "rlm.run", "goal.complete").
-/// Sync in P1; the Lua seam bridges to coroutines. The returned value is the
-/// reply payload, passed back verbatim as the host_request result.
-pub type HostRequestHandler =
-    Arc<dyn Fn(String, serde_json::Value) -> Result<serde_json::Value, String> + Send + Sync>;
+/// One host_request from the kernel, answered asynchronously. The kernel's
+/// reader task delivers it to the outbox and awaits the reply — never
+/// blocks a runtime thread. The Lua seam pumps the receiver side with a
+/// pi.spawn coroutine; the smoke consumer pumps it with a tokio task.
+pub struct HostRequestMsg {
+    pub kind: String,
+    pub payload: serde_json::Value,
+    pub reply: oneshot::Sender<serde_json::Value>,
+}
+
+/// Outbox for host_requests (kernel -> host policy).
+pub type HostRequestOutbox = tokio::sync::mpsc::UnboundedSender<HostRequestMsg>;
+
+/// How long the reader task waits for a host_request reply before replying
+/// error (mirrors the TS reference's HOST_REQUEST_DISPOSE_TIMEOUT_MS).
+pub const HOST_REQUEST_REPLY_TIMEOUT_MS: u64 = 30_000;
 
 /// Per-execution stream callback (stdout/stderr chunks for live UI).
 pub type StreamCallback = Arc<dyn Fn(u64, String, String) + Send + Sync>;
@@ -63,8 +74,8 @@ pub struct KernelConfig {
     pub watchdog_ms: u64,
     /// Grace after Interrupt before SIGINT to the process group. Default 1000 ms.
     pub interrupt_grace_ms: u64,
-    /// Handler for host_request frames (rlm.run, find_models, harness ops, ...).
-    pub host_handler: Option<HostRequestHandler>,
+    /// Outbox for host_request frames (rlm.run, find_models, harness ops, ...).
+    pub host_outbox: Option<HostRequestOutbox>,
     /// Live stream callback for stdout/stderr chunks.
     pub on_stream: Option<StreamCallback>,
 }
@@ -77,7 +88,7 @@ impl Default for KernelConfig {
             env: Vec::new(),
             watchdog_ms: 300_000,
             interrupt_grace_ms: 1_000,
-            host_handler: None,
+            host_outbox: None,
             on_stream: None,
         }
     }
@@ -297,6 +308,8 @@ impl KernelManager {
     }
 
     /// Interrupt the running cell.
+
+    /// Interrupt the running cell.
     pub async fn interrupt(&self) -> Result<(), KernelError> {
         let id = self.inner.next_id.fetch_add(1, Ordering::SeqCst);
         self.send(&HostMsg::Interrupt { v: WIRE_VERSION, id }).await
@@ -434,18 +447,46 @@ impl Inner {
                 }
             }
             ShimMsg::HostRequest { req_id, kind, payload, .. } => {
-                // Reply shape matches the shim's _stdio_host_request: the
-                // payload dict with an inline status the shim strips.
-                let reply = match &self.config.host_handler {
-                    Some(handler) => match handler(kind, payload) {
-                        Ok(payload) => {
-                            let mut reply = payload.as_object().cloned().unwrap_or_default();
-                            reply.insert("status".to_string(), serde_json::json!("ok"));
-                            serde_json::Value::Object(reply)
+                // Deliver to the host outbox and await the reply — never
+                // block a runtime thread. Reply shape matches the shim's
+                // _stdio_host_request: the payload dict with an inline
+                // status the shim strips.
+                let reply = match &self.config.host_outbox {
+                    Some(outbox) => {
+                        let (reply_tx, reply_rx) = oneshot::channel();
+                        let delivered = outbox.send(HostRequestMsg {
+                            kind,
+                            payload,
+                            reply: reply_tx,
+                        });
+                        if delivered.is_err() {
+                            serde_json::json!({ "status": "error", "error": "host outbox closed (no pump running)" })
+                        } else {
+                            match tokio::time::timeout(
+                                Duration::from_millis(HOST_REQUEST_REPLY_TIMEOUT_MS),
+                                reply_rx,
+                            )
+                            .await
+                            {
+                                Ok(Ok(value)) => {
+                                    let mut reply =
+                                        value.as_object().cloned().unwrap_or_default();
+                                    reply
+                                        .insert("status".to_string(), serde_json::json!("ok"));
+                                    serde_json::Value::Object(reply)
+                                }
+                                Ok(Err(_)) => serde_json::json!({
+                                    "status": "error",
+                                    "error": "host request reply channel closed"
+                                }),
+                                Err(_) => serde_json::json!({
+                                    "status": "error",
+                                    "error": "host request timed out"
+                                }),
+                            }
                         }
-                        Err(e) => serde_json::json!({ "status": "error", "error": e }),
-                    },
-                    None => serde_json::json!({ "status": "error", "error": "no host handler registered" }),
+                    }
+                    None => serde_json::json!({ "status": "error", "error": "no host outbox configured" }),
                 };
                 let status = reply["status"].as_str().unwrap_or("error").to_string();
                 let msg = HostMsg::HostResponse { v: WIRE_VERSION, req_id, status, payload: reply };
