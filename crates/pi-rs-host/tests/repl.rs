@@ -64,6 +64,16 @@ fn repl_basic_kernel_lifecycle() {
 }
 
 #[test]
+fn records_crud_from_lua_policy() {
+    let host = host();
+    load_demo(&host);
+    let out = call(&host, "records-crud", "");
+    assert_eq!(out["latest"], "hello2");
+    assert_eq!(out["skills_count"], 1);
+    assert_eq!(out["tombstones_work"], true);
+}
+
+#[test]
 fn repl_snapshot_restore_round_trip() {
     let host = host();
     load_demo(&host);

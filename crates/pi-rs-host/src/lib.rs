@@ -37,6 +37,7 @@ mod os;
 pub mod packages;
 mod process;
 mod repl;
+mod records_lua;
 pub mod resource_loader;
 mod paths;
 mod resources;

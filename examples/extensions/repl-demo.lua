@@ -108,3 +108,26 @@ pi.register_command("repl-leak", {
     return { value = r.result }  -- kernel deliberately NOT shut down here
   end,
 })
+
+pi.register_command("records-crud", {
+  description = "pi.records named-record CRUD from Lua policy",
+  handler = function()
+    local path = "/tmp/repl-demo-records-" .. tostring(pi.now_ms()) .. ".jsonl"
+    local store = pi.records.open(path)
+    store:put("memories", "m1", { text = "hello" })
+    store:put("memories", "m1", { text = "hello2" })  -- latest wins
+    store:put("skills", "s1", { name = "bash" })
+    local m1 = store:get("memories", "m1")
+    assert(m1.text == "hello2", "latest value wins")
+    local skills = store:list("skills")
+    assert(#skills == 1 and skills[1].key == "s1", "list by collection")
+    store:delete("memories", "m1")
+    assert(store:get("memories", "m1") == nil, "tombstone hides key")
+    os.remove(path)
+    return {
+      latest = m1.text,
+      skills_count = #skills,
+      tombstones_work = true,
+    }
+  end,
+})

@@ -3446,6 +3446,7 @@ pub(crate) fn build(
     crate::net::install(lua, &pi)?;
     crate::process::install(lua, &pi, cwd)?;
     crate::repl::install(lua, &pi)?;
+    crate::records_lua::install(lua, &pi)?;
     crate::timer::install(lua, &pi)?;
     crate::resources::install(lua, &pi)?;
     crate::http::install(lua, &pi)?;
