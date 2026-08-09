@@ -36,6 +36,7 @@ pub mod model_registry;
 mod os;
 pub mod packages;
 mod process;
+mod repl;
 pub mod resource_loader;
 mod paths;
 mod resources;

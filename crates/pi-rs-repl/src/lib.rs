@@ -17,5 +17,5 @@ pub mod framing;
 pub mod kernel;
 pub mod protocol;
 
-pub use kernel::{KernelConfig, KernelError, KernelManager};
+pub use kernel::{HostRequestMsg, HostRequestOutbox, KernelConfig, KernelError, KernelManager};
 pub use protocol::{ExecuteResult, KernelAttachment, KernelDiffDisplay, KernelSentAgentMessage, RestoreResult, SnapshotResult};

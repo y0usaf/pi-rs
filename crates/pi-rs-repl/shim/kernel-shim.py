@@ -258,6 +258,7 @@ class _CellRunner:
             return _interrupt_tracer
 
         sys.settrace(_interrupt_tracer)
+        sys.settrace(_interrupt_tracer)
         try:
             result = self._ip.run_cell(code)
         except KeyboardInterrupt:
@@ -282,9 +283,9 @@ class _CellRunner:
                 self._status = "error"
                 self._error = {"ename": type(err).__name__, "evalue": str(err),
                                "traceback": traceback.format_exception(err)}
-        # Last expression value: IPython stores it in user_ns as _ (the
-        # displayhook's own output path is not invoked for last expressions).
-        out = self._ip.user_ns.get("_")
+        # Last expression value: ExecutionResult.result is authoritative
+        # (None for assignment-only cells, so no cross-cell leakage).
+        out = getattr(result, "result", None) if result is not None else None
         if out is not None and self._status == "ok":
             try:
                 self._result = self._ip.display_formatter.format(out).get("text/plain", str(out))

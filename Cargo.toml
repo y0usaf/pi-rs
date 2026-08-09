@@ -39,6 +39,7 @@ pi-rs-ai-auth = { path = "crates/pi-rs-ai-auth" }
 pi-rs-ai-types = { path = "crates/pi-rs-ai-types" }
 pi-rs-agent = { path = "crates/pi-rs-agent" }
 pi-rs-host = { path = "crates/pi-rs-host" }
+pi-rs-repl = { path = "crates/pi-rs-repl" }
 pi-rs-session = { path = "crates/pi-rs-session" }
 pi-rs-tui = { path = "crates/pi-rs-tui" }
 
