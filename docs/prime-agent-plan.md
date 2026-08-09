@@ -136,6 +136,9 @@ git tag pi-parity-v0.79.0
 
 ### P1 — `pi-rs-repl`: persistent Python/IPython bridge (hard mechanism #1)
 
+**Status: landed** (7f95730). Crate + stdio kernel shim + vendored rlm;
+gate green: `nix run .#repl-smoke` PASS (13 checks), source-language-gate OK.
+The `pi.repl` Lua seam is deferred to the host-integration slice.
 New crate, created here. Wire protocol: framed, length-prefixed JSON-lines,
 one integer version. Host→shim: `execute{id, code}`, `interrupt{id}`,
 `host_response{req_id, result}`, `snapshot{}`, `shutdown{}`. Shim→host:
@@ -169,6 +172,9 @@ leave zero surviving Python children.
 
 ### P2 — named-record CRUD in `pi-rs-session` (small; parallel with P1)
 
+**Status: landed** (97d5cea). 9 contract tests pass; missing store reads
+empty, kill-mid-append tolerated, malformed entries loud. The `pi.records`
+Lua seam lands with the harness consumer at P4.
 The record layer described in the placement table. Put/get/delete/list round
 trip; latest-value-wins; tombstones hide keys on list; fold respects limits;
 corruption reported loudly; kill-during-append leaves the store readable.
