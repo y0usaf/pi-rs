@@ -16,6 +16,10 @@
 #     in the allowlist description; these are not scheduled for porting.
 #   - maintained_tools   : long-lived repository-owned shell tools kept as-is
 #     with a documented reason in the allowlist description.
+#   - kernel_runtime      : subprocess payloads that execute only inside a
+#     pinned external runtime (the pi-rs-repl Python kernel shim). Same shape
+#     as browser_export_js — never an extension, generator, test harness, or
+#     host dependency; provenance recorded in the allowlist description.
 #
 # The gate FAILS on any new tracked in-scope file (not on this allowlist).
 # Stale allowlist entries (files already deleted/ported) are tolerated and
@@ -61,7 +65,8 @@ mapfile -t ALLOW_JS < <(jq -r '.browser_export_js[]' "$MANIFEST")
 mapfile -t ALLOW_PORT < <(jq -r '.port_eligible[]' "$MANIFEST")
 mapfile -t ALLOW_INERT < <(jq -r '.inert_fixtures[]?' "$MANIFEST")
 mapfile -t ALLOW_MAINT < <(jq -r '.maintained_tools[]?' "$MANIFEST")
-ALLOWED=( "${ALLOW_PORT[@]}" "${ALLOW_INERT[@]}" "${ALLOW_MAINT[@]}" )
+mapfile -t ALLOW_KERNEL < <(jq -r '.kernel_runtime[]?' "$MANIFEST")
+ALLOWED=( "${ALLOW_PORT[@]}" "${ALLOW_INERT[@]}" "${ALLOW_MAINT[@]}" "${ALLOW_KERNEL[@]}" )
 
 # ---------- 3. resolve the interpreter of a shebang (if any) ----------
 interp_of() {
@@ -135,5 +140,5 @@ if [ "$decl_fail" -eq 1 ]; then
 fi
 
 echo "source-language-gate: OK — $((${#TRACKED[@]})) tracked files checked" \
-     "(${#ALLOW_PORT[@]} port-eligible, ${#ALLOW_INERT[@]} inert, ${#ALLOW_MAINT[@]} maintained, ${#ALLOW_JS[@]} browser-export js)."
+     "(${#ALLOW_PORT[@]} port-eligible, ${#ALLOW_INERT[@]} inert, ${#ALLOW_MAINT[@]} maintained, ${#ALLOW_KERNEL[@]} kernel-runtime, ${#ALLOW_JS[@]} browser-export js)."
 exit 0
