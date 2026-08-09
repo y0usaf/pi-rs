@@ -403,6 +403,13 @@ def _restore(ip, path):
 # --- main loop ----------------------------------------------------------------
 
 def main():
+    # Isolate IPython's profile/history per kernel: concurrent shims on the
+    # same host would otherwise race on the shared IPYTHONDIR history DB.
+    try:
+        import tempfile
+        os.environ["IPYTHONDIR"] = tempfile.mkdtemp(prefix="pi-rs-repl-ipython-")
+    except Exception:
+        pass
     # Bootstrap mirror (RLM_BOOTSTRAP_BASE_CODE in tools/ipython.ts):
     os.environ.setdefault("NO_COLOR", "1")
     try:
