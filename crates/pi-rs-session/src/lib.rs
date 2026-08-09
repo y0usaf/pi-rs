@@ -20,6 +20,8 @@
 
 pub mod messages;
 pub mod paths;
+
+pub mod records;
 pub mod session_manager;
 pub mod time;
 pub mod uuid;
