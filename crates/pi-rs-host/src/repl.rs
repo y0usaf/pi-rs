@@ -74,10 +74,23 @@ async fn spawn_inner(_lua: &Lua, config: Table) -> mlua::Result<(KernelUserData,
     let kernel = KernelManager::spawn(cfg).await.map_err(mlua::Error::external)?;
 
     // Managed resource: the kernel dies with its owner (VM shutdown).
+    // Resource disposal runs on the VM thread after the dispatch loop exits,
+    // outside any Tokio reactor context, so `tokio::spawn` is not usable
+    // here (no reactor -> panic). A fresh current-thread runtime makes the
+    // shutdown reactor-independent; it is a no-op when the kernel is already
+    // dead (an explicit `kernel:shutdown()` or a prior dispose).
     let resource_kernel = kernel.clone();
     crate::resources::register("kernel", "pi.repl".to_string(), move || {
         let k = resource_kernel.clone();
-        let _ = tokio::spawn(async move { k.shutdown().await });
+        if k.is_dead() {
+            return;
+        }
+        if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            rt.block_on(k.shutdown());
+        }
     });
 
     Ok((KernelUserData(kernel), HostRequestRx(rx)))

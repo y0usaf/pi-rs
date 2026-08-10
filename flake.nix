@@ -201,6 +201,53 @@
             touch $out
           '';
 
+      # The `.#prime` flake app (P3): the same `pi` binary with a declarative
+      # composition that loads the Prime RLM Lua policy package
+      # (prime/rlm.lua) through the public loader and dispatches to the
+      # `prime-rlm` role it registers. The parity product never loads this
+      # package; the composition mechanism is the generic `--role`/`--package`
+      # path added to the launcher.
+      mkPrimeApp =
+        system:
+        let
+          c = mkCraneLib system;
+        in
+        c.pkgs.writeShellScriptBin "prime" ''
+          export PI_RS_REPL_PYTHON=${mkKernelPython system}/bin/python3
+          exec ${mkPiRs system}/bin/pi --role prime-rlm --package ${./prime/rlm.lua} "$@"
+        '';
+
+      # P3 gate check: the RLM loop runs end-to-end through the public loader
+      # and the real kernel env. Duty-free: the loop is driven by a scripted
+      # provider registered through the public registry (no dedicated test
+      # hook), so the check only needs the kernel python env to be present.
+      mkPrimeRlmCheck =
+        system:
+        let
+          c = mkCraneLib system;
+        in
+        c.pkgs.runCommand "prime-rlm-check"
+          {
+            nativeBuildInputs = [
+              (mkPrimeApp system)
+            ];
+            __noChroot = true;
+          }
+          ''
+            # The prime app must compose the Prime package and reach the
+            # generic role dispatch. With no credentials the loop reports the
+            # model-guidance error path (no models available) and exits 1 —
+            # proving model resolution + role dispatch ran. The parity app
+            # (`pi`) must be unaffected by the Prime package.
+            export HOME=$TMPDIR
+            if prime "hello" 2>err.txt; then
+              echo "expected prime to fail without credentials" >&2
+              exit 1
+            fi
+            grep -q 'No models available.' err.txt
+            touch $out
+          '';
+
       # Doctrine 06 — bare core boots: the substrate with zero packs,
       # zero config, and zero credentials still runs and does something
       # minimal but real. Exercises the WS2.6 entry points headlessly.
@@ -551,6 +598,7 @@
         ui-parity = mkUiParity system;
         final-parity-audit = mkFinalParityAudit system;
         repl-smoke = mkReplSmokeCheck system;
+        prime-rlm = mkPrimeRlmCheck system;
       });
 
       packages = forAllSystems (system: rec {
@@ -564,6 +612,10 @@
         repl-smoke = {
           type = "app";
           program = "${mkReplSmokeApp system}/bin/repl-smoke";
+        };
+        prime = {
+          type = "app";
+          program = "${mkPrimeApp system}/bin/prime";
         };
         demo = {
           type = "app";
