@@ -8,7 +8,7 @@
 //!
 //! Lua surface:
 //! - repl.spawn({python?, cwd?, env?, watchdog_ms?, interrupt_grace_ms?})
-//!     async -> (kernel, requests)   requests is the host_request channel
+//!   async -> (kernel, requests)   requests is the host_request channel
 //! - kernel:execute(code, {max_chars?}?) async -> ExecuteResult table
 //! - kernel:interrupt() async
 //! - kernel:snapshot(path, manifest_path, max_bytes?) async -> table
