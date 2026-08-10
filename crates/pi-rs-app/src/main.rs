@@ -731,6 +731,16 @@ async fn run(args: Args) -> ExitCode {
             warning_line(&format!("Warning: {error}"));
         }
     }
+    // Generic role composition (`--package`): load additional file-backed
+    // Lua policy packages through the same public load path as extensions,
+    // before role dispatch. The Prime `.#prime` app uses this to load
+    // `prime/rlm.lua`, which registers the `prime-rlm` role.
+    for package in &args.packages {
+        if let Err(error) = host.load_file(package) {
+            error_line(&format!("Error: Failed to load package \"{package}\": {error}"));
+            return ExitCode::FAILURE;
+        }
+    }
 
     // Spec (main.ts): piped stdin + @file text join the initial message;
     // RPC mode never reads stdin as a message.
@@ -791,6 +801,59 @@ async fn run(args: Args) -> ExitCode {
         "appendSystemPrompt": args.append_system_prompt,
         "name": args.name,
     });
+
+    // Generic role dispatch (`--role`): the Prime composition selects a
+    // registered generic role instead of a fixed product mode. The role
+    // handler receives the same startup request the interactive/print roles
+    // get; the final assistant text parts are written to stdout (matching
+    // print mode's text output) and the exit code reflects the stop reason
+    // (error/aborted print to stderr and exit 1).
+    if let Some(role) = &args.role {
+        return match host.call_role(role, &request.to_string()) {
+            Ok(Some(result)) => {
+                let result_obj: Option<&serde_json::Map<String, serde_json::Value>> =
+                    result.get("result").and_then(serde_json::Value::as_object);
+                let stop_reason = result_obj
+                    .and_then(|r| r.get("stopReason"))
+                    .and_then(serde_json::Value::as_str);
+                if stop_reason == Some("error") || stop_reason == Some("aborted") {
+                    let message = result_obj
+                        .and_then(|r| r.get("errorMessage"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| {
+                            format!("Request {}", stop_reason.unwrap_or("error"))
+                        });
+                    eprintln!("{}", stderr_paint("31", &message));
+                    ExitCode::FAILURE
+                } else {
+                    // Collect the final assistant text parts (each followed
+                    // by a newline, matching print mode).
+                    let content = result_obj
+                        .and_then(|r| r.get("content"))
+                        .and_then(serde_json::Value::as_array);
+                    if let Some(content) = content {
+                        for block in content {
+                            if let Some(text) =
+                                block.get("text").and_then(serde_json::Value::as_str)
+                            {
+                                println!("{text}");
+                            }
+                        }
+                    }
+                    ExitCode::SUCCESS
+                }
+            }
+            Ok(None) => {
+                error_line("Error: agent returned no result");
+                ExitCode::FAILURE
+            }
+            Err(error) => {
+                eprintln!("{}", stderr_paint("31", &error.to_string()));
+                ExitCode::FAILURE
+            }
+        };
+    }
 
     match app_mode {
         "rpc" => run_rpc_mode(&host, &request),
