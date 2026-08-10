@@ -236,9 +236,7 @@
           version = "0.1.0";
           nativeBuildInputs = c.commonEnv.nativeBuildInputs;
           pnameSuffix = "-prime-rlm";
-          cargoTestExtraArgs =
-            "-p pi-rs-host --test prime_rlm_loop -- --exact "
-            + "prime_rlm_loop::prime_rlm_loop_reaches_prose_stop_through_public_loader";
+          cargoTestExtraArgs = "-p pi-rs-host --test prime_rlm_loop";
           # Provide the real kernel python env so the loop's kernel spawn works
           # during the check phase; process spawns need the unsandboxed runner.
           env = {
