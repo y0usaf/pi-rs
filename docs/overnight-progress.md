@@ -26,6 +26,25 @@
 
 ## Done
 
+- **P3 wiring landed (prime-agent-faithful, 7e17444+):** the `.#prime` flake
+  app is now runnable end-to-end. Added the generic launcher composition path
+  the P3 core needed: `--role <name>` selects a registered generic role and
+  `--package <path>` (repeatable) loads file-backed Lua policy packages
+  through the public loader before role dispatch. `.#prime` runs the same
+  `pi` binary with `--role prime-rlm --package prime/rlm.lua` under the kernel
+  python env; the parity product never loads it. Fixed a host repl bug exposed
+  by Prime's kernel use: the kernel resource dispose closure called
+  `tokio::spawn` outside any reactor at VM teardown (no-reactor panic); it now
+  drives shutdown on a fresh current-thread runtime and no-ops when the kernel
+  already died explicitly. Added a `prime-rlm` flake check that runs the RLM
+  loop end-to-end through the public loader against a scripted API provider
+  (registered through `pi-rs-ai::registry`, no dedicated hook) and a real
+  IPython kernel, asserting a prose stop; and a `prime_rlm` role-registration
+  test pinned to the public loader. Manual smoke `nix run .#prime -- "hi"` ran
+  the loop with a real provider and exited cleanly. clippy warnings unchanged
+  (the two in repl.rs/kernel.rs are pre-existing); construction inventory
+  `call_role` count updated 7 -> 8.
+
 - **Gate restored to green** (this session, `main` b504d88/cfc49ff/f27940f,
   pushed):
   - `workspace-clippy` red -> green: collapsed if/match in

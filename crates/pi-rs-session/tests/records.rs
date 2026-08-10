@@ -5,7 +5,7 @@
 use std::fs::OpenOptions;
 use std::io::Write;
 
-use pi_rs_session::records::{RecordError, RecordOp, RecordStore};
+use pi_rs_session::records::{RecordError, RecordStore};
 
 fn temp_store() -> (tempfile::TempDir, RecordStore) {
     let dir = tempfile::tempdir().unwrap();
