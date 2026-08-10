@@ -65,6 +65,14 @@ pub struct Args {
     pub extensions: Vec<String>,
     /// `--no-extensions` / `-ne`: disable discovery/configured sources only.
     pub no_extensions: bool,
+    /// `--role <name>`: dispatch to a generic application/frontend role by
+    /// its declared generic role name (the Prime `.#prime` composition uses
+    /// `--role prime-rlm`). The parity product's fixed modes are unaffected.
+    pub role: Option<String>,
+    /// `--package <path>` (repeatable): load additional file-backed Lua
+    /// policy packages through the public loader before role dispatch. The
+    /// Prime `.#prime` app uses this to load `prime/rlm.lua`.
+    pub packages: Vec<String>,
     /// `--approve`/`-a` and `--no-approve`/`-na`: explicit project trust.
     pub project_trust_override: Option<bool>,
     /// Unknown `--flags` collected for extensions (spec: `unknownFlags`);
@@ -154,6 +162,14 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Args {
             "--extension" | "-e" if i + 1 < args.len() => {
                 i += 1;
                 result.extensions.push(args[i].clone());
+            }
+            "--role" if i + 1 < args.len() => {
+                i += 1;
+                result.role = Some(args[i].clone());
+            }
+            "--package" if i + 1 < args.len() => {
+                i += 1;
+                result.packages.push(args[i].clone());
             }
             "--session" if i + 1 < args.len() => {
                 i += 1;
@@ -300,6 +316,8 @@ Options:
   --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh
   --extension, -e <path>         Load an extension file (can be used multiple times)
   --no-extensions, -ne           Disable extension discovery (explicit -e paths still work)
+  --role <name>                  Dispatch to a generic application role (e.g. prime-rlm)
+  --package <path>               Load a file-backed Lua policy package (repeatable)
   --skill <path>                 Load a skill file or directory (can be used multiple times)
   --no-skills, -ns               Disable skills discovery and loading
   --prompt-template <path>       Load a prompt template file or directory (can be used multiple times)
