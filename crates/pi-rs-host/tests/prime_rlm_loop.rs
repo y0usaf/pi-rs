@@ -123,7 +123,8 @@ fn prime_rlm_loop_reaches_prose_stop_through_public_loader() {
         "sessionDir": std::env::temp_dir().join("prime-rlm-test").to_string_lossy(),
         "model": { "id": "prime-scripted-1", "provider": "scripted",
                    "api": "prime-rlm-scripted", "name": "Scripted",
-                   "reasoning": false, "contextWindow": 100000, "maxTokens": 4096 },
+                   "baseUrl": "http://127.0.0.1:1", "reasoning": false,
+                   "contextWindow": 100000, "maxTokens": 4096 },
         "prompt": "hello",
     });
 
