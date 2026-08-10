@@ -214,7 +214,8 @@
         in
         c.pkgs.writeShellScriptBin "prime" ''
           export PI_RS_REPL_PYTHON=${mkKernelPython system}/bin/python3
-          exec ${mkPiRs system}/bin/pi --role prime-rlm --package ${./prime/rlm.lua} "$@"
+          exec ${mkPiRs system}/bin/pi --role prime-rlm \
+            --package ${./prime/rlm.lua} --package ${./prime/harness.lua} "$@"
         '';
 
       # P3 gate check: the RLM loop runs end-to-end through the public loader
