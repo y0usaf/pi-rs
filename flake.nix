@@ -201,6 +201,52 @@
             touch $out
           '';
 
+      # The `.#prime` flake app (P3): the same `pi` binary with a declarative
+      # composition that loads the Prime RLM Lua policy package
+      # (prime/rlm.lua) through the public loader and dispatches to the
+      # `prime-rlm` role it registers. The parity product never loads this
+      # package; the composition mechanism is the generic `--role`/`--package`
+      # path added to the launcher.
+      mkPrimeApp =
+        system:
+        let
+          c = mkCraneLib system;
+        in
+        c.pkgs.writeShellScriptBin "prime" ''
+          export PI_RS_REPL_PYTHON=${mkKernelPython system}/bin/python3
+          exec ${mkPiRs system}/bin/pi --role prime-rlm --package ${./prime/rlm.lua} "$@"
+        '';
+
+      # P3 gate check: the RLM loop runs end-to-end through the public loader
+      # and drives a real kernel. The `prime_rlm_loop` test registers a
+      # scripted API provider through the public `pi-rs-ai::registry` (no
+      # dedicated test hook), loads `prime/rlm.lua` as an ordinary file-backed
+      # package, dispatches the `prime-rlm` role, and asserts the loop reaches
+      # a prose stop. It is skipped in the bare offline test env; this check
+      # runs it under the Nix kernel python so `pi.repl` spawns a real IPython
+      # child. Needs the sandbox to allow process spawns (__noChroot).
+      mkPrimeRlmCheck =
+        system:
+        let
+          c = mkCraneLib system;
+        in
+        c.craneLib.cargoTest {
+          inherit (c) src cargoArtifacts;
+          pname = "pi-rs-prime-rlm";
+          version = "0.1.0";
+          nativeBuildInputs = c.commonEnv.nativeBuildInputs;
+          pnameSuffix = "-prime-rlm";
+          cargoTestExtraArgs =
+            "-p pi-rs-host --test prime_rlm_loop -- --exact "
+            + "prime_rlm_loop::prime_rlm_loop_reaches_prose_stop_through_public_loader";
+          # Provide the real kernel python env so the loop's kernel spawn works
+          # during the check phase; process spawns need the unsandboxed runner.
+          env = {
+            PI_RS_REPL_PYTHON = "${mkKernelPython system}/bin/python3";
+          };
+          __noChroot = true;
+        };
+
       # Doctrine 06 — bare core boots: the substrate with zero packs,
       # zero config, and zero credentials still runs and does something
       # minimal but real. Exercises the WS2.6 entry points headlessly.
@@ -551,6 +597,7 @@
         ui-parity = mkUiParity system;
         final-parity-audit = mkFinalParityAudit system;
         repl-smoke = mkReplSmokeCheck system;
+        prime-rlm = mkPrimeRlmCheck system;
       });
 
       packages = forAllSystems (system: rec {
@@ -564,6 +611,10 @@
         repl-smoke = {
           type = "app";
           program = "${mkReplSmokeApp system}/bin/repl-smoke";
+        };
+        prime = {
+          type = "app";
+          program = "${mkPrimeApp system}/bin/prime";
         };
         demo = {
           type = "app";

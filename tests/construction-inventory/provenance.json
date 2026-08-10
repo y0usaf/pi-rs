@@ -46,7 +46,7 @@
   {
    "path": "crates/pi-rs-app/src/main.rs",
    "operation": "call_role",
-   "count": 7,
+   "count": 8,
    "row": "rust.hardcoded-application-dispatch"
   },
   {
