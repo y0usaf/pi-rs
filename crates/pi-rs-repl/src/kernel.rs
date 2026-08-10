@@ -308,8 +308,6 @@ impl KernelManager {
     }
 
     /// Interrupt the running cell.
-
-    /// Interrupt the running cell.
     pub async fn interrupt(&self) -> Result<(), KernelError> {
         let id = self.inner.next_id.fetch_add(1, Ordering::SeqCst);
         self.send(&HostMsg::Interrupt { v: WIRE_VERSION, id }).await
