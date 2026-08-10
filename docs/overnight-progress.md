@@ -79,8 +79,21 @@
 
 ## Blockers
 
-- None currently. (If a parity check is red and cannot be fixed honestly:
-  stop that line, record here + PLAN.md, move to independent work.)
+- **ui-parity `retry-turn` red (pre-existing on prime-agent-faithful).** The
+  `retry-countdown-1` checkpoint renders empty in the Pi oracle but pi-rs
+  shows the transcript banner (" Pi can explain its own features..."). A full
+  `nix flake check --option sandbox false` (17 checks) gets the other 13
+  evaluated checks green — including `workspace-test`, `workspace-clippy`,
+  `construction-inventory`, `final-parity-audit`, `repl-smoke`, and the new
+  `prime-rlm` — and fails only `ui-parity` at `retry-turn`. Reproduced
+  identically at the pre-P3-wiring base commit `449777f` (git worktree), so it
+  is NOT a regression from the P3 wiring commits. It is a real interactive
+  countdown-rendering parity divergence; a fix needs the authoritative Pi
+  oracle reference (hash-pinned ref/pi), which is outside this session. This
+  line stays red until that divergence is resolved honestly.
+
+(If a parity check is red and cannot be fixed honestly: stop that line,
+record here + PLAN.md, move to independent work.)
 
 ## Decisions needing human review
 
