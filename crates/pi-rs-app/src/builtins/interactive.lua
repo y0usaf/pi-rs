@@ -9631,6 +9631,52 @@ function interactive_extension_action_handlers(state)
       local task = handle_reload_command(state)
       if task then task:join() end
     end,
+    -- PLAN 9.4: extension action methods for interactive mode
+    send_message = function(action)
+      if action.message then
+        handle_user_input(state, action.message)
+      end
+    end,
+    send_user_message = function(action)
+      if action.message then
+        handle_user_input(state, action.message)
+      end
+    end,
+    set_model = function(action)
+      if action.model then
+        state.model_selection:select_model(action.model)
+      end
+    end,
+    set_thinking_level = function(action)
+      if action.level then
+        state.agent:set_thinking_level(action.level)
+      end
+    end,
+    set_session_name = function(action)
+      if action.name then
+        state.session_manager:append_session_info(action.name)
+      end
+    end,
+    set_active_tools = function(action)
+      if action.tools then
+        local tools = {}
+        for _, t in ipairs(pi.registered_tools()) do
+          for _, name in ipairs(action.tools) do
+            if t.name == name then
+              tools[#tools + 1] = t
+            end
+          end
+        end
+        if #tools > 0 then
+          state.session:set_tools(tools)
+        end
+      end
+    end,
+    set_label = function(action)
+      if action.entryId and action.label then
+        state.session_manager:append_label(action.entryId, action.label)
+      end
+    end,
   }
 end
 
