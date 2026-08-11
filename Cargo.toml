@@ -23,6 +23,7 @@ serde = { version = "1.0", features = ["derive"] }
 # preserve_order: Pi's JS runtime keeps wire key order everywhere
 # (JSON.parse/stringify); sorted maps were a Rust-ism (PLAN 2b.5).
 serde_json = { version = "1.0", features = ["preserve_order", "float_roundtrip"] }
+serde_yaml = "0.9"
 vt100 = "0.16.2"
 signal-hook = "0.3"
 sha2 = "0.10"
@@ -55,3 +56,4 @@ incremental = true
 [profile.test]
 debug = 0
 incremental = true
+

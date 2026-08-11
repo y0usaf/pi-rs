@@ -17,6 +17,25 @@ use pi_rs_ai_types::ModelThinkingLevel;
 use crate::config::{APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, VERSION};
 use crate::core::model_resolver::parse_thinking_level;
 
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum Mode {
+    #[default]
+    Text,
+    Json,
+    Rpc,
+}
+
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Mode::Text => write!(f, "text"),
+            Mode::Json => write!(f, "json"),
+            Mode::Rpc => write!(f, "rpc"),
+        }
+    }
+}
+
+
 /// Spec: the `diagnostics` entries.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Diagnostic {
@@ -27,6 +46,8 @@ pub struct Diagnostic {
 /// Spec: `Args` (landed subset).
 #[derive(Debug, Default)]
 pub struct Args {
+    pub mode: Mode,
+    pub print: bool,
     pub provider: Option<String>,
     pub model: Option<String>,
     pub api_key: Option<String>,
@@ -116,6 +137,23 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Args {
                 }
                 None => result.list_models = Some(None),
             },
+            "--print" | "-p" => result.print = true,
+            "--mode" if i + 1 < args.len() => {
+                i += 1;
+                let value = args[i].as_str();
+                result.mode = match value {
+                    "text" => Mode::Text,
+                    "json" => Mode::Json,
+                    "rpc" => Mode::Rpc,
+                    other => {
+                        result.diagnostics.push(Diagnostic {
+                            is_error: false,
+                            message: format!("Unknown mode \"{other}\". Valid values: text, json, rpc"),
+                        });
+                        continue;
+                    }
+                };
+            }
             "--login" => match optional_value(i) {
                 Some(provider) => {
                     result.login = Some(Some(provider.clone()));
@@ -165,6 +203,8 @@ Options:
   --session <path|id>            Use specific session file or partial UUID
   --extension, -e <path>         Load a Lua extension (repeatable)
   --no-extensions, -ne           Disable extension discovery (keeps -e)
+  --print, -p                   Force one-shot/print mode (implicit when messages are given)
+  --mode <text|json|rpc>  Output mode: text (default streaming), json (JSONL events), rpc
   --approve, -a                  Trust project resources for this session
   --no-approve, -na              Do not trust project resources for this session
   --help, -h                     Show this help

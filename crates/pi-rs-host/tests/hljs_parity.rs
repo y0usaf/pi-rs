@@ -61,7 +61,12 @@ fn pi_hljs_matches_vendored_highlight_js_oracle() {
     let cases = fixture("cases.json");
     let oracle = fixture("oracle.json");
 
-    let host = Host::new(HostConfig::default()).expect("host");
+    // 191 grammars x 53 cases needs more than the default 5s budget
+    let config = HostConfig {
+        dispatch_timeout_ms: 30_000,
+        ..HostConfig::default()
+    };
+    let host = Host::new(config).expect("host");
     host.load("hljs-test", RUNNER).expect("runner loads");
     let result = host
         .call_command("hljs-run", &cases.to_string())
@@ -148,7 +153,7 @@ fn lua_surface_exposes_the_library() {
               value = ts.value,
               supports_ts = pi.hljs.supports_language("typescript"),
               supports_alias = pi.hljs.supports_language("HTML"),
-              supports_missing = pi.hljs.supports_language("brainfuck"),
+              supports_missing = pi.hljs.supports_language("xnonesuch"),
               unknown_error = (not ok) and tostring(err) or nil,
             }
           end,
