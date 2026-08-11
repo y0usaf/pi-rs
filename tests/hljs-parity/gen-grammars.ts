@@ -1,5 +1,5 @@
 // Serializes compiled highlight.js 10.7.3 grammars (the vendored library
-// Pi's coding agent uses for syntax highlighting) into the data catalog
+// pi's coding agent uses for syntax highlighting) into the data catalog
 // embedded by pi-rs's Rust engine (crates/pi-rs-host/data/hljs-grammars.json).
 //
 // The grammars are compiled by the vendored library itself (compileLanguage
@@ -9,63 +9,13 @@
 // engine implements; an unknown callback is a hard error so the boundary
 // stays explicit.
 //
-// Scope: the languages reachable from Pi's coding agent presentation layer —
-// theme.ts getLanguageFromPath extensions plus the fenced-code tags Pi's own
-// tests pin (`diff`, `html`) — closed over subLanguage references. Everything
-// outside the set falls back to Pi's unvalidated-language path (recorded in
-// PLAN.md 2b.3).
-//
-// Run via scripts/hljs-grammars. Do not edit the output by hand.
+// Scope: all grammars registered in highlight.js 10.7.3. Grammars with
+// callbacks the Rust engine does not implement are logged to stderr and
+// skipped. Run via scripts/hljs-grammars. Do not edit the output by hand.
 import hljs from "../../ref/pi/node_modules/highlight.js/lib/index.js";
 
-// theme.ts getLanguageFromPath target languages (values of extToLang),
-// plus fence tags exercised by Pi's own syntax-highlight tests.
-const WANTED = [
-	"typescript",
-	"javascript",
-	"python",
-	"ruby",
-	"rust",
-	"go",
-	"java",
-	"kotlin",
-	"swift",
-	"c",
-	"cpp",
-	"csharp",
-	"php",
-	"bash",
-	"fish",
-	"powershell",
-	"sql",
-	"html",
-	"css",
-	"scss",
-	"sass",
-	"less",
-	"json",
-	"yaml",
-	"toml",
-	"xml",
-	"markdown",
-	"dockerfile",
-	"makefile",
-	"cmake",
-	"lua",
-	"perl",
-	"r",
-	"scala",
-	"clojure",
-	"elixir",
-	"erlang",
-	"haskell",
-	"ocaml",
-	"vim",
-	"graphql",
-	"protobuf",
-	"hcl",
-	"diff",
-];
+// All registered grammars — every language hljs 10.7.3 ships.
+const WANTED: string[] = (hljs as any).listLanguages();
 
 type Json = unknown;
 
@@ -91,8 +41,6 @@ function callbackName(fn: (...args: unknown[]) => unknown, language: string, kin
 }
 
 function serializeLanguage(name: string) {
-	// Force compilation; the library compiles the registered definition in
-	// place (compileLanguage via _highlight).
 	hljs.highlight("", { language: name, ignoreIllegals: true });
 	const lang = (hljs as any).getLanguage(name);
 	if (!lang || !lang.isCompiled) throw new Error(`language '${name}' did not compile`);
@@ -163,40 +111,39 @@ function serializeLanguage(name: string) {
 	};
 }
 
-// Resolve wanted names through the registry (aliases like html→xml,
-// toml→ini) and drop the ones the vendored library does not ship — Pi's
-// supportsLanguage is false for those too, so both sides take the
-// mdCodeBlock fallback.
+// Resolve all names to their registry keys and close over subLanguage references.
 const canonical = new Set<string>();
 for (const wanted of WANTED) {
 	const lang = (hljs as any).getLanguage(wanted);
 	if (!lang) continue;
-	// Find the registered key for this definition.
 	const key = hljs.listLanguages().find((name) => (hljs as any).getLanguage(name) === lang);
 	if (!key) throw new Error(`no registry key for '${wanted}'`);
 	canonical.add(key);
 }
 
-// Serialize in registration order (relevance ties in highlightAuto resolve
-// by original ordering), closing over subLanguage references.
+// Serialize in registration order, closing over subLanguage references.
 const serialized = new Map<string, ReturnType<typeof serializeLanguage>>();
 let changed = true;
 while (changed) {
 	changed = false;
 	for (const name of hljs.listLanguages()) {
 		if (!canonical.has(name) || serialized.has(name)) continue;
-		const entry = serializeLanguage(name);
-		serialized.set(name, entry);
-		changed = true;
-		for (const mode of entry.modes as any[]) {
-			const sub = mode.subLanguage;
-			const subNames = typeof sub === "string" ? [sub] : Array.isArray(sub) ? sub : [];
-			for (const subName of subNames) {
-				const subLang = (hljs as any).getLanguage(subName);
-				if (!subLang) continue;
-				const key = hljs.listLanguages().find((n) => (hljs as any).getLanguage(n) === subLang);
-				if (key && !canonical.has(key)) canonical.add(key);
+		try {
+			const entry = serializeLanguage(name);
+			serialized.set(name, entry);
+			changed = true;
+			for (const mode of entry.modes as any[]) {
+				const sub = mode.subLanguage;
+				const subNames = typeof sub === "string" ? [sub] : Array.isArray(sub) ? sub : [];
+				for (const subName of subNames) {
+					const subLang = (hljs as any).getLanguage(subName);
+					if (!subLang) continue;
+					const key = hljs.listLanguages().find((n) => (hljs as any).getLanguage(n) === subLang);
+					if (key && !canonical.has(key)) canonical.add(key);
+				}
 			}
+		} catch (e) {
+			process.stderr.write(`error serializing grammar '${name}': ${e}\n`);
 		}
 	}
 }
