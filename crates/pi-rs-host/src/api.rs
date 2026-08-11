@@ -2159,6 +2159,53 @@ pub(crate) fn build(
         shortcuts.set(key.as_str(), entry)?;
         Ok(())
     })?;
+
+    // PLAN 9.4: Pi's registerMessageRenderer(kind, usage, renderer)
+    // Registers a custom renderer for a message kind; used by message renderer
+    // in `registered_message_renderers(usage)` for the interactive fronted.
+    let register_message_renderer = lua.create_function(|lua, (kind, priority, renderer): (String, u64, Function)| {
+        let source = crate::api::current_source(lua);
+        let registry = crate::api::registry_table(lua)?;
+        let exts: mlua::Table = registry.get("exts")?;
+        if let Ok(Some(ext)) = exts.get::<Option<mlua::Table>>(source.as_str())? {
+            let renderers: mlua::Table = ext.get("message_renderers")?;
+            let entry = lua.create_table()?;
+            entry.set("kind", kind)?;
+            entry.set("priority", priority)?;
+            entry.set("handler", renderer)?;
+            renderers.push(entry)?;
+        }
+        Ok(())
+    })?;
+    pi.set("register_message_renderer", register_message_renderer)?;
+
+    // Registered_message_renderers(kind) -> returns all ordered handlers
+    let register_message_renderers = lua.create_function(|lua, kind: String| {
+        let registry = crate::api::registry_table(lua)?;
+        let all = lua.create_table()?;
+        let exts: mlua::Table = registry.get("exts")?;
+        let ext_order: mlua::Table = registry.get("ext_order")?;
+        for source in ext_order.sequence_values::<String>() {
+            let source = source?;
+            if let Some(ext) = exts.get::<Option<mlua::Table>>(source.as_str())? {
+                if let Some(renderers) = ext.get::<Option<mlua::Table>>("message_renderers")? {
+                    for entry in renderers.sequence_values::<mlua::Table>() {
+                        if entry.get::<Option<String>>("kind")?.as_deref() == Some(kind.as_str()) {
+                            all.push(entry)?;
+                        }
+                    }
+                }
+            }
+        }
+        // Sort by priority descending
+        let all_sorted all.sort_by(|a, b| {
+            let ap = a.get("priority")?.unwrap_or(0u64);
+            let bp = b.get("priority")?.unwrap_or(0u64);
+            bp.partial_cmp(&ap).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        Ok(all_sorted)
+    })?;
+    pi.set("registered_message_renderers", registered_message_renderers)?;
     pi.set("register_shortcut", register_shortcut)?;
 
     // Resolved first-registration-wins view for the frontend (spec
@@ -2446,7 +2493,15 @@ pub(crate) fn build(
             {
                 continue;
             }
-            providers.set(name.as_str(), mlua::Value::Nil)?;
+            // PLAN 9.4: clean up custom_stream entry before removing the provider.
+            if let Some(entry) = providers.get::<Option<mlua::Table>>(name.as_str())? {
+                if let Some(api) = entry.get::<Option<mlua::String>>("api")? {
+                    if let Some(custom) = registry.get::<Option<mlua::Table>>("custom_stream")? {
+                        if let Ok(api_str) = api.to_str() { let _ = custom.raw_remove(api_str); }
+                    }
+                }
+            }
+                        providers.set(name.as_str(), mlua::Value::Nil)?;
             let order: mlua::Table = ext.get("provider_order")?;
             let kept = lua.create_table()?;
             for entry in order.sequence_values::<String>() {
@@ -3141,6 +3196,20 @@ pub(crate) fn build(
     crate::trust::install(lua, &pi)?;
     crate::clipboard::install(lua, &pi)?;
 
+
+    // Spec: parse_frontmatter(content) -- parse YAML frontmatter from markdown.
+    let parse_frontmatter = lua.create_function(|lua, content: String| {
+        let document = crate::frontmatter::parse_frontmatter(&content);
+        let table = lua.create_table()?;
+        if let Some(ref fm) = document.frontmatter {
+            table.set("frontmatter", crate::convert::json_to_lua(lua, fm)?)?;
+        } else {
+            table.set("frontmatter", mlua::Value::Nil)?;
+        }
+        table.set("body", document.body)?;
+        Ok(table)
+    })?;
+    pi.set("parse_frontmatter", parse_frontmatter)?;
     Ok(pi)
 }
 
