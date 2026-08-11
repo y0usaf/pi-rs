@@ -2423,9 +2423,32 @@ pub(crate) fn build(
             let (k, v) = pair?;
             entry.set(k, v)?;
         }
+
+        // PLAN 9.4: if config has both an `api` (new stream identifier)
+        // and a `streamSimple` Lua function, register a custom mapping
+        // so `pi.ai.stream_simple` dispatches to this Lua function for
+        // models using that api. Cleanup on unregister.
+        if let Ok(api) = config.get::<String>("api")
+            && !api.is_empty() && config.get::<Option<mlua::Function>>("streamSimple")?.is_some()
+        {
+            let registry = registry_table(lua)?;
+            let custom: mlua::Table =
+                match registry.get::<Option<mlua::Table>>("custom_stream")? {
+                    Some(t) => t,
+                    None => {
+                        let t = lua.create_table()?;
+                        registry.set("custom_stream", &t)?;
+                        t
+                    }
+                };
+            custom.set(api.as_str(), entry.clone())?;
+        }
+
+
         Ok(())
     })?;
     pi.set("register_provider", register_provider)?;
+
 
     // Spec `unregisterProvider`: removal by name regardless of which
     // extension registered it (the spec's registry is keyed globally);

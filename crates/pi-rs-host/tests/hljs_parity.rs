@@ -148,7 +148,7 @@ fn lua_surface_exposes_the_library() {
               value = ts.value,
               supports_ts = pi.hljs.supports_language("typescript"),
               supports_alias = pi.hljs.supports_language("HTML"),
-              supports_missing = pi.hljs.supports_language("brainfuck"),
+              supports_missing = pi.hljs.supports_language("xnonesuch"),
               unknown_error = (not ok) and tostring(err) or nil,
             }
           end,
