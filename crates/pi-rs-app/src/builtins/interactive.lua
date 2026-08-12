@@ -318,6 +318,30 @@ local function sanitize_status(text)
   return (text:gsub("[\r\n\t]", " "):gsub(" +", " "):match("^%s*(.-)%s*$"))
 end
 
+-- FooterDataProvider.getGitBranch(): live git-branch discovery. pi-rs's
+-- hosted `pi.git.current_branch(cwd)` ports footer-data-provider.ts
+-- findGitPaths + resolveGitBranch. An injected `state.branch` (parity fixture
+-- or shell-owned listener) wins — matching how Pi's shell scopes deterministic
+-- footer frames — and live discovery only fills a nil branch, cached per cwd so
+-- repeated footer renders don't re-stat .git.
+function footer_live_branch(state)
+  if state.request_branch then return state.request_branch end
+  -- Cache per cwd (footer-data-provider.ts setCwd resets cachedBranch on a
+  -- repo switch): only serve the cached value while cwd is unchanged, so a move
+  -- to a different/absent repo re-probes instead of showing a stale branch.
+  if state.branch_cwd == state.cwd then return state.branch end
+  local ok, branch = pcall(pi.git.current_branch, state.cwd)
+  if ok then
+    state.branch = branch
+    state.branch_cwd = state.cwd
+  else
+    -- Probe failed (unexpected): do not cache; fall back to a live value may
+    -- retry next render rather than serving a stale branch under a new cwd.
+    state.branch = nil
+  end
+  return state.branch
+end
+
 -- components/footer.ts formatCwdForFooter — paths arrive absolute from
 -- the process, so the spec's resolve() is the identity here.
 local function format_cwd_for_footer(cwd, home)
@@ -5235,7 +5259,7 @@ function default_footer_slot(state, width)
     if cache_hit_rate == nil then cache_hit_rate = false end
   end
   return footer({
-    width = width, cwd = state.cwd, home = state.home, branch = state.branch,
+    width = width, cwd = state.cwd, home = state.home, branch = footer_live_branch(state),
     session_name = state.session_manager and state.session_manager:get_session_name() or "",
     usage = usage, cache_hit_rate = cache_hit_rate, context_percent = context_percent,
     context_window = state.model and state.model.contextWindow or 0,
@@ -9767,7 +9791,8 @@ local function create_interactive_state(request)
   local theme = create_theme(data, request.colorMode or "truecolor")
   local state = {
     theme = theme, theme_data = data, md_theme = nil, model = request.model, cwd = request.cwd or pi.cwd(),
-    home = request.home, branch = request.branch,
+    home = request.home, branch = request.branch, request_branch = request.branch,
+    branch_cwd = nil,
     app_name = request.appName or "pi", version = request.version,
     thinking_level = request.thinkingLevel or "off",
     transcript = {}, streaming_row = nil, pending_tools = {},
@@ -10118,6 +10143,7 @@ pi.register_command("interactive-frame", {
     local theme = create_theme(data, request.colorMode or "truecolor")
     local state = { theme = theme, md_theme = get_markdown_theme(theme),
       model = request.model, cwd = request.cwd, branch = request.branch,
+      request_branch = request.branch, branch_cwd = nil,
       app_name = "pi", version = request.version, header_expanded = false,
       thinking_level = "off", transcript = request.transcript or {},
       steering_texts = {}, follow_up_texts = {},
@@ -10283,7 +10309,8 @@ pi.register_command("interactive-shell-parity-sequence", {
       theme = theme, md_theme = get_markdown_theme(theme),
       app_name = request.appName or "pi", version = request.version,
       model = request.model, cwd = request.cwd, home = request.home,
-      branch = request.branch, thinking_level = "off",
+      branch = request.branch, request_branch = request.branch, branch_cwd = nil,
+      thinking_level = "off",
       transcript = initial_thinking_message
         and { { kind = "assistant", message = initial_thinking_message } } or {},
       streaming_message = nil, hide_thinking_block = false,
@@ -10410,7 +10437,7 @@ pi.register_command("interactive-thinking-parity-sequence", {
       theme = theme, md_theme = get_markdown_theme(theme),
       app_name = request.appName or "pi", version = request.version,
       model = request.model, cwd = request.cwd, home = request.home,
-      branch = request.branch,
+      branch = request.branch, request_branch = request.branch, branch_cwd = nil,
       thinking_level = request.thinkingLevel or "off",
       transcript = {}, streaming_message = nil,
       tools_expanded = false, header_expanded = false,

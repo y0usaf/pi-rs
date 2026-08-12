@@ -20,10 +20,10 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 
 | Classification | Source files | Public exports |
 |---|---:|---:|
-| `parity` | 185 | 490 |
-| `open` | 56 | 207 |
+| `parity` | 190 | 493 |
+| `open` | 49 | 204 |
 | `design` | 0 | 0 |
-| `out-of-scope` | 29 | 354 |
+| `out-of-scope` | 31 | 354 |
 
 > This audit intentionally does **not** close PLAN 11: open prerequisite rows
 > remain in PLAN 8/9/10, and PLAN 11 retains the final live side-by-side gate.
@@ -54,7 +54,7 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | `agent.general-harness` | `out-of-scope` | DESIGN product boundary | 21 | The standalone general-purpose harness/repository/proxy framework is not exercised by the shipped coding agent or bounded extension platform. Evidence: `DESIGN.md`. |
 | `agent.loop` | `parity` | closed | 4 | The Pi-generated agent event-order oracle covers loop state, tool ordering, steering/follow-ups, cancellation, settlement, and failures. Evidence: `tests/agent-parity/oracle.json`, `crates/pi-rs-agent/tests/agent_parity.rs`. |
 | `tui.extension-composition` | `open` | PLAN 9.5 | 2 | Overlay/custom-component composition and public rendering middleware remain open even though the default terminal renderer is proven. Evidence: `PLAN.md`. |
-| `tui.platform-modifiers` | `open` | PLAN 11 | 2 | Pi uses native macOS/Windows modifier polling to recover Shift+Tab and Ctrl+Space when terminals lose modifier state; pi-rs has no equivalent platform fixture/mechanism yet. Evidence: `DESIGN.md`. |
+| `tui.platform-modifiers` | `parity` | closed | 2 | Native modifier polling (native-modifiers.ts) and Apple-Terminal Shift+Enter normalization (terminal.ts) are ported as a pi.rs-tui mechanism exposed through pi.tui and pinned against a Pi-generated oracle. Evidence: `crates/pi-rs-host/tests/platform_modifiers_parity.rs`, `crates/pi-rs-tui/src/native_modifiers.rs`, `tests/platform-modifiers-parity/oracle.json`. |
 | `tui.mechanisms` | `parity` | closed | 23 | Editor/autocomplete/input/component/image/cell behavior is pinned by focused TUI ports and the complete interactive frame suite. Evidence: `crates/pi-rs-tui/src/ui_harness.rs`, `crates/pi-rs-tui/src/editor.rs`, `tests/ui-parity/editor-turn.pci.json`. |
 | `coding.assembly` | `open` | PLAN 11 | 3 | Generic role assembly is implemented (zero-pack boot, per-package suppression, file-backed replacement per construction-inventory implemented rows); the final side-by-side CLI differential remains the PLAN 11 gate. Evidence: `PLAN.md`. |
 | `coding.noninteractive` | `open` | PLAN 10 | 11 | Print text mode, JSON framing, the `@file`/piped-stdin/initial-message pipeline, the `messages[]` follow-up sequence, the full `--help`/args parse surface, the RPC JSONL framing + synchronous command protocol, the deterministic per-command async scheduling (sync commands emit in arrival order; awaited commands defer to ascending-await-depth/FIFO completion, pinned by the async-steer-followup-abort oracle case), the stdout output-guard (stray extension `print`/`io.write` route to stderr so non-interactive stdout stays protocol-clean), the RPC empty-array serialization for `get_fork_messages`/`get_commands`/`get_messages` (`[]`, not `{}`, pinned by the `empty-fork-messages`/`empty-commands`/`empty-messages` oracle cases), and Pi's RPC extension-UI binding (`ctx.hasUI == true`, real `ExtensionUIContext` transported as `extension_ui_request` JSONL records on stdout, per rpc-mode.ts `createExtensionUIContext`) are closed (see evidence; RPC also loads CLI `--extension` files like Pi's createAgentSessionServices). Remaining: startup-ui, the RPC agent-streaming commands requiring concurrent agent/event streaming or scripted session data (prompt/bash/compact/fork/clone/new_session/switch_session/get_fork_messages with live data), and the Node RpcClient. Evidence: `PLAN.md`, `tests/file-processor-parity/oracle.json`, `crates/pi-rs-app/tests/file_processor_parity.rs`, `crates/pi-rs-app/tests/print_mode_parity.rs`, `tests/print-mode-parity/oracle.json`, `crates/pi-rs-app/tests/print_mode_parity.rs`, `tests/args-parity/oracle.json`, `crates/pi-rs-app/tests/args_parity.rs`, `tests/rpc-parity/oracle.json`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/src/builtins/coding-agent.lua`, `scripts/rpc-oracle`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/src/builtins/utils/extensions.lua`. |
@@ -67,9 +67,9 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | `coding.resources-packages` | `open` | PLAN 9.7 | 8 | Resource discovery, Lua modules, prompt/skill/theme provenance, package transport, and pi config remain open. Evidence: `PLAN.md`. |
 | `coding.public-assembly` | `open` | PLAN 9.10 | 2 | The coding-agent barrel still exposes policy implemented through monolithic/private composition; decomposition, ablation, and replacement must close before its public capability map can be accepted. Evidence: `PLAN.md`. |
 | `coding.highlight-catalog` | `parity` | closed | 1 | The checked highlight mechanism has 190 of Pi highlight.js's 191 registered grammars; the excluded grammar (mathematica) has a filter callback the Rust engine does not implement. Evidence: `crates/pi-rs-host/data/hljs-grammars.json`, `tests/hljs-parity/gen-grammars.ts`. |
-| `coding.platform-clipboard` | `open` | PLAN 11 | 1 | Pi can use its optional native clipboard addon on macOS/Windows/X11; pi-rs currently only matches Pi’s addon-unavailable fallback. Evidence: `DESIGN.md`. |
-| `coding.footer-git` | `open` | PLAN 11 | 2 | The default footer lacks Pi’s live git-branch discovery/watcher and extension-status data provider; frame fixtures currently inject deterministic footer data. Evidence: `crates/pi-rs-app/src/builtins/interactive/PARITY.md`. |
-| `coding.platform-update` | `open` | PLAN 11 | 2 | Windows self-update and sandbox/Bun environment restoration have no equivalent platform differential evidence on the current base. Evidence: `DESIGN.md`. |
+| `coding.platform-clipboard` | `parity` | closed | 1 | The optional native clipboard addon resolution core (loadClipboardNative) and module-level gate (!TERMUX_VERSION && hasDisplay) are ported and pinned against a Pi-generated oracle. Evidence: `crates/pi-rs-host/tests/platform_clipboard_parity.rs`, `crates/pi-rs-host/src/clipboard.rs`, `tests/platform-clipboard-parity/oracle.json`. |
+| `coding.footer-git` | `parity` | closed | 2 | Live git-branch discovery (findGitPaths + resolveGitBranch) is ported as a pi.git mechanism wired into the default footer and pinned against a Pi-generated FooterDataProvider oracle; extension-status data provider was already wired through ctx.ui.setStatus. Evidence: `crates/pi-rs-host/tests/footer_git_parity.rs`, `crates/pi-rs-host/src/git.rs`, `tests/footer-git-parity/oracle.json`, `crates/pi-rs-app/src/builtins/interactive.lua`. |
+| `coding.platform-update` | `out-of-scope` | DESIGN product boundary | 2 | windows-self-update.ts quarantines locked .node/native addons so an npm/pi-update-self reinstall on Windows can replace them, and restore-sandbox-env.ts recovers process.env against a Bun compiled-binary bug; a native Rust binary ships no self-update, bundled native addons, or empty-env failure, so neither mechanism applies. Recorded as a DESIGN platform boundary with the same rationale already in registry/env_api_keys.rs and config.rs. Evidence: `DESIGN.md`. |
 | `coding.tools` | `parity` | closed | 15 | The 65-case Pi tool oracle compares arguments, outputs/details/errors, effects, truncation, cancellation, and images byte-for-byte. Evidence: `tests/tool-parity/oracle.json`, `crates/pi-rs-app/tests/tool_parity.rs`. |
 | `coding.export` | `parity` | closed | 8 | HTML/JSONL transfer uses a Pi-generated exact embedded-payload/full-document oracle plus product command fixtures. Evidence: `tests/export-html-parity/oracle.json`, `crates/pi-rs-app/tests/export_html_parity.rs`. |
 | `coding.sessions-compaction` | `parity` | closed | 9 | Session persistence/resume/tree/branch/compaction and next-request reconstruction have Pi-derived oracles and product replays. Evidence: `tests/session-parity/oracle.json`, `tests/compaction-parity/oracle.json`, `crates/pi-rs-app/tests/interactive_compaction.rs`. |
@@ -87,15 +87,6 @@ Reference rows (2):
 
 - `packages/tui/src/index.ts`
 - `packages/tui/src/tui.ts`
-
-### PLAN 11 — `tui.platform-modifiers`
-
-Pi uses native macOS/Windows modifier polling to recover Shift+Tab and Ctrl+Space when terminals lose modifier state; pi-rs has no equivalent platform fixture/mechanism yet.
-
-Reference rows (2):
-
-- `packages/tui/src/native-modifiers.ts`
-- `packages/tui/src/terminal.ts`
 
 ### PLAN 11 — `coding.assembly`
 
@@ -193,32 +184,6 @@ Reference rows (2):
 - `packages/coding-agent/src/core/index.ts`
 - `packages/coding-agent/src/index.ts`
 
-### PLAN 11 — `coding.platform-clipboard`
-
-Pi can use its optional native clipboard addon on macOS/Windows/X11; pi-rs currently only matches Pi’s addon-unavailable fallback.
-
-Reference rows (1):
-
-- `packages/coding-agent/src/utils/clipboard-native.ts`
-
-### PLAN 11 — `coding.footer-git`
-
-The default footer lacks Pi’s live git-branch discovery/watcher and extension-status data provider; frame fixtures currently inject deterministic footer data.
-
-Reference rows (2):
-
-- `packages/coding-agent/src/core/footer-data-provider.ts`
-- `packages/coding-agent/src/utils/git.ts`
-
-### PLAN 11 — `coding.platform-update`
-
-Windows self-update and sandbox/Bun environment restoration have no equivalent platform differential evidence on the current base.
-
-Reference rows (2):
-
-- `packages/coding-agent/src/bun/restore-sandbox-env.ts`
-- `packages/coding-agent/src/utils/windows-self-update.ts`
-
 ## Public entrypoints
 
 - `agent:public:.` → `packages/agent/src/index.ts`: 194 exports (out-of-scope=166, parity=28)
@@ -234,5 +199,5 @@ Reference rows (2):
 - `ai:public:./openai-codex-responses` → `packages/ai/src/providers/openai-codex-responses.ts`: 7 exports (parity=7)
 - `ai:public:./openai-completions` → `packages/ai/src/providers/openai-completions.ts`: 4 exports (parity=4)
 - `ai:public:./openai-responses` → `packages/ai/src/providers/openai-responses.ts`: 3 exports (parity=3)
-- `coding-agent:public:.` → `packages/coding-agent/src/index.ts`: 337 exports (open=193, parity=144)
-- `tui:public:.` → `packages/tui/src/index.ts`: 100 exports (open=14, parity=86)
+- `coding-agent:public:.` → `packages/coding-agent/src/index.ts`: 337 exports (open=192, parity=145)
+- `tui:public:.` → `packages/tui/src/index.ts`: 100 exports (open=12, parity=88)

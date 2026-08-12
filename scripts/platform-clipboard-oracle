@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Regenerate the platform-clipboard-parity oracle from Pi's real
+# clipboard-native.ts. See the sibling platform-modifiers-oracle.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
+  echo "ref/pi/node_modules missing tsx; run npm ci in ref/pi" >&2
+  exit 1
+fi
+nix shell nixpkgs#nodejs_22 --command \
+  ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json \
+  tests/platform-clipboard-parity/gen-oracle.ts \
+  tests/platform-clipboard-parity/oracle.json
+echo "wrote tests/platform-clipboard-parity/oracle.json"
