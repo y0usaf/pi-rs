@@ -93,16 +93,14 @@ pub(crate) fn install(lua: &Lua, pi: &Table, storage: SharedStorage) -> mlua::Re
             |lua, (model_val, context, options, on_event): (Value, Value, Option<Table>, Function)| async move {
                 let model: Model = from_lua_json(model_val, "model")?;
                 // PLAN 9.4: custom stream provider check before Rust dispatch.
-                if let Ok(registry) = crate::api::registry_table(&lua) {
-                    if let Ok(Some(custom_table)) = registry.get::<Option<mlua::Table>>("custom_stream") {
-                        if let Ok(Some(entry)) = custom_table.get::<Option<mlua::Table>>(model.api.as_str()) {
-                            if let Ok(Some(stream_fn)) = entry.get::<Option<mlua::Function>>("streamSimple") {
-                                let model_lua = model_to_lua(&lua, &model)?;
-                                let result: mlua::Value = stream_fn.call_async((model_lua, context, options, on_event)).await?;
-                                return Ok(result);
-                            }
-                        }
-                    }
+                if let Ok(registry) = crate::api::registry_table(&lua)
+                    && let Ok(Some(custom_table)) = registry.get::<Option<mlua::Table>>("custom_stream")
+                    && let Ok(Some(entry)) = custom_table.get::<Option<mlua::Table>>(model.api.as_str())
+                    && let Ok(Some(stream_fn)) = entry.get::<Option<mlua::Function>>("streamSimple")
+                {
+                    let model_lua = model_to_lua(&lua, &model)?;
+                    let result: mlua::Value = stream_fn.call_async((model_lua, context, options, on_event)).await?;
+                    return Ok(result);
                 }
                 let context = context_from_lua(context)?;
                 let (hook_tx, mut hook_rx) = mpsc::unbounded_channel();

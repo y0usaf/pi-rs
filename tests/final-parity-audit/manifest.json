@@ -356,7 +356,7 @@
           "path": "crates/pi-rs-tui/src/editor.rs"
         },
         {
-          "path": "tests/ui-parity/editor-turn.pi.json"
+          "path": "tests/ui-parity/editor-turn.pci.json"
         }
       ],
       "refs": [
@@ -532,6 +532,26 @@
       ]
     },
     {
+      "id": "coding.frontmatter",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "`pi.parse_frontmatter` is pinned to Pi's real `utils/frontmatter.ts` by a 25-case differential oracle generated from Pi's eemeli/yaml parser; the port reproduces newline normalization, delimiter detection, body trimming, chomping-sensitive block scalars, and error propagation byte-for-byte through the public Lua surface.",
+      "evidence": [
+        {
+          "path": "tests/frontmatter-parity/oracle.json"
+        },
+        {
+          "path": "tests/frontmatter-parity/cases.json"
+        },
+        {
+          "path": "crates/pi-rs-host/tests/frontmatter_parity.rs"
+        }
+      ],
+      "refs": [
+        "packages/coding-agent/src/utils/frontmatter.ts"
+      ]
+    },
+    {
       "id": "coding.resources-packages",
       "status": "open",
       "owner": "PLAN 9.7",
@@ -549,7 +569,6 @@
         "packages/coding-agent/src/core/resource-loader.ts",
         "packages/coding-agent/src/core/skills.ts",
         "packages/coding-agent/src/package-manager-cli.ts",
-        "packages/coding-agent/src/utils/frontmatter.ts",
         "packages/coding-agent/src/utils/fs-watch.ts",
         "packages/coding-agent/src/utils/tools-manager.ts"
       ]
@@ -760,10 +779,10 @@
           "path": "scripts/ui-diff"
         },
         {
-          "path": "tests/ui-parity/basic-turn.pi.json"
+          "path": "tests/ui-parity/basic-turn.pci.json"
         },
         {
-          "path": "tests/ui-parity/session-turn.pi.json"
+          "path": "tests/ui-parity/session-turn.pci.json"
         }
       ],
       "refs": [

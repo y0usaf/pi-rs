@@ -20,8 +20,8 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 
 | Classification | Source files | Public exports |
 |---|---:|---:|
-| `parity` | 172 | 453 |
-| `open` | 70 | 255 |
+| `parity` | 173 | 455 |
+| `open` | 69 | 253 |
 | `design` | 0 | 0 |
 | `out-of-scope` | 28 | 343 |
 
@@ -54,7 +54,7 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | `agent.loop` | `parity` | closed | 4 | The Pi-generated agent event-order oracle covers loop state, tool ordering, steering/follow-ups, cancellation, settlement, and failures. Evidence: `tests/agent-parity/oracle.json`, `crates/pi-rs-agent/tests/agent_parity.rs`. |
 | `tui.extension-composition` | `open` | PLAN 9.5 | 2 | Overlay/custom-component composition and public rendering middleware remain open even though the default terminal renderer is proven. Evidence: `PLAN.md`. |
 | `tui.platform-modifiers` | `open` | PLAN 11 | 2 | Pi uses native macOS/Windows modifier polling to recover Shift+Tab and Ctrl+Space when terminals lose modifier state; pi-rs has no equivalent platform fixture/mechanism yet. Evidence: `DESIGN.md`. |
-| `tui.mechanisms` | `parity` | closed | 23 | Editor/autocomplete/input/component/image/cell behavior is pinned by focused TUI ports and the complete interactive frame suite. Evidence: `crates/pi-rs-tui/src/ui_harness.rs`, `crates/pi-rs-tui/src/editor.rs`, `tests/ui-parity/editor-turn.pi.json`. |
+| `tui.mechanisms` | `parity` | closed | 23 | Editor/autocomplete/input/component/image/cell behavior is pinned by focused TUI ports and the complete interactive frame suite. Evidence: `crates/pi-rs-tui/src/ui_harness.rs`, `crates/pi-rs-tui/src/editor.rs`, `tests/ui-parity/editor-turn.pci.json`. |
 | `coding.assembly` | `open` | PLAN 11 | 3 | Generic role assembly is implemented (zero-pack boot, per-package suppression, file-backed replacement per construction-inventory implemented rows); the final side-by-side CLI differential remains the PLAN 11 gate. Evidence: `PLAN.md`. |
 | `coding.noninteractive` | `open` | PLAN 10 | 11 | Print, JSON/RPC, complete argument/file-input behavior, and serialized stdout/stderr/exit contracts remain prerequisites. Evidence: `PLAN.md`. |
 | `coding.extension-context` | `open` | PLAN 9.2 | 3 | Complete contexts in every mode plus session actions, cancellation, rebinding, and command-only restrictions remain open. Evidence: `PLAN.md`. |
@@ -62,7 +62,8 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | `coding.extension-api` | `open` | PLAN 9.4 | 8 | Dynamic tools/messages/flags/shortcuts/providers and their live registry effects remain incomplete. Evidence: `PLAN.md`. |
 | `coding.extension-ui` | `open` | PLAN 9.5 | 12 | Public extension dialogs, slots, custom row rendering, editor/overlay composition, cleanup, and headless outcomes remain incomplete. Evidence: `PLAN.md`. |
 | `coding.lua-config` | `open` | PLAN 9.6 | 7 | The temporary JSON settings/keybindings/theme path must be replaced by atomic global/project config.lua declarations and mutations. Evidence: `PLAN.md`. |
-| `coding.resources-packages` | `open` | PLAN 9.7 | 9 | Resource discovery, Lua modules, prompt/skill/theme provenance, package transport, and pi config remain open. Evidence: `PLAN.md`. |
+| `coding.frontmatter` | `parity` | closed | 1 | `pi.parse_frontmatter` is pinned to Pi's real `utils/frontmatter.ts` by a 25-case differential oracle generated from Pi's eemeli/yaml parser; the port reproduces newline normalization, delimiter detection, body trimming, chomping-sensitive block scalars, and error propagation byte-for-byte through the public Lua surface. Evidence: `tests/frontmatter-parity/oracle.json`, `tests/frontmatter-parity/cases.json`, `crates/pi-rs-host/tests/frontmatter_parity.rs`. |
+| `coding.resources-packages` | `open` | PLAN 9.7 | 8 | Resource discovery, Lua modules, prompt/skill/theme provenance, package transport, and pi config remain open. Evidence: `PLAN.md`. |
 | `coding.public-assembly` | `open` | PLAN 9.10 | 2 | The coding-agent barrel still exposes policy implemented through monolithic/private composition; decomposition, ablation, and replacement must close before its public capability map can be accepted. Evidence: `PLAN.md`. |
 | `coding.highlight-catalog` | `parity` | closed | 1 | The checked highlight mechanism has 190 of Pi highlight.js's 191 registered grammars; the excluded grammar (mathematica) has a filter callback the Rust engine does not implement. Evidence: `crates/pi-rs-host/data/hljs-grammars.json`, `tests/hljs-parity/gen-grammars.ts`. |
 | `coding.platform-clipboard` | `open` | PLAN 11 | 1 | Pi can use its optional native clipboard addon on macOS/Windows/X11; pi-rs currently only matches Pi’s addon-unavailable fallback. Evidence: `DESIGN.md`. |
@@ -72,7 +73,7 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | `coding.export` | `parity` | closed | 8 | HTML/JSONL transfer uses a Pi-generated exact embedded-payload/full-document oracle plus product command fixtures. Evidence: `tests/export-html-parity/oracle.json`, `crates/pi-rs-app/tests/export_html_parity.rs`. |
 | `coding.sessions-compaction` | `parity` | closed | 9 | Session persistence/resume/tree/branch/compaction and next-request reconstruction have Pi-derived oracles and product replays. Evidence: `tests/session-parity/oracle.json`, `tests/compaction-parity/oracle.json`, `crates/pi-rs-app/tests/interactive_compaction.rs`. |
 | `coding.auth-model-trust` | `parity` | closed | 14 | Auth/model/trust startup and interactive outcomes are covered by protocol/public tests and Pi cell fixtures. Evidence: `crates/pi-rs-app/tests/interactive_login.rs`, `crates/pi-rs-app/tests/interactive_model.rs`, `crates/pi-rs-app/tests/interactive_trust.rs`. |
-| `coding.interactive-default` | `parity` | closed | 27 | All currently reachable default interactive states are driven through Pi and pi-rs at cell/cursor/input checkpoints by the 26-scenario UI suite. Evidence: `scripts/ui-diff`, `tests/ui-parity/basic-turn.pi.json`, `tests/ui-parity/session-turn.pi.json`. |
+| `coding.interactive-default` | `parity` | closed | 27 | All currently reachable default interactive states are driven through Pi and pi-rs at cell/cursor/input checkpoints by the 26-scenario UI suite. Evidence: `scripts/ui-diff`, `tests/ui-parity/basic-turn.pci.json`, `tests/ui-parity/session-turn.pci.json`. |
 | `coding.platform-utils` | `parity` | closed | 25 | Process, clipboard fallback, image, shell, path, JSON, ANSI, telemetry/changelog, and startup utilities are exercised by tool/image/product fixtures. Evidence: `crates/pi-rs-host/tests/clipboard_bindings.rs`, `tests/image-parity/oracle.json`, `crates/pi-rs-app/tests/startup_network.rs`. |
 
 ## Open gaps
@@ -205,7 +206,7 @@ Reference rows (7):
 
 Resource discovery, Lua modules, prompt/skill/theme provenance, package transport, and pi config remain open.
 
-Reference rows (9):
+Reference rows (8):
 
 - `packages/coding-agent/src/cli/config-selector.ts`
 - `packages/coding-agent/src/core/package-manager.ts`
@@ -213,7 +214,6 @@ Reference rows (9):
 - `packages/coding-agent/src/core/resource-loader.ts`
 - `packages/coding-agent/src/core/skills.ts`
 - `packages/coding-agent/src/package-manager-cli.ts`
-- `packages/coding-agent/src/utils/frontmatter.ts`
 - `packages/coding-agent/src/utils/fs-watch.ts`
 - `packages/coding-agent/src/utils/tools-manager.ts`
 
@@ -267,5 +267,5 @@ Reference rows (2):
 - `ai:public:./openai-codex-responses` → `packages/ai/src/providers/openai-codex-responses.ts`: 7 exports (parity=7)
 - `ai:public:./openai-completions` → `packages/ai/src/providers/openai-completions.ts`: 4 exports (parity=4)
 - `ai:public:./openai-responses` → `packages/ai/src/providers/openai-responses.ts`: 3 exports (parity=3)
-- `coding-agent:public:.` → `packages/coding-agent/src/index.ts`: 337 exports (open=222, parity=115)
+- `coding-agent:public:.` → `packages/coding-agent/src/index.ts`: 337 exports (open=220, parity=117)
 - `tui:public:.` → `packages/tui/src/index.ts`: 100 exports (open=14, parity=86)

@@ -3,10 +3,20 @@
 //! Usage: compact-convert convert tests/ui-parity/*.pi.json
 //!        compact-convert verify tests/ui-parity/*.pci.json
 
-use std::{env, fs, path::PathBuf, process::ExitCode};
+use std::{env, fs, path::{Path, PathBuf}, process::ExitCode};
 
 use pi_rs_tui::compact_evidence::{self, CompactEvidence};
 use pi_rs_tui::ui_harness::{FrameSnapshot, first_diff};
+
+fn display_name(p: &Path) -> String {
+    p.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "<unknown>".to_owned())
+}
+
+fn shrink_pct(orig: u64, comp: u64) -> u64 {
+    (100 * comp).checked_div(orig).map_or(0, |q| 100 - q)
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
@@ -39,10 +49,7 @@ fn convert(paths: &[String]) -> ExitCode {
         let compact_json = serde_json::to_string(&compact).unwrap_or_default();
         // strip `.pi.json` → `.pci.json`
         let pci = p.with_file_name(
-            p.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .replace(".pi.json", ".pci.json"),
+            display_name(&p).replace(".pi.json", ".pci.json"),
         );
         if let Err(e) = fs::write(&pci, compact_json.as_bytes()) {
             eprintln!("write {}: {e}", pci.display());
@@ -51,14 +58,14 @@ fn convert(paths: &[String]) -> ExitCode {
         let o = fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
         let c = compact_json.len() as u64;
         total_orig += o; total_comp += c;
-        let pct = if o > 0 { 100 - (100 * c / o) } else { 0 };
+        let pct = shrink_pct(o, c);
         println!("{:.45} {:>8}B -> {:>8}B ({}%)",
-                 p.file_name().unwrap().to_string_lossy(), o, c, pct);
+                 display_name(&p), o, c, pct);
     }
     if paths.len() > 1 && total_orig > 0 {
         println!("{:.45} {:>8}B -> {:>8}B ({}%)",
                  "TOTAL", total_orig, total_comp,
-                 100 - (100 * total_comp / total_orig));
+                 shrink_pct(total_orig, total_comp));
     }
     if ok { ExitCode::SUCCESS } else { ExitCode::FAILURE }
 }
@@ -76,10 +83,7 @@ fn verify(paths: &[String]) -> ExitCode {
             Err(e) => { eprintln!("parse {}: {e}", p.display()); ok = false; continue; }
         };
         let pi = p.with_file_name(
-            p.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .replace(".pci.json", ".pi.json"),
+            display_name(&p).replace(".pci.json", ".pi.json"),
         );
         let orig_data = match fs::read_to_string(&pi) {
             Ok(d) => d,
@@ -91,14 +95,14 @@ fn verify(paths: &[String]) -> ExitCode {
         };
         let decomp = compact_evidence::compact_to_frames(&compact);
         if let Some(diff) = first_diff(&original, &decomp) {
-            eprintln!("FAIL {:.45}: {}", p.file_name().unwrap().to_string_lossy(), diff.message);
+            eprintln!("FAIL {:.45}: {}", display_name(&p), diff.message);
             ok = false;
         } else {
             let o = fs::metadata(&pi).map(|m| m.len()).unwrap_or(0);
             let c = fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
-            let pct = if o > 0 { 100 - (100 * c / o) } else { 0 };
+            let pct = shrink_pct(o, c);
             println!("OK {:.45} {:>8}B -> {:>8}B ({}%)",
-                     p.file_name().unwrap().to_string_lossy(), o, c, pct);
+                     display_name(&p), o, c, pct);
         }
     }
     if ok { ExitCode::SUCCESS } else { ExitCode::FAILURE }
