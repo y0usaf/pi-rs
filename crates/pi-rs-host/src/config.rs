@@ -65,6 +65,149 @@ fn object(value: LuaValue, label: &str) -> mlua::Result<Map<String, Value>> {
     }
 }
 
+/// Pi's `KEYBINDING_NAME_MIGRATIONS` (core/keybindings.ts): legacy keybinding
+/// names migrated to their modern `prefix.*` names when a user declares them.
+const KEYBINDING_NAME_MIGRATIONS: &[(&str, &str)] = &[
+    ("cursorUp", "tui.editor.cursorUp"),
+    ("cursorDown", "tui.editor.cursorDown"),
+    ("cursorLeft", "tui.editor.cursorLeft"),
+    ("cursorRight", "tui.editor.cursorRight"),
+    ("cursorWordLeft", "tui.editor.cursorWordLeft"),
+    ("cursorWordRight", "tui.editor.cursorWordRight"),
+    ("cursorLineStart", "tui.editor.cursorLineStart"),
+    ("cursorLineEnd", "tui.editor.cursorLineEnd"),
+    ("jumpForward", "tui.editor.jumpForward"),
+    ("jumpBackward", "tui.editor.jumpBackward"),
+    ("pageUp", "tui.editor.pageUp"),
+    ("pageDown", "tui.editor.pageDown"),
+    ("deleteCharBackward", "tui.editor.deleteCharBackward"),
+    ("deleteCharForward", "tui.editor.deleteCharForward"),
+    ("deleteWordBackward", "tui.editor.deleteWordBackward"),
+    ("deleteWordForward", "tui.editor.deleteWordForward"),
+    ("deleteToLineStart", "tui.editor.deleteToLineStart"),
+    ("deleteToLineEnd", "tui.editor.deleteToLineEnd"),
+    ("yank", "tui.editor.yank"),
+    ("yankPop", "tui.editor.yankPop"),
+    ("undo", "tui.editor.undo"),
+    ("newLine", "tui.input.newLine"),
+    ("submit", "tui.input.submit"),
+    ("tab", "tui.input.tab"),
+    ("copy", "tui.input.copy"),
+    ("selectUp", "tui.select.up"),
+    ("selectDown", "tui.select.down"),
+    ("selectPageUp", "tui.select.pageUp"),
+    ("selectPageDown", "tui.select.pageDown"),
+    ("selectConfirm", "tui.select.confirm"),
+    ("selectCancel", "tui.select.cancel"),
+    ("interrupt", "app.interrupt"),
+    ("clear", "app.clear"),
+    ("exit", "app.exit"),
+    ("suspend", "app.suspend"),
+    ("cycleThinkingLevel", "app.thinking.cycle"),
+    ("cycleModelForward", "app.model.cycleForward"),
+    ("cycleModelBackward", "app.model.cycleBackward"),
+    ("selectModel", "app.model.select"),
+    ("expandTools", "app.tools.expand"),
+    ("toggleThinking", "app.thinking.toggle"),
+    ("toggleSessionNamedFilter", "app.session.toggleNamedFilter"),
+    ("externalEditor", "app.editor.external"),
+    ("followUp", "app.message.followUp"),
+    ("dequeue", "app.message.dequeue"),
+    ("pasteImage", "app.clipboard.pasteImage"),
+    ("newSession", "app.session.new"),
+    ("tree", "app.session.tree"),
+    ("fork", "app.session.fork"),
+    ("resume", "app.session.resume"),
+    ("treeFoldOrUp", "app.tree.foldOrUp"),
+    ("treeUnfoldOrDown", "app.tree.unfoldOrDown"),
+    ("treeEditLabel", "app.tree.editLabel"),
+    ("treeToggleLabelTimestamp", "app.tree.toggleLabelTimestamp"),
+    ("toggleSessionPath", "app.session.togglePath"),
+    ("toggleSessionSort", "app.session.toggleSort"),
+    ("renameSession", "app.session.rename"),
+    ("deleteSession", "app.session.delete"),
+    ("deleteSessionNoninvasive", "app.session.deleteNoninvasive"),
+];
+
+/// Pi's combined `KEYBINDINGS` key order (TUI_KEYBINDINGS then app.*), used by
+/// `orderKeybindingsConfig` to order migrated keybinding declarations.
+const KEYBINDINGS_ORDER: &[&str] = &[
+    "tui.editor.cursorUp", "tui.editor.cursorDown", "tui.editor.cursorLeft",
+    "tui.editor.cursorRight", "tui.editor.cursorWordLeft", "tui.editor.cursorWordRight",
+    "tui.editor.cursorLineStart", "tui.editor.cursorLineEnd", "tui.editor.jumpForward",
+    "tui.editor.jumpBackward", "tui.editor.pageUp", "tui.editor.pageDown",
+    "tui.editor.deleteCharBackward", "tui.editor.deleteCharForward",
+    "tui.editor.deleteWordBackward", "tui.editor.deleteWordForward",
+    "tui.editor.deleteToLineStart", "tui.editor.deleteToLineEnd", "tui.editor.yank",
+    "tui.editor.yankPop", "tui.editor.undo", "tui.input.newLine", "tui.input.submit",
+    "tui.input.tab", "tui.input.copy", "tui.select.up", "tui.select.down",
+    "tui.select.pageUp", "tui.select.pageDown", "tui.select.confirm", "tui.select.cancel",
+    "app.interrupt", "app.clear", "app.exit", "app.suspend", "app.thinking.cycle",
+    "app.model.cycleForward", "app.model.cycleBackward", "app.model.select",
+    "app.tools.expand", "app.thinking.toggle", "app.session.toggleNamedFilter",
+    "app.editor.external", "app.message.followUp", "app.message.dequeue",
+    "app.clipboard.pasteImage", "app.session.new", "app.session.tree", "app.session.fork",
+    "app.session.resume", "app.tree.foldOrUp", "app.tree.unfoldOrDown",
+    "app.tree.editLabel", "app.tree.toggleLabelTimestamp", "app.session.togglePath",
+    "app.session.toggleSort", "app.session.rename", "app.session.delete",
+    "app.session.deleteNoninvasive", "app.models.save", "app.models.enableAll",
+    "app.models.clearAll", "app.models.toggleProvider", "app.models.reorderUp",
+    "app.models.reorderDown", "app.tree.filter.default", "app.tree.filter.noTools",
+    "app.tree.filter.userOnly", "app.tree.filter.labeledOnly", "app.tree.filter.all",
+    "app.tree.filter.cycleForward", "app.tree.filter.cycleBackward",
+];
+
+fn legacy_keybinding_name(key: &str) -> Option<&'static str> {
+    KEYBINDING_NAME_MIGRATIONS
+        .iter()
+        .find(|(legacy, _)| *legacy == key)
+        .map(|(_, modern)| *modern)
+}
+
+/// Pi's `migrateKeybindingsConfig`: remap legacy keybinding names to their
+/// modern names, dropping a legacy key when a modern key of the same name is
+/// also present (the modern value wins), and ordering config by Pi's
+/// `orderKeybindingsConfig` (known KEYBINDINGS first in definition order, then
+/// unknown keys sorted). Returns the migrated map and whether any rename
+/// occurred.
+fn migrate_keybindings_config(
+    raw: &Map<String, Value>,
+    definition_order: &[&str],
+) -> (Map<String, Value>, bool) {
+    use std::collections::HashMap;
+    let mut config: HashMap<String, Value> = HashMap::new();
+    let mut migrated = false;
+    for (key, value) in raw {
+        let next_key = legacy_keybinding_name(key).map(str::to_owned).unwrap_or_else(|| key.clone());
+        if next_key != *key {
+            migrated = true;
+        }
+        if next_key != *key && raw.contains_key(&next_key) {
+            migrated = true;
+            continue;
+        }
+        config.insert(next_key, value.clone());
+    }
+    // Order: known current keybindings first (definition order), then extras sorted.
+    let mut ordered: Vec<(String, Value)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for name in definition_order {
+        if let Some(value) = config.get(*name) {
+            ordered.push(((*name).to_owned(), value.clone()));
+            seen.insert(*name);
+        }
+    }
+    let mut extras: Vec<(&String, &Value)> = config
+        .iter()
+        .filter(|(k, _)| !seen.contains(k.as_str()))
+        .collect();
+    extras.sort_by(|a, b| a.0.cmp(b.0));
+    for (k, v) in extras {
+        ordered.push((k.clone(), v.clone()));
+    }
+    (ordered.into_iter().collect(), migrated)
+}
+
 fn string_list(value: LuaValue, label: &str) -> mlua::Result<Vec<String>> {
     match lua_to_json(value).map_err(|error| mlua::Error::runtime(error.to_string()))? {
         Value::Array(values) => values
@@ -121,7 +264,8 @@ pub fn evaluate(source: &str, source_name: &str) -> Result<ConfigSnapshot, Strin
                 "keybindings",
                 lua.create_function(move |_, value: LuaValue| {
                     let incoming = object(value, "config.keybindings")?;
-                    state.borrow_mut().keybindings.extend(incoming);
+                    let (migrated, _) = migrate_keybindings_config(&incoming, KEYBINDINGS_ORDER);
+                    state.borrow_mut().keybindings.extend(migrated);
                     Ok(())
                 })
                 .map_err(|error| error.to_string())?,
@@ -485,10 +629,9 @@ pub(crate) fn install_runtime(
         table.set(
             "keybindings",
             lua.create_function(move |_, value: LuaValue| {
-                state
-                    .borrow_mut()
-                    .keybindings
-                    .extend(object(value, "config.keybindings")?);
+                let incoming = object(value, "config.keybindings")?;
+                let (migrated, _) = migrate_keybindings_config(&incoming, KEYBINDINGS_ORDER);
+                state.borrow_mut().keybindings.extend(migrated);
                 Ok(())
             })?,
         )?;
