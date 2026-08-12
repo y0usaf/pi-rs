@@ -614,3 +614,93 @@ EXTENSION_HEADLESS_UI = EXTENSION_HEADLESS_UI or (function()
   }
 end)()
 
+-- Pi rpc-mode.ts createExtensionUIContext: a real ExtensionUIContext in RPC
+-- mode. UI requests are transported to the client as `extension_ui_request`
+-- JSONL records on stdout (RpcExtensionUIRequest); dialog methods await an
+-- `extension_ui_response` from the client over stdin. Each request carries a
+-- fresh `id` (crypto.randomUUID → pi.random_uuid). `notify`/`setStatus`/
+-- `setWidget`/`setTitle`/`set_editor_text` are fire-and-forget (no response).
+-- Dialogs emit the request and, when no response arrives, resolve to Pi's
+-- default outcome (createDialogPromise resolves `defaultValue` on abort,
+-- timeout, or absent response). The correlated response path (reading
+-- `extension_ui_response` from stdin during an extension command) remains a
+-- PLAN 10 open row; the surrounding protocol and hasUI are pinned here.
+-- `output` is the JSONL writer (pi.output in the RPC role).
+EXTENSION_CONTEXT_POLICY.rpc_ui_context = EXTENSION_CONTEXT_POLICY.rpc_ui_context
+  or function(output)
+    local function emit(obj)
+      output(EXTENSION_POLICY.api.json.encode(obj) .. "\n")
+    end
+    local function set_editor_text(text)
+      emit({ type = "extension_ui_request", id = EXTENSION_POLICY.api.random_uuid(),
+        method = "set_editor_text", text = text })
+    end
+    local function dialog(default, request_body)
+      local id = EXTENSION_POLICY.api.random_uuid()
+      local obj = { type = "extension_ui_request", id = id }
+      for k, v in pairs(request_body) do obj[k] = v end
+      emit(obj)
+      return default
+    end
+    local theme = {
+      fg = function(_, _, text) return text end, bg = function(_, _, text) return text end,
+      bold = function(_, text) return text end, italic = function(_, text) return text end,
+      underline = function(_, text) return text end, strikethrough = function(_, text) return text end,
+    }
+    return {
+      select = function(title, options, opts)
+        return dialog(nil, { method = "select", title = title,
+          options = options or {}, timeout = opts and opts.timeout })
+      end,
+      confirm = function(title, message, opts)
+        return dialog(false, { method = "confirm", title = title, message = message,
+          timeout = opts and opts.timeout })
+      end,
+      input = function(title, placeholder, opts)
+        return dialog(nil, { method = "input", title = title,
+          placeholder = placeholder, timeout = opts and opts.timeout })
+      end,
+      notify = function(message, message_type)
+        emit({ type = "extension_ui_request", id = EXTENSION_POLICY.api.random_uuid(),
+          method = "notify", message = message, notifyType = message_type })
+      end,
+      onTerminalInput = function() return function() end end,
+      setStatus = function(key, text)
+        emit({ type = "extension_ui_request", id = EXTENSION_POLICY.api.random_uuid(),
+          method = "setStatus", statusKey = key, statusText = text })
+      end,
+      setWorkingMessage = function() end,
+      setWorkingVisible = function() end,
+      setWorkingIndicator = function() end,
+      setHiddenThinkingLabel = function() end,
+      setWidget = function(key, content, options)
+        if content == nil or type(content) == "table" then
+          emit({ type = "extension_ui_request", id = EXTENSION_POLICY.api.random_uuid(),
+            method = "setWidget", widgetKey = key, widgetLines = content,
+            widgetPlacement = options and options.placement })
+        end
+      end,
+      setFooter = function() end,
+      setHeader = function() end,
+      setTitle = function(title)
+        emit({ type = "extension_ui_request", id = EXTENSION_POLICY.api.random_uuid(),
+          method = "setTitle", title = title })
+      end,
+      custom = function() return nil end,
+      setEditorText = set_editor_text,
+      -- Pi rpc-mode.ts: paste is unsupported in RPC mode and falls back to
+      -- setEditorText. Plain function like every sibling (dot-call, no self).
+      pasteToEditor = set_editor_text,
+      getEditorText = function() return "" end,
+      editor = function(title, prefill)
+        return dialog(nil, { method = "editor", title = title, prefill = prefill })
+      end,
+      addAutocompleteProvider = function() end,
+      setEditorComponent = function() end,
+      getEditorComponent = function() return nil end,
+      theme = theme, getAllThemes = function() return {} end, getTheme = function() return nil end,
+      setTheme = function() return { success = false, error = "Theme switching not supported in RPC mode" } end,
+      getToolsExpanded = function() return false end, setToolsExpanded = function() end,
+    }
+  end
+
