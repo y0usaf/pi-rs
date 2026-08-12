@@ -1,0 +1,62 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "platform": "linux",
+  "loadProbe": [
+    {
+      "name": "single-resolves",
+      "resolved": true,
+      "shape": {
+        "setText": "function",
+        "hasImage": "function",
+        "getImageBinary": "function"
+      }
+    },
+    {
+      "name": "single-absent",
+      "resolved": false,
+      "shape": null
+    },
+    {
+      "name": "first-fails-second-resolves",
+      "resolved": true,
+      "shape": {
+        "setText": "function",
+        "hasImage": "function",
+        "getImageBinary": "function"
+      }
+    },
+    {
+      "name": "both-fail",
+      "resolved": false,
+      "shape": null
+    },
+    {
+      "name": "third-resolves",
+      "resolved": true,
+      "shape": {
+        "setText": "function",
+        "hasImage": "function",
+        "getImageBinary": "function"
+      }
+    }
+  ],
+  "noRootOut": "null",
+  "envProbe": [
+    {
+      "name": "linux-no-display",
+      "clipboardLoaded": false
+    },
+    {
+      "name": "linux-x11",
+      "clipboardLoaded": true
+    },
+    {
+      "name": "linux-wayland",
+      "clipboardLoaded": true
+    },
+    {
+      "name": "linux-termux",
+      "clipboardLoaded": false
+    }
+  ]
+}

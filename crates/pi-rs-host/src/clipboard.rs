@@ -7,13 +7,18 @@
 //! What to copy/read and how to present the outcome stays in
 //! `interactive.lua` policy.
 //!
-//! Boundary (recorded): the spec's native-addon path
-//! (`@mariozechner/clipboard`, a NAPI wrapper over a vendored
-//! clipboard-rs — macOS/Windows and non-Wayland X11 Linux) is not
-//! ported; image reads behave like a pi install where
-//! `loadClipboardNative` could not resolve the addon (`clipboard = null`).
-//! Text writes remain complete: Pi deliberately skips that addon on Linux,
-//! while macOS/Windows fall through to the standard pbcopy/clip tools.
+//! Native addon path (`utils/clipboard-native.ts`): `pi.clipboard.load_native`
+//! reproduces Pi's `loadClipboardNative` resolution — walk require roots in
+//! order; the first that yields a `{setText,hasImage,getImageBinary}` module
+//! wins, else null. The module-level `clipboard` gate (`!TERMUX_VERSION &&
+//! hasDisplay`) and the addon-preference ordering in `copyToClipboard` /
+//! `readClipboardImage` (`clipboard && p !== "linux"` for text; native image
+//! read on non-Linux and non-Wayland Linux) are reproduced and pinned against a
+//! Pi-generated oracle (`tests/platform-clipboard-parity/oracle.json`). The
+//! binary addon itself is not embedded; Lua policy resolves a bound module via
+//! `load_native` from real require roots, and on a base where none resolve the
+//! behavior equals a Pi install with `clipboard = null`. Text writes remain
+//! complete: Pi deliberately skips that addon on Linux.
 
 use std::collections::HashMap;
 use std::io::Write as _;
@@ -22,11 +27,93 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use mlua::{Lua, Table};
+use mlua::{AnyUserData, Lua, Table, UserData, UserDataMethods};
+
+/// Spec `ClipboardModule`: a resolved native clipboard addon, bound by Lua
+/// policy via `load_native`.
+#[derive(Clone)]
+pub(crate) struct NativeClipboard {
+    pub(crate) set_text: mlua::Function,
+    pub(crate) has_image: mlua::Function,
+    pub(crate) get_image_binary: mlua::Function,
+}
+
+impl NativeClipboard {
+    /// Spec `ClipboardModule.setText` — invoke the bound addon's write.
+    pub(crate) fn set_text(&self, text: &str) -> bool {
+        self.set_text.call::<mlua::Value>(text).is_ok()
+    }
+    /// Spec `ClipboardModule.hasImage`.
+    pub(crate) fn has_image(&self) -> bool {
+        self.has_image.call::<bool>(()).unwrap_or(false)
+    }
+    /// Spec `ClipboardModule.getImageBinary` — read the byte array.
+    pub(crate) fn get_image_binary(&self) -> Option<Vec<u8>> {
+        let value = self.get_image_binary.call::<mlua::Value>(()).ok()?;
+        let table = value.as_table()?;
+        let bytes: mlua::Result<Vec<u8>> = table.sequence_values().collect();
+        bytes.ok()
+    }
+}
+
+/// Lua-userdata wrapper so a resolved addon can live in the registry and be
+/// handed out. The mutative Lua-native calls stay synchronous (the addon's
+/// methods are JS functions already awaited by Lua policy).
+struct LuaNativeClipboard(NativeClipboard);
+impl UserData for LuaNativeClipboard {
+    fn add_methods<M: UserDataMethods<Self>>(_methods: &mut M) {}
+}
+
+/// Spec `loadClipboardNative(requires?)`: walk require roots in order; the first
+/// that resolves `@mariozechner/clipboard` to a module with the three methods
+/// wins. A root that throws (as Pi's `require` does on a bad root) is skipped,
+/// matching Pi's try/catch-per-require. `None` = addon unavailable (fallback).
+pub(crate) fn load_native_clipboard(
+    roots: Option<Vec<mlua::Table>>,
+) -> mlua::Result<Option<NativeClipboard>> {
+    let Some(roots) = roots else {
+        return Ok(None);
+    };
+    for root in roots {
+        // Per-root require: a raising metatable `__index` or a read error is a
+        // throw; mirror Pi's try/catch and advance to the next root.
+        let module = match root.get::<mlua::Table>("@mariozechner/clipboard") {
+            Ok(module) => module,
+            Err(_) => continue,
+        };
+        let set_text = module.get::<Option<mlua::Function>>("setText")?;
+        let has_image = module.get::<Option<mlua::Function>>("hasImage")?;
+        let get_image_binary = module.get::<Option<mlua::Function>>("getImageBinary")?;
+        if let (Some(set_text), Some(has_image), Some(get_image_binary)) =
+            (set_text, has_image, get_image_binary)
+        {
+            return Ok(Some(NativeClipboard {
+                set_text,
+                has_image,
+                get_image_binary,
+            }));
+        }
+    }
+    Ok(None)
+}
+
+/// Spec module-level gate: `clipboard = !TERMUX_VERSION && hasDisplay ?
+/// loadClipboardNative() : null`, with `hasDisplay = platform !== "linux" ||
+/// DISPLAY || WAYLAND_DISPLAY`. This is the deterministic decision core the
+/// oracle's `envProbe` exercises. `!TERMUX_VERSION` uses JS truthiness, so an
+/// *empty* `TERMUX_VERSION=""` counts as absent (clipboard stays available).
+pub(crate) fn clipboard_gate(platform: &str, env: &Env) -> bool {
+    if env_truthy(env, "TERMUX_VERSION") {
+        return false;
+    }
+    platform != "linux" || env_truthy(env, "DISPLAY") || env_truthy(env, "WAYLAND_DISPLAY")
+}
 
 const SUPPORTED_IMAGE_MIME_TYPES: [&str; 4] =
     ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
+/// Registry slot holding the resolved native addon (a `LuaNativeClipboard`).
+const NATIVE_SLOT: &str = "pi.host.clipboard.native";
 const DEFAULT_LIST_TIMEOUT_MS: u64 = 1000;
 const DEFAULT_READ_TIMEOUT_MS: u64 = 3000;
 const DEFAULT_POWERSHELL_TIMEOUT_MS: u64 = 5000;
@@ -280,10 +367,29 @@ async fn read_via_xclip() -> Option<ClipboardImage> {
     None
 }
 
-/// Spec: `readClipboardImage(options?)`. The native-addon branch resolves
-/// to "addon not loaded" (module-doc boundary).
-pub(crate) async fn read_clipboard_image(env: Env, platform: &str) -> Option<ClipboardImage> {
-    if env_var(&env, "TERMUX_VERSION").is_some() {
+/// Spec: `readClipboardImageViaNativeClipboard` — the native-addon branch.
+/// Honored only when Lua policy bound a resolved addon (via `load_native`).
+async fn read_via_native_clipboard(native: &NativeClipboard) -> Option<ClipboardImage> {
+    if !native.has_image() {
+        return None;
+    }
+    let bytes = native.get_image_binary()?;
+    if bytes.is_empty() {
+        return None;
+    }
+    Some(ClipboardImage {
+        bytes,
+        mime_type: "image/png".to_owned(),
+    })
+}
+
+/// Spec: `readClipboardImage(options?)`.
+pub(crate) async fn read_clipboard_image(
+    env: Env,
+    platform: &str,
+    native: Option<&NativeClipboard>,
+) -> Option<ClipboardImage> {
+    if env_truthy(&env, "TERMUX_VERSION") {
         return None;
     }
 
@@ -300,9 +406,17 @@ pub(crate) async fn read_clipboard_image(env: Env, platform: &str) -> Option<Cli
         if image.is_none() && wsl {
             image = read_via_powershell().await;
         }
-        // Spec: `!image && !wayland` → native clipboard (not loaded here).
+        // Spec: `!image && !wayland` → native clipboard (only if bound).
+        if image.is_none()
+            && !wayland
+            && let Some(native) = native
+        {
+            image = read_via_native_clipboard(native).await;
+        }
+    } else if let Some(native) = native {
+        // Spec: non-linux platforms → native clipboard.
+        image = read_via_native_clipboard(native).await;
     }
-    // Spec: non-linux platforms → native clipboard (not loaded here).
 
     let image = image?;
     // Convert unsupported formats (e.g., BMP from WSLg) to PNG
@@ -356,19 +470,37 @@ fn emit_osc52(text: &str) -> bool {
         .is_ok()
 }
 
-async fn write_clipboard_text(text: &str, env: &Env, platform: &str) -> mlua::Result<()> {
-    // The optional native addon is deliberately unavailable (module boundary).
+async fn write_clipboard_text(
+    text: &str,
+    env: &Env,
+    platform: &str,
+    native: Option<&NativeClipboard>,
+) -> mlua::Result<()> {
     let remote = env_truthy(env, "SSH_CONNECTION")
         || env_truthy(env, "SSH_CLIENT")
         || env_truthy(env, "MOSH_CONNECTION");
     let mut copied = false;
+
+    // Spec (clipboard.ts): prefer the native addon on non-Linux platforms
+    // (`clipboard && p !== "linux"`), then fall through to platform tools.
+    // Pi deliberately skips the addon on Linux.
+    if let Some(native) = native
+        && platform != "linux"
+        && native.set_text(text)
+    {
+        copied = true;
+    }
+    // Mirror of `if (copied && !remote) return;`.
+    if copied && !remote {
+        return Ok(());
+    }
 
     if platform == "darwin" {
         copied = write_command("pbcopy", &[], text).await;
     } else if platform == "win32" {
         copied = write_command("clip", &[], text).await;
     } else {
-        if env_var(env, "TERMUX_VERSION").is_some() {
+        if env_truthy(env, "TERMUX_VERSION") {
             copied = write_command("termux-clipboard-set", &[], text).await;
         }
         if !copied && is_wayland_session(env) && env_truthy(env, "WAYLAND_DISPLAY") {
@@ -405,7 +537,77 @@ fn node_platform() -> &'static str {
 }
 
 pub(crate) fn install(lua: &Lua, pi: &Table) -> mlua::Result<()> {
+    let _ = lua.unset_named_registry_value(NATIVE_SLOT);
     let clipboard = lua.create_table()?;
+    // Pure resolution core — mirror of `loadClipboardNative(requires?)`:
+    // walk require roots in order; first non-throwing `@mariozechner/clipboard`
+    // wins. No gate. Reports `resolved` + function `shape` for the differential.
+    clipboard.set(
+        "resolve_native",
+        lua.create_function(|lua, roots: Option<Vec<Table>>| {
+            let (resolved, shape) = match load_native_clipboard(roots)? {
+                Some(_native) => {
+                    let shape = lua.create_table()?;
+                    shape.set("setText", "function")?;
+                    shape.set("hasImage", "function")?;
+                    shape.set("getImageBinary", "function")?;
+                    (true, shape)
+                }
+                None => (false, lua.create_table()?),
+            };
+            let result = lua.create_table()?;
+            result.set("resolved", resolved)?;
+            result.set("shape", shape)?;
+            Ok(result)
+        })?,
+    )?;
+    // Module-level gate — mirror of `clipboard = !TERMUX_VERSION && hasDisplay ?
+    // loadClipboardNative() : null`, where `hasDisplay = platform !== "linux" ||
+    // DISPLAY || WAYLAND_DISPLAY`. Pure; drives the oracle's `envProbe`.
+    clipboard.set(
+        "has_display",
+        lua.create_function(|_, (platform, env): (String, Option<Table>)| {
+            let (platform, env) = resolve_env_platform(Some(platform), env)?;
+            Ok(clipboard_gate(&platform, &env))
+        })?,
+    )?;
+    // The real mechanism a policy calls once at startup: apply the gate, and
+    // when it is open resolve through the given require roots and store the
+    // addon in a registry slot so `read_image`/`write_text` prefer it. Returns
+    // `{ gate, resolved, shape }` so the differential can observe everything.
+    clipboard.set(
+        "load_native",
+        lua.create_function(
+            move |lua,
+                  (roots, platform, env): (Option<Vec<Table>>, Option<String>, Option<Table>)| {
+                let (platform, env) = resolve_env_platform(platform, env)?;
+                // Mirror of `clipboard = !TERMUX_VERSION && hasDisplay ? loadClipboardNative() : null`.
+                let gate = clipboard_gate(&platform, &env);
+                let (stored, resolved, shape) = if gate {
+                    match load_native_clipboard(roots)? {
+                        Some(native) => {
+                            let shape = lua.create_table()?;
+                            shape.set("setText", "function")?;
+                            shape.set("hasImage", "function")?;
+                            shape.set("getImageBinary", "function")?;
+                            (Some(lua.create_userdata(LuaNativeClipboard(native))?), true, shape)
+                        }
+                        None => (None, false, lua.create_table()?),
+                    }
+                } else {
+                    // Gate closed: Pi does not attempt the load, so clipboard
+                    // is null regardless of resolvable roots.
+                    (None, false, lua.create_table()?)
+                };
+                lua.set_named_registry_value(NATIVE_SLOT, stored)?;
+                let result = lua.create_table()?;
+                result.set("gate", gate)?;
+                result.set("resolved", resolved)?;
+                result.set("shape", shape)?;
+                Ok(result)
+            },
+        )?,
+    )?;
     clipboard.set(
         "read_image",
         lua.create_async_function(|lua, options: Option<Table>| async move {
@@ -429,7 +631,8 @@ pub(crate) fn install(lua: &Lua, pi: &Table) -> mlua::Result<()> {
                 }
                 None => (std::env::vars().collect(), node_platform().to_owned()),
             };
-            match read_clipboard_image(env, &platform).await {
+            let native = native_from_registry(&lua);
+            match read_clipboard_image(env, &platform, native.as_ref()).await {
                 None => Ok(mlua::Value::Nil),
                 Some(image) => {
                     let table = lua.create_table()?;
@@ -448,28 +651,17 @@ pub(crate) fn install(lua: &Lua, pi: &Table) -> mlua::Result<()> {
     )?;
     clipboard.set(
         "write_text",
-        lua.create_async_function(|_, (text, options): (String, Option<Table>)| async move {
+        lua.create_async_function(|lua, (text, options): (String, Option<Table>)| async move {
             let (env, platform) = match options {
                 Some(options) => {
-                    let env = match options.get::<Option<Table>>("env")? {
-                        Some(table) => {
-                            let mut env = Env::new();
-                            for pair in table.pairs::<String, String>() {
-                                let (key, value) = pair?;
-                                env.insert(key, value);
-                            }
-                            env
-                        }
-                        None => std::env::vars().collect(),
-                    };
-                    let platform = options
-                        .get::<Option<String>>("platform")?
-                        .unwrap_or_else(|| node_platform().to_owned());
+                    let (platform, env) =
+                        resolve_env_platform(options.get("platform")?, options.get("env")?)?;
                     (env, platform)
                 }
                 None => (std::env::vars().collect(), node_platform().to_owned()),
             };
-            write_clipboard_text(&text, &env, &platform).await
+            let native = native_from_registry(&lua);
+            write_clipboard_text(&text, &env, &platform, native.as_ref()).await
         })?,
     )?;
     pi.set("clipboard", clipboard)?;
@@ -481,4 +673,33 @@ pub(crate) fn install(lua: &Lua, pi: &Table) -> mlua::Result<()> {
         lua.create_function(|_, ()| Ok(pi_rs_session::uuid::random_uuid()))?,
     )?;
     Ok(())
+}
+
+/// Resolve platform + env from Lua, defaulting to the live process.
+fn native_from_registry(lua: &Lua) -> Option<NativeClipboard> {
+    lua.named_registry_value::<Option<AnyUserData>>(NATIVE_SLOT)
+        .ok()
+        .flatten()
+        .and_then(|data| data.borrow::<LuaNativeClipboard>().ok())
+        .map(|data| data.0.clone())
+}
+
+/// Resolve platform + env from Lua, defaulting to the live process.
+fn resolve_env_platform(
+    platform: Option<String>,
+    env: Option<Table>,
+) -> mlua::Result<(String, Env)> {
+    let platform = platform.unwrap_or_else(|| node_platform().to_owned());
+    let env = match env {
+        Some(env_table) => {
+            let mut env = Env::new();
+            for pair in env_table.pairs::<String, String>() {
+                let (key, value) = pair?;
+                env.insert(key, value);
+            }
+            env
+        }
+        None => std::env::vars().collect(),
+    };
+    Ok((platform, env))
 }

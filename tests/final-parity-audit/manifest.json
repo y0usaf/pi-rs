@@ -357,13 +357,18 @@
     },
     {
       "id": "tui.platform-modifiers",
-      "status": "open",
-      "owner": "PLAN 11",
-      "rationale": "Pi uses native macOS/Windows modifier polling to recover Shift+Tab and Ctrl+Space when terminals lose modifier state; pi-rs has no equivalent platform fixture/mechanism yet.",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "Native modifier polling (native-modifiers.ts) and Apple-Terminal Shift+Enter normalization (terminal.ts) are ported as a pi.rs-tui mechanism exposed through pi.tui and pinned against a Pi-generated oracle.",
       "evidence": [
         {
-          "path": "DESIGN.md",
-          "contains": "Interactive:"
+          "path": "crates/pi-rs-host/tests/platform_modifiers_parity.rs"
+        },
+        {
+          "path": "crates/pi-rs-tui/src/native_modifiers.rs"
+        },
+        {
+          "path": "tests/platform-modifiers-parity/oracle.json"
         }
       ],
       "refs": [
@@ -745,13 +750,18 @@
     },
     {
       "id": "coding.platform-clipboard",
-      "status": "open",
-      "owner": "PLAN 11",
-      "rationale": "Pi can use its optional native clipboard addon on macOS/Windows/X11; pi-rs currently only matches Pi’s addon-unavailable fallback.",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "The optional native clipboard addon resolution core (loadClipboardNative) and module-level gate (!TERMUX_VERSION && hasDisplay) are ported and pinned against a Pi-generated oracle.",
       "evidence": [
         {
-          "path": "DESIGN.md",
-          "contains": "1:1 with Pi"
+          "path": "crates/pi-rs-host/tests/platform_clipboard_parity.rs"
+        },
+        {
+          "path": "crates/pi-rs-host/src/clipboard.rs"
+        },
+        {
+          "path": "tests/platform-clipboard-parity/oracle.json"
         }
       ],
       "refs": [
@@ -760,13 +770,21 @@
     },
     {
       "id": "coding.footer-git",
-      "status": "open",
-      "owner": "PLAN 11",
-      "rationale": "The default footer lacks Pi’s live git-branch discovery/watcher and extension-status data provider; frame fixtures currently inject deterministic footer data.",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "Live git-branch discovery (findGitPaths + resolveGitBranch) is ported as a pi.git mechanism wired into the default footer and pinned against a Pi-generated FooterDataProvider oracle; extension-status data provider was already wired through ctx.ui.setStatus.",
       "evidence": [
         {
-          "path": "crates/pi-rs-app/src/builtins/interactive/PARITY.md",
-          "contains": "git watcher"
+          "path": "crates/pi-rs-host/tests/footer_git_parity.rs"
+        },
+        {
+          "path": "crates/pi-rs-host/src/git.rs"
+        },
+        {
+          "path": "tests/footer-git-parity/oracle.json"
+        },
+        {
+          "path": "crates/pi-rs-app/src/builtins/interactive.lua"
         }
       ],
       "refs": [
@@ -776,13 +794,12 @@
     },
     {
       "id": "coding.platform-update",
-      "status": "open",
-      "owner": "PLAN 11",
-      "rationale": "Windows self-update and sandbox/Bun environment restoration have no equivalent platform differential evidence on the current base.",
+      "status": "out-of-scope",
+      "owner": "DESIGN product boundary",
+      "rationale": "windows-self-update.ts quarantines locked .node/native addons so an npm/pi-update-self reinstall on Windows can replace them, and restore-sandbox-env.ts recovers process.env against a Bun compiled-binary bug; a native Rust binary ships no self-update, bundled native addons, or empty-env failure, so neither mechanism applies. Recorded as a DESIGN platform boundary with the same rationale already in registry/env_api_keys.rs and config.rs.",
       "evidence": [
         {
-          "path": "DESIGN.md",
-          "contains": "closed exception list"
+          "path": "DESIGN.md"
         }
       ],
       "refs": [

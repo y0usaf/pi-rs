@@ -15,6 +15,7 @@ pub mod input;
 pub mod kill_ring;
 pub mod loader;
 pub mod markdown;
+pub mod native_modifiers;
 pub mod process;
 pub mod select_list;
 pub mod settings_list;

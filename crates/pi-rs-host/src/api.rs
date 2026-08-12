@@ -3412,6 +3412,45 @@ pub(crate) fn build(
         "decode_key",
         lua.create_function(|_, data: String| Ok(pi_rs_tui::editor::decode_key(&data)))?,
     )?;
+    // Native modifier polling (spec `tui/src/native-modifiers.ts`): pure,
+    // platform-gated mechanism. `helper` is the optional native-helper probe
+    // (None when the addon is unavailable, as on this base). `modifier_keys`
+    // reports the full key vocabulary.
+    tui.set(
+        "modifier_keys",
+        lua.create_function(|lua, ()| {
+            let result = lua.create_table()?;
+            for key in pi_rs_tui::native_modifiers::MODIFIER_KEYS {
+                result.push(key)?;
+            }
+            Ok(result)
+        })?,
+    )?;
+    tui.set(
+        "supports_native_modifiers",
+        lua.create_function(|_, (platform, arch): (String, Option<String>)| {
+            Ok(pi_rs_tui::native_modifiers::supports_native_modifiers(
+                &platform,
+                arch.as_deref().unwrap_or(""),
+            ))
+        })?,
+    )?;
+    tui.set(
+        "is_native_modifier_pressed",
+        lua.create_function(|_, key: String| {
+            Ok(pi_rs_tui::native_modifiers::is_native_modifier_pressed(
+                &key, None,
+            ))
+        })?,
+    )?;
+    tui.set(
+        "normalize_apple_terminal_input",
+        lua.create_function(|_, (data, is_apple, is_shift): (String, bool, bool)| {
+            Ok(pi_rs_tui::terminal::normalize_apple_terminal_input(
+                &data, is_apple, is_shift,
+            ))
+        })?,
+    )?;
     tui.set(
         "decode_printable",
         lua.create_function(|_, data: String| Ok(pi_rs_tui::editor::decode_printable(&data)))?,
@@ -3426,6 +3465,7 @@ pub(crate) fn build(
     crate::ai::install(lua, &pi, std::sync::Arc::clone(&storage))?;
     crate::auth::install(lua, &pi, storage)?;
     crate::exec::install(lua, &pi, cwd)?;
+    crate::git::install(lua, &pi)?;
     crate::http::install(lua, &pi)?;
     crate::os::install(lua, &pi, cwd)?;
     let settings = crate::settings::install(lua, &pi, cwd, project_trusted)?;

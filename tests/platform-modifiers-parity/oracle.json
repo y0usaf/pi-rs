@@ -1,0 +1,193 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "platform": "linux",
+  "arch": "x64",
+  "modifierProbe": [
+    {
+      "key": "shift",
+      "pressed": false
+    },
+    {
+      "key": "command",
+      "pressed": false
+    },
+    {
+      "key": "control",
+      "pressed": false
+    },
+    {
+      "key": "option",
+      "pressed": false
+    }
+  ],
+  "appleNormalized": [
+    {
+      "data": "\r",
+      "isAppleTerminal": true,
+      "isShift": true,
+      "out": "\u001b[13;2u"
+    },
+    {
+      "data": "\r",
+      "isAppleTerminal": true,
+      "isShift": false,
+      "out": "\r"
+    },
+    {
+      "data": "\r",
+      "isAppleTerminal": false,
+      "isShift": true,
+      "out": "\r"
+    },
+    {
+      "data": "\r",
+      "isAppleTerminal": false,
+      "isShift": false,
+      "out": "\r"
+    },
+    {
+      "data": "\n",
+      "isAppleTerminal": true,
+      "isShift": true,
+      "out": "\n"
+    },
+    {
+      "data": "\n",
+      "isAppleTerminal": true,
+      "isShift": false,
+      "out": "\n"
+    },
+    {
+      "data": "\n",
+      "isAppleTerminal": false,
+      "isShift": true,
+      "out": "\n"
+    },
+    {
+      "data": "\n",
+      "isAppleTerminal": false,
+      "isShift": false,
+      "out": "\n"
+    },
+    {
+      "data": "a",
+      "isAppleTerminal": true,
+      "isShift": true,
+      "out": "a"
+    },
+    {
+      "data": "a",
+      "isAppleTerminal": true,
+      "isShift": false,
+      "out": "a"
+    },
+    {
+      "data": "a",
+      "isAppleTerminal": false,
+      "isShift": true,
+      "out": "a"
+    },
+    {
+      "data": "a",
+      "isAppleTerminal": false,
+      "isShift": false,
+      "out": "a"
+    },
+    {
+      "data": "\t",
+      "isAppleTerminal": true,
+      "isShift": true,
+      "out": "\t"
+    },
+    {
+      "data": "\t",
+      "isAppleTerminal": true,
+      "isShift": false,
+      "out": "\t"
+    },
+    {
+      "data": "\t",
+      "isAppleTerminal": false,
+      "isShift": true,
+      "out": "\t"
+    },
+    {
+      "data": "\t",
+      "isAppleTerminal": false,
+      "isShift": false,
+      "out": "\t"
+    },
+    {
+      "data": "\u001b[13;2u",
+      "isAppleTerminal": true,
+      "isShift": true,
+      "out": "\u001b[13;2u"
+    },
+    {
+      "data": "\u001b[13;2u",
+      "isAppleTerminal": true,
+      "isShift": false,
+      "out": "\u001b[13;2u"
+    },
+    {
+      "data": "\u001b[13;2u",
+      "isAppleTerminal": false,
+      "isShift": true,
+      "out": "\u001b[13;2u"
+    },
+    {
+      "data": "\u001b[13;2u",
+      "isAppleTerminal": false,
+      "isShift": false,
+      "out": "\u001b[13;2u"
+    },
+    {
+      "data": "\u001b[Z",
+      "isAppleTerminal": true,
+      "isShift": true,
+      "out": "\u001b[Z"
+    },
+    {
+      "data": "\u001b[Z",
+      "isAppleTerminal": true,
+      "isShift": false,
+      "out": "\u001b[Z"
+    },
+    {
+      "data": "\u001b[Z",
+      "isAppleTerminal": false,
+      "isShift": true,
+      "out": "\u001b[Z"
+    },
+    {
+      "data": "\u001b[Z",
+      "isAppleTerminal": false,
+      "isShift": false,
+      "out": "\u001b[Z"
+    },
+    {
+      "data": " ",
+      "isAppleTerminal": true,
+      "isShift": true,
+      "out": " "
+    },
+    {
+      "data": " ",
+      "isAppleTerminal": true,
+      "isShift": false,
+      "out": " "
+    },
+    {
+      "data": " ",
+      "isAppleTerminal": false,
+      "isShift": true,
+      "out": " "
+    },
+    {
+      "data": " ",
+      "isAppleTerminal": false,
+      "isShift": false,
+      "out": " "
+    }
+  ]
+}

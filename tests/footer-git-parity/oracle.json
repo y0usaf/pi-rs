@@ -1,0 +1,30 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "cases": [
+    {
+      "name": "normal-repo",
+      "branch": "main"
+    },
+    {
+      "name": "switch-branch",
+      "before": "main",
+      "refreshed": "feature"
+    },
+    {
+      "name": "detached-head",
+      "branch": "detached"
+    },
+    {
+      "name": "plain-dir",
+      "branch": null
+    },
+    {
+      "name": "nested-cwd",
+      "branch": "main"
+    },
+    {
+      "name": "worktree",
+      "branch": "wt"
+    }
+  ]
+}
