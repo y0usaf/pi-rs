@@ -5463,11 +5463,17 @@ local function handle_agent_event(state, event)
       local error_message
       if message.stopReason == "aborted" then
         local retry_attempt = state.session.retry_attempt and state.session.retry_attempt() or 0
-        error_message = retry_attempt > 0
-          and ("Aborted after " .. retry_attempt .. " retry attempt"
-            .. (retry_attempt > 1 and "s" or ""))
-          or "Operation aborted"
-        message.errorMessage = error_message
+        -- agent-session.ts does not mutate the AgentMessage; the aborted
+        -- display label is derived at render time (assistant-message.ts). Keep
+        -- the stored errorMessage ("Request was aborted") intact for extensions
+        -- and session persistence, and compute the display label locally.
+        error_message =
+          (message.errorMessage and message.errorMessage ~= "Request was aborted")
+            and message.errorMessage
+            or ((retry_attempt > 0)
+              and ("Aborted after " .. retry_attempt .. " retry attempt"
+                .. (retry_attempt > 1 and "s" or ""))
+              or "Operation aborted")
       end
       state.streaming_row.message = message
       state.streaming_row.streaming = nil
@@ -6843,6 +6849,67 @@ function retry_parity_stream(request)
     recorder.requests[#recorder.requests + 1] = copy(context.messages or {})
     local final = message(model, turn)
     push({ type = "start", partial = message(model, { stopReason = "stop", text = "" }) })
+    -- Pi's provider streams one delta before the final message; emit an
+    -- intermediate update so the extension trace carries message_update.
+    push({ type = "update", partial = message(model, { stopReason = "stop", text = turn.text or "ok" }) })
+    if final.stopReason == "error" then
+      push({ type = "error", reason = "error", error = final })
+    else
+      push({ type = "done", reason = final.stopReason, message = final })
+    end
+    return final
+  end
+end
+
+-- PLAN 9.3 seam differential scripted stream. Mirrors retry_parity_stream but
+-- the abort case yields after the intermediate update and pivots to an aborted
+-- final message when the signal was raised mid-stream (AgentSession.abort).
+-- Provider-failure uses retry_parity_stream (the retry re-drive path).
+function seams_stream(request)
+  local turns = request.seamsTurns
+  if not turns then return nil end
+  local recorder = { requests = {} }
+  request.__retry_recorder = recorder
+  local index = 0
+  local function copy(value) return pi.json.decode(pi.json.encode(value)) end
+  local function message(model, turn)
+    local failed = turn.stopReason == "error"
+    return {
+      role = "assistant",
+      content = failed and {} or { { type = "text", text = turn.text or "ok" } },
+      api = model.api, provider = model.provider, model = model.id,
+      usage = { input = 0, output = 0, cacheRead = 0, cacheWrite = 0,
+        totalTokens = 0, cost = { input = 0, output = 0, cacheRead = 0,
+          cacheWrite = 0, total = 0 } },
+      stopReason = turn.stopReason or "stop", errorMessage = turn.errorMessage,
+      timestamp = 0,
+    }
+  end
+  local function aborted(model)
+    return {
+      role = "assistant", content = { { type = "text", text = "" } },
+      api = model.api, provider = model.provider, model = model.id,
+      usage = { input = 0, output = 0, cacheRead = 0, cacheWrite = 0,
+        totalTokens = 0, cost = { input = 0, output = 0, cacheRead = 0,
+          cacheWrite = 0, total = 0 } },
+      stopReason = "aborted", errorMessage = "Request was aborted", timestamp = 0,
+    }
+  end
+  return function(model, context, options, push)
+    index = index + 1
+    local turn = turns[math.min(index, #turns)]
+    recorder.requests[#recorder.requests + 1] = copy(context.messages or {})
+    local final = turn.abort and aborted(model) or message(model, turn)
+    push({ type = "start", partial = message(model, { stopReason = "stop", text = "" }) })
+    push({ type = "update", partial = message(model, { stopReason = "stop", text = turn.text or "ok" }) })
+    -- The message_update handler fires synchronously inside push and may have
+    -- aborted the run signal. Detect that so the aborted final message is
+    -- reported through the normal stream error seam (matching AgentSession.abort
+    -- → the provider turns the aborted signal into an aborted assistant message).
+    if turn.abort and options.signal and options.signal:is_aborted() then
+      push({ type = "error", reason = "aborted", error = aborted(model) })
+      return final
+    end
     if final.stopReason == "error" then
       push({ type = "error", reason = "error", error = final })
     else
@@ -6880,7 +6947,7 @@ function bind_session_runtime(state, session_manager)
   -- Tool activation is public declaration data shared by embedded and
   -- file-backed packages; source identity does not participate.
   local active_tools, active_tool_names = EXTENSION_POLICY.active_tools()
-  local stream_fn = retry_parity_stream(request)
+  local stream_fn = seams_stream(request) or retry_parity_stream(request)
   state.system_prompt_options = {
     cwd = state.cwd, agentDir = request.agentDir,
     toolNames = active_tool_names,
@@ -12231,6 +12298,124 @@ pi.register_command("retry-policy-parity", {
       contexts[#contexts + 1] = stable
     end
     return { events = events, callCount = #contexts, contexts = contexts, messages = final }
+  end,
+})
+
+-- PLAN 9.3 seam differential driver. Builds the real interactive AgentSession
+-- (create_interactive_state) with a scripted public streamFn that emits the
+-- same message_update interleaving Pi's faux provider does, then runs three
+-- scenarios the acceptance names: provider-failure (auto-retry re-drive),
+-- abort (mid-stream signal), and reload (session.reload over the runtime).
+-- The loaded 03-seams trace extension records the extension event trace via
+-- the shared pi.on handlers, and the driver returns the stable trace plus the
+-- final session messages so a Rust test compares them against the
+-- Pi-generated tests/extension-event-parity/seams-oracle.json.
+pi.register_command("extension-event-seams-parity", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local case = request.case
+    request.cwd = request.cwd or pi.cwd()
+    request.version = request.version or "0.79.0"
+    request.thinkingLevel = "off"
+    request.modelFromCli = true
+    request.thinkingFromCli = true
+    request.runtimeApiKey = request.apiKey or "seams-oracle-key"
+    if case == "reload" then
+      request.retryParityTurns = nil
+      request.seamsTurns = nil
+    elseif case == "abort" then
+      request.seamsTurns = request.turns
+      request.retryParityTurns = nil
+    elseif not request.retryParityTurns then
+      request.retryParityTurns = request.turns
+      request.seamsTurns = nil
+    end
+    local state = create_interactive_state(request)
+    state.copy_text = function() end
+    state.registry = state.registry or {
+      refresh = function() end, get_error = function() return nil end,
+      get_available = function() return { state.model } end,
+      find = function() return nil end,
+      has_configured_auth = function() return false end,
+      is_using_oauth = function() return false end,
+    }
+    local function stable_message(message)
+      if not message then return nil end
+      local out = { role = message.role }
+      if message.role == "assistant" then
+        out.stopReason = message.stopReason
+        if message.errorMessage then out.errorMessage = message.errorMessage end
+      end
+      return out
+    end
+    local function trace_via_command()
+      for _, command in ipairs(pi.registered_extension_commands()) do
+        if command.invocation_name == "seams-trace" then
+          return command.handler("", {})
+        end
+      end
+      return nil
+    end
+    local function messages()
+      local out = {}
+      local messages_arg = state.agent:get_state().messages or {}
+      for _, message in ipairs(messages_arg) do
+        out[#out + 1] = stable_message(message)
+      end
+      return out
+    end
+    if case == "providerFailure" then
+      state.session.prompt(request.prompt or "boom")
+      if state.turn then state.turn:join() end
+      local trace = trace_via_command()
+      -- The Pi harness drives AgentSession directly; startup session events are
+      -- not part of the scripted prompt trace. Strip the interactive runtime's
+      -- startup preamble so the traces compare exactly.
+      while trace[1] == "ext:session_start:startup"
+          or trace[1] == "ext:resources_discover:startup" do
+        table.remove(trace, 1)
+      end
+      return {
+        trace = trace,
+        callCount = #((request.__retry_recorder or {}).requests or {}),
+        messages = messages(),
+      }
+    elseif case == "abort" then
+      local saw_update = false
+      state.event_hook = function(event)
+        if event.type == "message_update" and not saw_update then
+          saw_update = true
+          state.session.abort()
+        end
+      end
+      state.session.prompt(request.prompt or "hi")
+      if state.turn then state.turn:join() end
+      local trace = trace_via_command()
+      while trace[1] == "ext:session_start:startup"
+          or trace[1] == "ext:resources_discover:startup" do
+        table.remove(trace, 1)
+      end
+      return {
+        trace = trace,
+        messages = messages(),
+      }
+    elseif case == "reload" then
+      -- Mirror AgentSession.reload's extension event seam (session_shutdown:
+      -- reload then a rebuilt runtime fires session_start:reload +
+      -- resources_discover:reload) without the TUI/editor setup the real
+      -- /reload handler performs.
+      state.reload_impl = function(state)
+        EXTENSION_POLICY.emit_generic({ type = "session_shutdown", reason = "reload" },
+          EXTENSION_CONTEXT_POLICY.snapshot(state))
+        state.extension_shutdown_emitted = true
+        state.next_session_start_event = { type = "session_start", reason = "reload" }
+        bind_session_runtime(state, state.session_manager)
+      end
+      local task = handle_reload_command(state)
+      if task then task:join() end
+      return { trace = trace_via_command() }
+    end
+    error("unknown seams case: " .. tostring(case), 0)
   end,
 })
 
