@@ -311,26 +311,7 @@ fn install_fs(lua: &mlua::Lua, pi: &mlua::Table) -> mlua::Result<()> {
             let md = tokio::fs::metadata(&path)
                 .await
                 .map_err(|e| io_err("stat", &path, &e))?;
-            let stat = lua.create_table()?;
-            stat.set(
-                "type",
-                if md.is_dir() {
-                    "dir"
-                } else if md.is_file() {
-                    "file"
-                } else {
-                    "other"
-                },
-            )?;
-            stat.set("size", md.len())?;
-            let modified_ms = md
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
-                .unwrap_or(0);
-            stat.set("modified_ms", modified_ms)?;
-            Ok(stat)
+            stat_to_lua(&lua, &md)
         })?,
     )?;
 
@@ -364,8 +345,382 @@ fn install_fs(lua: &mlua::Lua, pi: &mlua::Table) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Node `fs.readlink` / `fs.lstat` — symlink and metadata operations used
+    // by Hashline (symlink/mode preservation), Morph, and RLM.
+    fs.set(
+        "readlink",
+        lua.create_async_function(|_, path: String| async move {
+            tokio::fs::read_link(&path)
+                .await
+                .map_err(|e| io_err("readlink", &path, &e))
+                .map(|p| p.to_string_lossy().into_owned())
+        })?,
+    )?;
+    fs.set(
+        "symlink",
+        lua.create_async_function(|_, (target, link): (String, String)| async move {
+            std::os::unix::fs::symlink(&target, &link).map_err(|e| io_err("symlink", &link, &e))
+        })?,
+    )?;
+    fs.set(
+        "lstat",
+        lua.create_async_function(|lua, path: String| async move {
+            let md = tokio::fs::symlink_metadata(&path)
+                .await
+                .map_err(|e| io_err("lstat", &path, &e))?;
+            stat_to_lua(&lua, &md)
+        })?,
+    )?;
+    fs.set(
+        "chmod",
+        lua.create_async_function(|_, (path, mode): (String, String)| async move {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = octal_mode(&mode)?;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))
+                .map_err(|e| io_err("chmod", &path, &e))
+        })?,
+    )?;
+    fs.set(
+        "rename",
+        lua.create_async_function(|_, (from, to): (String, String)| async move {
+            tokio::fs::rename(&from, &to)
+                .await
+                .map_err(|e| io_err("rename", &from, &e))
+        })?,
+    )?;
+    fs.set(
+        "unlink",
+        lua.create_async_function(|_, path: String| async move {
+            tokio::fs::remove_file(&path)
+                .await
+                .map_err(|e| io_err("unlink", &path, &e))
+        })?,
+    )?;
+    // `fs.rmdir` / `fs.rmSync({ recursive })` — directory removal used by
+    // Gecko's temp-profile cleanup (`mkdtemp` + recursive delete).
+    fs.set(
+        "remove_dir",
+        lua.create_async_function(|_, path: String| async move {
+            tokio::fs::remove_dir(&path)
+                .await
+                .map_err(|e| io_err("remove_dir", &path, &e))
+        })?,
+    )?;
+    fs.set(
+        "remove_dir_all",
+        lua.create_async_function(|_, path: String| async move {
+            tokio::fs::remove_dir_all(&path)
+                .await
+                .map_err(|e| io_err("remove_dir_all", &path, &e))
+        })?,
+    )?;
+    fs.set(
+        "access",
+        lua.create_async_function(|_, path: String| async move {
+            tokio::fs::metadata(&path)
+                .await
+                .map(|_| true)
+                .map_err(|e| io_err("access", &path, &e))
+        })?,
+    )?;
+    fs.set(
+        "copy_file",
+        lua.create_async_function(|_, (from, to): (String, String)| async move {
+            tokio::fs::copy(&from, &to)
+                .await
+                .map_err(|e| io_err("copy_file", &from, &e))?;
+            Ok(())
+        })?,
+    )?;
+    fs.set(
+        "mkdtemp",
+        lua.create_async_function(|_, prefix: String| async move {
+            let dir = tempfile::Builder::new()
+                .prefix(&prefix)
+                .tempdir()
+                .map_err(|e| io_err("mkdtemp", &prefix, &e))?;
+            Ok(dir.keep().to_string_lossy().into_owned())
+        })?,
+    )?;
+    // Atomic write: write to a temp sibling, flush, then rename over the
+    // target so readers never observe a partial file (Hashline's atomic-write
+    // contract; Pomodoro's state write). The temp file is cleaned up on error.
+    fs.set(
+        "write_file_atomic",
+        lua.create_async_function(|_, (path, contents): (String, mlua::String)| async move {
+            atomic_write(&path, &contents.as_bytes())
+                .await
+                .map_err(|e| io_err("write_file_atomic", &path, &e))
+        })?,
+    )?;
+
+    // File watcher: `pi.fs.watch_file(path, { poll_ms }, callback)` returns a
+    // handle; polling a background thread detects mtime/content changes. The
+    // Lua side drives the callback (deterministic, matches Pomodoro's tick
+    // model). `handle:close()` stops the thread and the handle is disposed on
+    // Drop, so no watcher survives disposal.
+    fs.set(
+        "watch_file",
+        lua.create_function(|lua, (path, callback): (String, mlua::Function)| {
+            let inner = WatchInner::start(&path)?;
+            let userdata = lua.create_userdata(LuaWatcher {
+                inner,
+                path,
+                callback,
+            })?;
+            Ok(userdata)
+        })?,
+    )?;
+
     pi.set("fs", fs)?;
     Ok(())
+}
+
+/// Build the shared stat fields into a Lua table.
+fn stat_to_lua(lua: &mlua::Lua, md: &std::fs::Metadata) -> mlua::Result<mlua::Table> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let stat = lua.create_table()?;
+    let kind = if md.is_dir() {
+        "dir"
+    } else if md.is_file() {
+        "file"
+    } else if md.file_type().is_symlink() {
+        "symlink"
+    } else {
+        "other"
+    };
+    stat.set("type", kind)?;
+    stat.set("size", md.len())?;
+    stat.set("block_size", md.blksize())?;
+    stat.set("blocks", md.blocks())?;
+    let mode = md.permissions().mode();
+    stat.set("mode", mode & 0o7777)?;
+    stat.set("uid", md.uid())?;
+    stat.set("gid", md.gid())?;
+    stat.set("nlink", md.nlink())?;
+    let modified_ms = md
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or(0);
+    stat.set("modified_ms", modified_ms)?;
+    Ok(stat)
+}
+
+fn octal_mode(s: &str) -> mlua::Result<u32> {
+    let trimmed = s.trim_start_matches('0');
+    if trimmed.is_empty() {
+        return Err(mlua::Error::runtime(format!(
+            "fs.chmod: invalid mode {s:?} (expected a non-empty octal string)"
+        )));
+    }
+    if trimmed.len() > 8 {
+        return Err(mlua::Error::runtime(format!(
+            "fs.chmod: invalid mode {s:?} (octal value too large)"
+        )));
+    }
+    u32::from_str_radix(trimmed, 8)
+        .map_err(|_| mlua::Error::runtime(format!("fs.chmod: invalid mode {s:?} (expected octal)")))
+        .and_then(|mode| {
+            // Reject setuid/setgid (privilege-escalation shape); the classic
+            // perms/sticky bits (0x1ff + 0o1000) remain settable.
+            if mode & 0o6000 != 0 {
+                Err(mlua::Error::runtime(format!(
+                    "fs.chmod: refusing setuid/setgid mode {s:?}"
+                )))
+            } else {
+                Ok(mode)
+            }
+        })
+}
+
+async fn atomic_write(path: &str, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let target = std::path::Path::new(path);
+    let parent = target
+        .parent()
+        .map(|p| p.to_owned())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let file_name = target.file_name().map(|f| f.to_owned()).unwrap_or_default();
+    // A uniquely-named sibling temp file (O_EXCL, random suffix) written and
+    // fsynced before the rename, so a concurrent observer never sees a partial
+    // file and another local process cannot pre-create the temp as a symlink/
+    // clobber target (TOCTOU hardening).
+    // Capture the target's existing mode (and uid/gid where available) so the
+    // atomic replacement preserves metadata instead of resetting an executable
+    // script/owned file to the temp file's default mode ("0755 becomes 0600").
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let prior = std::fs::symlink_metadata(target).ok().map(|md| {
+        (
+            md.permissions().mode(),
+            md.uid(),
+            md.gid(),
+            md.file_type().is_symlink(),
+        )
+    });
+    (|| -> std::io::Result<()> {
+        let mut f = tempfile::Builder::new()
+            .prefix(&format!(".{}.pi-tmp-", file_name.to_string_lossy()))
+            .tempfile_in(&parent)?;
+        if let Some((mode, _, _, _)) = prior {
+            let _ = f
+                .as_file()
+                .set_permissions(std::fs::Permissions::from_mode(mode));
+        }
+        f.write_all(contents)?;
+        f.flush()?;
+        f.as_file().sync_all()?;
+        std::fs::rename(f.path(), target)?;
+        // Re-apply ownership/metadata to the renamed file and fsync the parent
+        // dir so the rename (and its metadata) is durable, best-effort.
+        if let Some((mode, uid, gid, was_symlink)) = prior {
+            if !was_symlink {
+                let _ = target_path_c_str(target)
+                    .map(|path| unsafe { libc::chown(path.as_ptr(), uid, gid) });
+            }
+            let _ = std::fs::set_permissions(target, std::fs::Permissions::from_mode(mode));
+        }
+        if let Ok(dir) = std::fs::File::open(&parent) {
+            let _ = dir.sync_all();
+        }
+        Ok(())
+    })()
+}
+
+#[cfg(unix)]
+fn target_path_c_str(target: &std::path::Path) -> std::io::Result<std::ffi::CString> {
+    use std::os::unix::ffi::OsStrExt as _;
+    std::ffi::CString::new(target.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path contains NUL"))
+}
+
+struct WatchInner {
+    /// Guarded stop flag plus a condvar so `close`/`drop` wakes the polling
+    /// thread immediately (the only unmasked stops *before* the next poll).
+    stop: std::sync::Arc<std::sync::Mutex<bool>>,
+    wake: std::sync::Arc<std::sync::Condvar>,
+    changed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Join handle so `drop`/`close` can wait out the thread, ensuring no
+    /// watcher thread survives disposal (bounded join).
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl WatchInner {
+    fn start(path: &str) -> mlua::Result<Self> {
+        let stop = std::sync::Arc::new(std::sync::Mutex::new(false));
+        let wake = std::sync::Arc::new(std::sync::Condvar::new());
+        let changed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop_handle = std::sync::Arc::clone(&stop);
+        let wake_handle = std::sync::Arc::clone(&wake);
+        let changed_handle = std::sync::Arc::clone(&changed);
+        let path = path.to_owned();
+        let thread = std::thread::Builder::new()
+            .name("pi-fs-watch".to_owned())
+            .spawn(move || {
+                let mut last = std::fs::metadata(&path).ok().map(|md| signature(&md));
+                loop {
+                    // Wait up to 200ms for a change poll, or wake immediately on
+                    // `close` (stop set). Polling allows a mutation made after
+                    // close to be missed — see `should_stop` re-check below.
+                    let should_stop = {
+                        let mut guard = stop_handle.lock().unwrap_or_else(|e| e.into_inner());
+                        if *guard {
+                            true
+                        } else {
+                            let (g, _) = wake_handle
+                                .wait_timeout(guard, std::time::Duration::from_millis(200))
+                                .unwrap_or_else(|e| e.into_inner());
+                            guard = g;
+                            *guard
+                        }
+                    };
+                    // Re-check stop after waking: `close` may have set it while
+                    // we waited, so a mutation made after close must not be
+                    // recorded as a pending change.
+                    if should_stop {
+                        break;
+                    }
+                    if let Ok(md) = std::fs::metadata(&path) {
+                        let sig = signature(&md);
+                        if last.as_ref() != Some(&sig) {
+                            changed_handle.store(true, std::sync::atomic::Ordering::Relaxed);
+                            last = Some(sig);
+                        }
+                    }
+                }
+            })
+            .map_err(|e| mlua::Error::runtime(format!("fs.watch_file: {e}")))?;
+        Ok(WatchInner {
+            stop,
+            wake,
+            changed,
+            thread: Some(thread),
+        })
+    }
+
+    /// Signal stop and wait (bounded) for the polling thread to exit.
+    fn shutdown(&mut self) {
+        {
+            let mut guard = self.stop.lock().unwrap_or_else(|e| e.into_inner());
+            *guard = true;
+        }
+        self.wake.notify_all();
+        if let Some(thread) = self.thread.take()
+            && thread.join().is_ok()
+        {
+            // reaped
+        }
+    }
+}
+
+fn signature(md: &std::fs::Metadata) -> (u64, u64) {
+    (
+        md.len(),
+        md.modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0),
+    )
+}
+
+pub(crate) struct LuaWatcher {
+    inner: WatchInner,
+    path: String,
+    callback: mlua::Function,
+}
+
+impl Drop for LuaWatcher {
+    fn drop(&mut self) {
+        self.inner.shutdown();
+    }
+}
+
+impl mlua::UserData for LuaWatcher {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method_mut("close", |_, this, ()| {
+            this.inner.shutdown();
+            Ok(())
+        });
+        // Drain a pending change: if changed, reset the flag, fire the
+        // callback with `{ path, kind = "change" }`, and return true.
+        methods.add_method("poll", |lua, this, ()| {
+            if this
+                .inner
+                .changed
+                .swap(false, std::sync::atomic::Ordering::Relaxed)
+            {
+                let event = lua.create_table()?;
+                event.set("path", this.path.clone())?;
+                event.set("kind", "change")?;
+                this.callback.call::<()>(event)?;
+                return Ok(true);
+            }
+            Ok(false)
+        });
+        methods.add_method("path", |_, this, ()| Ok(this.path.clone()));
+    }
 }
 
 fn install_path(lua: &mlua::Lua, pi: &mlua::Table, cwd: &str) -> mlua::Result<()> {
