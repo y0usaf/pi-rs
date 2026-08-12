@@ -4,6 +4,7 @@
 
 pub mod args;
 pub mod extensions;
+pub mod file_processor;
 pub mod list_models;
 pub mod login;
 pub mod session_select;

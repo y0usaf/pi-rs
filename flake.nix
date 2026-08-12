@@ -51,7 +51,9 @@
               || (lib.hasSuffix ".base64" path)
               || (lib.hasSuffix ".hex" path)
               || (lib.hasSuffix ".pem" path)
-              || (lib.hasSuffix ".sse" path);
+              || (lib.hasSuffix ".sse" path)
+              || (lib.hasSuffix ".txt" path)
+              || (lib.hasSuffix ".png" path);
           };
 
           commonEnv = {

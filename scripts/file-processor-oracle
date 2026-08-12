@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Regenerate the file-processor parity oracle from Pi's real
+# `processFileArguments` (cli/file-processor.ts) and `buildInitialMessage`
+# (cli/initial-message.ts). See tests/file-processor-parity/.
+#
+# Run via scripts/file-processor-oracle. Offline normal checks consume the
+# checked oracle; opt-in regeneration drives the pinned Pi source.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+oracle=tests/file-processor-parity/oracle.json
+if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
+  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
+fi
+# The generator pulls file-processor.ts + initial-message.ts + image-resize
+# (no coding-agent runtime), so it runs under plain tsx.
+ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json \
+  tests/file-processor-parity/gen-oracle.ts "$oracle"
+echo "wrote $oracle"
