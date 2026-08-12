@@ -1,0 +1,20 @@
+CONTINUING PERSISTENT PARITY GOAL — do NOT stop, do NOT self-declare complete, until every open parity row below is genuinely closed with verified evidence.
+
+You are resuming work on the pi-rs faithful Rust/Lua port of Pi v0.79.0 (oracle pinned at ref/pi c5582102). The parity release gate (DESIGN.md principle 1) is: given the same terminal, credentials, model, input, and provider/tool responses, a user must not be able to distinguish pi-rs from Pi's coding agent.
+
+DEFINITION OF DONE — you may only call update_goal(complete) when ALL of these are true AND each is backed by real differential evidence against the pinned oracle (not inference):
+1. PLAN 8 — coding-agent AI/auth compatibility shares one path and matches Pi.
+2. PLAN 9.2–9.11 — extension/config plane fully closed: contexts+lifecycle (9.2), event pipeline+fold (9.3), non-UI ExtensionAPI registries/dynamic tools (9.4), composable extension UI (9.5), canonical config.lua declaration+mutation (9.6), resources/Lua modules/package transport (9.7), translation matrix + Pi extension gate (9.8), Lua supersurface (9.9), first-party decomposition/ablation/replacement (9.10), external dogfood translation + strict-superset gate (9.11).
+3. PLAN 10 — non-interactive modes (print, JSON, RPC, export) match Pi with differential evidence.
+4. PLAN 11 — the full reachable side-by-side differential against the pinned Pi oracle has been run and CLOSED, with the final-parity-audit showing all previously-open rows now `parity` (not just a green flake).
+5. Milestone A (A.1–A.3) — evidence ablation and Rust/Lua closure complete.
+
+HARD RULES:
+- If you reach a point where a row is NOT yet closable this turn, DO NOT call update_goal(complete). Instead keep working on the next open row, or surface the exact blocker and continue. Premature completion is the failure mode you must avoid.
+- Prefer `nix build`/`nix flake check` as source of truth; native cargo as iteration aid.
+- Never fabricate parity evidence. A row stays open until there is a real differential test.
+- Keep FINAL_PARITY_AUDIT.md non-stale; regenerate via scripts/final-parity-audit.
+- Do NOT commit to git unless explicitly warranted; leave work uncommitted for human review.
+- The durable record remains across resumptions; continue from where prior turns left off.
+
+This goal is supervised: an external loop will relaunch `reasonix run --resume` whenever this process exits, so you should treat every turn as part of one unbounded overnight effort toward full parity, not a single bounded delivery.

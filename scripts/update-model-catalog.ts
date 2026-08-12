@@ -14,6 +14,7 @@ import { pathToFileURL } from "node:url";
 const DEFAULT_REPOSITORY = "https://github.com/earendil-works/pi.git";
 const DEFAULT_REF = "main";
 const DEFAULT_SOURCE_PATH = "packages/ai/src/models.generated.ts";
+const DEFAULT_CATALOG_URL = "https://pi.dev/api/models";
 const DEFAULT_OUTPUT = "crates/pi-rs-ai/data/models.json";
 const DEFAULT_PROVENANCE = "crates/pi-rs-ai/data/models.provenance.json";
 const DEFAULT_OVERRIDES = "scripts/model-catalog-overrides.json";
@@ -56,6 +57,8 @@ type Options = {
 	revision?: string;
 	source?: string;
 	sourcePath: string;
+	catalogUrl: string;
+	remote: boolean;
 	output: string;
 	provenance: string;
 	overrides: string;
@@ -78,6 +81,8 @@ function usage(): never {
   --ref REF              upstream ref when --revision is absent (${DEFAULT_REF})
   --revision REV         exact upstream revision
   --source-path PATH     catalog path within checkout (${DEFAULT_SOURCE_PATH})
+  --catalog-url URL      published catalog endpoint (${DEFAULT_CATALOG_URL})
+  --local                clone the git repo instead of fetching the published catalog
   --output PATH          normalized catalog output (${DEFAULT_OUTPUT})
   --provenance PATH      provenance output (${DEFAULT_PROVENANCE})
   --overrides PATH       reviewed metadata overrides (${DEFAULT_OVERRIDES})
@@ -90,6 +95,8 @@ function parseArgs(args: string[]): Options {
 		repository: DEFAULT_REPOSITORY,
 		ref: DEFAULT_REF,
 		sourcePath: DEFAULT_SOURCE_PATH,
+		catalogUrl: DEFAULT_CATALOG_URL,
+		remote: true,
 		output: DEFAULT_OUTPUT,
 		provenance: DEFAULT_PROVENANCE,
 		overrides: DEFAULT_OVERRIDES,
@@ -100,6 +107,7 @@ function parseArgs(args: string[]): Options {
 		"--ref": "ref",
 		"--revision": "revision",
 		"--source-path": "sourcePath",
+		"--catalog-url": "catalogUrl",
 		"--output": "output",
 		"--provenance": "provenance",
 		"--overrides": "overrides",
@@ -107,6 +115,10 @@ function parseArgs(args: string[]): Options {
 	};
 	for (let index = 0; index < args.length; index++) {
 		if (args[index] === "--help" || args[index] === "-h") usage();
+		if (args[index] === "--local") {
+			options.remote = false;
+			continue;
+		}
 		const key = keys[args[index]];
 		const value = args[++index];
 		if (!key || !value) usage();
@@ -307,6 +319,24 @@ async function acquire(options: Options): Promise<{ root: string; file: string; 
 			revision: options.revision ?? "local-fixture",
 		};
 	}
+	if (options.remote) {
+		// Fetch the published catalog (the same pi.dev endpoint the upstream
+		// client consumes at runtime). The upstream git repo no longer
+		// self-contains the catalog — generated per-provider data lives in
+		// gitignored providers/data/*.json hydrated at publish time.
+		const temp = await mkdtemp(join(tmpdir(), "pi-model-catalog-"));
+		const response = await fetch(options.catalogUrl, {
+			headers: { accept: "application/json" },
+		});
+		if (!response.ok) fail(`published catalog request failed: ${response.status} ${response.statusText}`);
+		const body = await response.text();
+		const revision =
+			response.headers.get("x-pi-model-catalog-revision") ??
+			response.headers.get("etag") ??
+			`sha256-${sha256(body)}`;
+		await writeFile(join(temp, "catalog.json"), body);
+		return { root: temp, file: join(temp, "catalog.json"), revision, cleanup: temp };
+	}
 	const temp = await mkdtemp(join(tmpdir(), "pi-model-catalog-"));
 	if (options.revision) {
 		await run(["git", "init", "--quiet", temp]);
@@ -321,6 +351,9 @@ async function acquire(options: Options): Promise<{ root: string; file: string; 
 
 async function importModels(file: string): Promise<unknown> {
 	if (!existsSync(file)) fail(`generated catalog not found: ${file}`);
+	if (file.endsWith(".json")) {
+		return JSON.parse(await readFile(file, "utf8"));
+	}
 	const module = await import(`${pathToFileURL(file).href}?catalog-update=${Date.now()}`);
 	if (!("MODELS" in module)) fail(`${file} does not export MODELS`);
 	return module.MODELS;
@@ -369,12 +402,19 @@ async function main(): Promise<void> {
 		const sourceHash = sha256(sourceCanonical);
 		const provenance = {
 			schemaVersion: 1,
-			source: {
-				repository: options.source ? options.source : options.repository,
-				revision: acquired.revision,
-				path: options.sourcePath,
-				catalogSha256: sourceHash,
-			},
+			source: options.remote
+				? {
+						kind: "published-catalog",
+						url: options.catalogUrl,
+						revision: acquired.revision,
+						catalogSha256: sourceHash,
+					}
+				: {
+						repository: options.source ? options.source : options.repository,
+						revision: acquired.revision,
+						path: options.sourcePath,
+						catalogSha256: sourceHash,
+					},
 			overrides: {
 				path: options.overrides,
 				sha256: sha256(loadedOverrides.bytes),
