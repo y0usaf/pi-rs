@@ -446,13 +446,20 @@
     },
     {
       "id": "coding.extension-events",
-      "status": "open",
-      "owner": "PLAN 9.3",
-      "rationale": "The complete event vocabulary, fold/middleware semantics, and lifecycle ordering are not yet emitted at every real product seam.",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "The full Pi event fold is pinned by two differential tests against the Pi-generated extension-event oracle: `complete_event_folds_match_pi_runner_oracle` asserts strict whole-output equality for the complete event vocabulary, ordering, fold/middleware results, transformed input, blocked tool_call, compact/tree/session-switch, context, trust, resources, and error isolation; `real_product_seams_follow_pi_generated_event_order` verifies productTrace and extensionErrors idempotent with the oracle at real startup/tool-using/provider seams through the print role on an SSE stub.",
       "evidence": [
         {
-          "path": "PLAN.md",
-          "contains": "Complete event pipeline and fold semantics"
+          "path": "tests/extension-event-parity/oracle.json"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/extension_loading.rs",
+          "contains": "complete_event_folds_match_pi_runner_oracle"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/extension_loading.rs",
+          "contains": "real_product_seams_follow_pi_generated_event_order"
         }
       ],
       "refs": [
