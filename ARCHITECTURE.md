@@ -42,6 +42,7 @@ graph TD
 | `pi-rs-app` | _no description in Cargo.toml_ |
 | `pi-rs-host` | Lua extension host: coroutine async seam, event bus, watchdog |
 | `pi-rs-session` | Session manager: append-only JSONL session trees (port of core/session-manager.ts) |
+| `pi-rs-tools` | A.3 source-language gate (reject new foreign-language first-party files) |
 | `pi-rs-tui` | _no description in Cargo.toml_ |
 
 ## Module structure
@@ -490,6 +491,36 @@ crate pi_rs_session
 ├── mod time: pub
 └── mod uuid: pub
     └── struct State: pub(self)
+```
+
+### `pi-rs-tools`
+
+```
+
+crate pi_rs_tools
+├── mod acquire: pub
+│   ├── struct Acquired: pub
+│   └── struct TempDir: pub
+├── mod gate: pub
+│   ├── struct Flag: pub
+│   ├── struct Gate: pub
+│   └── enum Language: pub
+├── mod jsvalue: pub
+│   ├── enum ParseError: pub
+│   └── struct Parser: pub(self)
+├── mod manifest: pub
+│   └── enum Error: pub
+├── mod model_catalog: pub
+│   ├── struct Inventory: pub(self)
+│   ├── struct LoadedOverrides: pub(self)
+│   ├── enum ModelCatalogError: pub
+│   ├── struct NormalizeResult: pub
+│   ├── struct Options: pub
+│   ├── struct Override: pub(self)
+│   └── enum RawSource: pub
+└── mod selftest: pub
+    ├── enum SelftestError: pub
+    └── struct Temp: pub(self)
 ```
 
 ### `pi-rs-tui`
