@@ -2449,12 +2449,102 @@ pub(crate) fn build(
     // `upsertRegisteredProvider`). Function values (`streamSimple`,
     // `oauth.*`) stay Lua-side, invocable when their mechanisms land
     // (WS2.5 auth, WS5 custom streams); the JSON mirror strips them.
+    fn validate_stream_simple_api(
+        _lua: &mlua::Lua,
+        name: &str,
+        config: &mlua::Table,
+    ) -> mlua::Result<bool> {
+        // Spec `validateProviderConfig` (model-registry.ts): `streamSimple`
+        // requires a truthy `api`. Pi's check is `config.streamSimple && !config.api`
+        // — only an absent or empty-string `api` is rejected; whitespace-only
+        // `api` ("   ") is accepted and registered literally. Failure aborts
+        // registration exactly as the spec's throw does (no config stored/applied).
+        let has_stream_simple = config
+            .get::<Option<mlua::Function>>("streamSimple")?
+            .is_some();
+        let api_present = config
+            .get::<Option<mlua::String>>("api")?
+            .map(|api| api.to_string_lossy())
+            .filter(|s| !s.is_empty())
+            .is_some();
+        if has_stream_simple && !api_present {
+            return Err(mlua::Error::runtime(format!(
+                "Provider {name}: \"api\" is required when registering streamSimple."
+            )));
+        }
+        Ok(has_stream_simple)
+    }
+
+    fn validate_register_provider_models(
+        _lua: &mlua::Lua,
+        name: &str,
+        config: &mlua::Table,
+    ) -> mlua::Result<()> {
+        // Spec `validateProviderConfig` (model-registry.ts): when `models` is
+        // non-empty, `baseUrl` and (`apiKey` or `oauth`) are required, and each
+        // model needs an `api` (either its own or the provider's).
+        let models = config.get::<Option<mlua::Table>>("models")?;
+        let Some(models) = models else {
+            return Ok(());
+        };
+        let n: usize = models.raw_len();
+        if n == 0 {
+            return Ok(());
+        }
+        let base_url = config
+            .get::<Option<mlua::String>>("baseUrl")?
+            .map(|v| !v.to_string_lossy().trim().is_empty())
+            .unwrap_or(false);
+        if !base_url {
+            return Err(mlua::Error::runtime(format!(
+                "Provider {name}: \"baseUrl\" is required when defining models."
+            )));
+        }
+        let has_key = config
+            .get::<Option<mlua::String>>("apiKey")?
+            .map(|v| !v.to_string_lossy().trim().is_empty())
+            .unwrap_or(false);
+        let has_oauth = config.get::<Option<mlua::Table>>("oauth")?.is_some();
+        if !has_key && !has_oauth {
+            return Err(mlua::Error::runtime(format!(
+                "Provider {name}: \"apiKey\" or \"oauth\" is required when defining models."
+            )));
+        }
+        let provider_api = config
+            .get::<Option<mlua::String>>("api")?
+            .map(|v| v.to_string_lossy())
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty());
+        for i in 1..=n {
+            let model: mlua::Table = models.raw_get(i)?;
+            let model_api = model
+                .get::<Option<mlua::String>>("api")?
+                .map(|v| v.to_string_lossy())
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty());
+            let model_id = model
+                .get::<Option<mlua::String>>("id")?
+                .map(|v| v.to_string_lossy())
+                .unwrap_or_else(|| "<unnamed>".to_owned());
+            if model_api.or(provider_api.clone()).is_none() {
+                return Err(mlua::Error::runtime(format!(
+                    "Provider {name}, model {model_id}: no \"api\" specified."
+                )));
+            }
+        }
+        Ok(())
+    }
+
     let register_provider = lua.create_function(|lua, (name, config): (String, mlua::Table)| {
         if name.trim().is_empty() {
             return Err(mlua::Error::runtime(
                 "register_provider: name must be a non-empty string",
             ));
         }
+        // Spec `validateProviderConfig` runs before any config is stored or
+        // applied (`registerProvider` → validate → apply → upsert).
+        let has_stream_simple = validate_stream_simple_api(lua, &name, &config)?;
+        validate_register_provider_models(lua, &name, &config)?;
         let source = current_source(lua);
         let ext = ext_entry(lua, &source)?;
         let providers: mlua::Table = ext.get("providers")?;
@@ -2471,6 +2561,48 @@ pub(crate) fn build(
         for pair in config.pairs::<mlua::Value, mlua::Value>() {
             let (k, v) = pair?;
             entry.set(k, v)?;
+        }
+        // PLAN 9.4: a registered provider carrying a `streamSimple` function
+        // and an `api` string registers a custom API stream handler keyed
+        // globally by the api string, mirroring the spec's
+        // `applyProviderConfig` → `registerApiProvider(..., provider:name)`.
+        // `pi.ai.stream_simple` (ai.rs) consults this table before Rust
+        // dispatch, so the custom handler participates in the same stream
+        // seam the built-in providers use (stream.ts resolveApiProvider).
+        // The spec requires a truthy `api` when `streamSimple` is provided;
+        // validated above so `has_stream_simple` implies a non-empty `api`.
+        // Like Pi, the api string is registered literally (no trimming), so a
+        // whitespace-only api registers a handler keyed by those spaces.
+        if has_stream_simple
+            && let Some(api) = entry.get::<Option<mlua::String>>("api")?
+            && let Ok(api_str) = api.to_str()
+            && !api_str.is_empty()
+        {
+            let api_owned = api_str.to_string();
+            let registry = registry_table(lua)?;
+            let custom_stream: mlua::Table = if let Some(custom) =
+                registry.get::<Option<mlua::Table>>("custom_stream")?
+            {
+                custom
+            } else {
+                let custom = lua.create_table()?;
+                registry.set("custom_stream", &custom)?;
+                custom
+            };
+            let handler = lua.create_table()?;
+            if let Some(stream_simple) = config.get::<Option<mlua::Function>>("streamSimple")? {
+                handler.set("streamSimple", stream_simple)?;
+            }
+            if let Some(existing) = custom_stream.get::<Option<mlua::Table>>(api_owned.as_str())? {
+                // Re-registration with the same api keeps previously applied
+                // keys and overrides only re-supplied ones (upsert semantics).
+                for pair in handler.pairs::<mlua::Value, mlua::Value>() {
+                    let (k, v) = pair?;
+                    existing.set(k, v)?;
+                }
+            } else {
+                custom_stream.set(api_owned.as_str(), handler)?;
+            }
         }
         Ok(())
     })?;
