@@ -287,7 +287,8 @@ crate pi_rs_app
 ├── mod cli: pub
 │   ├── mod args: pub
 │   │   ├── struct Args: pub
-│   │   └── struct Diagnostic: pub
+│   │   ├── struct Diagnostic: pub
+│   │   └── enum Mode: pub
 │   ├── mod extensions: pub
 │   ├── mod list_models: pub
 │   │   └── struct Row: pub(self)
@@ -373,6 +374,8 @@ crate pi_rs_host
 │   └── enum HostError: pub
 ├── mod exec: pub(crate)
 │   └── struct ExecResult: pub(crate)
+├── mod frontmatter: pub(crate)
+│   └── struct FrontmatterDocument: pub(crate)
 ├── mod hljs: pub
 │   ├── struct Highlighted: pub
 │   ├── enum HljsError: pub
@@ -498,6 +501,11 @@ crate pi_rs_tui
 ├── mod box_component: pub
 │   ├── type Background: pub(self)
 │   └── struct BoxComponent: pub
+├── mod compact_evidence: pub
+│   ├── struct CompactEvidence: pub
+│   ├── struct Frame: pub
+│   ├── struct Run: pub
+│   └── struct Style: pub
 ├── mod component: pub
 │   ├── trait Component: pub
 │   ├── struct Container: pub
