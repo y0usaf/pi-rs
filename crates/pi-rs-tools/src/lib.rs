@@ -12,5 +12,9 @@
 //! file whose extension or shebang marks a foreign language and which is not
 //! enumerated in the allowlist/legacy manifests is a rejection.
 
+pub mod acquire;
 pub mod gate;
+pub mod jsvalue;
 pub mod manifest;
+pub mod model_catalog;
+pub mod selftest;

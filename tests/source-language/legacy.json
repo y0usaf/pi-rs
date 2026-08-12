@@ -154,10 +154,6 @@
       "language": "shell",
       "shebang": "#!/usr/bin/env bash"
     },
-    "scripts/test-model-catalog-update": {
-      "language": "shell",
-      "shebang": "#!/usr/bin/env bash"
-    },
     "scripts/tool-oracle": {
       "language": "shell",
       "shebang": "#!/usr/bin/env bash"
@@ -165,10 +161,6 @@
     "scripts/ui-diff": {
       "language": "shell",
       "shebang": "#!/usr/bin/env bash"
-    },
-    "scripts/update-model-catalog.ts": {
-      "language": "TypeScript",
-      "shebang": "#!/usr/bin/env bun"
     },
     "supervisor-parity.sh": {
       "language": "shell",

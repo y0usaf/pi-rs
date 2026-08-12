@@ -162,8 +162,11 @@ Complete these rungs before growing the extension surface further.
       run the gate with no Node/Bun/Python runtime.
 
       **Remaining — port the named workflows.** The grandfathered generators are
-      still Python/bash/TS and must gain Rust/Lua owners before A.3 closes:
-      - `scripts/update-model-catalog.ts` → Rust/Lua (model-catalog workflow).
+      still Python/bash/TS and must gain Rust/Lua owners before A.3 closes.
+      Model-catalog has closed: `scripts/update-model-catalog.ts` → Rust
+      (`crates/pi-rs-tools`, `pi-rs-tools model-catalog {update,selftest}`), its
+      bash fixture harness deleted, and the flake check/app repointed to the Rust
+      binary with no bun. Remaining:
       - `scripts/{construction-inventory,final-parity-audit,extension-inventory,
         external-extension-inventory,dogfood-oracle}` (Python) → Rust/Lua.
       - the `scripts/*-oracle` bash regen wrappers + `gen-arch.sh` → Rust.

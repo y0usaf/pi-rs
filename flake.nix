@@ -269,22 +269,28 @@
           '';
 
       # Offline, fixture-backed normalization and rejection tests for the
-      # reviewed model-catalog update path.
+      # reviewed model-catalog update path. Driven by the Rust model-catalog
+      # owner (`pi-rs-tools model-catalog selftest`); no Node/Bun runtime.
       mkModelCatalogUpdateTest =
         system:
         let
-          pkgs = mkPkgs system;
+          c = mkCraneLib system;
+          tools = c.craneLib.buildPackage {
+            inherit (c) src cargoArtifacts;
+            pname = "pi-rs-tools";
+            version = "0.1.0";
+            nativeBuildInputs = c.commonEnv.nativeBuildInputs;
+            cargoExtraArgs = "-p pi-rs-tools";
+            doCheck = false;
+            meta.mainProgram = "pi-rs-tools";
+          };
         in
-        pkgs.runCommand "model-catalog-update-test"
+        c.pkgs.runCommand "model-catalog-update-test"
           {
-            nativeBuildInputs = [
-              pkgs.bash
-              pkgs.bun
-              pkgs.jq
-            ];
+            nativeBuildInputs = [ tools ];
           }
           ''
-            bash ${self}/scripts/test-model-catalog-update
+            pi-rs-tools model-catalog selftest
             touch $out
           '';
 
@@ -366,16 +372,25 @@
       mkModelCatalogUpdater =
         system:
         let
-          pkgs = mkPkgs system;
+          c = mkCraneLib system;
+          tools = c.craneLib.buildPackage {
+            inherit (c) src cargoArtifacts;
+            pname = "pi-rs-tools";
+            version = "0.1.0";
+            nativeBuildInputs = c.commonEnv.nativeBuildInputs ++ [ c.pkgs.git ];
+            cargoExtraArgs = "-p pi-rs-tools";
+            doCheck = false;
+            meta.mainProgram = "pi-rs-tools";
+          };
         in
-        pkgs.writeShellApplication {
+        c.pkgs.writeShellApplication {
           name = "update-model-catalog";
           runtimeInputs = [
-            pkgs.bun
-            pkgs.git
+            tools
+            c.pkgs.git
           ];
           text = ''
-            exec bun ${self}/scripts/update-model-catalog.ts "$@"
+            exec pi-rs-tools model-catalog update "$@"
           '';
         };
 
