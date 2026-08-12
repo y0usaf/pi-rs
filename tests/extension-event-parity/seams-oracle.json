@@ -1,0 +1,71 @@
+{
+	"providerFailure": {
+		"trace": [
+			"ext:input",
+			"ext:before_agent_start",
+			"ext:agent_start:0",
+			"ext:turn_start:0",
+			"ext:message_start:user",
+			"ext:message_end:user",
+			"ext:context",
+			"ext:message_start:assistant",
+			"ext:message_update:assistant",
+			"ext:message_end:assistant:error:overloaded_error",
+			"ext:turn_end:0",
+			"ext:agent_end:2:false",
+			"ext:agent_start:0",
+			"ext:turn_start:0",
+			"ext:context",
+			"ext:message_start:assistant",
+			"ext:message_update:assistant",
+			"ext:message_end:assistant:stop:",
+			"ext:turn_end:0",
+			"ext:agent_end:1:false"
+		],
+		"callCount": 2,
+		"messages": [
+			{
+				"role": "user"
+			},
+			{
+				"role": "assistant",
+				"stopReason": "stop"
+			}
+		]
+	},
+	"abort": {
+		"trace": [
+			"ext:input",
+			"ext:before_agent_start",
+			"ext:agent_start:0",
+			"ext:turn_start:0",
+			"ext:message_start:user",
+			"ext:message_end:user",
+			"ext:context",
+			"ext:message_start:assistant",
+			"ext:message_update:assistant",
+			"ext:message_end:assistant:aborted:Request was aborted",
+			"ext:turn_end:0",
+			"ext:agent_end:2:false"
+		],
+		"messages": [
+			{
+				"role": "user"
+			},
+			{
+				"role": "assistant",
+				"stopReason": "aborted",
+				"errorMessage": "Request was aborted"
+			}
+		]
+	},
+	"reload": {
+		"trace": [
+			"ext:session_start:startup",
+			"ext:resources_discover:startup",
+			"ext:session_shutdown:reload",
+			"ext:session_start:reload",
+			"ext:resources_discover:reload"
+		]
+	}
+}
