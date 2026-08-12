@@ -20,10 +20,10 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 
 | Classification | Source files | Public exports |
 |---|---:|---:|
-| `parity` | 177 | 467 |
-| `open` | 65 | 241 |
+| `parity` | 185 | 490 |
+| `open` | 56 | 207 |
 | `design` | 0 | 0 |
-| `out-of-scope` | 28 | 343 |
+| `out-of-scope` | 29 | 354 |
 
 > This audit intentionally does **not** close PLAN 11: open prerequisite rows
 > remain in PLAN 8/9/10, and PLAN 11 retains the final live side-by-side gate.
@@ -33,7 +33,7 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | Difference | Audit status | Owner | Width finding |
 |---:|---|---|---|
 | 1 | `bounded` | DESIGN difference 1 | Rust/module-layout differences authorize no observable drift; all behavior rows remain parity, open, or out of scope rather than being waived as implementation detail. |
-| 2 | `open` | PLAN 9.6 | Lua-only configuration authorizes source-format replacement, not the current temporary JSON path or different effective outcomes; the complete declaration/mutation pipeline remains open. |
+| 2 | `bounded` | DESIGN difference 2 | Global `config.lua` + trusted project `.pi/config.lua` are the sole configuration entry points, replacing Pi's JSON files while producing the same effective outcomes; the complete declaration/mutation pipeline (settings, keybindings with legacy-name migration, models/providers, themes, resource selectors, managed-block persistence, CLI overrides, atomic rollback) is implemented and pinned—see `coding.lua-config`. Formats carrying user data/content remain Pi-compatible. |
 | 3 | `open` | PLAN 9.8 | Lua replaces TypeScript as the extension language only; every in-scope pinned example still requires an executable translated equivalent. |
 | 4 | `open` | PLAN 9.7 | Lua package contents do not authorize different package command/resource outcomes; transport and lifecycle compatibility remain undecided and open. |
 | 5 | `open` | PLAN 9.10 | Lua placement alone is insufficient: independently disableable declarations, ablation, and ordinary file-backed replacement remain mandatory. |
@@ -46,7 +46,8 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | `ai.images` | `out-of-scope` | DESIGN product boundary | 6 | Image-generation APIs are a separate Pi product surface; coding-agent image attachments remain covered by the coding image oracle. Evidence: `DESIGN.md`. |
 | `ai.cli` | `out-of-scope` | DESIGN product boundary | 1 | The standalone pi-ai CLI is not required by the coding-agent product. Evidence: `DESIGN.md`. |
 | `ai.protocol-tail` | `parity` | closed | 8 | Pi-derived request/event/final-message oracles cover Bedrock Converse Stream, Mistral Conversations, Google Vertex, and OpenAI Completions protocol pipelines. Evidence: `tests/bedrock-converse-stream-parity/oracle.json`, `tests/mistral-conversations-parity/oracle.json`, `tests/google-vertex-parity/oracle.json`, `tests/openai-completions-parity/oracle.json`. |
-| `ai.custom-provider` | `open` | PLAN 9.4 | 2 | Faux/custom-provider registration is part of the still-open immediate provider registration and custom-stream contract. Evidence: `PLAN.md`. |
+| `ai.custom-provider` | `parity` | closed | 1 | The custom API-provider registry is pinned differentially against Pi's real `registerApiProvider`/`getApiProviders`/unregister semantics. `crates/pi-rs-ai/tests/registry.rs` pins register/replace-in-place, insertion order, source-scoped unregister, the mismatched-api error, and stream/streamSimple resolution through the shipped model-registry; the host Lua seam reproduces Pi's `validateProviderConfig` (streamSimple-requires-api, models baseUrl/credential/api checks) byte-for-byte by replaying the Pi-generated `tests/provider-registry-parity/oracle.json` through the public `pi.register_provider` surface, and a custom `streamSimple` provider dispatches through `pi.ai.stream_simple` ahead of Rust dispatch exactly as stream.ts resolveApiProvider routes a registered custom API. Evidence: `crates/pi-rs-ai/tests/registry.rs`, `tests/provider-registry-parity/oracle.json`, `crates/pi-rs-host/tests/provider_registry_parity.rs`, `crates/pi-rs-host/tests/providers.rs`. |
+| `ai.faux-provider` | `out-of-scope` | DESIGN product boundary | 1 | Pi documents `registerFauxProvider` as an opt-in temporary in-memory provider for tests and demos, not part of the built-in provider set; the shipped coding-agent `src` tree never references it. It is an unrelated test/demo aid outside the coding-agent product boundary. pi-rs covers the same deterministic-provider need through its own Rust/Lua fixtures and the api-registry mechanism already closed under `ai.custom-provider`. Evidence: `DESIGN.md`. |
 | `ai.protocols-proven` | `parity` | closed | 12 | Pi-derived request/event/final-message oracles cover the landed Anthropic, Responses, Codex, Azure, and Google protocol pipelines. Evidence: `tests/anthropic-parity/oracle.json`, `tests/openai-responses-parity/oracle.json`, `tests/openai-codex-websocket-parity/oracle.json`, `tests/azure-openai-responses-parity/oracle.json`, `tests/google-generative-ai-parity/oracle.json`. |
 | `ai.auth` | `parity` | closed | 9 | Credential lookup and all three coding-agent subscription OAuth paths have deterministic public/auth fixtures. Evidence: `crates/pi-rs-ai-auth/tests/subscription_providers.rs`, `crates/pi-rs-host/tests/auth_bindings.rs`. |
 | `ai.transport-types-catalog` | `parity` | closed | 17 | Catalog, type fixtures, transport, retry, streaming, validation, and session-resource behavior have focused public tests and protocol oracles. Evidence: `crates/pi-rs-ai/tests/registry.rs`, `crates/pi-rs-ai/tests/http.rs`, `crates/pi-rs-ai-types/tests/fixtures.rs`. |
@@ -56,12 +57,12 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | `tui.platform-modifiers` | `open` | PLAN 11 | 2 | Pi uses native macOS/Windows modifier polling to recover Shift+Tab and Ctrl+Space when terminals lose modifier state; pi-rs has no equivalent platform fixture/mechanism yet. Evidence: `DESIGN.md`. |
 | `tui.mechanisms` | `parity` | closed | 23 | Editor/autocomplete/input/component/image/cell behavior is pinned by focused TUI ports and the complete interactive frame suite. Evidence: `crates/pi-rs-tui/src/ui_harness.rs`, `crates/pi-rs-tui/src/editor.rs`, `tests/ui-parity/editor-turn.pci.json`. |
 | `coding.assembly` | `open` | PLAN 11 | 3 | Generic role assembly is implemented (zero-pack boot, per-package suppression, file-backed replacement per construction-inventory implemented rows); the final side-by-side CLI differential remains the PLAN 11 gate. Evidence: `PLAN.md`. |
-| `coding.noninteractive` | `open` | PLAN 10 | 11 | Print, JSON/RPC, complete argument/file-input behavior, and serialized stdout/stderr/exit contracts remain prerequisites. Evidence: `PLAN.md`. |
-| `coding.extension-context` | `open` | PLAN 9.2 | 3 | Complete contexts in every mode plus session actions, cancellation, rebinding, and command-only restrictions remain open. Evidence: `PLAN.md`. |
+| `coding.noninteractive` | `open` | PLAN 10 | 11 | Print text mode, JSON framing, the `@file`/piped-stdin/initial-message pipeline, the `messages[]` follow-up sequence, the full `--help`/args parse surface, the RPC JSONL framing + synchronous command protocol, the deterministic per-command async scheduling (sync commands emit in arrival order; awaited commands defer to ascending-await-depth/FIFO completion, pinned by the async-steer-followup-abort oracle case), the stdout output-guard (stray extension `print`/`io.write` route to stderr so non-interactive stdout stays protocol-clean), the RPC empty-array serialization for `get_fork_messages`/`get_commands`/`get_messages` (`[]`, not `{}`, pinned by the `empty-fork-messages`/`empty-commands`/`empty-messages` oracle cases), and Pi's RPC extension-UI binding (`ctx.hasUI == true`, real `ExtensionUIContext` transported as `extension_ui_request` JSONL records on stdout, per rpc-mode.ts `createExtensionUIContext`) are closed (see evidence; RPC also loads CLI `--extension` files like Pi's createAgentSessionServices). Remaining: startup-ui, the RPC agent-streaming commands requiring concurrent agent/event streaming or scripted session data (prompt/bash/compact/fork/clone/new_session/switch_session/get_fork_messages with live data), and the Node RpcClient. Evidence: `PLAN.md`, `tests/file-processor-parity/oracle.json`, `crates/pi-rs-app/tests/file_processor_parity.rs`, `crates/pi-rs-app/tests/print_mode_parity.rs`, `tests/print-mode-parity/oracle.json`, `crates/pi-rs-app/tests/print_mode_parity.rs`, `tests/args-parity/oracle.json`, `crates/pi-rs-app/tests/args_parity.rs`, `tests/rpc-parity/oracle.json`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/src/builtins/coding-agent.lua`, `scripts/rpc-oracle`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/src/builtins/utils/extensions.lua`. |
+| `coding.extension-context` | `open` | PLAN 9.2 | 3 | Contexts in every mode plus session actions, cancellation, rebinding, and command-only restrictions. Complete contexts through JSON/RPC delivery remain open (print/json/rpc extension-command context delivery to extensions is not yet pinned). The RPC extension UI binding is closed: Pi's RPC binds a real extension UI context (rpc-mode.ts `createExtensionUIContext`), and pi-rs's RPC role now reports `extension_has_ui=true` and transports UI requests as `extension_ui_request` JSONL records on stdout, asserted differentially in `rpc_binds_real_extension_ui_context_matching_pi` (the extension observes `mode=="rpc"`/`hasUI==true` and `ctx.ui.notify` emits a faithful request record). Signal-driven wait cancellation is closed: a queued waitForIdle resolves once the agent becomes idle even on abort, pinned against a Pi-generated oracle section (extension-context-parity `waitCancellation`, waitOutcome:resolved) asserted differentially in `extension_context_snapshots_and_shutdown_match_pi`. Evidence: `PLAN.md`, `tests/extension-context-parity/oracle.json`, `crates/pi-rs-app/tests/extension_loading.rs`, `crates/pi-rs-app/tests/rpc_mode_parity.rs`, `crates/pi-rs-app/src/builtins/utils/extensions.lua`. |
 | `coding.extension-events` | `parity` | closed | 4 | The full Pi event fold is pinned by two differential tests against the Pi-generated extension-event oracle: `complete_event_folds_match_pi_runner_oracle` asserts strict whole-output equality for the complete event vocabulary, ordering, fold/middleware results, transformed input, blocked tool_call, compact/tree/session-switch, context, trust, resources, and error isolation; `real_product_seams_follow_pi_generated_event_order` verifies productTrace and extensionErrors idempotent with the oracle at real startup/tool-using/provider seams through the print role on an SSE stub. Evidence: `tests/extension-event-parity/oracle.json`, `crates/pi-rs-app/tests/extension_loading.rs`, `crates/pi-rs-app/tests/extension_loading.rs`. |
 | `coding.extension-api` | `open` | PLAN 9.4 | 8 | Dynamic tools/messages/flags/shortcuts/providers and their live registry effects remain incomplete. Evidence: `PLAN.md`. |
 | `coding.extension-ui` | `open` | PLAN 9.5 | 12 | Public extension dialogs, slots, custom row rendering, editor/overlay composition, cleanup, and headless outcomes remain incomplete. Evidence: `PLAN.md`. |
-| `coding.lua-config` | `open` | PLAN 9.6 | 7 | The temporary JSON settings/keybindings/theme path must be replaced by atomic global/project config.lua declarations and mutations. Evidence: `PLAN.md`. |
+| `coding.lua-config` | `parity` | closed | 7 | The canonical `config.lua` declaration + mutation pipeline (global then trusted project, Pi-equivalent precedence, CLI overrides, atomic rollback, idempotent managed-block mutation, deliberate JSON-path rejection) is closed by the pi-rs host config/settings tests; effective settings reads, migrations (queueMode/websockets/skills/retry.maxDelayMs), typed getters, and keybinding legacy-name migration (migrateKeybindingsConfig + order) are pinned against Pi's real SettingsManager/KeybindingsManager by a Pi-generated differential oracle; theme declaration and Pi-equivalent theme reads ride the same settings channel and the retained interactive UI parity. Evidence: `tests/config-settings-parity/oracle.json`, `crates/pi-rs-host/tests/config_settings_parity.rs`, `crates/pi-rs-host/tests/config_pipeline.rs`, `crates/pi-rs-host/tests/settings_bindings.rs`, `crates/pi-rs-host/src/config.rs`. |
 | `coding.frontmatter` | `parity` | closed | 1 | `pi.parse_frontmatter` is pinned to Pi's real `utils/frontmatter.ts` by a 25-case differential oracle generated from Pi's eemeli/yaml parser; the port reproduces newline normalization, delimiter detection, body trimming, chomping-sensitive block scalars, and error propagation byte-for-byte through the public Lua surface. Evidence: `tests/frontmatter-parity/oracle.json`, `tests/frontmatter-parity/cases.json`, `crates/pi-rs-host/tests/frontmatter_parity.rs`. |
 | `coding.resources-packages` | `open` | PLAN 9.7 | 8 | Resource discovery, Lua modules, prompt/skill/theme provenance, package transport, and pi config remain open. Evidence: `PLAN.md`. |
 | `coding.public-assembly` | `open` | PLAN 9.10 | 2 | The coding-agent barrel still exposes policy implemented through monolithic/private composition; decomposition, ablation, and replacement must close before its public capability map can be accepted. Evidence: `PLAN.md`. |
@@ -77,15 +78,6 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | `coding.platform-utils` | `parity` | closed | 25 | Process, clipboard fallback, image, shell, path, JSON, ANSI, telemetry/changelog, and startup utilities are exercised by tool/image/product fixtures. Evidence: `crates/pi-rs-host/tests/clipboard_bindings.rs`, `tests/image-parity/oracle.json`, `crates/pi-rs-app/tests/startup_network.rs`. |
 
 ## Open gaps
-
-### PLAN 9.4 — `ai.custom-provider`
-
-Faux/custom-provider registration is part of the still-open immediate provider registration and custom-stream contract.
-
-Reference rows (2):
-
-- `packages/ai/src/api-registry.ts`
-- `packages/ai/src/providers/faux.ts`
 
 ### PLAN 9.5 — `tui.extension-composition`
 
@@ -117,7 +109,7 @@ Reference rows (3):
 
 ### PLAN 10 — `coding.noninteractive`
 
-Print, JSON/RPC, complete argument/file-input behavior, and serialized stdout/stderr/exit contracts remain prerequisites.
+Print text mode, JSON framing, the `@file`/piped-stdin/initial-message pipeline, the `messages[]` follow-up sequence, the full `--help`/args parse surface, the RPC JSONL framing + synchronous command protocol, the deterministic per-command async scheduling (sync commands emit in arrival order; awaited commands defer to ascending-await-depth/FIFO completion, pinned by the async-steer-followup-abort oracle case), the stdout output-guard (stray extension `print`/`io.write` route to stderr so non-interactive stdout stays protocol-clean), the RPC empty-array serialization for `get_fork_messages`/`get_commands`/`get_messages` (`[]`, not `{}`, pinned by the `empty-fork-messages`/`empty-commands`/`empty-messages` oracle cases), and Pi's RPC extension-UI binding (`ctx.hasUI == true`, real `ExtensionUIContext` transported as `extension_ui_request` JSONL records on stdout, per rpc-mode.ts `createExtensionUIContext`) are closed (see evidence; RPC also loads CLI `--extension` files like Pi's createAgentSessionServices). Remaining: startup-ui, the RPC agent-streaming commands requiring concurrent agent/event streaming or scripted session data (prompt/bash/compact/fork/clone/new_session/switch_session/get_fork_messages with live data), and the Node RpcClient.
 
 Reference rows (11):
 
@@ -135,7 +127,7 @@ Reference rows (11):
 
 ### PLAN 9.2 — `coding.extension-context`
 
-Complete contexts in every mode plus session actions, cancellation, rebinding, and command-only restrictions remain open.
+Contexts in every mode plus session actions, cancellation, rebinding, and command-only restrictions. Complete contexts through JSON/RPC delivery remain open (print/json/rpc extension-command context delivery to extensions is not yet pinned). The RPC extension UI binding is closed: Pi's RPC binds a real extension UI context (rpc-mode.ts `createExtensionUIContext`), and pi-rs's RPC role now reports `extension_has_ui=true` and transports UI requests as `extension_ui_request` JSONL records on stdout, asserted differentially in `rpc_binds_real_extension_ui_context_matching_pi` (the extension observes `mode=="rpc"`/`hasUI==true` and `ctx.ui.notify` emits a faithful request record). Signal-driven wait cancellation is closed: a queued waitForIdle resolves once the agent becomes idle even on abort, pinned against a Pi-generated oracle section (extension-context-parity `waitCancellation`, waitOutcome:resolved) asserted differentially in `extension_context_snapshots_and_shutdown_match_pi`.
 
 Reference rows (3):
 
@@ -176,20 +168,6 @@ Reference rows (12):
 - `packages/coding-agent/src/modes/interactive/components/theme-selector.ts`
 - `packages/coding-agent/src/modes/interactive/components/thinking-selector.ts`
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
-
-### PLAN 9.6 — `coding.lua-config`
-
-The temporary JSON settings/keybindings/theme path must be replaced by atomic global/project config.lua declarations and mutations.
-
-Reference rows (7):
-
-- `packages/coding-agent/src/core/keybindings.ts`
-- `packages/coding-agent/src/core/settings-manager.ts`
-- `packages/coding-agent/src/migrations.ts`
-- `packages/coding-agent/src/modes/interactive/theme/dark.json`
-- `packages/coding-agent/src/modes/interactive/theme/light.json`
-- `packages/coding-agent/src/modes/interactive/theme/theme-schema.json`
-- `packages/coding-agent/src/modes/interactive/theme/theme.ts`
 
 ### PLAN 9.7 — `coding.resources-packages`
 
@@ -245,7 +223,7 @@ Reference rows (2):
 
 - `agent:public:.` → `packages/agent/src/index.ts`: 194 exports (out-of-scope=166, parity=28)
 - `agent:public:./node` → `packages/agent/src/node.ts`: 195 exports (out-of-scope=167, parity=28)
-- `ai:public:.` → `packages/ai/src/index.ts`: 157 exports (open=19, out-of-scope=10, parity=128)
+- `ai:public:.` → `packages/ai/src/index.ts`: 157 exports (out-of-scope=21, parity=136)
 - `ai:public:./anthropic` → `packages/ai/src/providers/anthropic.ts`: 5 exports (parity=5)
 - `ai:public:./azure-openai-responses` → `packages/ai/src/providers/azure-openai-responses.ts`: 3 exports (parity=3)
 - `ai:public:./bedrock-provider` → `packages/ai/src/bedrock-provider.ts`: 1 exports (parity=1)
@@ -256,5 +234,5 @@ Reference rows (2):
 - `ai:public:./openai-codex-responses` → `packages/ai/src/providers/openai-codex-responses.ts`: 7 exports (parity=7)
 - `ai:public:./openai-completions` → `packages/ai/src/providers/openai-completions.ts`: 4 exports (parity=4)
 - `ai:public:./openai-responses` → `packages/ai/src/providers/openai-responses.ts`: 3 exports (parity=3)
-- `coding-agent:public:.` → `packages/coding-agent/src/index.ts`: 337 exports (open=208, parity=129)
+- `coding-agent:public:.` → `packages/coding-agent/src/index.ts`: 337 exports (open=193, parity=144)
 - `tui:public:.` → `packages/tui/src/index.ts`: 100 exports (open=14, parity=86)

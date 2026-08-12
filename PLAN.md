@@ -166,10 +166,20 @@ Complete these rungs before growing the extension surface further.
       generation-based stale rejection, queued abort/compact/shutdown/wait, and
       command lifecycle actions including session replacement/reload.
 
-      **Remaining/accept:** carry contexts through JSON/RPC delivery; cover
-      signal-driven cancellation of queued/in-flight waits; and pin context,
-      replacement, cancellation, stale-handle, and lifecycle/event ordering
-      against Pi. Event emission itself closes in 9.3.
+      **Remaining/accept:** carry contexts through JSON/RPC delivery; and pin
+      context, replacement, cancellation, stale-handle, and lifecycle/event
+      ordering against Pi. Signal-driven wait cancellation is closed: a queued
+      `waitForIdle` resolves (not throws, not hangs) once the agent becomes
+      idle even on abort, pinned against a Pi-generated oracle section
+      (extension-context-parity `waitCancellation`) asserted in
+      `crates/pi-rs-app/tests/extension_loading.rs`
+      (`extension_context_snapshots_and_shutdown_match_pi`). The RPC extension
+      UI binding is closed: Pi's RPC binds a real `ExtensionUIContext`
+      (rpc-mode.ts `createExtensionUIContext`), and pi-rs's RPC role now
+      reports `extension_has_ui=true` and transports UI requests as
+      `extension_ui_request` JSONL records on stdout, asserted differentially
+      in `rpc_binds_real_extension_ui_context_matching_pi`. Event emission
+      itself closes in 9.3.
 
 - [ ] **9.3 Complete event pipeline and fold semantics.** Emit the pinned event
       vocabulary at real product seams: project/resources; session start/switch/
@@ -192,6 +202,19 @@ Complete these rungs before growing the extension surface further.
       tools participate in prompt rebuilds, validation, parallel execution,
       renderer fallback, sessions, export, and reload exactly like builtins.
 
+      Already landed: provider `register/unregister` with a custom `streamSimple`
+      handler — a registered provider carrying `api` + `streamSimple` publishes a
+      custom API stream handler that `pi.ai.stream_simple` dispatches ahead of Rust
+      providers (stream.ts resolveApiProvider equivalent), and unregister removes
+      it; `crates/pi-rs-host/tests/providers.rs` pins dispatch and post-unregister
+      fallthrough. `register_provider` now reproduces Pi's `validateProviderConfig`
+      byte-for-byte (streamSimple-without-api, models baseUrl/credential/api
+      checks) and stores no config on a failed registration, pinned by a
+      Pi-generated differential oracle
+      `tests/provider-registry-parity/oracle.json` replayed through the public Lua
+      surface (`crates/pi-rs-host/tests/provider_registry_parity.rs`).
+      Regenerate with `scripts/provider-registry-oracle`.
+
       **Accept:** translated dynamic-tools, tool-override, message-renderer,
       event-bus, preset, provider, and stateful-tool examples run unprivileged;
       focused differential contracts pin immediate effects and reload recovery.
@@ -212,7 +235,7 @@ Complete these rungs before growing the extension surface further.
       one file-backed compact-rendering package reproduces `pi-compact` behavior
       without private classes; default middleware preserves retained UI parity.
 
-- [ ] **9.6 Canonical `config.lua` declaration + mutation pipeline.** Provide one
+- [x] **9.6 Canonical `config.lua` declaration + mutation pipeline.** Provide one
       Lua declaration mechanism per kind: settings, keybindings, models/providers,
       themes, extensions, skills/prompts/resources, and selectors. Load global,
       then trusted project declarations with Pi-equivalent effective precedence
@@ -223,6 +246,20 @@ Complete these rungs before growing the extension surface further.
       **Accept:** compact matrices cover precedence, trust, CLI overrides,
       failed/partial declarations, rollback, and repeated mutation round-trips;
       equivalent Lua declarations produce Pi-equivalent behavior and frames.
+
+      Closed (differential): `tests/config-settings-parity/oracle.json` is
+      generated from Pi's real `SettingsManager` (deep merge + `migrateSettings`
+      for queueMode/websockets/skills-object/retry.maxDelayMs + the full typed
+      getter read-model) and `KeybindingsManager` (`migrateKeybindingsConfig`
+      legacy-name remap + order + `getResolvedBindings`). `crates/pi-rs-host/
+      tests/config_settings_parity.rs` replays each scenario through pi-rs's
+      canonical `config.lua` declaration surface and asserts Pi's typed getter
+      outcomes and migrated keybinding maps byte for byte. The declaration +
+      mutation pipeline (global-then-trusted-project precedence, CLI overrides,
+      atomic rollback, idempotent managed-block persistence, deliberate JSON
+      rejection, file-backed extension use of the same surface) is pinned by
+      `crates/pi-rs-host/tests/config_pipeline.rs` and `settings_bindings.rs`.
+      Regenerate with `scripts/config-settings-oracle`.
 
 - [ ] **9.7 Resources, public Lua modules, and package transport.** Complete
       resource discovery/provenance/precedence/dedupe/toggles/reload for Lua
@@ -319,8 +356,109 @@ Complete these rungs before growing the extension surface further.
       pinned coding-agent modes through generic registered roles and the same Lua
       policy/actions as interactive mode.
 
-      **Accept:** argument, stdout/stderr, exit status, serialization, extension
-      context/action delivery, cancellation, and no-UI outcomes match Pi.
+      **Remaining/accept:** argument, stdout/stderr, exit status, serialization,
+      extension context/action delivery, cancellation, and no-UI outcomes match Pi.
+
+      Already landed (print text mode): `modes/print-mode.ts` text semantics —
+      the final assistant message's text blocks are written to stdout each
+      followed by `\n` (no delta streaming), and an `error`/`aborted` stop reason
+      yields exit 1 with the message on stderr. `crates/pi-rs-app/src/builtins/
+      coding-agent.lua` no longer streams `text_delta`s in text mode and returns
+      `exitCode`/`stopReason`/`errorMessage`; `crates/pi-rs-app/src/main.rs` maps
+      them to the process exit status and stderr, emitting exactly
+      `errorMessage || \`Request ${stopReason}\`` like Pi's `console.error`.
+
+      Already landed (`@file`/stdin/initial-message): `args.ts` `@file` parsing
+      (`Args.fileArgs`), `file-processor.ts` `processFileArguments` (text + image
+      auto-resize + dimension note + empty-file skip + missing-file error/exit),
+      `main.ts readPipedStdin` + `prepareInitialMessage`, and `initial-message.ts`
+      `buildInitialMessage` composition are ported in
+      `crates/pi-rs-app/src/cli/file_processor.rs` and wired through
+      `crates/pi-rs-app/src/main.rs`; RPC mode rejects `@file` like Pi. The text
+      path is pinned byte-for-byte against a Pi-generated differential.
+      `@file` image attachments flow into the print role's initial user message
+      (`agent:prompt` images).
+
+      Closed (differential): `tests/print-mode-parity/oracle.json` is generated
+      from Pi's real `runPrintMode` and records Pi's raw stdout/stderr/exit for
+      scripted assistant final messages. `crates/pi-rs-app/tests/print_mode_
+      parity.rs` drives the same final messages through pi-rs's print role via a
+      registered custom `streamSimple` provider (public Lua surface), captures
+      `pi.output` bytes, and asserts byte-for-byte stdout plus the exit/stopReason/
+      errorMessage→stderr mapping for single-prompt text cases, the JSON-mode
+      header+per-event framing contract, and the `messages[]` follow-up sequence
+      (each remaining CLI message sent as a sequential `session.prompt`, with
+      only the final assistant message's text written to stdout and the exit
+      code/error taken from the final message). Regenerate with
+      `scripts/print-mode-oracle`.
+
+      Closed (args/help differential): `tests/args-parity/oracle.json` is
+      generated from Pi's real `parseArgs` + `printHelp` (cli/args.ts);
+      `crates/pi-rs-app/tests/args_parity.rs` replays the same argv corpus and
+      help text and asserts parse equality plus byte-for-byte help. The landing
+      parser now mirrors Pi's semantics (including `-p`/`--print` consuming a
+      following non-flag message, silent invalid-`--mode` handling, unknown
+      `--long`-flag collection, single-dash unknown-option error diagnostics,
+      and the full landed flag set). Regenerate with `scripts/args-oracle`.
+
+      Closed (RPC framing + synchronous protocol): `--mode rpc` now dispatches
+      (before model/auth resolution) to a faithful RPC role that emits Pi's
+      exact JSONL framing — `{type:"response",command,success,data|error}` with
+      `id` present only when the client sent one, unknown-command errors shaped
+      like Pi, and the `parse` command on non-JSON input. The synchronous
+      command vocabulary (get_state, get_available_models, set_steering_mode,
+      set_follow_up_mode, set_thinking_level, cycle_thinking_level, set_model,
+      cycle_model, set_auto_compaction, set_auto_retry, abort_retry,
+      get_messages, get_last_assistant_text, get_session_stats, export_html,
+      get_commands, set_session_name) is pinned semantically against Pi's real
+      `runRpcMode` oracle (`scripts/rpc-oracle`, `tests/rpc-parity/oracle.json`)
+      by `crates/pi-rs-app/tests/rpc_mode_parity.rs` driving the real `pi`
+      binary as a subprocess.
+
+      Closed (RPC empty-array serialization): Pi's `getUserMessagesForForking()`,
+      `get_commands`, and `session.messages` (`get_messages`) return real
+      arrays, so empty results serialize as `{messages: []}` / `{commands: []}`
+      — not the `{}` pi-rs's empty Lua table produced. All three are now seeded
+      from a decoded empty array and pinned byte-for-byte against Pi-generated
+      oracle cases (`empty-fork-messages`, `empty-commands`, `empty-messages`)
+      in `tests/rpc-parity/oracle.json` via
+      `rpc_empty_fork_messages_matches_pi_byte_for_byte`,
+      `rpc_empty_commands_matches_pi_byte_for_byte`, and
+      `rpc_empty_messages_matches_pi_byte_for_byte`.
+
+      Closed (RPC per-command async scheduling): Pi's `handleCommand` runs
+      each RPC command as its own Node async task: synchronous commands (no
+      `await` before their response) emit during input processing in arrival
+      order, while await-involving commands defer emission to microtask
+      completion — Pi's continuation ordering resolves them in ascending
+      await-depth (a depth-1 command completes before a depth-2 one), FIFO
+      among equal depth. The RPC role now reproduces this deterministically:
+      it reads the full command stream, emits depth-0/sync responses inline in
+      arrival order, then emits deferred (awaited) responses in
+      ascending-await-depth/FIFO order. This is pinned against Pi's real
+      oracle by new cases — `async-steer-followup-abort` (abort_bash is sync
+      and emits first, then deferred steer/follow_up/abort FIFO) — in
+      `tests/rpc-parity/oracle.json` via
+      `crates/pi-rs-app/tests/rpc_mode_parity.rs`
+      (`rpc_async_deterministic_commands_match_pi_oracle`).
+
+      Boundary (recorded): the remaining RPC async agent-streaming commands
+      that require concurrent agent/event streaming or scripted session data
+      (prompt, bash, compact, fork, clone, new_session, switch_session,
+      get_fork_messages) and the Node `RpcClient` stay open under PLAN 10 (the
+      stdout output-guard is closed: stray extension `print`/`io.write` route
+      to stderr so non-interactive stdout stays protocol-clean, RPC now
+      loads CLI `--extension` files like Pi, and Pi's RPC extension-UI binding
+      is closed — `ctx.hasUI==true`, real `ExtensionUIContext` transported as
+      `extension_ui_request` JSONL records, per `createExtensionUIContext`;
+      see `crates/pi-rs-app/tests/rpc_mode_parity.rs`
+      `rpc_binds_real_extension_ui_context_matching_pi`,
+      `rpc_stdout_guard_routes_extension_stdout_to_stderr` and
+      `rpc_loads_cli_extension_files`); startup-ui also remains open. The
+      toolCall-only `text-no-text-content` oracle
+      case scripts Pi's *observed state* directly and pi-rs's real agent would
+      continue its tool loop on stopReason `toolUse`, so it is not a faithful
+      terminal print outcome and remains a PLAN 10 open row.
 
 - [ ] **11. Final parity and ablation audit.** Diff the complete reachable
       coding-agent surface and required AI/agent/TUI behavior. Resolve every

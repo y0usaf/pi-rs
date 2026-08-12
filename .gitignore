@@ -21,3 +21,9 @@ __pycache__/
 /GEMINI.md
 /.cursorrules
 /.github/copilot-instructions.md
+
+# Overnight parity supervisor artifacts (regenerated every run)
+/.parity-metrics-*.json
+/.parity-trajectory-*.jsonl
+/.parity-run.log
+/.parity-supervisor.log

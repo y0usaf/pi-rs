@@ -17,13 +17,17 @@
     },
     {
       "number": 2,
-      "status": "open",
-      "owner": "PLAN 9.6",
-      "finding": "Lua-only configuration authorizes source-format replacement, not the current temporary JSON path or different effective outcomes; the complete declaration/mutation pipeline remains open.",
+      "status": "bounded",
+      "owner": "DESIGN difference 2",
+      "finding": "Global `config.lua` + trusted project `.pi/config.lua` are the sole configuration entry points, replacing Pi's JSON files while producing the same effective outcomes; the complete declaration/mutation pipeline (settings, keybindings with legacy-name migration, models/providers, themes, resource selectors, managed-block persistence, CLI overrides, atomic rollback) is implemented and pinned—see `coding.lua-config`. Formats carrying user data/content remain Pi-compatible.",
       "evidence": [
         {
-          "path": "PLAN.md",
-          "contains": "Canonical `config.lua` declaration"
+          "path": "crates/pi-rs-host/src/config.rs",
+          "contains": "User configuration is evaluated from"
+        },
+        {
+          "path": "crates/pi-rs-host/src/settings_manager.rs",
+          "contains": "Global declarations live in"
         }
       ]
     },
@@ -144,17 +148,41 @@
     },
     {
       "id": "ai.custom-provider",
-      "status": "open",
-      "owner": "PLAN 9.4",
-      "rationale": "Faux/custom-provider registration is part of the still-open immediate provider registration and custom-stream contract.",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "The custom API-provider registry is pinned differentially against Pi's real `registerApiProvider`/`getApiProviders`/unregister semantics. `crates/pi-rs-ai/tests/registry.rs` pins register/replace-in-place, insertion order, source-scoped unregister, the mismatched-api error, and stream/streamSimple resolution through the shipped model-registry; the host Lua seam reproduces Pi's `validateProviderConfig` (streamSimple-requires-api, models baseUrl/credential/api checks) byte-for-byte by replaying the Pi-generated `tests/provider-registry-parity/oracle.json` through the public `pi.register_provider` surface, and a custom `streamSimple` provider dispatches through `pi.ai.stream_simple` ahead of Rust dispatch exactly as stream.ts resolveApiProvider routes a registered custom API.",
       "evidence": [
         {
-          "path": "PLAN.md",
-          "contains": "provider register/unregister"
+          "path": "crates/pi-rs-ai/tests/registry.rs"
+        },
+        {
+          "path": "tests/provider-registry-parity/oracle.json"
+        },
+        {
+          "path": "crates/pi-rs-host/tests/provider_registry_parity.rs",
+          "contains": "provider_validation_matches_pi_oracle"
+        },
+        {
+          "path": "crates/pi-rs-host/tests/providers.rs",
+          "contains": "custom_stream_simple_provider_dispatches_and_unregisters"
         }
       ],
       "refs": [
-        "packages/ai/src/api-registry.ts",
+        "packages/ai/src/api-registry.ts"
+      ]
+    },
+    {
+      "id": "ai.faux-provider",
+      "status": "out-of-scope",
+      "owner": "DESIGN product boundary",
+      "rationale": "Pi documents `registerFauxProvider` as an opt-in temporary in-memory provider for tests and demos, not part of the built-in provider set; the shipped coding-agent `src` tree never references it. It is an unrelated test/demo aid outside the coding-agent product boundary. pi-rs covers the same deterministic-provider need through its own Rust/Lua fixtures and the api-registry mechanism already closed under `ai.custom-provider`.",
+      "evidence": [
+        {
+          "path": "DESIGN.md",
+          "contains": "Explicitly out of scope:"
+        }
+      ],
+      "refs": [
         "packages/ai/src/providers/faux.ts"
       ]
     },
@@ -406,11 +434,86 @@
       "id": "coding.noninteractive",
       "status": "open",
       "owner": "PLAN 10",
-      "rationale": "Print, JSON/RPC, complete argument/file-input behavior, and serialized stdout/stderr/exit contracts remain prerequisites.",
+      "rationale": "Print text mode, JSON framing, the `@file`/piped-stdin/initial-message pipeline, the `messages[]` follow-up sequence, the full `--help`/args parse surface, the RPC JSONL framing + synchronous command protocol, the deterministic per-command async scheduling (sync commands emit in arrival order; awaited commands defer to ascending-await-depth/FIFO completion, pinned by the async-steer-followup-abort oracle case), the stdout output-guard (stray extension `print`/`io.write` route to stderr so non-interactive stdout stays protocol-clean), the RPC empty-array serialization for `get_fork_messages`/`get_commands`/`get_messages` (`[]`, not `{}`, pinned by the `empty-fork-messages`/`empty-commands`/`empty-messages` oracle cases), and Pi's RPC extension-UI binding (`ctx.hasUI == true`, real `ExtensionUIContext` transported as `extension_ui_request` JSONL records on stdout, per rpc-mode.ts `createExtensionUIContext`) are closed (see evidence; RPC also loads CLI `--extension` files like Pi's createAgentSessionServices). Remaining: startup-ui, the RPC agent-streaming commands requiring concurrent agent/event streaming or scripted session data (prompt/bash/compact/fork/clone/new_session/switch_session/get_fork_messages with live data), and the Node RpcClient.",
       "evidence": [
         {
           "path": "PLAN.md",
           "contains": "Match non-interactive"
+        },
+        {
+          "path": "tests/file-processor-parity/oracle.json"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/file_processor_parity.rs",
+          "contains": "text_file_processing_matches_pi_byte_for_byte"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/print_mode_parity.rs",
+          "contains": "print_text_mode_output_matches_pi_byte_for_byte"
+        },
+        {
+          "path": "tests/print-mode-parity/oracle.json"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/print_mode_parity.rs",
+          "contains": "print_follow_up_sequence_matches_pi_byte_for_byte"
+        },
+        {
+          "path": "tests/args-parity/oracle.json"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/args_parity.rs",
+          "contains": "parse_args_matches_pi_oracle"
+        },
+        {
+          "path": "tests/rpc-parity/oracle.json"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/rpc_mode_parity.rs",
+          "contains": "rpc_unknown_command_matches_pi_oracle_byte_shape"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/rpc_mode_parity.rs",
+          "contains": "rpc_async_deterministic_commands_match_pi_oracle"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/rpc_mode_parity.rs",
+          "contains": "rpc_await_depth_ordering_matches_pi_oracle"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/rpc_mode_parity.rs",
+          "contains": "rpc_stdout_guard_routes_extension_stdout_to_stderr"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/rpc_mode_parity.rs",
+          "contains": "rpc_loads_cli_extension_files"
+        },
+        {
+          "path": "crates/pi-rs-app/src/builtins/coding-agent.lua",
+          "contains": "PLAN 10: RPC mode role handler"
+        },
+        {
+          "path": "scripts/rpc-oracle"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/rpc_mode_parity.rs",
+          "contains": "rpc_empty_fork_messages_matches_pi_byte_for_byte"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/rpc_mode_parity.rs",
+          "contains": "rpc_empty_commands_matches_pi_byte_for_byte"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/rpc_mode_parity.rs",
+          "contains": "rpc_empty_messages_matches_pi_byte_for_byte"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/rpc_mode_parity.rs",
+          "contains": "rpc_binds_real_extension_ui_context_matching_pi"
+        },
+        {
+          "path": "crates/pi-rs-app/src/builtins/utils/extensions.lua",
+          "contains": "rpc_ui_context"
         }
       ],
       "refs": [
@@ -431,11 +534,27 @@
       "id": "coding.extension-context",
       "status": "open",
       "owner": "PLAN 9.2",
-      "rationale": "Complete contexts in every mode plus session actions, cancellation, rebinding, and command-only restrictions remain open.",
+      "rationale": "Contexts in every mode plus session actions, cancellation, rebinding, and command-only restrictions. Complete contexts through JSON/RPC delivery remain open (print/json/rpc extension-command context delivery to extensions is not yet pinned). The RPC extension UI binding is closed: Pi's RPC binds a real extension UI context (rpc-mode.ts `createExtensionUIContext`), and pi-rs's RPC role now reports `extension_has_ui=true` and transports UI requests as `extension_ui_request` JSONL records on stdout, asserted differentially in `rpc_binds_real_extension_ui_context_matching_pi` (the extension observes `mode==\"rpc\"`/`hasUI==true` and `ctx.ui.notify` emits a faithful request record). Signal-driven wait cancellation is closed: a queued waitForIdle resolves once the agent becomes idle even on abort, pinned against a Pi-generated oracle section (extension-context-parity `waitCancellation`, waitOutcome:resolved) asserted differentially in `extension_context_snapshots_and_shutdown_match_pi`.",
       "evidence": [
         {
           "path": "PLAN.md",
-          "contains": "Remaining/accept"
+          "contains": "Signal-driven wait cancellation is closed"
+        },
+        {
+          "path": "tests/extension-context-parity/oracle.json",
+          "contains": "waitCancellation"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/extension_loading.rs",
+          "contains": "waitCancellation"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/rpc_mode_parity.rs",
+          "contains": "rpc_binds_real_extension_ui_context_matching_pi"
+        },
+        {
+          "path": "crates/pi-rs-app/src/builtins/utils/extensions.lua",
+          "contains": "rpc_ui_context"
         }
       ],
       "refs": [
@@ -519,13 +638,24 @@
     },
     {
       "id": "coding.lua-config",
-      "status": "open",
-      "owner": "PLAN 9.6",
-      "rationale": "The temporary JSON settings/keybindings/theme path must be replaced by atomic global/project config.lua declarations and mutations.",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "The canonical `config.lua` declaration + mutation pipeline (global then trusted project, Pi-equivalent precedence, CLI overrides, atomic rollback, idempotent managed-block mutation, deliberate JSON-path rejection) is closed by the pi-rs host config/settings tests; effective settings reads, migrations (queueMode/websockets/skills/retry.maxDelayMs), typed getters, and keybinding legacy-name migration (migrateKeybindingsConfig + order) are pinned against Pi's real SettingsManager/KeybindingsManager by a Pi-generated differential oracle; theme declaration and Pi-equivalent theme reads ride the same settings channel and the retained interactive UI parity.",
       "evidence": [
         {
-          "path": "PLAN.md",
-          "contains": "Canonical `config.lua` declaration"
+          "path": "tests/config-settings-parity/oracle.json"
+        },
+        {
+          "path": "crates/pi-rs-host/tests/config_settings_parity.rs"
+        },
+        {
+          "path": "crates/pi-rs-host/tests/config_pipeline.rs"
+        },
+        {
+          "path": "crates/pi-rs-host/tests/settings_bindings.rs"
+        },
+        {
+          "path": "crates/pi-rs-host/src/config.rs"
         }
       ],
       "refs": [

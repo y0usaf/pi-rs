@@ -46,7 +46,7 @@
     {
       "path": "crates/pi-rs-app/src/main.rs",
       "operation": "call_role",
-      "count": 4,
+      "count": 5,
       "row": "rust.hardcoded-application-dispatch"
     },
     {
@@ -94,7 +94,7 @@
       "row": "rust.extension-load-order",
       "path": "crates/pi-rs-app/src/main.rs",
       "text": "let extension_report = load_product_extensions(",
-      "count": 1
+      "count": 2
     },
     {
       "id": "mode-role-branch",
@@ -115,7 +115,7 @@
       "row": "rust.pre-runtime-product-dispatch",
       "path": "crates/pi-rs-app/src/main.rs",
       "text": "host.call_role(\"",
-      "count": 3
+      "count": 4
     },
     {
       "id": "synthetic-key-format",
