@@ -120,7 +120,7 @@
       "id": "ai.protocol-tail",
       "status": "parity",
       "owner": "closed",
-      "rationale": "Pi-derived request/event/final-message oracles cover Bedrock Converse Stream, Mistral Conversations, Google Vertex, and OpenAI Completions protocol pipelines.",
+      "rationale": "Pi-derived request/event/final-message oracles cover Bedrock Converse Stream, Mistral Conversations, Google Vertex (including the certificate external-account ADC path and every workload file/URL/executable/AWS ADC variant), and OpenAI Completions protocol pipelines; the OpenAI Completions replay is now the single Pi differential that also pins `tools: []` on bare tool-history and the `content_filter` finish-reason error (the superseded hand-built fixtures are deleted). Dispatched through the shared `crates/pi-rs-ai/src/registry/stream.rs` with one HTTP/SSE transport.",
       "evidence": [
         {
           "path": "tests/bedrock-converse-stream-parity/oracle.json"

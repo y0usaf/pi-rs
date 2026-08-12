@@ -333,19 +333,37 @@ Complete these rungs before growing the extension surface further.
 
 ## Remaining AI/auth and modes
 
-- [ ] **8. Complete coding-agent AI/auth compatibility.** Keep one shared
+- [x] **8. Complete coding-agent AI/auth compatibility.** Keep one shared
       transport/conversion pipeline per protocol family rather than provider
-      clones. Already landed: Anthropic, OpenAI Completions baseline, OpenAI
-      Responses, Codex Responses SSE/WebSocket/fallback, Azure Responses, Google
-      Generative AI, and Google Vertex including authorized-user, service-account,
-      workload file/URL/executable/AWS ADC paths. Catalog dispatch currently
-      covers those families and subscription auth breadth is complete.
+      clones. Anthropic, OpenAI Completions, OpenAI Responses, Codex Responses
+      SSE/WebSocket/fallback, Azure Responses, Google Generative AI, and Google
+      Vertex (authorized-user, service-account, workload file/URL/executable/
+      certificate/AWS ADC paths), plus Mistral Conversations and Bedrock Converse
+      Stream all route through one registered `api` dispatch
+      (`crates/pi-rs-ai/src/registry/stream.rs`) with a single shared HTTP/SSE
+      transport. Catalog dispatch covers those nine API families and three
+      subscription OAuth providers; cert external-account ADC is closed.
 
-      **Remaining:** certificate external-account ADC; deterministic Pi
-      differentials and dispatch for `mistral-conversations` and
-      `bedrock-converse-stream`; replace the old OpenAI Completions fixtures with
-      one Pi differential; run catalog/auth acceptance and delete superseded
-      provider fixtures/harnesses under A.2.
+      **Closed (deterministic Pi differentials + registry acceptance):** every
+      advertised coding-agent API has a focused Pi-derived replay
+      (`tests/{anthropic,openai-completions,openai-responses,openai-codex-websocket,
+      azure-openai-responses,google-generative-ai,google-vertex,mistral-conversations,
+      bedrock-converse-stream}-parity/oracle.json`). The certificate external-account
+      ADC path (mtls subject-token + STS exchange) is a `google-vertex-parity`
+      case (`adc-workload-certificate`). `mistral-conversations` and
+      `bedrock-converse-stream` have Pi differentials (`tests/mistral-conversations-parity/`,
+      `tests/bedrock-converse-stream-parity/`) plus registered dispatch
+      (`stream_mistral`/`stream_simple_mistral`, `stream_bedrock`/
+      `stream_simple_bedrock`), both asserted by `crates/pi-rs-ai/tests/
+      mistral_conversations_parity.rs`, `.../bedrock_converse_stream_parity.rs`,
+      and the registry (`crates/pi-rs-ai/tests/registry.rs`). The old hand-built
+      OpenAI Completions fixtures were replaced by the ONE Pi differential:
+      `tests/openai-completions-parity/` now also pins `tools: []` on bare
+      tool-history and the `content_filter` finish-reason error, and the superseded
+      `crates/pi-rs-ai/tests/openai_completions.rs` + `tests/fixtures/
+      openai-completions/` deleted. Whole-catalog/subscription-auth acceptance:
+      `crates/pi-rs-app/tests/ai_auth_catalog.rs`
+      (`every_catalog_api_dispatches_and_subscription_auth_registry_is_complete`).
 
       **Accept:** supported model inventory matches Pi's coding agent; every
       advertised API has a focused deterministic replay; three subscription
