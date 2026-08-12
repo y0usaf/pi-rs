@@ -44,10 +44,22 @@ enum Command {
     Scan(PathBuf),
     UpdateManifests(PathBuf),
     Check(PathBuf),
+    ModelCatalog(Vec<String>),
 }
 
 fn parse_args() -> Result<Command, String> {
-    let mut args = std::env::args_os().skip(2);
+    let mut args = std::env::args_os().skip(1);
+    let Some(top) = args.next() else {
+        return Err(USAGE.to_owned());
+    };
+    let top = top.to_string_lossy().into_owned();
+    if top == "model-catalog" {
+        let rest: Vec<String> = args.map(|a| a.to_string_lossy().into_owned()).collect();
+        return Ok(Command::ModelCatalog(rest));
+    }
+    if top != "gate" {
+        return Err(format!("unknown top-level subcommand {top:?}\n{USAGE}"));
+    }
     let Some(cmd) = args.next() else {
         return Err(USAGE.to_owned());
     };
@@ -94,8 +106,12 @@ fn main() -> ExitCode {
 }
 
 fn run(command: Command) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    if let Command::ModelCatalog(args) = &command {
+        return run_model_catalog(args);
+    }
     let root = match &command {
         Command::Scan(root) | Command::UpdateManifests(root) | Command::Check(root) => root.clone(),
+        Command::ModelCatalog(_) => unreachable!(),
     };
     let files = manifest::tracked_files(&root)?;
     // Build the list of (rel, first_line) so the gate can sniff shebangs.
@@ -143,6 +159,139 @@ fn run(command: Command) -> Result<ExitCode, Box<dyn std::error::Error>> {
                 );
                 Ok(ExitCode::FAILURE)
             }
+        }
+        Command::ModelCatalog(_) => unreachable!(),
+    }
+}
+
+const MODEL_CATALOG_USAGE: &str = "\
+pi-rs-tools model-catalog — normalize Pi's model catalog (A.3 Rust owner)
+
+usage: pi-rs-tools model-catalog selftest
+       pi-rs-tools model-catalog update --source PATH --overrides PATH \\
+                 --output PATH --provenance PATH [--revision REV] \\
+                 [--summary-output PATH] [--source-kind published|local] \\
+                 [--source-url URL] [--source-path SP]
+";
+
+fn run_model_catalog(args: &[String]) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    use pi_rs_tools::model_catalog;
+    use std::path::PathBuf;
+
+    if args.is_empty() {
+        eprint!("{MODEL_CATALOG_USAGE}");
+        return Ok(ExitCode::from(2));
+    }
+    match args[0].as_str() {
+        "selftest" => {
+            // Self-test lives in an integration test; this is a thin shim that
+            // the flake check calls to prove the binary is wired.
+            pi_rs_tools::selftest::run()?;
+            Ok(ExitCode::SUCCESS)
+        }
+        "update" => {
+            let mut source = None;
+            let mut overrides = None;
+            let mut output = None;
+            let mut provenance = None;
+            let mut summary_output = None;
+            let mut revision = String::new();
+            let mut source_kind = "local".to_owned();
+            let mut source_url = String::new();
+            let mut source_path = String::new();
+            let mut repository = "https://github.com/earendil-works/pi.git".to_owned();
+            let mut args_iter = args[1..].iter();
+            while let Some(a) = args_iter.next() {
+                let take_value = |a: &str, args_iter: &mut std::slice::Iter<'_, String>| -> Option<String> {
+                    if let Some((_, v)) = a.split_once('=') {
+                        Some(v.to_owned())
+                    } else {
+                        args_iter.next().cloned()
+                    }
+                };
+                match a.as_str() {
+                    "--source" => source = take_value(a, &mut args_iter),
+                    "--overrides" => overrides = take_value(a, &mut args_iter),
+                    "--output" => output = take_value(a, &mut args_iter),
+                    "--provenance" => provenance = take_value(a, &mut args_iter),
+                    "--summary-output" => summary_output = take_value(a, &mut args_iter),
+                    "--revision" => revision = take_value(a, &mut args_iter).unwrap_or(revision),
+                    "--source-kind" => source_kind = take_value(a, &mut args_iter).unwrap_or(source_kind),
+                    "--source-url" => source_url = take_value(a, &mut args_iter).unwrap_or(source_url),
+                    "--source-path" => source_path = take_value(a, &mut args_iter).unwrap_or(source_path),
+                    "--repository" => repository = take_value(a, &mut args_iter).unwrap_or(repository),
+                    other => {
+                        eprintln!("unknown model-catalog update flag {other:?}");
+                        return Ok(ExitCode::from(2));
+                    }
+                }
+            }
+            let overrides = overrides.ok_or("model-catalog update: --overrides required")?;
+            let output = output.ok_or("model-catalog update: --output required")?;
+            let provenance = provenance.ok_or("model-catalog update: --provenance required")?;
+            let summary_path = summary_output.map(PathBuf::from);
+
+            use pi_rs_tools::acquire;
+            // Pick the acquisition path. `--source` is a local file/checkout;
+            // otherwise source_kind decides published-catalog vs git.
+            // Remote/git acquisitions materialize into a TempDir that must stay
+            // alive until after normalize reads the file, so we hold them here.
+            let mut _temps: Vec<pi_rs_tools::acquire::TempDir> = Vec::new();
+            let (file, source_desc, revision) = if let Some(src) = source {
+                let _ = source_kind;
+                let acq = acquire::from_source(std::path::Path::new(&src), &source_path, Some(&revision));
+                let desc = serde_json::json!({
+                    "kind": "local",
+                    "revision": acq.revision,
+                    "path": source_path,
+                });
+                (acq.file, desc, acq.revision)
+            } else if source_kind == "published-catalog" {
+                let url = if source_url.is_empty() { "https://pi.dev/api/models" } else { &source_url };
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|e| format!("tokio: {e}"))?;
+                let (tmp, _value, rev) = runtime.block_on(acquire::from_catalog(url))?;
+                let desc = serde_json::json!({
+                    "kind": "published-catalog",
+                    "url": url,
+                    "revision": rev,
+                });
+                let file = tmp.path().join("catalog.json");
+                _temps.push(tmp);
+                (file, desc, rev)
+            } else {
+                // git clone path (`--local` in the old script).
+                let rev = if revision.is_empty() { "main" } else { &revision };
+                let (tmp, file, head) = acquire::from_git(&repository, rev, &source_path)?;
+                let desc = serde_json::json!({
+                    "kind": "git",
+                    "revision": head,
+                    "path": source_path,
+                });
+                _temps.push(tmp);
+                (file, desc, head)
+            };
+
+            let opts = model_catalog::Options {
+                source: &file,
+                overrides: std::path::Path::new(&overrides),
+                output: std::path::Path::new(&output),
+                provenance: std::path::Path::new(&provenance),
+                summary_output: summary_path.as_deref(),
+                revision,
+                source_desc,
+                remote: source_kind != "local",
+            };
+            let result = model_catalog::run_normalize(&opts)?;
+            println!("{}", result.report.trim_end());
+            Ok(ExitCode::SUCCESS)
+        }
+        other => {
+            eprintln!("unknown model-catalog subcommand {other:?}");
+            eprint!("{MODEL_CATALOG_USAGE}");
+            Ok(ExitCode::from(2))
         }
     }
 }
