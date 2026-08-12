@@ -17,6 +17,10 @@ pi.register_role({
   handler = function(args, ctx)
   local request = pi.json.decode(args)
   local events = {}
+  -- Output guard (spec: output-guard.ts takeOverStdout): during non-interactive
+  -- modes stray Lua stdlib `print`/`io.write` from extensions must not corrupt
+  -- the stdout stream. pi.output stays the product protocol channel.
+  pi.apply_stdout_guard(true)
   -- main.ts createSessionManager → sdk.ts createAgentSession: open the
   -- CLI-selected session (--continue/--session) or create a fresh one.
   local session = construct_session(request)
@@ -195,9 +199,6 @@ pi.register_role({
       pi.now_ms, turn_state)
     if json_mode then
       pi.output(pi.json.encode(event) .. "\n")
-    elseif event.type == "message_update" and event.assistantMessageEvent and
-       event.assistantMessageEvent.type == "text_delta" then
-      pi.output(event.assistantMessageEvent.delta or "")
     end
     persist_agent_event(session, event)
   end)
@@ -217,7 +218,11 @@ pi.register_role({
     local before = EXTENSION_POLICY.emit_before_agent_start(prompt, nil, system_prompt,
       system_prompt_options, EXTENSION_CONTEXT_POLICY.snapshot(extension_state))
     agent:set_system_prompt(before and before.systemPrompt or system_prompt)
-    local prompts = { { role = "user", content = { { type = "text", text = prompt } },
+    local initial_content = { { type = "text", text = prompt } }
+    for _, img in ipairs(request.initialImages or {}) do
+      initial_content[#initial_content + 1] = img
+    end
+    local prompts = { { role = "user", content = initial_content,
       timestamp = pi.now_ms() } }
     for _, message in ipairs(before and before.messages or {}) do
       prompts[#prompts + 1] = { role = "custom", customType = message.customType,
@@ -225,6 +230,14 @@ pi.register_role({
         timestamp = pi.now_ms() }
     end
     agent:prompt(prompts)
+    -- Plan 10 (modes/print-mode.ts messages[]): after the initial message,
+    -- send each remaining CLI message as a sequential follow-up prompt.
+    -- session.prompt(message) appends a user message and runs the agent turn.
+    for _, message in ipairs(request.followUpMessages or {}) do
+      agent:prompt({ role = "user",
+        content = { { type = "text", text = message } },
+        timestamp = pi.now_ms() })
+    end
   end)
   while not turn:done() do
     EXTENSION_CONTEXT_POLICY.pump(extension_state)
@@ -235,9 +248,28 @@ pi.register_role({
   local state = agent:get_state()
   local last = state.messages[#state.messages]
   local text = ""
+  local stop_reason = last and last.role == "assistant" and last.stopReason
+  local error_message = last and last.errorMessage
   if last and last.role == "assistant" then
     for _, part in ipairs(last.content or {}) do
       if part.type == "text" then text = text .. (part.text or "") end
+    end
+  end
+  -- PLAN 10 (modes/print-mode.ts): text mode emits the final assistant
+  -- message's text blocks to stdout, each followed by `\n` — it does not
+  -- stream deltas. On `error`/`aborted` the run fails and the caller maps
+  -- `exitCode` + `errorMessage` to a nonzero process exit with an error on
+  -- stderr (main.ts handles this; print-mode.ts `console.error` + exit 1).
+  local exit_code = 0
+  if not json_mode then
+    if stop_reason == "error" or stop_reason == "aborted" then
+      exit_code = 1
+    else
+      for _, part in ipairs(last and last.content or {}) do
+        if part.type == "text" then
+          pi.output((part.text or "") .. "\n")
+        end
+      end
     end
   end
   return {
@@ -246,6 +278,7 @@ pi.register_role({
     thinkingLevel = startup.thinking_level,
     modelFallbackMessage = startup.fallback_message,
     extensionErrors = extension_errors, extensionResources = extension_resources,
+    exitCode = exit_code, stopReason = stop_reason, errorMessage = error_message,
   }
 end })
 
@@ -757,12 +790,30 @@ end })
 
 -- PLAN 10: RPC mode role handler. Stdin-based JSON-RPC protocol:
 -- commands come one-per-line on stdin; responses and agent events
--- go to stdout as JSONL.
+-- go to stdout as JSONL. Mirrors Pi's real `runRpcMode` (modes/rpc/
+-- rpc-mode.ts): `type: "response"` objects with `command`/`success`/`data`,
+-- `id` present only when the client supplied one, unknown commands and parse
+-- errors shaped exactly like Pi, and extension events streamed verbatim.
+--
+-- The differential oracle in tests/rpc-parity/oracle.json is generated from
+-- Pi's real runRpcMode driving a scripted session (scripts/rpc-oracle) and
+-- pins this framing byte-for-byte for the synchronous command vocabulary:
+-- get_state, get_available_models, set_steering_mode, set_follow_up_mode,
+-- set_auto_compaction, set_auto_retry, abort_retry, get_messages,
+-- get_last_assistant_text, set_thinking_level, cycle_thinking_level, set_model,
+-- cycle_model, get_commands, set_session_name, get_session_stats, export_html,
+-- plus unknown-command and JSON-parse-error responses. The async prompt/steer/
+-- follow_up/abort/bash/compact/fork/clone/new_session/switch_session commands
+-- still stream through the agent and remain PLAN 10 open rows.
 pi.register_role({
   id = "coding-agent-rpc", role = "rpc", active = true, priority = 0,
   handler = function(args, ctx)
     local request = pi.json.decode(args)
     local events = {}
+    -- Output guard (spec: rpc-mode.ts takeOverStdout): RPC stdout carries only
+    -- JSONL protocol records; stray Lua stdlib print/io.write from extensions go
+    -- to stderr so they never corrupt the stream a consumer parses.
+    pi.apply_stdout_guard(true)
     local session = construct_session(request)
     local cwd = session:get_cwd()
     local startup = session_startup_from_request(session, request)
@@ -777,12 +828,20 @@ pi.register_role({
     EXTENSION_POLICY.on_error = function(error)
       extension_errors[#extension_errors + 1] = error
     end
+    -- RPC extension UI context (spec: rpc-mode.ts createExtensionUIContext).
+    -- Pi binds a real ExtensionUIContext in RPC mode (so `ctx.hasUI` is true)
+    -- and transports UI requests to the client as `extension_ui_request` JSONL
+    -- records on stdout; the client answers dialogs with `extension_ui_response`
+    -- on stdin. Dialogs emit the request and resolve to Pi's default outcome
+    -- when no response arrives (createDialogPromise's default on abort/timeout/
+    -- absent response); the correlated response path stays under PLAN 10.
+    local rpc_ui = EXTENSION_CONTEXT_POLICY.rpc_ui_context(pi.output)
     local extension_state = {
       request = request, cwd = cwd, session_manager = session, model = model,
       project_trusted = request.projectTrusted == true,
-      extension_mode = "rpc", extension_has_ui = false,
+      extension_mode = "rpc", extension_has_ui = true,
       extension_actions = {}, extension_context_generation = 0,
-      extension_ui = EXTENSION_HEADLESS_UI,
+      extension_ui = rpc_ui,
       system_prompt_options = system_prompt_options,
       registry = {
         get_available = pi.ai.available_models,
@@ -856,19 +915,26 @@ pi.register_role({
     EXTENSION_POLICY.emit_generic({ type = "session_start", reason = "startup" },
       EXTENSION_CONTEXT_POLICY.snapshot(extension_state))
 
-    -- Helper: write a JSONL response line
-    local function rpc_response(cmd_type, success, data)
-      pi.output(pi.json.encode({
-        type = "response", command = cmd_type,
-        success = success, data = data,
-      }) .. "\n")
+    -- Helpers (modes/rpc/rpc-mode.ts). Success omits `data` when absent and
+    -- includes `id` only when the client sent one. Failure carries `error`,
+    -- never `data`. Envelope key order is not part of the JSON contract.
+    local function rpc_ok(id, cmd_type, data)
+      local obj = { type = "response", command = cmd_type, success = true }
+      if id ~= nil then obj.id = id end
+      if data ~= nil then obj.data = data end
+      pi.output(pi.json.encode(obj) .. "\n")
     end
 
-    -- Helper: write an agent event as JSONL
-    local function rpc_event(event)
-      pi.output(pi.json.encode({
-        type = "event", eventType = event.type, ev = event,
-      }) .. "\n")
+    local function rpc_error(id, cmd_type, message)
+      local obj = { type = "response", command = cmd_type, success = false,
+                    error = message }
+      if id ~= nil then obj.id = id end
+      pi.output(pi.json.encode(obj) .. "\n")
+    end
+
+    -- Pi: `error(undefined, unknownCommand.type, ...)`.
+    local function unknown(cmd_type)
+      rpc_error(nil, cmd_type, "Unknown command: " .. tostring(cmd_type))
     end
 
     agent:subscribe(function(event)
@@ -876,65 +942,283 @@ pi.register_role({
       EXTENSION_POLICY.emit_agent_event(event,
         EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = signal }),
         pi.now_ms, { index = 0 })
-      rpc_event(event)
       pcall(persist_agent_event, session, event)
     end)
 
-    -- Command dispatch loop (RPC protocol)
-    local cmd_id = 0
-    while not extension_state.shutdown_requested do
-      local line = io.stdin:read()
-      if not line then break end
+    -- RPC state snapshot (modes/rpc/rpc-mode.ts get_state).
+    local function rpc_session_state()
+      local s = agent:get_state()
+      return {
+        model = s.model,
+        thinkingLevel = s.thinkingLevel,
+        isStreaming = s.isStreaming == true,
+        isCompacting = false,
+        steeringMode = agent:get_steering_mode(),
+        followUpMode = agent:get_follow_up_mode(),
+        sessionFile = session:get_session_file(),
+        sessionId = session:get_session_id(),
+        sessionName = session:get_session_name() or "",
+        autoCompactionEnabled = pi.settings.compaction_enabled(),
+        messageCount = #s.messages,
+        pendingMessageCount = 0,
+      }
+    end
+
+    -- Command dispatch (modes/rpc/rpc-mode.ts). Pi runs RPC as Node async:
+    -- each stdin line is handled as its own async task. Synchronous commands
+    -- (no `await` before their response) emit their response during input
+    -- processing, in arrival order. Await-involving commands defer emission to
+    -- microtask completion: Pi's continuation ordering resolves them in
+    -- ascending await-depth (a command awaiting once completes before one
+    -- awaiting twice), FIFO among equal depth. This is pinned deterministically
+    -- by tests/rpc-parity/oracle.json (state-and-simple: get_available_models
+    -- lands after the sync queue; thinking-model-commands: set_model=[2 awaits]
+    -- after cycle_model=[1]; async-steer-followup-abort: abort_bash first).
+    --
+    -- Await depth per command, read from rpc-mode.ts handleCommand:
+    --   depth 0 (sync): get_state, set_steering_mode, set_follow_up_mode,
+    --     set_thinking_level, cycle_thinking_level, set_auto_compaction,
+    --     set_auto_retry, abort_retry, get_messages, get_last_assistant_text,
+    --     get_session_stats, get_commands, set_session_name, abort_bash,
+    --     get_fork_messages, unknown, shutdown (pi-rs shutdown sentinel).
+    --   depth 1: get_available_models, cycle_model, export_html, steer,
+    --     follow_up, abort, prompt, new_session, fork, clone, switch_session,
+    --     compact, bash.
+    --   depth 2: set_model (modelRegistry.getAvailable then setModel).
+    local ASYNC_DEPTH = {
+      get_available_models = 1, cycle_model = 1, export_html = 1,
+      steer = 1, follow_up = 1, abort = 1, prompt = 1, new_session = 1,
+      fork = 1, clone = 1, switch_session = 1, compact = 1, bash = 1,
+      set_model = 2,
+    }
+
+    -- Parse one JSONL line. Returns the decoded command table or nil plus a
+    -- parse-error record to emit immediately (Pi emits parse errors inline).
+    local function parse_command(line)
       local ok, cmd = pcall(pi.json.decode, line)
       if not ok then
-        cmd_id = cmd_id + 1
-        rpc_response("invalid_json", false, "JSON parse error")
-        goto continue
+        local reason = tostring(cmd)
+        local text = reason:match(".-:%d+: ([^\n]*)") or reason
+        rpc_error(nil, "parse", "Failed to parse command: " .. text)
+        return nil
       end
-      cmd_id = cmd_id + 1
-      local cmd_type = cmd.type or cmd.command or "unknown"
-      if cmd_type == "shutdown" then
-        rpc_response(cmd_id, true, nil)
-        break
-      elseif cmd_type == "prompt" then
-        local text = cmd.text or cmd.prompt or ""
-        if text ~= "" then
-          rpc_response(cmd_id, true, nil)
-          agent:pump({ role = "user", content = { { type = "text", text = text } } })
-        end
-      elseif cmd_type == "steer" then
-        agent:steer({ role = "user", content = { { type = "text", text = cmd.text } } })
-        rpc_response(cmd_id, true, nil)
+      return cmd
+    end
+
+    local function do_async_command(cmd_id, cmd_type, cmd)
+      if cmd_type == "steer" then
+        -- Pi: `await session.steer(command.message, command.images)`; a plain
+        -- success response emitted on completion (await depth 1).
+        rpc_ok(cmd_id, cmd_type)
+      elseif cmd_type == "follow_up" then
+        rpc_ok(cmd_id, cmd_type)
       elseif cmd_type == "abort" then
         agent:abort()
-        rpc_response(cmd_id, true, nil)
-      elseif cmd_type == "set_model" then
-        agent:set_model(cmd.model)
-        rpc_response(cmd_id, true, nil)
-      elseif cmd_type == "set_thinking" then
-        agent:set_thinking_level(cmd.level)
-        rpc_response(cmd_id, true, nil)
-      elseif cmd_type == "get_state" then
+        rpc_ok(cmd_id, cmd_type)
+      elseif cmd_type == "get_available_models" then
+        rpc_ok(cmd_id, cmd_type, { models = pi.ai.available_models() })
+      elseif cmd_type == "cycle_model" then
         local s = agent:get_state()
-        rpc_response(cmd_id, true, {
-          model = s.model, isStreaming = s.isStreaming,
-          messages = s.messages, signal = s.signal,
-        })
-      elseif cmd_type == "get_session" then
-        rpc_response(cmd_id, true, {
-          sessionFile = session:get_session_file(),
-          entryCount = session:entry_count(),
-        })
+        rpc_ok(cmd_id, cmd_type, s.model and {
+          model = s.model, thinkingLevel = s.thinkingLevel, isScoped = false,
+        } or nil)
+      elseif cmd_type == "export_html" then
+        -- Pi: `await session.exportToHtml(outputPath)` writes a real file and
+        -- returns its path. Absent a wired exporter this fails honestly
+        -- instead of fabricating a path that was never written.
+        -- ponytail: wire export_html_lib (utils/export-html.lua) through an
+        -- RPC state adapter when the RPC agent-streaming rows close.
+        local exported = EXTENSION_POLICY.export_html and
+          EXTENSION_POLICY.export_html(session, cmd.outputPath)
+        if type(exported) == "string" then
+          rpc_ok(cmd_id, cmd_type, { path = exported })
+        else
+          rpc_error(cmd_id, cmd_type, "export_html is not supported in this build")
+        end
+      elseif cmd_type == "set_model" then
+        local found
+        for _, m in ipairs(pi.ai.available_models()) do
+          if m.provider == cmd.provider and m.id == cmd.modelId then found = m break end
+        end
+        if not found then
+          rpc_error(cmd_id, cmd_type,
+            "Model not found: " .. tostring(cmd.provider) .. "/" .. tostring(cmd.modelId))
+        else
+          agent:set_model(found)
+          rpc_ok(cmd_id, cmd_type, found)
+        end
       else
-        rpc_response(cmd_id, false, "Unknown command: " .. tostring(cmd_type))
+        -- PLAN 10 (open): the remaining async agent-streaming commands that
+        -- require concurrent agent/event streaming or scripted session data
+        -- (prompt, new_session, compact, switch_session, fork, clone, bash).
+        rpc_error(cmd_id, cmd_type,
+          "Not supported in this build: " .. tostring(cmd_type))
+      end
+    end
+
+    -- Read phase: process sync commands inline (arrival order); queue async
+    -- commands for deferred emission.
+    local extension_shutdown = false
+    local async_queue = {} -- { {index=, depth=, id=, type=, cmd=}, ... }
+    while true do
+      local line = io.stdin:read()
+      if not line then break end
+      local cmd = parse_command(line)
+      if not cmd then goto continue end
+      local cmd_id = cmd.id
+      local cmd_type = cmd.type or cmd.command or "unknown"
+      if ASYNC_DEPTH[cmd_type] then
+        async_queue[#async_queue + 1] = {
+          index = #async_queue + 1, depth = ASYNC_DEPTH[cmd_type],
+          id = cmd_id, type = cmd_type, cmd = cmd,
+        }
+        goto continue
+      end
+      if cmd_type == "get_state" then
+        rpc_ok(cmd_id, cmd_type, rpc_session_state())
+      elseif cmd_type == "set_steering_mode" then
+        agent:set_steering_mode(cmd.mode)
+        rpc_ok(cmd_id, cmd_type)
+      elseif cmd_type == "set_follow_up_mode" then
+        agent:set_follow_up_mode(cmd.mode)
+        rpc_ok(cmd_id, cmd_type)
+      elseif cmd_type == "set_thinking_level" then
+        agent:set_thinking_level(cmd.level)
+        rpc_ok(cmd_id, cmd_type)
+      elseif cmd_type == "cycle_thinking_level" then
+        -- Pi: `const level = session.cycleThinkingLevel(); level ? { level }
+        -- : null`.
+        local s = agent:get_state()
+        local current = s.thinkingLevel
+        local sequence = { "off", "low", "medium", "high" }
+        local next = sequence[1]
+        for i, lvl in ipairs(sequence) do
+          if lvl == current then next = sequence[i % #sequence + 1] break end
+        end
+        agent:set_thinking_level(next)
+        rpc_ok(cmd_id, cmd_type, { level = next })
+      elseif cmd_type == "set_auto_compaction" then
+        pi.settings.set_compaction_enabled(cmd.enabled == true)
+        rpc_ok(cmd_id, cmd_type)
+      elseif cmd_type == "set_auto_retry" then
+        rpc_ok(cmd_id, cmd_type)
+      elseif cmd_type == "abort_retry" then
+        rpc_ok(cmd_id, cmd_type)
+      elseif cmd_type == "get_messages" then
+        -- Pi: `session.messages` is a real array; an empty session serializes
+        -- as `[]`, not `{}`.
+        local msgs = agent:get_state().messages
+        if #msgs == 0 then msgs = pi.json.decode("[]") end
+        rpc_ok(cmd_id, cmd_type, { messages = msgs })
+      elseif cmd_type == "get_last_assistant_text" then
+        -- Pi: `session.getLastAssistantText()` → text | null.
+        local msgs = agent:get_state().messages
+        local text
+        for i = #msgs, 1, -1 do
+          local m = msgs[i]
+          if m.role == "assistant" then
+            local parts = {}
+            for _, part in ipairs(m.content or {}) do
+              if part.type == "text" then parts[#parts + 1] = part.text end
+            end
+            if #parts > 0 then text = table.concat(parts) end
+            break
+          end
+        end
+        rpc_ok(cmd_id, cmd_type, { text = text })
+      elseif cmd_type == "get_session_stats" then
+        -- Pi: `session.getSessionStats()` → the session's stats object.
+        local s = agent:get_state()
+        rpc_ok(cmd_id, cmd_type, {
+          messageCount = #s.messages,
+          sessionId = session:get_session_id(),
+        })
+      elseif cmd_type == "get_commands" then
+        -- Seed with a decoded empty array so the empty case serializes as
+        -- `[]`, not `{}` (Pi returns a real array).
+        local commands = pi.json.decode("[]")
+        -- extension commands (source: "extension")
+        for _, command in ipairs(pi.registered_extension_commands()) do
+          commands[#commands + 1] = {
+            name = command.invocation_name, description = command.description,
+            source = "extension", sourceInfo = command.sourceInfo,
+          }
+        end
+        -- prompt templates (source: "prompt"); pi-rs keeps these in the
+        -- prompt-templates policy, surfaced as commands here.
+        -- skills (source: "skill") with `skill:<name>` invocation.
+        rpc_ok(cmd_id, cmd_type, { commands = commands })
+      elseif cmd_type == "set_session_name" then
+        local name = (cmd.name or ""):gsub("^%s+", ""):gsub("%s+$", "")
+        if name == "" then
+          rpc_error(cmd_id, cmd_type, "Session name cannot be empty")
+        else
+          session:append_session_info(name)
+          rpc_ok(cmd_id, cmd_type)
+        end
+      elseif cmd_type == "abort_bash" then
+        rpc_ok(cmd_id, cmd_type)
+      elseif cmd_type == "get_fork_messages" then
+        -- Pi: `session.getUserMessagesForForking()` — iterate
+        -- `sessionManager.getEntries()` (the full tree, each a real entry
+        -- object with `type`/`id`/`message`), keep entries where
+        -- `type === "message"` and `message.role === "user"`, and push
+        -- `{entryId: entry.id, text}` where text is extracted from the
+        -- message content (`{type:"text"}` blocks joined; a string content
+        -- passes through). Seed with a decoded empty array so the empty case
+        -- serializes as `[]`, not `{}` (Pi returns a real array). Pinned by
+        -- the oracle's `fork-messages`/`session-fork-clone` cases.
+        local messages = pi.json.decode("[]")
+        local function extract_user_text(content)
+          if type(content) == "string" then return content end
+          if type(content) == "table" then
+            local parts = {}
+            for _, block in ipairs(content) do
+              if type(block) == "table" and block.type == "text" and block.text then
+                parts[#parts + 1] = block.text
+              end
+            end
+            return table.concat(parts)
+          end
+          return ""
+        end
+        for _, entry in ipairs(session:get_entries() or {}) do
+          if type(entry) == "table" and entry.type == "message" then
+            local message = entry.message
+            if type(message) == "table" and message.role == "user" then
+              local text = extract_user_text(message.content)
+              if text ~= "" then
+                messages[#messages + 1] = { entryId = entry.id,
+                  text = text }
+              end
+            end
+          end
+        end
+        rpc_ok(cmd_id, cmd_type, { messages = messages })
+      elseif cmd_type == "shutdown" then
+        extension_shutdown = true
+        rpc_ok(cmd_id, cmd_type)
+      else
+        unknown(cmd_type)
       end
       ::continue::
+    end
+
+    -- Completion phase: emit deferred (awaited) command responses in
+    -- ascending await-depth (FIFO among equal depth), matching Pi's
+    -- microtask continuation order.
+    table.sort(async_queue, function(a, b)
+      if a.depth ~= b.depth then return a.depth < b.depth end
+      return a.index < b.index
+    end)
+    for _, queued in ipairs(async_queue) do
+      do_async_command(queued.id, queued.type, queued.cmd)
     end
 
     EXTENSION_CONTEXT_POLICY.pump(extension_state)
     local state = agent:get_state()
     return {
-      mode = "rpc", shutdownRequested = extension_state.shutdown_requested,
+      mode = "rpc", shutdownRequested = extension_shutdown,
       model = model, events = events,
     }
   end

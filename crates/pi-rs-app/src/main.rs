@@ -21,6 +21,15 @@ use pi_rs_app::core::model_resolver::{find_initial_model, resolve_cli_model};
 use pi_rs_app::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
 use pi_rs_host::trust::{ProjectTrustStore, has_project_trust_inputs, project_trust_options};
 
+/// Lua chunk that enables the stdout output guard on the host's `pi` API
+/// (spec: output-guard.ts `takeOverStdout`). After this runs, stray Lua stdlib
+/// `print`/`io.write` from extension chunks write to stderr instead of stdout,
+/// so non-interactive (print/RPC) protocol output stays byte-clean. The product
+/// channel `pi.output` writes directly to stdout and is unaffected.
+const ENABLE_STDOUT_GUARD: &str =
+    "local pi = ...\npi.apply_stdout_guard(true)\n";
+
+
 /// Minimal chalk analogue: color only when the stream is a terminal.
 fn stderr_paint(code: &str, text: &str) -> String {
     if std::io::stderr().is_terminal() {
@@ -81,6 +90,85 @@ fn load_host(cwd: &str) -> Result<pi_rs_host::Host, String> {
     load_host_with_trust(cwd, true)
 }
 
+/// Plan 10 (modes/rpc/rpc-mode.ts): run the headless RPC protocol.
+/// Commands are read from stdin and responses/events written to stdout as
+/// JSONL by the `rpc` Lua role. This runs before model resolution and auth, so
+/// no network occurs at startup; the role constructs its own session. Returns
+/// the role's exit code.
+fn run_rpc_mode(
+    cwd: &str,
+    agent_dir: &str,
+    session_dir: Option<&str>,
+    project_trusted: bool,
+    settings_manager: &SettingsManager,
+    cli_extensions: &[String],
+    no_extensions: bool,
+) -> ExitCode {
+    let host = match load_host_with_trust(cwd, project_trusted) {
+        Ok(host) => host,
+        Err(message) => {
+            error_line(&message);
+            return ExitCode::FAILURE;
+        }
+    };
+    // Output guard (spec: rpc-mode.ts takeOverStdout): RPC stdout must carry
+    // only JSONL protocol records. Enable before extension loading so stray
+    // Lua stdlib `print`/`io.write` from extension chunks go to stderr.
+    if let Err(message) = host.load("stdout-guard", ENABLE_STDOUT_GUARD) {
+        error_line(&message.to_string());
+        return ExitCode::FAILURE;
+    }
+    // Load product extensions (explicit CLI sources first, then trusted
+    // project/global/configured), so file-backed extension commands/providers
+    // are available inside the RPC session.
+    let extension_report = load_product_extensions(
+        &host,
+        &settings_manager.get_extension_paths(),
+        cli_extensions,
+        cwd,
+        agent_dir,
+        project_trusted,
+        no_extensions,
+    );
+    if !extension_report.errors.is_empty() {
+        for diagnostic in extension_report.errors {
+            error_line(&format!(
+                "Error: Failed to load extension \"{}\": {}",
+                diagnostic.path, diagnostic.error
+            ));
+        }
+        return ExitCode::FAILURE;
+    }
+    let request = serde_json::json!({
+        "cwd": cwd,
+        "agentDir": agent_dir,
+        "sessionDir": session_dir,
+        "mode": "rpc",
+        "projectTrusted": project_trusted,
+    });
+    match host.call_role("rpc", &request.to_string()) {
+        Ok(Some(result)) => {
+            let exit_code = result
+                .get("exitCode")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            if exit_code == 0 {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+        Ok(None) => {
+            error_line("Error: rpc role returned no result");
+            ExitCode::FAILURE
+        }
+        Err(error) => {
+            error_line(&format!("Error: {error}"));
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args = parse_args(std::env::args().skip(1));
 
@@ -121,7 +209,7 @@ fn main() -> ExitCode {
     runtime.block_on(run(args))
 }
 
-async fn run(args: Args) -> ExitCode {
+async fn run(mut args: Args) -> ExitCode {
     let mut auth_storage = AuthStorage::create(None);
     for error in auth_storage.drain_errors() {
         warning_line(&format!("Warning: {error}"));
@@ -160,9 +248,30 @@ async fn run(args: Args) -> ExitCode {
     if args.messages.is_empty() && !interactive {
         // Preserve the existing headless/no-stdin behavior. Interactive mode
         // is selected only when both sides of the terminal are live.
-        print!("{}", help_text());
-        return ExitCode::SUCCESS;
+        // Spec (main.ts): plain `--mode json` or `--mode rpc` without a
+        // message should invoke the mode with no initial prompt (stdin-only
+        // is read below; an empty prompt is handled by the mode itself).
+        if args.mode != pi_rs_app::cli::args::Mode::Json
+            && args.mode != pi_rs_app::cli::args::Mode::Rpc
+        {
+            print!("{}", help_text());
+            return ExitCode::SUCCESS;
+        }
     }
+
+    // Spec (main.ts): RPC mode uses stdin for the JSON-RPC protocol, not
+    // for piped input. @file arguments are rejected in RPC mode.
+    if args.mode == pi_rs_app::cli::args::Mode::Rpc && !args.file_args.is_empty() {
+        error_line("Error: @file arguments are not supported in RPC mode");
+        return ExitCode::FAILURE;
+    }
+
+    // Spec (main.ts readPipedStdin): read piped stdin content (skip for RPC).
+    let stdin_content = if args.mode != pi_rs_app::cli::args::Mode::Rpc {
+        pi_rs_app::cli::file_processor::read_piped_stdin()
+    } else {
+        None
+    };
 
     // Spec (`main.ts`): the startup settings manager is created with
     // the default trust (the trust-prompt wiring is WS7 glue).
@@ -409,6 +518,21 @@ async fn run(args: Args) -> ExitCode {
         },
     );
 
+    // Plan 10 (modes/rpc/rpc-mode.ts): `--mode rpc` is a headless JSONL
+    // protocol on stdin/stdout. It does not resolve a model or fetch auth at
+    // startup (commands drive the session); dispatch to the RPC role before
+    // model resolution so no network/OAuth occurs.
+    if args.mode == pi_rs_app::cli::args::Mode::Rpc {
+        return run_rpc_mode(
+            &cwd_string,
+            &agent_dir,
+            session_dir.as_deref(),
+            project_trusted,
+            &settings_manager,
+            &args.extensions,
+            args.no_extensions,
+        );    }
+
     // Spec (`buildSessionOptions` / `findInitialModel`): CLI model wins
     // (a `:<thinking>` suffix applies unless --thinking is explicit),
     // else the settings default, else the first available model
@@ -465,7 +589,65 @@ async fn run(args: Args) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    let prompt = args.messages.join("\n\n");
+    // Plan 10 (main.ts prepareInitialMessage + cli/file-processor.ts +
+    // cli/initial-message.ts): combine piped stdin, `@file` content (text
+    // + image attachments), and the first CLI message into the single
+    // initial prompt. The differential oracle in
+    // tests/file-processor-parity/oracle.json pins the text path
+    // byte-for-byte against Pi's real processFileArguments/buildInitialMessage.
+    let mut file_images: Vec<pi_rs_app::cli::file_processor::ImageContent> = Vec::new();
+    let mut file_text = String::new();
+    if !args.file_args.is_empty() {
+        let processed = pi_rs_app::cli::file_processor::process_file_arguments(
+            &args.file_args,
+            &cwd,
+            settings_manager.get_image_auto_resize(),
+        )
+        .await;
+        match processed {
+            Ok(files) => {
+                file_text = files.text;
+                file_images = files.images;
+            }
+            Err(e) => {
+                // Spec (file-processor.ts): missing/unreadable file prints an
+                // error to stderr and exits 1.
+                match e {
+                    pi_rs_app::cli::file_processor::FileProcessorError::NotFound(p) => {
+                        error_line(&format!("Error: File not found: {}", p.display()));
+                        return ExitCode::FAILURE;
+                    }
+                    pi_rs_app::cli::file_processor::FileProcessorError::ReadFailed {
+                        path,
+                        message,
+                    } => {
+                        error_line(&format!(
+                            "Error: Could not read file {}: {}",
+                            path.display(),
+                            message
+                        ));
+                        return ExitCode::FAILURE;
+                    }
+                    pi_rs_app::cli::file_processor::FileProcessorError::Other(message) => {
+                        error_line(&format!("Error: {message}"));
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
+        }
+    }
+    let initial = pi_rs_app::cli::file_processor::build_initial_message(
+        &mut args.messages,
+        &file_text,
+        file_images,
+        stdin_content,
+    );
+    let prompt = initial.initial_message.unwrap_or_default();
+    let initial_images = initial.initial_images.unwrap_or_default();
+    // Spec (main.ts runPrintMode): `buildInitialMessage` shifted the first CLI
+    // message into the initial prompt; any remaining positional messages are
+    // sent as sequential follow-up prompts after the initial message.
+    let follow_up_messages = args.messages.clone();
     // The CLI is a thin consumer of public Lua packs. Rust resolves startup
     // resources and supplies mechanism values; frontend/loop policy is Lua.
     let host = match load_host_with_trust(&cwd_string, project_trusted) {
@@ -479,6 +661,15 @@ async fn run(args: Args) -> ExitCode {
     // trusted project, global, and configured sources. --no-extensions keeps
     // CLI sources. Every file loads in isolation through the same VM/API as
     // the embedded packs; report all diagnostics only after the full batch.
+    // Non-interactive modes (print/text/json) keep stdout protocol-clean:
+    // enable the output guard before extension loading (spec: output-guard.ts
+    // takeOverStdout). Interactive mode leaves it off (TUI owns the terminal).
+    if !interactive
+        && let Err(message) = host.load("stdout-guard", ENABLE_STDOUT_GUARD)
+    {
+        error_line(&message.to_string());
+        return ExitCode::FAILURE;
+    }
     let extension_report = load_product_extensions(
         &host,
         &settings_manager.get_extension_paths(),
@@ -500,6 +691,13 @@ async fn run(args: Args) -> ExitCode {
     let request = serde_json::json!({
 
         "model": model, "apiKey": api_key, "prompt": prompt,
+        // Plan 10 (main.ts runPrintMode messages[]): follow-up prompts sent
+        // sequentially after the initial message, from remaining positional
+        // CLI messages.
+        "followUpMessages": follow_up_messages,
+        // Plan 10: `@file` image attachments for the initial message (spec
+        // print-mode.ts initialImages → session.prompt(initialMessage, {images})).
+        "initialImages": initial_images,
         // The raw --api-key override: the interactive frontend mirrors it
         // into the VM's auth storage (spec: `setRuntimeApiKey`) so the
         // per-request `getApiKey` seam resolves it for the model's provider.
@@ -545,19 +743,40 @@ async fn run(args: Args) -> ExitCode {
                     ExitCode::FAILURE
                 };
             }
-            // JSON mode: output is already JSONL from the handler
+            // JSON mode: output is already JSONL lines from the handler.
             if args.mode == pi_rs_app::cli::args::Mode::Json {
-                ExitCode::SUCCESS
-            } else if result
-                .get("text")
-                .and_then(serde_json::Value::as_str)
-                .is_some()
-            {
-                println!();
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::FAILURE
+                return ExitCode::SUCCESS;
             }
+            // Plan 10 (modes/print-mode.ts): text mode output was already
+            // written by the handler (final text blocks + `\n`); the run's
+            // `exitCode`/`stopReason` carry the exit status, and an
+            // error/aborted result exits 1 with the message on stderr.
+            let exit_code = result
+                .get("exitCode")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            if exit_code != 0 {
+                // Plan 10 (modes/print-mode.ts): on an `error`/`aborted` stop
+                // reason Pi writes exactly `assistantMsg.errorMessage ||
+                // \`Request ${stopReason}\`` to stderr and exits 1.
+                let message = result
+                    .get("errorMessage")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|s| !s.is_empty());
+                let line = match message {
+                    Some(message) => message.to_owned(),
+                    None => format!(
+                        "Request {}",
+                        result
+                            .get("stopReason")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("error")
+                    ),
+                };
+                error_line(&line);
+                return ExitCode::FAILURE;
+            }
+            ExitCode::SUCCESS
         }
         Ok(None) => {
             error_line("Error: agent returned no result");

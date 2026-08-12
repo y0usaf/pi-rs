@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Regenerate the print-mode parity oracle from Pi's real `runPrintMode`
+# (modes/print-mode.ts) by driving the pinned Pi source with scripted session
+# states; the oracle records Pi's raw stdout bytes, stderr bytes, and process
+# exit code. See tests/print-mode-parity/.
+#
+# Run via scripts/print-mode-oracle. Offline normal checks consume the checked
+# oracle; opt-in regeneration drives the pinned Pi source.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+oracle=tests/print-mode-parity/oracle.json
+if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
+  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
+fi
+# The generator only pulls modes/print-mode.ts + output-guard.ts + pi-ai (no
+# coding-agent runtime), so it runs under plain tsx despite the jiti/static
+# resolver issue that blocks generators importing the full coding-agent.
+ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json \
+  tests/print-mode-parity/gen-oracle.ts "$oracle"
+echo "wrote $oracle"
