@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Regenerate the RPC-mode parity oracle from Pi's real `runRpcMode`
+# (modes/rpc/rpc-mode.ts) by driving the pinned Pi source with a scripted
+# session/runtime stub over a JSONL command corpus. The oracle records Pi's raw
+# stdout bytes on stdin EOF, exactly as a CLI caller / the RpcClient observe
+# them. See tests/rpc-parity/.
+#
+# Run via scripts/rpc-oracle. Offline normal checks consume the checked oracle;
+# opt-in regeneration drives the pinned Pi source.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+oracle=tests/rpc-parity/oracle.json
+if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
+  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
+fi
+# The generator only pulls modes/rpc/rpc-mode.ts + output-guard.ts + pi-ai (no
+# coding-agent runtime), so it runs under plain tsx despite the jiti/static
+# resolver issue that blocks generators importing the whole coding-agent. The
+# scripted session stub reproduces every surface runRpcMode touches.
+ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json \
+  tests/rpc-parity/gen-oracle.ts "$oracle"
+echo "wrote $oracle"

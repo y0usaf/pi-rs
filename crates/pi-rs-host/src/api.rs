@@ -1800,6 +1800,81 @@ pub(crate) fn build(
         })?,
     )?;
 
+    // Output guard (spec: core/output-guard.ts `takeOverStdout`/`restoreStdout`).
+    // During non-interactive modes (print/RPC) Pi redirects every
+    // `process.stdout.write` (including Lua's stdlib `print`/`io`) to stderr so
+    // extension logging cannot corrupt the JSONL/protocol stream on stdout.
+    // pi-rs's product channel is `pi.output` (a separate host binding writing
+    // directly to stdout), so enabling this guard only swaps the *Lua stdlib*
+    // writers (`print`, `io.write`, `io.output`, and the `io.stdout` handle's
+    // `write`) onto stderr, while `pi.output` keeps writing to stdout. The
+    // embedded builtin chunks that emit real product text use `pi.output` (and
+    // `io.write` only outside the guarded non-interactive roles), so the guard is
+    // inert for them and faithfully matches Pi's takeover semantics.
+    pi.set(
+        "apply_stdout_guard",
+        lua.create_function(|lua, enabled: bool| {
+            let globals = lua.globals();
+            let registry = lua.named_registry_value::<mlua::Table>(REGISTRY_KEY)?;
+            const ORIG_PRINT: &str = "__pi_orig_print";
+            const ORIG_IO_WRITE: &str = "__pi_orig_io_write";
+            const ORIG_IO_STDOUT: &str = "__pi_orig_io_stdout";
+            const GUARD_ON: &str = "__pi_stdout_guard_on";
+
+            let guard_key = if enabled { "on" } else { "off" };
+            if registry.get::<String>(GUARD_ON).as_deref().ok() == Some(guard_key) {
+                return Ok(());
+            }
+
+            let stderr_write = lua.create_function(|_lua, args: mlua::Variadic<mlua::Value>| {
+                use std::io::Write as _;
+                let mut out = String::new();
+                for arg in args {
+                    match arg {
+                        mlua::Value::String(s) => out.push_str(&s.to_str()?),
+                        mlua::Value::Integer(i) => out.push_str(&i.to_string()),
+                        mlua::Value::Number(n) => out.push_str(&n.to_string()),
+                        mlua::Value::Boolean(b) => out.push_str(if b { "true" } else { "false" }),
+                        mlua::Value::Nil => out.push_str("nil"),
+                        _ => out.push_str(&format!("{arg:?}")),
+                    }
+                }
+                let _ = std::io::stderr().write_all(out.as_bytes());
+                Ok(())
+            })?;
+
+            if enabled {
+                // First time on: snapshot the stdlib writers, then redirect them.
+                let had_orig: bool = registry.contains_key(ORIG_PRINT)?;
+                let io: mlua::Table = globals.get("io")?;
+                if !had_orig {
+                    registry.set(ORIG_PRINT, globals.get::<mlua::Function>("print")?)?;
+                    registry.set(ORIG_IO_WRITE, io.get::<mlua::Function>("write")?)?;
+                    registry.set(ORIG_IO_STDOUT, io.get::<mlua::Value>("stdout")?)?;
+                }
+                globals.set("print", stderr_write.clone())?;
+                io.set("write", stderr_write.clone())?;
+                // Route the `io.stdout` handle and the default output file to
+                // stderr too, so `io.stdout:write(...)` and
+                // `io.output():write(...)` cannot reach protocol stdout.
+                let stderr_handle: mlua::Value = io.get("stderr")?;
+                io.set("stdout", stderr_handle.clone())?;
+                io.get::<mlua::Function>("output")?.call::<()>(stderr_handle)?;
+                registry.set(GUARD_ON, "on".to_owned())?;
+            } else {
+                let orig_print: mlua::Function = registry.get(ORIG_PRINT)?;
+                globals.set("print", orig_print)?;
+                let io: mlua::Table = globals.get("io")?;
+                io.set("write", registry.get::<mlua::Function>(ORIG_IO_WRITE)?)?;
+                let orig_stdout: mlua::Value = registry.get(ORIG_IO_STDOUT)?;
+                io.set("stdout", orig_stdout.clone())?;
+                io.get::<mlua::Function>("output")?.call::<()>(orig_stdout)?;
+                registry.set(GUARD_ON, "off".to_owned())?;
+            }
+            Ok(())
+        })?,
+    )?;
+
     // Package-level declaration defaults. Embedded and file-backed chunks
     // call the same function; source keys remain attribution only.
     pi.set(

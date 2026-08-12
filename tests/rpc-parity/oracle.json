@@ -1,0 +1,495 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "rpc": true,
+  "cases": [
+    {
+      "name": "state-and-simple",
+      "commands": [
+        {
+          "type": "get_state",
+          "id": "r1"
+        },
+        {
+          "type": "get_available_models",
+          "id": "r2"
+        },
+        {
+          "type": "set_steering_mode",
+          "mode": "all",
+          "id": "r3"
+        },
+        {
+          "type": "set_follow_up_mode",
+          "mode": "one-at-a-time",
+          "id": "r4"
+        },
+        {
+          "type": "set_auto_compaction",
+          "enabled": true,
+          "id": "r5"
+        },
+        {
+          "type": "set_auto_retry",
+          "enabled": true,
+          "id": "r6"
+        },
+        {
+          "type": "abort_retry",
+          "id": "r7"
+        },
+        {
+          "type": "get_messages",
+          "id": "r8"
+        },
+        {
+          "type": "get_last_assistant_text",
+          "id": "r9"
+        }
+      ],
+      "seed": {
+        "model": {
+          "provider": "anthropic",
+          "id": "claude-3-5-sonnet",
+          "api": "anthropic-messages",
+          "baseUrl": "",
+          "reasoning": true
+        },
+        "availableModels": [
+          {
+            "provider": "anthropic",
+            "id": "claude-3-5-sonnet",
+            "api": "anthropic-messages",
+            "baseUrl": "",
+            "reasoning": true
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ],
+            "timestamp": 0
+          }
+        ],
+        "lastAssistantText": "hello"
+      },
+      "stdout": "{\"id\":\"r1\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true,\"data\":{\"model\":{\"provider\":\"anthropic\",\"id\":\"claude-3-5-sonnet\",\"api\":\"anthropic-messages\",\"baseUrl\":\"\",\"reasoning\":true},\"thinkingLevel\":\"medium\",\"isStreaming\":false,\"isCompacting\":false,\"steeringMode\":\"one-at-a-time\",\"followUpMode\":\"one-at-a-time\",\"sessionId\":\"sid-123\",\"autoCompactionEnabled\":false,\"messageCount\":1,\"pendingMessageCount\":0}}\n{\"id\":\"r3\",\"type\":\"response\",\"command\":\"set_steering_mode\",\"success\":true}\n{\"id\":\"r4\",\"type\":\"response\",\"command\":\"set_follow_up_mode\",\"success\":true}\n{\"id\":\"r5\",\"type\":\"response\",\"command\":\"set_auto_compaction\",\"success\":true}\n{\"id\":\"r6\",\"type\":\"response\",\"command\":\"set_auto_retry\",\"success\":true}\n{\"id\":\"r7\",\"type\":\"response\",\"command\":\"abort_retry\",\"success\":true}\n{\"id\":\"r8\",\"type\":\"response\",\"command\":\"get_messages\",\"success\":true,\"data\":{\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\"}],\"timestamp\":0}]}}\n{\"id\":\"r9\",\"type\":\"response\",\"command\":\"get_last_assistant_text\",\"success\":true,\"data\":{\"text\":\"hello\"}}\n{\"id\":\"r2\",\"type\":\"response\",\"command\":\"get_available_models\",\"success\":true,\"data\":{\"models\":[{\"provider\":\"anthropic\",\"id\":\"claude-3-5-sonnet\",\"api\":\"anthropic-messages\",\"baseUrl\":\"\",\"reasoning\":true}]}}\n",
+      "timedOut": false
+    },
+    {
+      "name": "unknown-command-no-id",
+      "commands": [
+        {
+          "type": "definitely_not_a_command",
+          "id": "r1"
+        }
+      ],
+      "seed": {},
+      "stdout": "{\"type\":\"response\",\"command\":\"definitely_not_a_command\",\"success\":false,\"error\":\"Unknown command: definitely_not_a_command\"}\n",
+      "timedOut": false
+    },
+    {
+      "name": "prompt-async-success",
+      "commands": [
+        {
+          "type": "prompt",
+          "message": "build it",
+          "id": "r1"
+        },
+        {
+          "type": "get_state",
+          "id": "r2"
+        }
+      ],
+      "seed": {
+        "model": {
+          "provider": "anthropic",
+          "id": "claude-3-5-sonnet",
+          "api": "anthropic-messages",
+          "baseUrl": "",
+          "reasoning": true
+        },
+        "promptDelayMs": 5
+      },
+      "stdout": "{\"id\":\"r2\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true,\"data\":{\"model\":{\"provider\":\"anthropic\",\"id\":\"claude-3-5-sonnet\",\"api\":\"anthropic-messages\",\"baseUrl\":\"\",\"reasoning\":true},\"thinkingLevel\":\"medium\",\"isStreaming\":false,\"isCompacting\":false,\"steeringMode\":\"one-at-a-time\",\"followUpMode\":\"one-at-a-time\",\"sessionId\":\"sid-123\",\"autoCompactionEnabled\":false,\"messageCount\":0,\"pendingMessageCount\":0}}\n{\"id\":\"r1\",\"type\":\"response\",\"command\":\"prompt\",\"success\":true}\n",
+      "timedOut": false
+    },
+    {
+      "name": "prompt-preflight-failure",
+      "commands": [
+        {
+          "type": "prompt",
+          "message": "nope",
+          "id": "r1"
+        }
+      ],
+      "seed": {
+        "promptError": "preflight rejected",
+        "promptErrorOnCall": 1
+      },
+      "stdout": "{\"id\":\"r1\",\"type\":\"response\",\"command\":\"prompt\",\"success\":false,\"error\":\"preflight rejected\"}\n",
+      "timedOut": false
+    },
+    {
+      "name": "thinking-model-commands",
+      "commands": [
+        {
+          "type": "set_thinking_level",
+          "level": "high",
+          "id": "r1"
+        },
+        {
+          "type": "cycle_thinking_level",
+          "id": "r2"
+        },
+        {
+          "type": "set_model",
+          "provider": "anthropic",
+          "modelId": "claude-3-5-sonnet",
+          "id": "r3"
+        },
+        {
+          "type": "cycle_model",
+          "id": "r4"
+        },
+        {
+          "type": "set_thinking_level",
+          "level": "off",
+          "id": "r5"
+        }
+      ],
+      "seed": {
+        "model": {
+          "provider": "anthropic",
+          "id": "claude-3-5-sonnet",
+          "api": "anthropic-messages",
+          "baseUrl": "",
+          "reasoning": true
+        },
+        "availableModels": [
+          {
+            "provider": "anthropic",
+            "id": "claude-3-5-sonnet",
+            "api": "anthropic-messages",
+            "baseUrl": "",
+            "reasoning": true
+          },
+          {
+            "provider": "anthropic",
+            "id": "claude-3-haiku",
+            "api": "anthropic-messages",
+            "baseUrl": "",
+            "reasoning": true
+          }
+        ]
+      },
+      "stdout": "{\"id\":\"r1\",\"type\":\"response\",\"command\":\"set_thinking_level\",\"success\":true}\n{\"id\":\"r2\",\"type\":\"response\",\"command\":\"cycle_thinking_level\",\"success\":true,\"data\":{\"level\":\"off\"}}\n{\"id\":\"r5\",\"type\":\"response\",\"command\":\"set_thinking_level\",\"success\":true}\n{\"id\":\"r4\",\"type\":\"response\",\"command\":\"cycle_model\",\"success\":true,\"data\":{\"model\":{\"provider\":\"anthropic\",\"id\":\"claude-3-5-sonnet\",\"api\":\"anthropic-messages\",\"baseUrl\":\"\",\"reasoning\":true},\"thinkingLevel\":\"off\",\"isScoped\":false}}\n{\"id\":\"r3\",\"type\":\"response\",\"command\":\"set_model\",\"success\":true,\"data\":{\"provider\":\"anthropic\",\"id\":\"claude-3-5-sonnet\",\"api\":\"anthropic-messages\",\"baseUrl\":\"\",\"reasoning\":true}}\n",
+      "timedOut": false
+    },
+    {
+      "name": "set-model-not-found",
+      "commands": [
+        {
+          "type": "set_model",
+          "provider": "x",
+          "modelId": "nope",
+          "id": "r1"
+        }
+      ],
+      "seed": {
+        "availableModels": [
+          {
+            "provider": "anthropic",
+            "id": "claude-3-5-sonnet",
+            "api": "anthropic-messages",
+            "baseUrl": "",
+            "reasoning": true
+          }
+        ]
+      },
+      "stdout": "{\"id\":\"r1\",\"type\":\"response\",\"command\":\"set_model\",\"success\":false,\"error\":\"Model not found: x/nope\"}\n",
+      "timedOut": false
+    },
+    {
+      "name": "compact-bash-session-ops",
+      "commands": [
+        {
+          "type": "compact",
+          "customInstructions": "summarize",
+          "id": "r1"
+        },
+        {
+          "type": "bash",
+          "command": "ls",
+          "excludeFromContext": false,
+          "id": "r2"
+        },
+        {
+          "type": "abort_bash",
+          "id": "r3"
+        },
+        {
+          "type": "abort",
+          "id": "r4"
+        },
+        {
+          "type": "steer",
+          "message": "go left",
+          "id": "r5"
+        },
+        {
+          "type": "follow_up",
+          "message": "and right",
+          "id": "r6"
+        },
+        {
+          "type": "get_session_stats",
+          "id": "r7"
+        }
+      ],
+      "seed": {
+        "compactResult": {
+          "sessionId": "sid-123",
+          "summary": "sum",
+          "kept": 3
+        },
+        "bashResult": {
+          "exitCode": 0,
+          "stdout": "a.txt\nb.txt",
+          "stderr": ""
+        },
+        "sessionStats": {
+          "messageCount": 2,
+          "tokenCount": 100,
+          "sessionId": "sid-123"
+        }
+      },
+      "stdout": "{\"id\":\"r3\",\"type\":\"response\",\"command\":\"abort_bash\",\"success\":true}\n{\"id\":\"r7\",\"type\":\"response\",\"command\":\"get_session_stats\",\"success\":true,\"data\":{\"messageCount\":2,\"tokenCount\":100,\"sessionId\":\"sid-123\"}}\n{\"id\":\"r1\",\"type\":\"response\",\"command\":\"compact\",\"success\":true,\"data\":{\"sessionId\":\"sid-123\",\"summary\":\"sum\",\"kept\":3}}\n{\"id\":\"r2\",\"type\":\"response\",\"command\":\"bash\",\"success\":true,\"data\":{\"exitCode\":0,\"stdout\":\"a.txt\\nb.txt\",\"stderr\":\"\"}}\n{\"id\":\"r4\",\"type\":\"response\",\"command\":\"abort\",\"success\":true}\n{\"id\":\"r5\",\"type\":\"response\",\"command\":\"steer\",\"success\":true}\n{\"id\":\"r6\",\"type\":\"response\",\"command\":\"follow_up\",\"success\":true}\n",
+      "timedOut": false
+    },
+    {
+      "name": "export-html",
+      "commands": [
+        {
+          "type": "export_html",
+          "outputPath": "/out.html",
+          "id": "r1"
+        },
+        {
+          "type": "get_session_stats",
+          "id": "r2"
+        }
+      ],
+      "seed": {},
+      "stdout": "{\"id\":\"r2\",\"type\":\"response\",\"command\":\"get_session_stats\",\"success\":true,\"data\":{}}\n{\"id\":\"r1\",\"type\":\"response\",\"command\":\"export_html\",\"success\":true,\"data\":{\"path\":\"/tmp/export.html\"}}\n",
+      "timedOut": false
+    },
+    {
+      "name": "session-fork-clone",
+      "commands": [
+        {
+          "type": "new_session",
+          "id": "r1"
+        },
+        {
+          "type": "fork",
+          "entryId": "entry-1",
+          "id": "r2"
+        },
+        {
+          "type": "clone",
+          "id": "r3"
+        },
+        {
+          "type": "get_fork_messages",
+          "id": "r4"
+        },
+        {
+          "type": "set_session_name",
+          "name": "my session",
+          "id": "r5"
+        },
+        {
+          "type": "set_session_name",
+          "name": "   ",
+          "id": "r6"
+        }
+      ],
+      "seed": {
+        "forkingMessages": [
+          {
+            "entryId": "entry-1",
+            "text": "fork me"
+          }
+        ],
+        "sessionFile": "/s.jsonl"
+      },
+      "stdout": "{\"id\":\"r4\",\"type\":\"response\",\"command\":\"get_fork_messages\",\"success\":true,\"data\":{\"messages\":[{\"entryId\":\"entry-1\",\"text\":\"fork me\"}]}}\n{\"id\":\"r5\",\"type\":\"response\",\"command\":\"set_session_name\",\"success\":true}\n{\"id\":\"r6\",\"type\":\"response\",\"command\":\"set_session_name\",\"success\":false,\"error\":\"Session name cannot be empty\"}\n{\"id\":\"r1\",\"type\":\"response\",\"command\":\"new_session\",\"success\":true,\"data\":{\"cancelled\":false}}\n{\"id\":\"r2\",\"type\":\"response\",\"command\":\"fork\",\"success\":true,\"data\":{\"text\":\"\",\"cancelled\":false}}\n{\"id\":\"r3\",\"type\":\"response\",\"command\":\"clone\",\"success\":true,\"data\":{\"cancelled\":false}}\n",
+      "timedOut": false
+    },
+    {
+      "name": "commands-registry",
+      "commands": [
+        {
+          "type": "get_commands",
+          "id": "r1"
+        },
+        {
+          "type": "get_last_assistant_text",
+          "id": "r2"
+        }
+      ],
+      "seed": {
+        "registeredCommands": [
+          {
+            "invocationName": "slash-cmd",
+            "description": "a cmd",
+            "sourceInfo": {
+              "path": "/x.lua"
+            }
+          }
+        ],
+        "promptTemplates": [
+          {
+            "name": "review",
+            "description": "review prompt",
+            "sourceInfo": {
+              "path": "/review.lua"
+            }
+          }
+        ],
+        "skills": [
+          {
+            "name": "web",
+            "description": "web skill",
+            "sourceInfo": {
+              "path": "/web.lua"
+            }
+          }
+        ],
+        "lastAssistantText": null
+      },
+      "stdout": "{\"id\":\"r1\",\"type\":\"response\",\"command\":\"get_commands\",\"success\":true,\"data\":{\"commands\":[{\"name\":\"slash-cmd\",\"description\":\"a cmd\",\"source\":\"extension\",\"sourceInfo\":{\"path\":\"/x.lua\"}},{\"name\":\"review\",\"description\":\"review prompt\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"/review.lua\"}},{\"name\":\"skill:web\",\"description\":\"web skill\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"/web.lua\"}}]}}\n{\"id\":\"r2\",\"type\":\"response\",\"command\":\"get_last_assistant_text\",\"success\":true,\"data\":{\"text\":null}}\n",
+      "timedOut": false
+    },
+    {
+      "name": "event-streaming",
+      "commands": [
+        {
+          "type": "prompt",
+          "message": "tell me",
+          "id": "r1"
+        }
+      ],
+      "seed": {
+        "model": {
+          "provider": "anthropic",
+          "id": "claude-3-5-sonnet",
+          "api": "anthropic-messages",
+          "baseUrl": "",
+          "reasoning": true
+        },
+        "promptDelayMs": 2
+      },
+      "stdout": "{\"id\":\"r1\",\"type\":\"response\",\"command\":\"prompt\",\"success\":true}\n",
+      "timedOut": false
+    },
+    {
+      "name": "async-steer-followup-abort",
+      "commands": [
+        {
+          "type": "steer",
+          "message": "go left",
+          "id": "r1"
+        },
+        {
+          "type": "follow_up",
+          "message": "and right",
+          "id": "r2"
+        },
+        {
+          "type": "abort",
+          "id": "r3"
+        },
+        {
+          "type": "abort_bash",
+          "id": "r4"
+        }
+      ],
+      "seed": {
+        "model": {
+          "provider": "anthropic",
+          "id": "claude-3-5-sonnet",
+          "api": "anthropic-messages",
+          "baseUrl": "",
+          "reasoning": true
+        }
+      },
+      "stdout": "{\"id\":\"r4\",\"type\":\"response\",\"command\":\"abort_bash\",\"success\":true}\n{\"id\":\"r1\",\"type\":\"response\",\"command\":\"steer\",\"success\":true}\n{\"id\":\"r2\",\"type\":\"response\",\"command\":\"follow_up\",\"success\":true}\n{\"id\":\"r3\",\"type\":\"response\",\"command\":\"abort\",\"success\":true}\n",
+      "timedOut": false
+    },
+    {
+      "name": "fork-messages",
+      "commands": [
+        {
+          "type": "get_fork_messages",
+          "id": "r1"
+        }
+      ],
+      "seed": {
+        "forkingMessages": [
+          {
+            "entryId": "entry-1",
+            "text": "fork me"
+          }
+        ]
+      },
+      "stdout": "{\"id\":\"r1\",\"type\":\"response\",\"command\":\"get_fork_messages\",\"success\":true,\"data\":{\"messages\":[{\"entryId\":\"entry-1\",\"text\":\"fork me\"}]}}\n",
+      "timedOut": false
+    },
+    {
+      "name": "empty-fork-messages",
+      "commands": [
+        {
+          "type": "get_fork_messages",
+          "id": "r1"
+        }
+      ],
+      "seed": {},
+      "stdout": "{\"id\":\"r1\",\"type\":\"response\",\"command\":\"get_fork_messages\",\"success\":true,\"data\":{\"messages\":[]}}\n",
+      "timedOut": false
+    },
+    {
+      "name": "empty-commands",
+      "commands": [
+        {
+          "type": "get_commands",
+          "id": "r1"
+        }
+      ],
+      "seed": {},
+      "stdout": "{\"id\":\"r1\",\"type\":\"response\",\"command\":\"get_commands\",\"success\":true,\"data\":{\"commands\":[]}}\n",
+      "timedOut": false
+    },
+    {
+      "name": "empty-messages",
+      "commands": [
+        {
+          "type": "get_messages",
+          "id": "r1"
+        }
+      ],
+      "seed": {},
+      "stdout": "{\"id\":\"r1\",\"type\":\"response\",\"command\":\"get_messages\",\"success\":true,\"data\":{\"messages\":[]}}\n",
+      "timedOut": false
+    }
+  ],
+  "parseErrorProbe": {
+    "stdout": "{\"type\":\"response\",\"command\":\"parse\",\"success\":false,\"error\":\"Failed to parse command: Unexpected token 'o', \\\"not json at all\\\" is not valid JSON\"}\n",
+    "timedOut": false
+  }
+}
