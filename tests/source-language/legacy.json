@@ -30,10 +30,6 @@
       "language": "shell",
       "shebang": "#!/usr/bin/env bash"
     },
-    "scripts/construction-inventory": {
-      "language": "Python",
-      "shebang": "#!/usr/bin/env python3"
-    },
     "scripts/dogfood-oracle": {
       "language": "Python",
       "shebang": "#!/usr/bin/env python3"
@@ -186,10 +182,6 @@
     },
     "tests/config-settings-parity/gen-oracle.ts": {
       "language": "TypeScript"
-    },
-    "tests/construction-inventory/test_checker.py": {
-      "language": "Python",
-      "shebang": "#!/usr/bin/env python3"
     },
     "tests/dogfood-suite/test_contract.py": {
       "language": "Python",

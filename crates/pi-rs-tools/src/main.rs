@@ -24,6 +24,13 @@ commands:
                               current tracked footprint (explicit, reviewed opt-in)
   check --root DIR            fail if tracked foreign-language files are not
                               allowed; print violations (default to repo root)
+
+top-level:
+  model-catalog {selftest|update}...  Pi model-catalog owner (A.3)
+  construction-inventory [--check] [--print-extracted] [--root DIR]
+                              first-party construction inventory owner (A.3)
+  construction-inventory selftest [--root DIR]
+                              offline negative-control self-test (A.3)
 ";
 
 fn repo_root() -> Result<PathBuf, String> {
@@ -45,6 +52,12 @@ enum Command {
     UpdateManifests(PathBuf),
     Check(PathBuf),
     ModelCatalog(Vec<String>),
+    ConstructionInventory {
+        root: PathBuf,
+        check: bool,
+        print_extracted: bool,
+    },
+    ConstructionInventorySelftest { root: PathBuf },
 }
 
 fn parse_args() -> Result<Command, String> {
@@ -56,6 +69,10 @@ fn parse_args() -> Result<Command, String> {
     if top == "model-catalog" {
         let rest: Vec<String> = args.map(|a| a.to_string_lossy().into_owned()).collect();
         return Ok(Command::ModelCatalog(rest));
+    }
+    if top == "construction-inventory" {
+        let rest: Vec<String> = args.map(|a| a.to_string_lossy().into_owned()).collect();
+        return parse_construction_inventory(rest);
     }
     if top != "gate" {
         return Err(format!("unknown top-level subcommand {top:?}\n{USAGE}"));
@@ -88,6 +105,45 @@ fn parse_args() -> Result<Command, String> {
     }
 }
 
+fn parse_construction_inventory(rest: Vec<String>) -> Result<Command, String> {
+    let mut root = None;
+    let mut check = false;
+    let mut print_extracted = false;
+    let mut selftest = false;
+    let mut it = rest.into_iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--check" => check = true,
+            "--print-extracted" => print_extracted = true,
+            "selftest" => selftest = true,
+            "--root" => {
+                root = it.next();
+                if root.is_none() {
+                    return Err("construction-inventory --root requires a path".to_owned());
+                }
+            }
+            other => return Err(format!("unexpected argument {other:?} for construction-inventory")),
+        }
+    }
+    if selftest {
+        return Ok(Command::ConstructionInventorySelftest {
+            root: root.map(PathBuf::from).unwrap_or(default_root()),
+        });
+    }
+    Ok(Command::ConstructionInventory {
+        root: root.map(PathBuf::from).unwrap_or(default_root()),
+        check,
+        print_extracted,
+    })
+}
+
+fn default_root() -> PathBuf {
+    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    p.pop();
+    p.pop();
+    p
+}
+
 fn main() -> ExitCode {
     let command = match parse_args() {
         Ok(c) => c,
@@ -109,9 +165,18 @@ fn run(command: Command) -> Result<ExitCode, Box<dyn std::error::Error>> {
     if let Command::ModelCatalog(args) = &command {
         return run_model_catalog(args);
     }
+    if let Command::ConstructionInventory { root, check, print_extracted } = &command {
+        pi_rs_tools::construction_inventory::run(root, *check, *print_extracted)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    if let Command::ConstructionInventorySelftest { root } = &command {
+        pi_rs_tools::construction_inventory_selftest::run_root(root)?;
+        println!("construction-inventory selftest passed");
+        return Ok(ExitCode::SUCCESS);
+    }
     let root = match &command {
         Command::Scan(root) | Command::UpdateManifests(root) | Command::Check(root) => root.clone(),
-        Command::ModelCatalog(_) => unreachable!(),
+        Command::ModelCatalog(_) | Command::ConstructionInventory { .. } | Command::ConstructionInventorySelftest { .. } => unreachable!(),
     };
     let files = manifest::tracked_files(&root)?;
     // Build the list of (rel, first_line) so the gate can sniff shebangs.
@@ -160,7 +225,7 @@ fn run(command: Command) -> Result<ExitCode, Box<dyn std::error::Error>> {
                 Ok(ExitCode::FAILURE)
             }
         }
-        Command::ModelCatalog(_) => unreachable!(),
+        Command::ModelCatalog(_) | Command::ConstructionInventory { .. } | Command::ConstructionInventorySelftest { .. } => unreachable!(),
     }
 }
 

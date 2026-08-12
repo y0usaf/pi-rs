@@ -161,13 +161,21 @@ Complete these rungs before growing the extension surface further.
       `tests/source-language/allowlist.json` (3 browser-export JS). Normal checks
       run the gate with no Node/Bun/Python runtime.
 
+      **Status — construction inventory (landed).** `scripts/construction-inventory`
+      (Python) and `tests/construction-inventory/test_checker.py` are ported to
+      Rust: `pi-rs-tools construction-inventory {--check,--print-extracted}` plus
+      an offline negative-control `selftest` that mirrors the Python unittest.
+      The flake `construction-inventory` check now runs the Rust binary with no
+      repo-owned Python; both Python predecessors are deleted and withdrawn from
+      `tests/source-language/legacy.json`.
+
       **Remaining — port the named workflows.** The grandfathered generators are
       still Python/bash/TS and must gain Rust/Lua owners before A.3 closes.
       Model-catalog has closed: `scripts/update-model-catalog.ts` → Rust
       (`crates/pi-rs-tools`, `pi-rs-tools model-catalog {update,selftest}`), its
       bash fixture harness deleted, and the flake check/app repointed to the Rust
       binary with no bun. Remaining:
-      - `scripts/{construction-inventory,final-parity-audit,extension-inventory,
+      - `scripts/{final-parity-audit,extension-inventory,
         external-extension-inventory,dogfood-oracle}` (Python) → Rust/Lua.
       - the `scripts/*-oracle` bash regen wrappers + `gen-arch.sh` → Rust.
       - `tests/*/gen-oracle.ts`, `tests/ui-parity/pi-*.ts` → Rust/Lua harnesses.
