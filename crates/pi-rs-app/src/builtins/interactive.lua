@@ -10738,10 +10738,36 @@ function extension_context_action_oracle(model, cwd)
   run(reload_state, reload_context.reload)
   local reload_stale = stale_text(pcall(reload_context.getSystemPrompt))
 
+  -- PLAN 9.2 waitCancellation (pinned against the Pi oracle's same section):
+  -- a queued waitForIdle resolves once the agent becomes idle. Pi's
+  -- waitForIdle() is agent.waitForIdle(), which resolves when activeRun
+  -- dispatches even on abort; here we hold the state non-idle (streaming),
+  -- start the wait, then abort-equivalent makes idle true and the pump
+  -- settles the queued wait (not throwing, not hanging).
+  local wait_state = new_state("tui", true)
+  local deferred = false
+  wait_state.extension_is_idle = function() return deferred end
+  local wait_context = EXTENSION_CONTEXT_POLICY.snapshot(wait_state, { command = true })
+  local wait_task = pi.spawn(function()
+    local ok, err = pcall(wait_context.waitForIdle)
+    if ok then return "resolved" end
+    return "threw:" .. (tostring(err):match(":%d+: (.*)$") or tostring(err))
+  end)
+  for _ = 1, 30, 1 do
+    EXTENSION_CONTEXT_POLICY.pump(wait_state)
+    if wait_task:done() then break end
+    -- After some pumps, simulate the agent aborting (becoming idle).
+    if _ == 5 then deferred = true end
+    pi.sleep(1)
+  end
+  EXTENSION_CONTEXT_POLICY.pump(wait_state)
+  local wait_outcome = wait_task:done() and wait_task:join() or "pending"
+
   return {
     modes = modes, actions = actions,
     replacement = { trace = replacement_trace, result = replacement_result, stale = replacement_stale },
     reload = { trace = reload_trace, stale = reload_stale },
+    waitCancellation = { waitOutcome = wait_outcome },
   }
 end
 
@@ -10820,6 +10846,7 @@ pi.register_command("interactive-extension-context-parity", {
       actions = action_oracle.actions,
       replacement = action_oracle.replacement,
       reload = action_oracle.reload,
+      waitCancellation = action_oracle.waitCancellation,
     }
   end,
 })
