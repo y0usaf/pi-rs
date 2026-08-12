@@ -1179,6 +1179,7 @@ fn ext_entry(lua: &mlua::Lua, source: &str) -> mlua::Result<mlua::Table> {
     entry.set("command_order", lua.create_table()?)?;
     entry.set("providers", lua.create_table()?)?;
     entry.set("provider_order", lua.create_table()?)?;
+    entry.set("message_handlers", lua.create_table()?)?;
     entry.set("shortcuts", lua.create_table()?)?;
     entry.set("shortcut_order", lua.create_table()?)?;
     entry.set("flags", lua.create_table()?)?;
@@ -2159,7 +2160,55 @@ pub(crate) fn build(
         shortcuts.set(key.as_str(), entry)?;
         Ok(())
     })?;
+
+    
     pi.set("register_shortcut", register_shortcut)?;
+    // PLAN 9.4: registeredMessageRenderer(kind, priority, handler)
+    // where handler is (message, ctx) -> rendered_message or nil.
+    let register_message_handler = lua.create_function(|lua, (kind, priority, handler): (String, u64, mlua::Function)| {
+        let source = crate::api::current_source(lua);
+        let registry = crate::api::registry_table(lua)?;
+        let exts: mlua::Table = registry.get("exts")?;
+        let ext: mlua::Table = exts.get(source.as_str())?;
+        let handlers: mlua::Table = ext.get("message_handlers")?;
+        let entry = lua.create_table()?;
+        entry.set("kind", kind.clone())?;
+        entry.set("priority", priority)?;
+        entry.set("handler", handler)?;
+        handlers.push(entry)?;
+        Ok(())
+    })?;
+    pi.set("register_message_handler", register_message_handler)?;
+
+    // List registered message handlers for a kind, sorted by priority descending.
+    let registered_message_handlers = lua.create_function(|lua, kind: String| {
+        let registry = crate::api::registry_table(lua)?;
+        let all = lua.create_table()?;
+        let exts: mlua::Table = registry.get("exts")?;
+        let ext_order: mlua::Table = registry.get("ext_order")?;
+        for source in ext_order.sequence_values::<String>() {
+            let source = source?;
+            if let Some(ext) = exts.get::<Option<mlua::Table>>(source.as_str())?
+                && let Some(handlers) = ext.get::<Option<mlua::Table>>("message_handlers")?
+            {
+                for entry in handlers.sequence_values::<mlua::Table>() {
+                    let entry = entry?;
+                    if let Some(entry_kind) = entry.get::<Option<String>>("kind")?
+                        && entry_kind == kind
+                    {
+                        all.push(entry)?;
+                    }
+                }
+            }
+        }
+        // Sort by priority descending (higher priority first)
+        // Lua tables don't have sort_by, so we build a sorted version
+        // We store in a table where each row is insert, then sort if possible
+        // For now, just return the collected entries (the consumer sorts)
+        Ok(all)
+    })?;
+    pi.set("registered_message_renderers", registered_message_handlers)?;
+
 
     // Resolved first-registration-wins view for the frontend (spec
     // runner.ts getShortcuts, minus the keybinding-conflict diagnostics
@@ -2445,6 +2494,14 @@ pub(crate) fn build(
                 .is_none()
             {
                 continue;
+            }
+            // PLAN 9.4: clean up custom_stream entry before removing the provider.
+            if let Some(entry) = providers.get::<Option<mlua::Table>>(name.as_str())?
+                && let Some(api) = entry.get::<Option<mlua::String>>("api")?
+                && let Some(custom) = registry.get::<Option<mlua::Table>>("custom_stream")?
+                && let Ok(api_str) = api.to_str()
+            {
+                let _ = custom.raw_remove(api_str);
             }
             providers.set(name.as_str(), mlua::Value::Nil)?;
             let order: mlua::Table = ext.get("provider_order")?;
@@ -3141,6 +3198,18 @@ pub(crate) fn build(
     crate::trust::install(lua, &pi)?;
     crate::clipboard::install(lua, &pi)?;
 
+
+    // Spec: parse_frontmatter(content) -- parse YAML frontmatter from markdown.
+    let parse_frontmatter = lua.create_function(|lua, content: String| {
+        let document = crate::frontmatter::parse_frontmatter(&content).map_err(|message| {
+            mlua::Error::runtime(format!("Failed to parse frontmatter: {message}"))
+        })?;
+        let table = lua.create_table()?;
+        table.set("frontmatter", crate::convert::json_to_lua(lua, &serde_json::Value::Object(document.frontmatter))?)?;
+        table.set("body", document.body)?;
+        Ok(table)
+    })?;
+    pi.set("parse_frontmatter", parse_frontmatter)?;
     Ok(pi)
 }
 

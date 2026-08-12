@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Regenerate the frontmatter-parity oracle from Pi's real parseFrontmatter.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
+  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
+fi
+nix shell nixpkgs#nodejs_22 --command \
+  ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json \
+  tests/frontmatter-parity/gen-oracle.ts \
+  tests/frontmatter-parity/cases.json tests/frontmatter-parity/oracle.json
+echo "wrote tests/frontmatter-parity/oracle.json"
