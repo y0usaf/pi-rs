@@ -1258,10 +1258,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "temporary pi.settings JSON store; no config.lua declarations",
-   "disable_path": "none independently; settings are called directly throughout frontend",
-   "replacement_evidence": "target: config.lua precedence/reload/mutation matrix",
-   "status": "open",
+   "public_declaration": "pi.config.* declarations evaluate to canonical config.lua snapshots; pi.settings typed reads/set managed-block mutation; Pi SettingsManager/Keybindings semantics pinned by differential",
+   "disable_path": "unset/empty config.lua leaves the documented bare default; suppress config declaration sources per managed-block deletion",
+   "replacement_evidence": "crates/pi-rs-host/tests/config_settings_parity.rs matches Pi's SettingsManager+KeybindingsManager oracle (tests/config-settings-parity/oracle.json); config_pipeline.rs + settings_bindings.rs cover precedence/reload/mutation/JSON rejection",
+   "status": "implemented",
    "rung": "9.6",
    "coverage": [],
    "anchors": [
@@ -1468,7 +1468,7 @@
     {
      "path": "crates/pi-rs-app/src/main.rs",
      "text": "host.call_role(\"",
-     "count": 3
+     "count": 4
     }
    ],
    "declarations": [],
@@ -1491,7 +1491,7 @@
     {
      "path": "crates/pi-rs-app/src/main.rs",
      "text": "let request = serde_json::json!({",
-     "count": 4
+     "count": 5
     }
    ],
    "declarations": [],

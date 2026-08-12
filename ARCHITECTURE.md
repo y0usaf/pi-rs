@@ -290,6 +290,11 @@ crate pi_rs_app
 │   │   ├── struct Diagnostic: pub
 │   │   └── enum Mode: pub
 │   ├── mod extensions: pub
+│   ├── mod file_processor: pub
+│   │   ├── enum FileProcessorError: pub
+│   │   ├── struct ImageContent: pub
+│   │   ├── struct InitialMessage: pub
+│   │   └── struct ProcessedFiles: pub
 │   ├── mod list_models: pub
 │   │   └── struct Row: pub(self)
 │   ├── mod login: pub
