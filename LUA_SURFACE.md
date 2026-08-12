@@ -14,6 +14,18 @@ The **additive mechanism API** is pi-rs's Lua-native host capability superset. I
 
 These APIs promise their documented Lua contract, not Node module emulation or Pi product behavior. Each addition needs an owner in the construction or external-capability inventory plus a file-backed exerciser, translated Pi example, or dogfood consumer. Additive mechanisms may not change the default Pi-compatible product.
 
+### Low-level capability register (PLAN 9.9)
+
+Lua-native mechanisms owned by the construction/dogfood rows, exposed on the `pi` table. Each owns only its external resource: opaque handles kill/close/abort/drop the resource on disposal, never mutable product state, and embedded/file-backed capabilities are identical. Exercisers live under `examples/extensions/*.lua` and their host tests under `crates/pi-rs-host/tests/*_bindings.rs` / `crates/pi-rs-app/tests/`:
+
+- `pi.process.spawn(cmd, args?, opts?) -> handle` — managed subprocess with stdio pipes; `handle:read_stdout/read_stderr/write_stdin/wait/kill/dispose`; process-tree SIGTERM/SIGKILL (`opts.signal` aborts it); Drop kills the tree so no process survives disposal. `pi.process.kill(pid)` ignores `pid == 0` (which would signal the caller's whole process group), so a targeted kill never widens into a group SIGTERM.
+- `pi.tcp.connect(host, port, opts?) -> handle` — framed TCP client; `handle:write/read/read_line/close/is_closed`; Drop closes the socket.
+- `pi.fs` extended — `readlink/symlink/lstat/chmod/rename/unlink/access/copy_file/mkdtemp/remove_dir/remove_dir_all`, atomic `write_file_atomic`, richer `stat` (mode/uid/gid/nlink), and `watch_file(path, cb) -> handle` (pollable; `handle:poll/close`; disposal stops the watcher thread). `chmod` accepts octal perms/sticky bits but refuses setuid/setgid modes (privilege-escalation shape).
+- `pi.crypto` / `pi.buffer` — `sha1/sha256/md5`, `xxhash32/xxhash64`, `random_uuid`, `base64_encode/decode`, `byte_length`.
+- `pi.http.fetch(url, opts?)` and `pi.http.stream(url, opts?, on_chunk)` — abort-aware streaming (`opts.signal` cancels mid-stream); bytes delivered as binary-safe Lua strings.
+- `pi.set_timeout/set_interval/clear_timeout/clear_interval` — dispatch-scoped background coroutine timers; clearing prevents firing and pending timers drop with their dispatch.
+- Packaged modules — `pi.module.require("pi.tools.file-mutation", "1")` exposes the per-file mutation queue (ownership lease/release, leak-free on error) reused by the builtin and file-backed mutating tools.
+
 ## 3. Packaged Lua modules
 
 **Packaged Lua modules** are versioned, reusable Lua libraries distributed with builtin or user packages through the public module/dependency mechanism owned by PLAN 9.7. They hold composable Lua policy and helpers—such as tool factories, session/compaction helpers, and rendering utilities—rather than adding hidden host powers.

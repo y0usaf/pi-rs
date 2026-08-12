@@ -337,7 +337,7 @@ Complete these rungs before growing the extension surface further.
       to differential evidence, executable Lua, or an explicit DESIGN exception;
       all in-scope examples run through the shipped public surface.
 
-- [ ] **9.9 Inventory-driven Lua mechanism supersurface.** Implement only the
+- [x] **9.9 Inventory-driven Lua mechanism supersurface.** Implement only the
       low-level capabilities owned by construction/dogfood rows: abort-aware HTTP
       streaming, managed subprocess pipes/process-tree cancellation, TCP framed
       clients, filesystem watch/atomic/symlink/metadata operations, reviewed
@@ -348,6 +348,19 @@ Complete these rungs before growing the extension surface further.
       Product mutation remains queued; embedded/file-backed capabilities are
       identical; each operation has cancellation, timeout, reload, shutdown, and
       leak contracts.
+
+      Landed (`examples/extensions/*.lua` exercisers + host/app tests drive each):
+      `pi.http.fetch` and abort-aware `pi.http.stream(on_chunk)`; `pi.process.spawn`
+      with stdio pipes, process-tree SIGTERM/SIGKILL, and Drop-tree kill;
+      `pi.tcp.connect` with read/write/close and Drop-socket disposal;
+      `pi.fs` symlink/lstat/chmod/rename/access/copy/mkdtemp/remove_dir/remove_dir_all
+      + atomic write + richer stat + pollable `watch_file`; `pi.crypto` (sha1/sha256/md5/xxhash/random_uuid)
+      and `pi.buffer`; `pi.set_timeout/set_interval/clear_*`; the public
+      `pi.tools.file-mutation` module. `LUA_SURFACE.md` documents the low-level
+      register and the construction inventory closes the `module.file-mutation-queue`
+      row. The dependent Gecko/RLM/Pomodoro/Hashline/Morph/Webfetch primitives are all
+      available Lua-natively with no missing-primitive shell workaround; full dogfood
+      translations and leak fixtures remain with 9.11.
 
       **Accept:** file-backed examples exercise every mechanism; no process/task/
       socket/watcher survives disposal; Gecko, RLM, Pomodoro, Hashline, Morph,
