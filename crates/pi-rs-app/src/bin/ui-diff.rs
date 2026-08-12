@@ -250,12 +250,10 @@ fn run() -> Result<ExitCode, HarnessError> {
             path: scenario_path.clone(),
             source,
         })?;
-    let expected: Vec<FrameSnapshot> =
-        pi_rs_tui::compact_evidence::load_frames(&oracle_path).map_err(|source| {
-            HarnessError::Io {
-                path: oracle_path.clone(),
-                source,
-            }
+    let expected: Vec<FrameSnapshot> = pi_rs_tui::compact_evidence::load_frames(&oracle_path)
+        .map_err(|source| HarnessError::Io {
+            path: oracle_path.clone(),
+            source,
         })?;
     // Scenario files land in a fresh temp cwd, mirroring the Pi driver's
     // mkdtemp; renderers only surface the relative paths from the args.
