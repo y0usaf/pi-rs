@@ -797,6 +797,187 @@
 			"name": "simple-missing-key",
 			"requests": [],
 			"syncError": "No API key for provider: openai"
+		},
+		{
+			"name": "tool-history-empty-tools",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/chat/completions",
+					"headers": {
+						"accept": "application/json",
+						"authorization": "Bearer key",
+						"content-type": "application/json"
+					},
+					"body": {
+						"model": "gpt-5-mini",
+						"messages": [
+							{
+								"role": "user",
+								"content": "run"
+							},
+							{
+								"role": "assistant",
+								"content": null,
+								"tool_calls": [
+									{
+										"id": "call_2",
+										"type": "function",
+										"function": {
+											"name": "bash",
+											"arguments": "{}"
+										}
+									}
+								]
+							},
+							{
+								"role": "tool",
+								"content": "done",
+								"tool_call_id": "call_2"
+							}
+						],
+						"stream": true,
+						"stream_options": {
+							"include_usage": true
+						},
+						"store": false,
+						"tools": []
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "done",
+					"reason": "stop"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "openai-completions",
+				"provider": "openai",
+				"model": "gpt-5-mini",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "stop",
+				"timestamp": 0,
+				"responseId": "empty"
+			}
+		},
+		{
+			"name": "content-filter-error",
+			"requests": [
+				{
+					"method": "POST",
+					"path": "/chat/completions",
+					"headers": {
+						"accept": "application/json",
+						"authorization": "Bearer key",
+						"content-type": "application/json"
+					},
+					"body": {
+						"model": "gpt-5-mini",
+						"messages": [
+							{
+								"role": "user",
+								"content": "hi"
+							}
+						],
+						"stream": true,
+						"stream_options": {
+							"include_usage": true
+						},
+						"store": false
+					}
+				}
+			],
+			"events": [
+				{
+					"type": "start"
+				},
+				{
+					"type": "text_start",
+					"contentIndex": 0
+				},
+				{
+					"type": "text_delta",
+					"contentIndex": 0,
+					"delta": "ok"
+				},
+				{
+					"type": "text_end",
+					"contentIndex": 0,
+					"content": "ok"
+				},
+				{
+					"type": "error",
+					"reason": "error"
+				}
+			],
+			"result": {
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "ok"
+					}
+				],
+				"api": "openai-completions",
+				"provider": "openai",
+				"model": "gpt-5-mini",
+				"usage": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"totalTokens": 0,
+					"cost": {
+						"input": 0,
+						"output": 0,
+						"cacheRead": 0,
+						"cacheWrite": 0,
+						"total": 0
+					}
+				},
+				"stopReason": "error",
+				"timestamp": 0,
+				"responseId": "cf",
+				"errorMessage": "Provider finish_reason: content_filter"
+			}
 		}
 	]
 }
