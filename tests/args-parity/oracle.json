@@ -1,0 +1,953 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "validThinkingLevels": [
+    [
+      "off",
+      true
+    ],
+    [
+      "minimal",
+      true
+    ],
+    [
+      "low",
+      true
+    ],
+    [
+      "medium",
+      true
+    ],
+    [
+      "high",
+      true
+    ],
+    [
+      "xhigh",
+      true
+    ]
+  ],
+  "cases": [
+    {
+      "name": "help-h",
+      "argv": [
+        "-h"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "help": true
+      }
+    },
+    {
+      "name": "help-long",
+      "argv": [
+        "--help"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "help": true
+      }
+    },
+    {
+      "name": "version-v",
+      "argv": [
+        "-v"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "version": true
+      }
+    },
+    {
+      "name": "version-long",
+      "argv": [
+        "--version"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "version": true
+      }
+    },
+    {
+      "name": "mode-text",
+      "argv": [
+        "--mode",
+        "text"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "mode": "text"
+      }
+    },
+    {
+      "name": "mode-json",
+      "argv": [
+        "--mode",
+        "json"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "mode": "json"
+      }
+    },
+    {
+      "name": "mode-rpc",
+      "argv": [
+        "--mode",
+        "rpc"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "mode": "rpc"
+      }
+    },
+    {
+      "name": "mode-invalid",
+      "argv": [
+        "--mode",
+        "bogus"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": []
+      }
+    },
+    {
+      "name": "mode-missing-value",
+      "argv": [
+        "--mode"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": []
+      }
+    },
+    {
+      "name": "empty",
+      "argv": [],
+      "args": {
+        "messages": [],
+        "fileArgs": []
+      }
+    },
+    {
+      "name": "single-message",
+      "argv": [
+        "hello world"
+      ],
+      "args": {
+        "messages": [
+          "hello world"
+        ],
+        "fileArgs": []
+      }
+    },
+    {
+      "name": "multi-message",
+      "argv": [
+        "a",
+        "b",
+        "c"
+      ],
+      "args": {
+        "messages": [
+          "a",
+          "b",
+          "c"
+        ],
+        "fileArgs": []
+      }
+    },
+    {
+      "name": "print-simple",
+      "argv": [
+        "--print"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "print": true
+      }
+    },
+    {
+      "name": "print-short",
+      "argv": [
+        "-p"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "print": true
+      }
+    },
+    {
+      "name": "print-with-message",
+      "argv": [
+        "-p",
+        "do it"
+      ],
+      "args": {
+        "messages": [
+          "do it"
+        ],
+        "fileArgs": [],
+        "print": true
+      }
+    },
+    {
+      "name": "print-following-message",
+      "argv": [
+        "--print",
+        "do it",
+        "next"
+      ],
+      "args": {
+        "messages": [
+          "do it",
+          "next"
+        ],
+        "fileArgs": [],
+        "print": true
+      }
+    },
+    {
+      "name": "print-flag-next",
+      "argv": [
+        "-p",
+        "--version"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "version": true,
+        "print": true
+      }
+    },
+    {
+      "name": "print-atfile-next",
+      "argv": [
+        "-p",
+        "@file"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [
+          "file"
+        ],
+        "print": true
+      }
+    },
+    {
+      "name": "provider-model",
+      "argv": [
+        "--provider",
+        "anthropic",
+        "--model",
+        "opus"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "provider": "anthropic",
+        "model": "opus"
+      }
+    },
+    {
+      "name": "model-shorthand",
+      "argv": [
+        "--model",
+        "sonnet:high"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "model": "sonnet:high"
+      }
+    },
+    {
+      "name": "model-provider-prefix",
+      "argv": [
+        "--model",
+        "openai/gpt-4o"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "model": "openai/gpt-4o"
+      }
+    },
+    {
+      "name": "api-key",
+      "argv": [
+        "--api-key",
+        "sk-123"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "apiKey": "sk-123"
+      }
+    },
+    {
+      "name": "system-prompt",
+      "argv": [
+        "--system-prompt",
+        "be brief"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "systemPrompt": "be brief"
+      }
+    },
+    {
+      "name": "append-system-prompt-1",
+      "argv": [
+        "--append-system-prompt",
+        "x"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "appendSystemPrompt": [
+          "x"
+        ]
+      }
+    },
+    {
+      "name": "append-system-prompt-many",
+      "argv": [
+        "--append-system-prompt",
+        "x",
+        "--append-system-prompt",
+        "y"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "appendSystemPrompt": [
+          "x",
+          "y"
+        ]
+      }
+    },
+    {
+      "name": "thinking-off",
+      "argv": [
+        "--thinking",
+        "off"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "thinking": "off"
+      }
+    },
+    {
+      "name": "thinking-high",
+      "argv": [
+        "--thinking",
+        "high"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "thinking": "high"
+      }
+    },
+    {
+      "name": "thinking-invalid",
+      "argv": [
+        "--thinking",
+        "ultra"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "diagnostics": [
+          {
+            "type": "warning",
+            "message": "Invalid thinking level \"ultra\". Valid values: off, minimal, low, medium, high, xhigh"
+          }
+        ]
+      }
+    },
+    {
+      "name": "thinking-missing-value",
+      "argv": [
+        "--thinking"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": []
+      }
+    },
+    {
+      "name": "continue-c",
+      "argv": [
+        "--continue"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "continue": true
+      }
+    },
+    {
+      "name": "continue-short",
+      "argv": [
+        "-c"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "continue": true
+      }
+    },
+    {
+      "name": "resume-r",
+      "argv": [
+        "--resume"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "resume": true
+      }
+    },
+    {
+      "name": "resume-short",
+      "argv": [
+        "-r"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "resume": true
+      }
+    },
+    {
+      "name": "session",
+      "argv": [
+        "--session",
+        "abc123"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "session": "abc123"
+      }
+    },
+    {
+      "name": "session-id",
+      "argv": [
+        "--session-id",
+        "xyz"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "sessionId": "xyz"
+      }
+    },
+    {
+      "name": "fork",
+      "argv": [
+        "--fork",
+        "feed"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "fork": "feed"
+      }
+    },
+    {
+      "name": "session-dir",
+      "argv": [
+        "--session-dir",
+        "/tmp/s"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "sessionDir": "/tmp/s"
+      }
+    },
+    {
+      "name": "no-session",
+      "argv": [
+        "--no-session"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "noSession": true
+      }
+    },
+    {
+      "name": "name",
+      "argv": [
+        "--name",
+        "my session"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "name": "my session"
+      }
+    },
+    {
+      "name": "name-short",
+      "argv": [
+        "-n"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "diagnostics": [
+          {
+            "type": "error",
+            "message": "--name requires a value"
+          }
+        ]
+      }
+    },
+    {
+      "name": "name-missing-value",
+      "argv": [
+        "--name"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "diagnostics": [
+          {
+            "type": "error",
+            "message": "--name requires a value"
+          }
+        ]
+      }
+    },
+    {
+      "name": "models",
+      "argv": [
+        "--models",
+        "a,b, c"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "models": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    {
+      "name": "no-tools",
+      "argv": [
+        "--no-tools"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "noTools": true
+      }
+    },
+    {
+      "name": "no-tools-short",
+      "argv": [
+        "-nt"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "noTools": true
+      }
+    },
+    {
+      "name": "no-builtin-tools",
+      "argv": [
+        "--no-builtin-tools"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "noBuiltinTools": true
+      }
+    },
+    {
+      "name": "no-builtin-tools-short",
+      "argv": [
+        "-nbt"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "noBuiltinTools": true
+      }
+    },
+    {
+      "name": "tools-empty-comma",
+      "argv": [
+        "--tools",
+        ","
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": []
+      }
+    },
+    {
+      "name": "tools",
+      "argv": [
+        "--tools",
+        "read,bash"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "tools": [
+          "read",
+          "bash"
+        ]
+      }
+    },
+    {
+      "name": "exclude-tools",
+      "argv": [
+        "--exclude-tools",
+        "ask_question"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "excludeTools": [
+          "ask_question"
+        ]
+      }
+    },
+    {
+      "name": "extension-1",
+      "argv": [
+        "--extension",
+        "one.lua"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "extensions": [
+          "one.lua"
+        ]
+      }
+    },
+    {
+      "name": "extension-many",
+      "argv": [
+        "-e",
+        "one.lua",
+        "--extension",
+        "two.lua"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "extensions": [
+          "one.lua",
+          "two.lua"
+        ]
+      }
+    },
+    {
+      "name": "no-extensions",
+      "argv": [
+        "--no-extensions"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "noExtensions": true
+      }
+    },
+    {
+      "name": "skill",
+      "argv": [
+        "--skill",
+        "s.lua"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "skills": [
+          "s.lua"
+        ]
+      }
+    },
+    {
+      "name": "no-skills",
+      "argv": [
+        "--no-skills"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "noSkills": true
+      }
+    },
+    {
+      "name": "prompt-template",
+      "argv": [
+        "--prompt-template",
+        "p.md"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "promptTemplates": [
+          "p.md"
+        ]
+      }
+    },
+    {
+      "name": "no-prompt-templates",
+      "argv": [
+        "--no-prompt-templates"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "noPromptTemplates": true
+      }
+    },
+    {
+      "name": "theme",
+      "argv": [
+        "--theme",
+        "t.json"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "themes": [
+          "t.json"
+        ]
+      }
+    },
+    {
+      "name": "no-themes",
+      "argv": [
+        "--no-themes"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "noThemes": true
+      }
+    },
+    {
+      "name": "no-context-files",
+      "argv": [
+        "--no-context-files"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "noContextFiles": true
+      }
+    },
+    {
+      "name": "list-models-flag",
+      "argv": [
+        "--list-models"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "listModels": true
+      }
+    },
+    {
+      "name": "list-models-pattern",
+      "argv": [
+        "--list-models",
+        "opus"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "listModels": "opus"
+      }
+    },
+    {
+      "name": "list-models-next-flag",
+      "argv": [
+        "--list-models",
+        "--version"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "version": true,
+        "listModels": true
+      }
+    },
+    {
+      "name": "verbose",
+      "argv": [
+        "--verbose"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "verbose": true
+      }
+    },
+    {
+      "name": "approve-a",
+      "argv": [
+        "--approve"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "projectTrustOverride": true
+      }
+    },
+    {
+      "name": "no-approve-na",
+      "argv": [
+        "--no-approve"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "projectTrustOverride": false
+      }
+    },
+    {
+      "name": "unknown-short",
+      "argv": [
+        "-zz"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "diagnostics": [
+          {
+            "type": "error",
+            "message": "Unknown option: -zz"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown-long",
+      "argv": [
+        "--nonsense"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": []
+      }
+    },
+    {
+      "name": "unknown-long-value",
+      "argv": [
+        "--nonsense",
+        "value"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": []
+      }
+    },
+    {
+      "name": "unknown-long-eq",
+      "argv": [
+        "--foo=bar"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": []
+      }
+    },
+    {
+      "name": "atfile-prompt",
+      "argv": [
+        "@prompt.md",
+        "@img.png",
+        "color?"
+      ],
+      "args": {
+        "messages": [
+          "color?"
+        ],
+        "fileArgs": [
+          "prompt.md",
+          "img.png"
+        ]
+      }
+    },
+    {
+      "name": "atfile-empty",
+      "argv": [
+        "@"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [
+          ""
+        ]
+      }
+    },
+    {
+      "name": "all-at-end",
+      "argv": [
+        "--print",
+        "m1",
+        "m2",
+        "@f.txt"
+      ],
+      "args": {
+        "messages": [
+          "m1",
+          "m2"
+        ],
+        "fileArgs": [
+          "f.txt"
+        ],
+        "print": true
+      }
+    },
+    {
+      "name": "export",
+      "argv": [
+        "--export",
+        "out.html"
+      ],
+      "args": {
+        "messages": [],
+        "fileArgs": [],
+        "export": "out.html"
+      }
+    }
+  ],
+  "help": [
+    {
+      "name": "no-extension-flags",
+      "text": "pi - AI coding assistant with read, bash, edit, write tools\n\nUsage:\n  pi [options] [@files...] [messages...]\n\nCommands:\n  pi install <source> [-l]     Install extension source and add to settings\n  pi remove <source> [-l]      Remove extension source from settings\n  pi uninstall <source> [-l]   Alias for remove\n  pi update [source|self|pi]   Update pi and installed extensions\n  pi list                      List installed extensions from settings\n  pi config                    Open TUI to enable/disable package resources\n  pi <command> --help          Show help for install/remove/uninstall/update/list\n\nOptions:\n  --provider <name>              Provider name (default: google)\n  --model <pattern>              Model pattern or ID (supports \"provider/id\" and optional \":<thinking>\")\n  --api-key <key>                API key (defaults to env vars)\n  --system-prompt <text>         System prompt (default: coding assistant prompt)\n  --append-system-prompt <text>  Append text or file contents to the system prompt (can be used multiple times)\n  --mode <mode>                  Output mode: text (default), json, or rpc\n  --print, -p                    Non-interactive mode: process prompt and exit\n  --continue, -c                 Continue previous session\n  --resume, -r                   Select a session to resume\n  --session <path|id>            Use specific session file or partial UUID\n  --session-id <id>              Use exact project session ID, creating it if missing\n  --fork <path|id>               Fork specific session file or partial UUID into a new session\n  --session-dir <dir>            Directory for session storage and lookup\n  --no-session                   Don't save session (ephemeral)\n  --name, -n <name>              Set session display name\n  --models <patterns>            Comma-separated model patterns for Ctrl+P cycling\n                                 Supports globs (anthropic/*, *sonnet*) and fuzzy matching\n  --no-tools, -nt                Disable all tools by default (built-in and extension)\n  --no-builtin-tools, -nbt       Disable built-in tools by default but keep extension/custom tools enabled\n  --tools, -t <tools>            Comma-separated allowlist of tool names to enable\n                                 Applies to built-in, extension, and custom tools\n  --exclude-tools, -xt <tools>   Comma-separated denylist of tool names to disable\n                                 Applies to built-in, extension, and custom tools\n  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh\n  --extension, -e <path>         Load an extension file (can be used multiple times)\n  --no-extensions, -ne           Disable extension discovery (explicit -e paths still work)\n  --skill <path>                 Load a skill file or directory (can be used multiple times)\n  --no-skills, -ns               Disable skills discovery and loading\n  --prompt-template <path>       Load a prompt template file or directory (can be used multiple times)\n  --no-prompt-templates, -np     Disable prompt template discovery and loading\n  --theme <path>                 Load a theme file or directory (can be used multiple times)\n  --no-themes                    Disable theme discovery and loading\n  --no-context-files, -nc        Disable AGENTS.md and CLAUDE.md discovery and loading\n  --export <file>                Export session file to HTML and exit\n  --list-models [search]         List available models (with optional fuzzy search)\n  --verbose                      Force verbose startup (overrides quietStartup setting)\n  --approve, -a                  Trust project-local files for this run\n  --no-approve, -na              Ignore project-local files for this run\n  --offline                      Disable startup network operations (same as PI_OFFLINE=1)\n  --help, -h                     Show this help\n  --version, -v                  Show version number\n\nExtensions can register additional flags (e.g., --plan from plan-mode extension).\n\nExamples:\n  # Interactive mode\n  pi\n\n  # Interactive mode with initial prompt\n  pi \"List all .ts files in src/\"\n\n  # Include files in initial message\n  pi @prompt.md @image.png \"What color is the sky?\"\n\n  # Non-interactive mode (process and exit)\n  pi -p \"List all .ts files in src/\"\n\n  # Multiple messages (interactive)\n  pi \"Read package.json\" \"What dependencies do we have?\"\n\n  # Continue previous session\n  pi --continue \"What did we discuss?\"\n\n  # Start a named session\n  pi --name \"Refactor auth module\"\n\n  # Use different model\n  pi --provider openai --model gpt-4o-mini \"Help me refactor this code\"\n\n  # Use model with provider prefix (no --provider needed)\n  pi --model openai/gpt-4o \"Help me refactor this code\"\n\n  # Use model with thinking level shorthand\n  pi --model sonnet:high \"Solve this complex problem\"\n\n  # Limit model cycling to specific models\n  pi --models claude-sonnet,claude-haiku,gpt-4o\n\n  # Limit to a specific provider with glob pattern\n  pi --models \"github-copilot/*\"\n\n  # Cycle models with fixed thinking levels\n  pi --models sonnet:high,haiku:low\n\n  # Start with a specific thinking level\n  pi --thinking high \"Solve this complex problem\"\n\n  # Read-only mode (no file modifications possible)\n  pi --tools read,grep,find,ls -p \"Review the code in src/\"\n\n  # Disable one tool while keeping the rest available\n  pi --exclude-tools ask_question\n\n  # Export a session file to HTML\n  pi --export ~/.pi/agent/sessions/--path--/session.jsonl\n  pi --export session.jsonl output.html\n\nEnvironment Variables:\n  ANTHROPIC_API_KEY                - Anthropic Claude API key\n  ANTHROPIC_OAUTH_TOKEN            - Anthropic OAuth token (alternative to API key)\n  ANT_LING_API_KEY                 - Ant Ling API key\n  OPENAI_API_KEY                   - OpenAI GPT API key\n  AZURE_OPENAI_API_KEY             - Azure OpenAI API key\n  AZURE_OPENAI_BASE_URL            - Azure OpenAI/Cognitive Services base URL (e.g. https://{resource}.openai.azure.com)\n  AZURE_OPENAI_RESOURCE_NAME       - Azure OpenAI resource name (alternative to base URL)\n  AZURE_OPENAI_API_VERSION         - Azure OpenAI API version (default: v1)\n  AZURE_OPENAI_DEPLOYMENT_NAME_MAP - Azure OpenAI model=deployment map (comma-separated)\n  DEEPSEEK_API_KEY                 - DeepSeek API key\n  NVIDIA_API_KEY                   - NVIDIA NIM API key\n  GEMINI_API_KEY                   - Google Gemini API key\n  GROQ_API_KEY                     - Groq API key\n  CEREBRAS_API_KEY                 - Cerebras API key\n  XAI_API_KEY                      - xAI Grok API key\n  FIREWORKS_API_KEY                - Fireworks API key\n  TOGETHER_API_KEY                 - Together AI API key\n  OPENROUTER_API_KEY               - OpenRouter API key\n  AI_GATEWAY_API_KEY               - Vercel AI Gateway API key\n  ZAI_API_KEY                      - ZAI API key\n  ZAI_CODING_CN_API_KEY            - ZAI Coding Plan API key (China)\n  MISTRAL_API_KEY                  - Mistral API key\n  MINIMAX_API_KEY                  - MiniMax API key\n  MOONSHOT_API_KEY                 - Moonshot AI API key\n  OPENCODE_API_KEY                 - OpenCode Zen/OpenCode Go API key\n  KIMI_API_KEY                     - Kimi For Coding API key\n  CLOUDFLARE_API_KEY               - Cloudflare API token (Workers AI and AI Gateway)\n  CLOUDFLARE_ACCOUNT_ID            - Cloudflare account id (required for both)\n  CLOUDFLARE_GATEWAY_ID            - Cloudflare AI Gateway slug (required for AI Gateway)\n  XIAOMI_API_KEY                   - Xiaomi MiMo API key (api.xiaomimimo.com billing)\n  XIAOMI_TOKEN_PLAN_CN_API_KEY     - Xiaomi MiMo Token Plan API key (China region)\n  XIAOMI_TOKEN_PLAN_AMS_API_KEY    - Xiaomi MiMo Token Plan API key (Amsterdam region)\n  XIAOMI_TOKEN_PLAN_SGP_API_KEY    - Xiaomi MiMo Token Plan API key (Singapore region)\n  AWS_PROFILE                      - AWS profile for Amazon Bedrock\n  AWS_ACCESS_KEY_ID                - AWS access key for Amazon Bedrock\n  AWS_SECRET_ACCESS_KEY            - AWS secret key for Amazon Bedrock\n  AWS_BEARER_TOKEN_BEDROCK         - Bedrock API key (bearer token)\n  AWS_REGION                       - AWS region for Amazon Bedrock (e.g., us-east-1)\n  PI_CODING_AGENT_DIR              - Config directory (default: ~/.pi/agent)\n  PI_CODING_AGENT_SESSION_DIR      - Session storage directory (overridden by --session-dir)\n  PI_PACKAGE_DIR                   - Override package directory (for Nix/Guix store paths)\n  PI_OFFLINE                       - Disable startup network operations when set to 1/true/yes\n  PI_TELEMETRY                     - Override install telemetry when set to 1/true/yes or 0/false/no\n  PI_SHARE_VIEWER_URL              - Base URL for /share command (default: https://pi.dev/session/)\n\nBuilt-in Tool Names:\n  read   - Read file contents\n  bash   - Execute bash commands\n  edit   - Edit files with find/replace\n  write  - Write files (creates/overwrites)\n  grep   - Search file contents (read-only, off by default)\n  find   - Find files by glob pattern (read-only, off by default)\n  ls     - List directory contents (read-only, off by default)\n\n"
+    },
+    {
+      "name": "with-extension-flags",
+      "text": "pi - AI coding assistant with read, bash, edit, write tools\n\nUsage:\n  pi [options] [@files...] [messages...]\n\nCommands:\n  pi install <source> [-l]     Install extension source and add to settings\n  pi remove <source> [-l]      Remove extension source from settings\n  pi uninstall <source> [-l]   Alias for remove\n  pi update [source|self|pi]   Update pi and installed extensions\n  pi list                      List installed extensions from settings\n  pi config                    Open TUI to enable/disable package resources\n  pi <command> --help          Show help for install/remove/uninstall/update/list\n\nOptions:\n  --provider <name>              Provider name (default: google)\n  --model <pattern>              Model pattern or ID (supports \"provider/id\" and optional \":<thinking>\")\n  --api-key <key>                API key (defaults to env vars)\n  --system-prompt <text>         System prompt (default: coding assistant prompt)\n  --append-system-prompt <text>  Append text or file contents to the system prompt (can be used multiple times)\n  --mode <mode>                  Output mode: text (default), json, or rpc\n  --print, -p                    Non-interactive mode: process prompt and exit\n  --continue, -c                 Continue previous session\n  --resume, -r                   Select a session to resume\n  --session <path|id>            Use specific session file or partial UUID\n  --session-id <id>              Use exact project session ID, creating it if missing\n  --fork <path|id>               Fork specific session file or partial UUID into a new session\n  --session-dir <dir>            Directory for session storage and lookup\n  --no-session                   Don't save session (ephemeral)\n  --name, -n <name>              Set session display name\n  --models <patterns>            Comma-separated model patterns for Ctrl+P cycling\n                                 Supports globs (anthropic/*, *sonnet*) and fuzzy matching\n  --no-tools, -nt                Disable all tools by default (built-in and extension)\n  --no-builtin-tools, -nbt       Disable built-in tools by default but keep extension/custom tools enabled\n  --tools, -t <tools>            Comma-separated allowlist of tool names to enable\n                                 Applies to built-in, extension, and custom tools\n  --exclude-tools, -xt <tools>   Comma-separated denylist of tool names to disable\n                                 Applies to built-in, extension, and custom tools\n  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh\n  --extension, -e <path>         Load an extension file (can be used multiple times)\n  --no-extensions, -ne           Disable extension discovery (explicit -e paths still work)\n  --skill <path>                 Load a skill file or directory (can be used multiple times)\n  --no-skills, -ns               Disable skills discovery and loading\n  --prompt-template <path>       Load a prompt template file or directory (can be used multiple times)\n  --no-prompt-templates, -np     Disable prompt template discovery and loading\n  --theme <path>                 Load a theme file or directory (can be used multiple times)\n  --no-themes                    Disable theme discovery and loading\n  --no-context-files, -nc        Disable AGENTS.md and CLAUDE.md discovery and loading\n  --export <file>                Export session file to HTML and exit\n  --list-models [search]         List available models (with optional fuzzy search)\n  --verbose                      Force verbose startup (overrides quietStartup setting)\n  --approve, -a                  Trust project-local files for this run\n  --no-approve, -na              Ignore project-local files for this run\n  --offline                      Disable startup network operations (same as PI_OFFLINE=1)\n  --help, -h                     Show this help\n  --version, -v                  Show version number\n\nExtensions can register additional flags (e.g., --plan from plan-mode extension).\nExtension CLI Flags:\n  --plan <value>              Plan mode\n  --dry                       Registered by /x/dry.ts\n\n\nExamples:\n  # Interactive mode\n  pi\n\n  # Interactive mode with initial prompt\n  pi \"List all .ts files in src/\"\n\n  # Include files in initial message\n  pi @prompt.md @image.png \"What color is the sky?\"\n\n  # Non-interactive mode (process and exit)\n  pi -p \"List all .ts files in src/\"\n\n  # Multiple messages (interactive)\n  pi \"Read package.json\" \"What dependencies do we have?\"\n\n  # Continue previous session\n  pi --continue \"What did we discuss?\"\n\n  # Start a named session\n  pi --name \"Refactor auth module\"\n\n  # Use different model\n  pi --provider openai --model gpt-4o-mini \"Help me refactor this code\"\n\n  # Use model with provider prefix (no --provider needed)\n  pi --model openai/gpt-4o \"Help me refactor this code\"\n\n  # Use model with thinking level shorthand\n  pi --model sonnet:high \"Solve this complex problem\"\n\n  # Limit model cycling to specific models\n  pi --models claude-sonnet,claude-haiku,gpt-4o\n\n  # Limit to a specific provider with glob pattern\n  pi --models \"github-copilot/*\"\n\n  # Cycle models with fixed thinking levels\n  pi --models sonnet:high,haiku:low\n\n  # Start with a specific thinking level\n  pi --thinking high \"Solve this complex problem\"\n\n  # Read-only mode (no file modifications possible)\n  pi --tools read,grep,find,ls -p \"Review the code in src/\"\n\n  # Disable one tool while keeping the rest available\n  pi --exclude-tools ask_question\n\n  # Export a session file to HTML\n  pi --export ~/.pi/agent/sessions/--path--/session.jsonl\n  pi --export session.jsonl output.html\n\nEnvironment Variables:\n  ANTHROPIC_API_KEY                - Anthropic Claude API key\n  ANTHROPIC_OAUTH_TOKEN            - Anthropic OAuth token (alternative to API key)\n  ANT_LING_API_KEY                 - Ant Ling API key\n  OPENAI_API_KEY                   - OpenAI GPT API key\n  AZURE_OPENAI_API_KEY             - Azure OpenAI API key\n  AZURE_OPENAI_BASE_URL            - Azure OpenAI/Cognitive Services base URL (e.g. https://{resource}.openai.azure.com)\n  AZURE_OPENAI_RESOURCE_NAME       - Azure OpenAI resource name (alternative to base URL)\n  AZURE_OPENAI_API_VERSION         - Azure OpenAI API version (default: v1)\n  AZURE_OPENAI_DEPLOYMENT_NAME_MAP - Azure OpenAI model=deployment map (comma-separated)\n  DEEPSEEK_API_KEY                 - DeepSeek API key\n  NVIDIA_API_KEY                   - NVIDIA NIM API key\n  GEMINI_API_KEY                   - Google Gemini API key\n  GROQ_API_KEY                     - Groq API key\n  CEREBRAS_API_KEY                 - Cerebras API key\n  XAI_API_KEY                      - xAI Grok API key\n  FIREWORKS_API_KEY                - Fireworks API key\n  TOGETHER_API_KEY                 - Together AI API key\n  OPENROUTER_API_KEY               - OpenRouter API key\n  AI_GATEWAY_API_KEY               - Vercel AI Gateway API key\n  ZAI_API_KEY                      - ZAI API key\n  ZAI_CODING_CN_API_KEY            - ZAI Coding Plan API key (China)\n  MISTRAL_API_KEY                  - Mistral API key\n  MINIMAX_API_KEY                  - MiniMax API key\n  MOONSHOT_API_KEY                 - Moonshot AI API key\n  OPENCODE_API_KEY                 - OpenCode Zen/OpenCode Go API key\n  KIMI_API_KEY                     - Kimi For Coding API key\n  CLOUDFLARE_API_KEY               - Cloudflare API token (Workers AI and AI Gateway)\n  CLOUDFLARE_ACCOUNT_ID            - Cloudflare account id (required for both)\n  CLOUDFLARE_GATEWAY_ID            - Cloudflare AI Gateway slug (required for AI Gateway)\n  XIAOMI_API_KEY                   - Xiaomi MiMo API key (api.xiaomimimo.com billing)\n  XIAOMI_TOKEN_PLAN_CN_API_KEY     - Xiaomi MiMo Token Plan API key (China region)\n  XIAOMI_TOKEN_PLAN_AMS_API_KEY    - Xiaomi MiMo Token Plan API key (Amsterdam region)\n  XIAOMI_TOKEN_PLAN_SGP_API_KEY    - Xiaomi MiMo Token Plan API key (Singapore region)\n  AWS_PROFILE                      - AWS profile for Amazon Bedrock\n  AWS_ACCESS_KEY_ID                - AWS access key for Amazon Bedrock\n  AWS_SECRET_ACCESS_KEY            - AWS secret key for Amazon Bedrock\n  AWS_BEARER_TOKEN_BEDROCK         - Bedrock API key (bearer token)\n  AWS_REGION                       - AWS region for Amazon Bedrock (e.g., us-east-1)\n  PI_CODING_AGENT_DIR              - Config directory (default: ~/.pi/agent)\n  PI_CODING_AGENT_SESSION_DIR      - Session storage directory (overridden by --session-dir)\n  PI_PACKAGE_DIR                   - Override package directory (for Nix/Guix store paths)\n  PI_OFFLINE                       - Disable startup network operations when set to 1/true/yes\n  PI_TELEMETRY                     - Override install telemetry when set to 1/true/yes or 0/false/no\n  PI_SHARE_VIEWER_URL              - Base URL for /share command (default: https://pi.dev/session/)\n\nBuilt-in Tool Names:\n  read   - Read file contents\n  bash   - Execute bash commands\n  edit   - Edit files with find/replace\n  write  - Write files (creates/overwrites)\n  grep   - Search file contents (read-only, off by default)\n  find   - Find files by glob pattern (read-only, off by default)\n  ls     - List directory contents (read-only, off by default)\n\n"
+    }
+  ]
+}
