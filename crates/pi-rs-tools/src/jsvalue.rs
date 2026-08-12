@@ -337,3 +337,46 @@ pub fn unknown_keys<'a>(map: &'a Map<String, Value>, accepted: &BTreeSet<&'a str
         .map(|k| k.as_str())
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parses_object_literal_as_const() {
+        let src =
+            "export const MODELS = { \"a\": { \"b\": { id: \"x\", ok: true, n: 1.5, cost: { input: 0.1 } } } } as const;";
+        let v = parse_exported_const(src, "MODELS").unwrap();
+        assert_eq!(
+            v,
+            json!({"a":{"b":{"id":"x","ok":true,"n":1.5,"cost":{"input":0.1}}}})
+        );
+    }
+
+    #[test]
+    fn parses_array_and_strings() {
+        let src = "export const X = [ \"text\", 'image', 3, null, false ];";
+        let v = parse_exported_const(src, "X").unwrap();
+        assert_eq!(v, json!(["text", "image", 3, null, false]));
+    }
+
+    #[test]
+    fn rejects_duplicate_keys() {
+        let src = "export const X = { a: 1, a: 2 };";
+        assert!(parse_exported_const(src, "X").is_err());
+    }
+
+    #[test]
+    fn rejects_missing_export() {
+        assert!(parse_exported_const("const Y = 1;", "X").is_err());
+    }
+
+    #[test]
+    fn unknown_keys_reports_non_accepted() {
+        let obj: Map<String, Value> = serde_json::from_value(json!({"a":1,"b":2})).unwrap();
+        let accepted: BTreeSet<&str> = ["a"].into_iter().collect();
+        assert_eq!(unknown_keys(&obj, &accepted), vec!["b"]);
+    }
+}
