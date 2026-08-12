@@ -192,6 +192,19 @@ Complete these rungs before growing the extension surface further.
       tools participate in prompt rebuilds, validation, parallel execution,
       renderer fallback, sessions, export, and reload exactly like builtins.
 
+      Already landed: provider `register/unregister` with a custom `streamSimple`
+      handler — a registered provider carrying `api` + `streamSimple` publishes a
+      custom API stream handler that `pi.ai.stream_simple` dispatches ahead of Rust
+      providers (stream.ts resolveApiProvider equivalent), and unregister removes
+      it; `crates/pi-rs-host/tests/providers.rs` pins dispatch and post-unregister
+      fallthrough. `register_provider` now reproduces Pi's `validateProviderConfig`
+      byte-for-byte (streamSimple-without-api, models baseUrl/credential/api
+      checks) and stores no config on a failed registration, pinned by a
+      Pi-generated differential oracle
+      `tests/provider-registry-parity/oracle.json` replayed through the public Lua
+      surface (`crates/pi-rs-host/tests/provider_registry_parity.rs`).
+      Regenerate with `scripts/provider-registry-oracle`.
+
       **Accept:** translated dynamic-tools, tool-override, message-renderer,
       event-bus, preset, provider, and stateful-tool examples run unprivileged;
       focused differential contracts pin immediate effects and reload recovery.
