@@ -152,6 +152,29 @@ Complete these rungs before growing the extension surface further.
       opt-in regeneration remains deterministic against hash-pinned sources; and
       shipped extension/config/package execution is Lua-only.
 
+      **Status — source-language gate (landed).** The gate ships as a Rust binary
+      (`crates/pi-rs-tools`, `pi-rs-tools gate {scan,update-manifests,check}`) and
+      is wired into `nix flake check` as `checks.source-language-gate`. It rejects
+      new first-party `.ts`/`.py`/`.sh`/shebang files and `.js` outside the
+      browser-export allowlist, while the current footprint is frozen in
+      `tests/source-language/legacy.json` (grandfathered) and
+      `tests/source-language/allowlist.json` (3 browser-export JS). Normal checks
+      run the gate with no Node/Bun/Python runtime.
+
+      **Remaining — port the named workflows.** The grandfathered generators are
+      still Python/bash/TS and must gain Rust/Lua owners before A.3 closes:
+      - `scripts/update-model-catalog.ts` → Rust/Lua (model-catalog workflow).
+      - `scripts/{construction-inventory,final-parity-audit,extension-inventory,
+        external-extension-inventory,dogfood-oracle}` (Python) → Rust/Lua.
+      - the `scripts/*-oracle` bash regen wrappers + `gen-arch.sh` → Rust.
+      - `tests/*/gen-oracle.ts`, `tests/ui-parity/pi-*.ts` → Rust/Lua harnesses.
+      - `tests/external-extension-inventory/fixtures/**` (external TS) →
+        hash-locked Nix oracle input + provenance/capability manifests.
+      Each port deletes its predecessor and, when the set is complete, removes it
+      from `tests/source-language/legacy.json` so the gate's grandfathered set
+      shrinks to zero. Oracle regeneration stays opt-in against hash-pinned
+      sources; normal offline checks consume canonical outputs.
+
 ## Extension/configuration closure
 
 - [ ] **9.2 Extension contexts + lifecycle actions.** Complete live

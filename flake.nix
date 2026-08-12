@@ -231,6 +231,43 @@
             touch $out
           '';
 
+      # A.3 source-language gate: the workspace builds a Rust gate binary that
+      # rejects new first-party .ts/.py/.sh/shebang files and .js outside the
+      # browser-export allowlist. The check needs no Node/Bun/Python runtime.
+      mkSourceLanguageGate =
+        system:
+        let
+          c = mkCraneLib system;
+          tools = c.craneLib.buildPackage {
+            inherit (c) src cargoArtifacts;
+            pname = "pi-rs-tools";
+            version = "0.1.0";
+            nativeBuildInputs = c.commonEnv.nativeBuildInputs ++ [ c.pkgs.git ];
+            cargoExtraArgs = "-p pi-rs-tools";
+            doCheck = false;
+            meta.mainProgram = "pi-rs-tools";
+          };
+        in
+        c.pkgs.runCommand "source-language-gate"
+          {
+            nativeBuildInputs = [
+              tools
+              c.pkgs.git
+            ];
+          }
+          ''
+            # The flake source is a git-less store path, so the gate's file
+            # enumeration falls back to a recursive walk of the store tree
+            # (equivalent for gating since the source is already clean).
+            pi-rs-tools gate check --root ${self} > out.txt || {
+              echo "A.3 source-language gate FAILED:" >&2
+              cat out.txt >&2
+              exit 1
+            }
+            cat out.txt
+            touch $out
+          '';
+
       # Offline, fixture-backed normalization and rejection tests for the
       # reviewed model-catalog update path.
       mkModelCatalogUpdateTest =
@@ -386,6 +423,7 @@
         extension-parity = mkExtensionParity system;
         dogfood-fixtures = mkDogfoodFixtureTest system;
         final-parity-audit = mkFinalParityAudit system;
+        source-language-gate = mkSourceLanguageGate system;
       });
 
       packages = forAllSystems (system: rec {

@@ -1,0 +1,691 @@
+{
+  "schemaVersion": "1",
+  "note": "Grandfathered foreign-language footprint (A.3). These files predate the gate and are being ported to Rust/Lua; new files not enumerated here are rejected.",
+  "files": {
+    "scripts/agent-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/anthropic-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/args-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/azure-openai-responses-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/bedrock-converse-stream-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/compaction-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/config-settings-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/construction-inventory": {
+      "language": "Python",
+      "shebang": "#!/usr/bin/env python3"
+    },
+    "scripts/dogfood-oracle": {
+      "language": "Python",
+      "shebang": "#!/usr/bin/env python3"
+    },
+    "scripts/export-html-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/extension-context-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/extension-event-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/extension-inventory": {
+      "language": "Python",
+      "shebang": "#!/usr/bin/env python3"
+    },
+    "scripts/extension-runtime-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/extension-ui-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/external-extension-inventory": {
+      "language": "Python",
+      "shebang": "#!/usr/bin/env python3"
+    },
+    "scripts/file-processor-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/final-parity-audit": {
+      "language": "Python",
+      "shebang": "#!/usr/bin/env python3"
+    },
+    "scripts/frontmatter-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/gen-arch.sh": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/google-generative-ai-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/google-vertex-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/hljs-grammars": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/hljs-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/image-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/jsdiff-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/mistral-conversations-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/openai-codex-responses-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/openai-codex-websocket-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/openai-completions-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/openai-responses-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/print-mode-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/provider-registry-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/retry-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/rpc-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/session-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/system-prompt-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/test-external-extension-inventory": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/test-model-catalog-update": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/tool-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/ui-diff": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/update-model-catalog.ts": {
+      "language": "TypeScript",
+      "shebang": "#!/usr/bin/env bun"
+    },
+    "supervisor-parity.sh": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "tests/agent-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/anthropic-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/args-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/azure-openai-responses-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/bedrock-converse-stream-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/compaction-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/config-settings-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/construction-inventory/test_checker.py": {
+      "language": "Python",
+      "shebang": "#!/usr/bin/env python3"
+    },
+    "tests/dogfood-suite/test_contract.py": {
+      "language": "Python",
+      "shebang": "#!/usr/bin/env python3"
+    },
+    "tests/export-html-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/extension-context-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/extension-event-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/extension-runtime-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/earendil_pi-review/review.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-codex-fast/src/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/custom-messages.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/patching.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/settings.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/shared.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/state.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/thinking-rendering.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/tool-rendering.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/tool-summaries/extension-adapters.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/tool-summaries/fallback.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/tool-summaries/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/tool-summaries/native-pi.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/tool-summaries/repl-adapter.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/tool-summaries/types.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/types.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-compact/src/user-rendering.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-context-janitor/src/capture.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-context-janitor/src/constants.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-context-janitor/src/decider.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-context-janitor/src/index-store.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-context-janitor/src/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-context-janitor/src/settings.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-context-janitor/src/types.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-context-janitor/src/ui.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-context-janitor/src/utils.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-gecko-websearch/src/browser.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-gecko-websearch/src/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-gecko-websearch/src/marionette.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-gecko-websearch/src/parsers.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-hashline/src/constants.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-hashline/src/edit-tool.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-hashline/src/fs-write.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-hashline/src/hashline.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-hashline/src/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-hashline/src/path-utils.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-hashline/src/read-tool.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-hashline/src/runtime.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-hashline/src/snapshot.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-hashline/src/text-file.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-minimal-editor/src/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-morph/src/api.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-morph/src/apply.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-morph/src/constants.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-morph/src/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-morph/src/paths.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-morph/src/routing.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-morph/src/settings.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-morph/src/status.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-morph/src/text.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-morph/src/types.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-morph/src/utils.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-pomodoro/src/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/batch.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/child-decompose.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/child-prompts.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/child-session.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/constants.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/context-store.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/dispatcher.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/final-output.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/guidance.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/llm.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/params.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/prompt-render.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/prompts.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/repl-runtime.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/repl.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/session-context.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/settings.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rlm/src/utils.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-rtk/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-tool-management/src/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-webfetch/src/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/pi-working-indicator/extensions/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/index.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/commands/pi-vcc.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/commands/vcc-recall.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/brief.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/build-sections.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/content.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/filter-noise.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/format-recall.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/format.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/lineage.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/load-messages.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/normalize.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/recall-scope.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/render-entries.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/report.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/sanitize.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/search-entries.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/settings.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/skill-collapse.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/summarize.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/core/tool-args.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/details.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/extract/commits.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/extract/files.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/extract/goals.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/extract/preferences.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/hooks/before-compact.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/sections.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/tools/recall.ts": {
+      "language": "TypeScript"
+    },
+    "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/src/types.ts": {
+      "language": "TypeScript"
+    },
+    "tests/file-processor-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/frontmatter-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/google-generative-ai-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/google-vertex-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/hljs-parity/gen-grammars.ts": {
+      "language": "TypeScript"
+    },
+    "tests/hljs-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/image-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/jsdiff-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/mistral-conversations-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/model-catalog-update/models.generated.ts": {
+      "language": "TypeScript"
+    },
+    "tests/model-catalog-update/unknown-field.generated.ts": {
+      "language": "TypeScript"
+    },
+    "tests/model-catalog-update/unsupported-api.generated.ts": {
+      "language": "TypeScript"
+    },
+    "tests/openai-codex-responses-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/openai-codex-websocket-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/openai-completions-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/openai-responses-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/print-mode-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/provider-registry-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/retry-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/rpc-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/session-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/system-prompt-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/tool-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/fd-stub": {
+      "language": "shell",
+      "shebang": "#!/bin/sh"
+    },
+    "tests/ui-parity/pi-autocomplete-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-bash-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-basic-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-compaction-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-easter-eggs-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-editor-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-extension-ui-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-highlight-tool-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-highlight-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-login-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-markdown-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-model-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-provider-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-reload-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-resume-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-retry-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-scoped-models-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-selector-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-session-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-settings-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-shell-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-startup-changelog-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-thinking-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-tool-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-tree-turn.ts": {
+      "language": "TypeScript"
+    },
+    "tests/ui-parity/pi-trust-turn.ts": {
+      "language": "TypeScript"
+    }
+  }
+}
