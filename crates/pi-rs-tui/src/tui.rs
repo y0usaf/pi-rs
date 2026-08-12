@@ -203,10 +203,15 @@ impl Tui {
 
     fn apply_line_resets(lines: &mut [String]) {
         for line in lines.iter_mut() {
-            if !is_image_line(line) {
+            if is_image_line(line) {
+                continue;
+            }
+            if line.contains('\u{e33}') || line.contains('\u{eb3}') {
                 let mut next = normalize_terminal_output(line);
                 next.push_str(SEGMENT_RESET);
                 *line = next;
+            } else {
+                line.push_str(SEGMENT_RESET);
             }
         }
     }

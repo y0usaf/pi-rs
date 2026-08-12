@@ -8,20 +8,20 @@ if [[ "${1:-}" == "--update-pi" ]]; then
   fi
   for name in "${scenarios[@]}"; do
     scenario=tests/ui-parity/$name.json
-    oracle=tests/ui-parity/$name.pi.json
-    raw=$(mktemp)
-    trap 'rm -f "$raw"' EXIT
+    oracle=tests/ui-parity/$name.pci.json
+    tmp=$oracle.tmp
+    trap 'rm -f "$tmp"' EXIT
     # FORCE_COLOR keeps chalk styling active when stdout is piped; without it
     # the oracle drops bold/italic attributes that real terminals see.
     # Ignore an installed Pi package path: the vendored snapshot owns assets.
     env -u PI_PACKAGE_DIR FORCE_COLOR=3 nix shell nixpkgs#nodejs_22 --command \
       ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json \
-      "tests/ui-parity/pi-$name.ts" "$scenario" > "$raw"
-    cargo run --quiet -p pi-rs-app --bin ui-diff -- "$scenario" "$oracle" "$raw"
-    rm -f "$raw"
+      "tests/ui-parity/pi-$name.ts" "$scenario" > "$tmp"
+    cargo run --quiet -p pi-rs-app --bin ui-diff -- "$scenario" "$oracle" "$tmp"
+    rm -f "$tmp"
   done
 fi
 for name in "${scenarios[@]}"; do
   cargo run --quiet -p pi-rs-app --bin ui-diff -- \
-    "tests/ui-parity/$name.json" "tests/ui-parity/$name.pi.json"
+    "tests/ui-parity/$name.json" "tests/ui-parity/$name.pci.json"
 done

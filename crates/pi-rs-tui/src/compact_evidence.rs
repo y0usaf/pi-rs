@@ -41,6 +41,10 @@ pub struct Run {
     /// 1 = place all text in ONE cell (multi-char cell like emoji + VS16)
     #[serde(default)]
     pub single: u8,
+    /// 0-based character offsets in `text` that are double-width (CJK):
+    /// each occupies its own cell plus one wide-continuation cell after it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub w: Vec<u16>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -116,6 +120,7 @@ fn build_runs(frame: &FrameSnapshot, palette: &[Style]) -> Vec<Run> {
             let start = col;
             let mut text = String::new();
             let mut single_run = false;
+            let mut wide_offsets: Vec<u16> = vec![];
 
             while col < cols {
                 let b = &frame.cells[row * cols + col];
@@ -132,15 +137,18 @@ fn build_runs(frame: &FrameSnapshot, palette: &[Style]) -> Vec<Run> {
                 }
 
                 if b.wide_continuation {
+                    // Covered by the preceding wide cell; skip silently.
                     col += 1; continue;
                 }
                 if b.wide {
+                    let idx = text.chars().count() as u16;
                     text.push_str(&b.text);
                     col += 1;
                     if col < cols {
                         text.push_str(&frame.cells[row * cols + col].text);
                         col += 1;
                     }
+                    wide_offsets.push(idx);
                     continue;
                 }
                 if !b.text.is_empty() {
@@ -156,6 +164,7 @@ fn build_runs(frame: &FrameSnapshot, palette: &[Style]) -> Vec<Run> {
                     text,
                     style: si as u16,
                     single: single_run as u8,
+                    w: wide_offsets,
                 });
             }
         }
@@ -206,12 +215,35 @@ pub fn compact_to_frames(ev: &CompactEvidence) -> Vec<FrameSnapshot> {
                     cells[idx].text = run.text.clone();
                 }
             } else {
+                let wide: std::collections::HashSet<u16> = run.w.iter().copied().collect();
+                let mut col = run.col as usize;
                 for (i, ch) in run.text.chars().enumerate() {
-                    let idx = run.row as usize * cols + run.col as usize + i;
-                    if idx >= total { break; }
-                    let mut c = base.clone();
-                    c.text = ch.to_string();
-                    cells[idx] = c;
+                    let offset = i as u16;
+                    if wide.contains(&offset) {
+                        let base_idx = run.row as usize * cols + col;
+                        if base_idx < total {
+                            let mut c = base.clone();
+                            c.text = ch.to_string();
+                            c.wide = true;
+                            cells[base_idx] = c;
+                        }
+                        // Following cell is the wide continuation half.
+                        let cont_idx = base_idx + 1;
+                        if cont_idx < total {
+                            let mut cc = base.clone();
+                            cc.text = String::new();
+                            cc.wide_continuation = true;
+                            cells[cont_idx] = cc;
+                        }
+                        col += 2;
+                    } else {
+                        let idx = run.row as usize * cols + col;
+                        if idx >= total { break; }
+                        let mut c = base.clone();
+                        c.text = ch.to_string();
+                        cells[idx] = c;
+                        col += 1;
+                    }
                 }
             }
         }
@@ -240,4 +272,112 @@ pub fn load_frames(path: &std::path::Path) -> std::io::Result<Vec<FrameSnapshot>
     // Fall back: parse as legacy Vec<FrameSnapshot>
     serde_json::from_str::<Vec<FrameSnapshot>>(&data)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    use super::*;
+    use crate::ui_harness::{CellSnapshot, FrameSnapshot};
+
+    fn cell(text: &str, fg: &str, bold: bool) -> CellSnapshot {
+        CellSnapshot {
+            text: text.into(), wide: false, wide_continuation: false,
+            foreground: fg.into(), background: "default".into(),
+            bold, dim: false, italic: false, underline: false, inverse: false,
+        }
+    }
+
+    fn blank() -> CellSnapshot {
+        cell("", "default", false)
+    }
+
+    fn sample_frames() -> Vec<FrameSnapshot> {
+        let cols = 4u16; let rows = 3u16;
+        // Row 0: default blanks then a styled run "ab".
+        // Row 1: a wide char (glyph in col 0, continuation in col 1), then style.
+        // Row 2: a multi-char emoji+VS16 cell in col 0 (single run).
+        let mut cells = vec![blank(); (cols * rows) as usize];
+        cells[2] = cell("a", "rgb:ff0000", true);
+        cells[3] = cell("b", "rgb:ff0000", true);
+        cells[4] = cell("界", "default", false);
+        cells[5] = cell("", "default", false);
+        cells[4].wide = true;
+        cells[5].wide_continuation = true;
+        let mut emoji = cell("👍\u{fe0f}", "default", false);
+        emoji.text = "👍\u{fe0f}".into();
+        cells[8] = emoji;
+        vec![FrameSnapshot {
+            name: "f0".into(), columns: cols, rows,
+            cursor_row: 2, cursor_column: 1, cursor_visible: true,
+            cells,
+        }]
+    }
+
+    #[test]
+    fn encode_decode_round_trips_grid() {
+        let frames = sample_frames();
+        let compact = frames_to_compact(&frames);
+        let decoded = compact_to_frames(&compact);
+        for (i, (a, b)) in frames.iter().zip(decoded.iter()).enumerate() {
+            assert_eq!(a.name, b.name, "frame {i} name");
+            assert_eq!(a.columns, b.columns);
+            assert_eq!(a.rows, b.rows);
+            assert_eq!(a.cursor_row, b.cursor_row);
+            assert_eq!(a.cursor_column, b.cursor_column);
+            assert_eq!(a.cursor_visible, b.cursor_visible);
+            for (j, (x, y)) in a.cells.iter().zip(b.cells.iter()).enumerate() {
+                assert_eq!(x, y, "frame {i} cell {j}");
+            }
+        }
+    }
+
+    #[test]
+    fn decode_then_encode_is_byte_idempotent() -> Result<(), Box<dyn std::error::Error>> {
+        let frames = sample_frames();
+        let a = frames_to_compact(&frames);
+        // Decoding then re-encoding yields the identical compact document.
+        let decoded = compact_to_frames(&a);
+        let b = frames_to_compact(&decoded);
+        let json_a = serde_json::to_string(&a)?;
+        let json_b = serde_json::to_string(&b)?;
+        assert_eq!(json_a, json_b);
+        Ok(())
+    }
+
+    #[test]
+    fn default_only_grid_is_all_blank() {
+        let frames = vec![FrameSnapshot {
+            name: "empty".into(), columns: 2, rows: 2,
+            cursor_row: 0, cursor_column: 0, cursor_visible: false,
+            cells: vec![blank(); 4],
+        }];
+        let compact = frames_to_compact(&frames);
+        assert!(compact.f[0].r.is_empty(), "all-default frame must emit no runs");
+        let decoded = compact_to_frames(&compact);
+        for c in &decoded[0].cells { assert!(cell_is_boring(c)); }
+    }
+
+    #[test]
+    fn compact_negative_control_identifies_first_mismatched_cell() {
+        // Mutate a non-default run glyph and confirm `first_diff` reports the
+        // exact cell through the decoded (compact) frames, satisfying A.1's
+        // negative-control criterion at the compact-evidence boundary.
+        let frames = sample_frames();
+        let compact = frames_to_compact(&frames);
+        let mut decoded = compact_to_frames(&compact);
+        // cells[2] (row 0, col 2, 4 columns wide) holds the styled "a" glyph
+        // from the "ab" run; overwrite it and require the exact cell mismatch.
+        decoded[0].cells[2].text = "X".into();
+        let diff = match crate::ui_harness::first_diff(&frames, &decoded) {
+            Some(diff) => diff,
+            None => panic!("mutation must be detected"),
+        };
+        assert_eq!(diff.checkpoint, "f0");
+        assert!(
+            diff.message.contains("cell (0,2) differs"),
+            "expected first mismatch at (0,2), got: {}",
+            diff.message
+        );
+    }
 }

@@ -178,14 +178,15 @@ pi.register_role({
     end,
   }
   local turn_state = { index = 0 }
-  -- PLAN 10: JSON mode writes every event as a JSONL line.
+  -- PLAN 10: JSON mode writes the session header line (when present) then
+  -- every agent event as JSONL, matching modes/print-mode.ts
+  -- (`session.sessionManager.getHeader()` first, then each subscribe event).
   local json_mode = request.mode == "json"
   if json_mode then
-    pi.output(pi.json.encode({
-      type = "session_start", startTime = pi.now_ms(),
-      model = startup.model and { provider = startup.model.provider, id = startup.model.id } or nil,
-      mode = "json",
-    }) .. "\n")
+    local header = session:get_header()
+    if header then
+      pi.output(pi.json.encode(header) .. "\n")
+    end
   end
   agent:subscribe(function(event)
     local state = agent:get_state().signal

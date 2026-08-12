@@ -230,12 +230,13 @@ fn run() -> Result<ExitCode, HarnessError> {
                 path: raw_path,
                 source,
             })?;
-        let encoded = serde_json::to_string_pretty(&raw_snapshots(raw)).map_err(|source| {
-            HarnessError::Json {
-                path: oracle_path.clone(),
-                source,
-            }
-        })?;
+        let frames = raw_snapshots(raw);
+        let encoded =
+            serde_json::to_string(&pi_rs_tui::compact_evidence::frames_to_compact(&frames))
+                .map_err(|source| HarnessError::Json {
+                    path: oracle_path.clone(),
+                    source,
+                })?;
         fs::write(&oracle_path, format!("{encoded}\n")).map_err(|source| HarnessError::Io {
             path: oracle_path.clone(),
             source,
@@ -385,7 +386,16 @@ fn run() -> Result<ExitCode, HarnessError> {
         })?;
     }
     // SAFETY: single-threaded at this point; the Lua host starts below.
-    unsafe { std::env::set_var("PI_CODING_AGENT_DIR", agent_dir.path()) };
+    unsafe {
+        std::env::set_var("PI_CODING_AGENT_DIR", agent_dir.path());
+        // Hermetic: real-stack scenarios drive create_interactive_state, which
+        // fires a live https://pi.dev/api/latest-version fetch and mounts an
+        // "Update Available" banner. The Pi oracle driver builds a fixed
+        // startup header and never contacts pi.dev, so force the offline/skip
+        // paths so pi-rs renders the same frames (mirrors the PI_OFFLINE pin
+        // in tests/retry_parity.rs and tests/interactive_reload.rs).
+        std::env::set_var("PI_OFFLINE", "1");
+    }
     let command = scenario
         .get("command")
         .and_then(|v| v.as_str())
