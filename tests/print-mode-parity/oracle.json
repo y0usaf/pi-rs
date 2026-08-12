@@ -1,0 +1,362 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "cases": [
+    {
+      "name": "text-single-block",
+      "mode": "text",
+      "messages": [],
+      "initial": "say hi",
+      "assistant": [
+        {
+          "input": "say hi",
+          "content": [
+            {
+              "type": "text",
+              "text": "hello"
+            }
+          ],
+          "stopReason": "stop"
+        }
+      ],
+      "header": null,
+      "events": [],
+      "exit": 0,
+      "stdout": "hello\n",
+      "stderr": ""
+    },
+    {
+      "name": "text-many-blocks",
+      "mode": "text",
+      "messages": [],
+      "initial": "go",
+      "assistant": [
+        {
+          "input": "go",
+          "content": [
+            {
+              "type": "text",
+              "text": "one"
+            },
+            {
+              "type": "text",
+              "text": "two"
+            }
+          ],
+          "stopReason": "stop"
+        }
+      ],
+      "header": null,
+      "events": [],
+      "exit": 0,
+      "stdout": "one\ntwo\n",
+      "stderr": ""
+    },
+    {
+      "name": "text-internal-newlines",
+      "mode": "text",
+      "messages": [],
+      "initial": "go",
+      "assistant": [
+        {
+          "input": "go",
+          "content": [
+            {
+              "type": "text",
+              "text": "line1\nline2\nline3"
+            }
+          ],
+          "stopReason": "stop"
+        }
+      ],
+      "header": null,
+      "events": [],
+      "exit": 0,
+      "stdout": "line1\nline2\nline3\n",
+      "stderr": ""
+    },
+    {
+      "name": "text-multiline-and-many",
+      "mode": "text",
+      "messages": [],
+      "initial": "go",
+      "assistant": [
+        {
+          "input": "go",
+          "content": [
+            {
+              "type": "text",
+              "text": "a\nb"
+            },
+            {
+              "type": "text",
+              "text": "\nc"
+            }
+          ],
+          "stopReason": "stop"
+        }
+      ],
+      "header": null,
+      "events": [],
+      "exit": 0,
+      "stdout": "a\nb\n\nc\n",
+      "stderr": ""
+    },
+    {
+      "name": "text-no-text-content",
+      "mode": "text",
+      "messages": [],
+      "initial": "go",
+      "assistant": [
+        {
+          "input": "go",
+          "content": [
+            {
+              "type": "toolCall",
+              "id": "call_1",
+              "name": "bash",
+              "arguments": {
+                "command": "x"
+              }
+            }
+          ],
+          "stopReason": "toolUse"
+        }
+      ],
+      "header": null,
+      "events": [],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "name": "error-with-message",
+      "mode": "text",
+      "messages": [],
+      "initial": "go",
+      "assistant": [
+        {
+          "input": "go",
+          "content": [],
+          "stopReason": "error",
+          "errorMessage": "connection reset"
+        }
+      ],
+      "header": null,
+      "events": [],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "connection reset\n"
+    },
+    {
+      "name": "error-no-message",
+      "mode": "text",
+      "messages": [],
+      "initial": "go",
+      "assistant": [
+        {
+          "input": "go",
+          "content": [],
+          "stopReason": "error"
+        }
+      ],
+      "header": null,
+      "events": [],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Request error\n"
+    },
+    {
+      "name": "aborted-no-message",
+      "mode": "text",
+      "messages": [],
+      "initial": "go",
+      "assistant": [
+        {
+          "input": "go",
+          "content": [],
+          "stopReason": "aborted"
+        }
+      ],
+      "header": null,
+      "events": [],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Request aborted\n"
+    },
+    {
+      "name": "stop-not-error-has-error-message",
+      "mode": "text",
+      "messages": [],
+      "initial": "go",
+      "assistant": [
+        {
+          "input": "go",
+          "content": [
+            {
+              "type": "text",
+              "text": "ok"
+            }
+          ],
+          "stopReason": "stop",
+          "errorMessage": "ignored"
+        }
+      ],
+      "header": null,
+      "events": [],
+      "exit": 0,
+      "stdout": "ok\n",
+      "stderr": ""
+    },
+    {
+      "name": "json-emits-header-and-events",
+      "mode": "json",
+      "messages": [],
+      "initial": "go",
+      "assistant": [
+        {
+          "input": "go",
+          "content": [
+            {
+              "type": "text",
+              "text": "done"
+            }
+          ],
+          "stopReason": "stop"
+        }
+      ],
+      "header": {
+        "type": "session",
+        "id": "sid",
+        "version": 1,
+        "cwd": "/cwd"
+      },
+      "events": [
+        {
+          "type": "message_start",
+          "timestamp": 0
+        },
+        {
+          "type": "message_update",
+          "timestamp": 0
+        },
+        {
+          "type": "message_end",
+          "timestamp": 0
+        }
+      ],
+      "exit": 0,
+      "stdout": "{\"type\":\"session\",\"id\":\"sid\",\"version\":1,\"cwd\":\"/cwd\"}\n{\"type\":\"message_start\",\"timestamp\":0}\n{\"type\":\"message_update\",\"timestamp\":0}\n{\"type\":\"message_end\",\"timestamp\":0}\n",
+      "stderr": ""
+    },
+    {
+      "name": "json-no-header",
+      "mode": "json",
+      "messages": [],
+      "initial": "go",
+      "assistant": [
+        {
+          "input": "go",
+          "content": [
+            {
+              "type": "text",
+              "text": "done"
+            }
+          ],
+          "stopReason": "stop"
+        }
+      ],
+      "header": null,
+      "events": [
+        {
+          "type": "message_end",
+          "timestamp": 0
+        }
+      ],
+      "exit": 0,
+      "stdout": "{\"type\":\"message_end\",\"timestamp\":0}\n",
+      "stderr": ""
+    },
+    {
+      "name": "multiple-messages-including-initial",
+      "mode": "text",
+      "messages": [
+        "second?",
+        "third?"
+      ],
+      "initial": "first",
+      "assistant": [
+        {
+          "input": "first",
+          "content": [
+            {
+              "type": "text",
+              "text": "one"
+            }
+          ],
+          "stopReason": "stop"
+        },
+        {
+          "input": "second?",
+          "content": [
+            {
+              "type": "text",
+              "text": "two"
+            }
+          ],
+          "stopReason": "stop"
+        },
+        {
+          "input": "third?",
+          "content": [
+            {
+              "type": "text",
+              "text": "three"
+            }
+          ],
+          "stopReason": "stop"
+        }
+      ],
+      "header": null,
+      "events": [],
+      "exit": 0,
+      "stdout": "three\n",
+      "stderr": ""
+    },
+    {
+      "name": "text-final-message-wins",
+      "mode": "text",
+      "messages": [
+        "second?"
+      ],
+      "initial": "first",
+      "assistant": [
+        {
+          "input": "first",
+          "content": [
+            {
+              "type": "text",
+              "text": "one"
+            }
+          ],
+          "stopReason": "stop"
+        },
+        {
+          "input": "second?",
+          "content": [
+            {
+              "type": "text",
+              "text": "two"
+            }
+          ],
+          "stopReason": "error",
+          "errorMessage": "boom"
+        }
+      ],
+      "header": null,
+      "events": [],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "boom\n"
+    }
+  ]
+}
