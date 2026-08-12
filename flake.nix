@@ -231,41 +231,95 @@
             touch $out
           '';
 
-      # Offline, fixture-backed normalization and rejection tests for the
-      # reviewed model-catalog update path.
-      mkModelCatalogUpdateTest =
+      # A.3 source-language gate: the workspace builds a Rust gate binary that
+      # rejects new first-party .ts/.py/.sh/shebang files and .js outside the
+      # browser-export allowlist. The check needs no Node/Bun/Python runtime.
+      mkSourceLanguageGate =
         system:
         let
-          pkgs = mkPkgs system;
+          c = mkCraneLib system;
+          tools = c.craneLib.buildPackage {
+            inherit (c) src cargoArtifacts;
+            pname = "pi-rs-tools";
+            version = "0.1.0";
+            nativeBuildInputs = c.commonEnv.nativeBuildInputs ++ [ c.pkgs.git ];
+            cargoExtraArgs = "-p pi-rs-tools";
+            doCheck = false;
+            meta.mainProgram = "pi-rs-tools";
+          };
         in
-        pkgs.runCommand "model-catalog-update-test"
+        c.pkgs.runCommand "source-language-gate"
           {
             nativeBuildInputs = [
-              pkgs.bash
-              pkgs.bun
-              pkgs.jq
+              tools
+              c.pkgs.git
             ];
           }
           ''
-            bash ${self}/scripts/test-model-catalog-update
+            # The flake source is a git-less store path, so the gate's file
+            # enumeration falls back to a recursive walk of the store tree
+            # (equivalent for gating since the source is already clean).
+            pi-rs-tools gate check --root ${self} > out.txt || {
+              echo "A.3 source-language gate FAILED:" >&2
+              cat out.txt >&2
+              exit 1
+            }
+            cat out.txt
+            touch $out
+          '';
+
+      # Offline, fixture-backed normalization and rejection tests for the
+      # reviewed model-catalog update path. Driven by the Rust model-catalog
+      # owner (`pi-rs-tools model-catalog selftest`); no Node/Bun runtime.
+      mkModelCatalogUpdateTest =
+        system:
+        let
+          c = mkCraneLib system;
+          tools = c.craneLib.buildPackage {
+            inherit (c) src cargoArtifacts;
+            pname = "pi-rs-tools";
+            version = "0.1.0";
+            nativeBuildInputs = c.commonEnv.nativeBuildInputs;
+            cargoExtraArgs = "-p pi-rs-tools";
+            doCheck = false;
+            meta.mainProgram = "pi-rs-tools";
+          };
+        in
+        c.pkgs.runCommand "model-catalog-update-test"
+          {
+            nativeBuildInputs = [ tools ];
+          }
+          ''
+            pi-rs-tools model-catalog selftest --root ${self}
             touch $out
           '';
 
       # Fail-closed first-party construction inventory: embedded source units,
       # declarations, Rust launch/composition seams, and named open risks must
-      # all remain classified; negative controls pin rejection behavior.
+      # all remain classified; negative controls pin rejection behavior. Rust
+      # owner (`pi-rs-tools construction-inventory {check,selftest}`); no
+      # repo-owned Python runtime.
       mkConstructionInventoryTest =
         system:
         let
-          pkgs = mkPkgs system;
+          c = mkCraneLib system;
+          tools = c.craneLib.buildPackage {
+            inherit (c) src cargoArtifacts;
+            pname = "pi-rs-tools";
+            version = "0.1.0";
+            nativeBuildInputs = c.commonEnv.nativeBuildInputs;
+            cargoExtraArgs = "-p pi-rs-tools";
+            doCheck = false;
+            meta.mainProgram = "pi-rs-tools";
+          };
         in
-        pkgs.runCommand "construction-inventory-test"
+        c.pkgs.runCommand "construction-inventory-test"
           {
-            nativeBuildInputs = [ pkgs.python3 ];
+            nativeBuildInputs = [ tools ];
           }
           ''
-            python3 ${self}/scripts/construction-inventory --check
-            python3 ${self}/tests/construction-inventory/test_checker.py
+            pi-rs-tools construction-inventory --check --root ${self}
+            pi-rs-tools construction-inventory selftest --root ${self}
             touch $out
           '';
 
@@ -329,16 +383,25 @@
       mkModelCatalogUpdater =
         system:
         let
-          pkgs = mkPkgs system;
+          c = mkCraneLib system;
+          tools = c.craneLib.buildPackage {
+            inherit (c) src cargoArtifacts;
+            pname = "pi-rs-tools";
+            version = "0.1.0";
+            nativeBuildInputs = c.commonEnv.nativeBuildInputs ++ [ c.pkgs.git ];
+            cargoExtraArgs = "-p pi-rs-tools";
+            doCheck = false;
+            meta.mainProgram = "pi-rs-tools";
+          };
         in
-        pkgs.writeShellApplication {
+        c.pkgs.writeShellApplication {
           name = "update-model-catalog";
           runtimeInputs = [
-            pkgs.bun
-            pkgs.git
+            tools
+            c.pkgs.git
           ];
           text = ''
-            exec bun ${self}/scripts/update-model-catalog.ts "$@"
+            exec pi-rs-tools model-catalog update "$@"
           '';
         };
 
@@ -386,6 +449,7 @@
         extension-parity = mkExtensionParity system;
         dogfood-fixtures = mkDogfoodFixtureTest system;
         final-parity-audit = mkFinalParityAudit system;
+        source-language-gate = mkSourceLanguageGate system;
       });
 
       packages = forAllSystems (system: rec {
