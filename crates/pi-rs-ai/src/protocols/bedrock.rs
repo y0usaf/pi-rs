@@ -300,6 +300,8 @@ fn is_gov(model: &Model, options: &BedrockOptions) -> bool {
         .is_some_and(|value| value.to_ascii_lowercase().starts_with("us-gov-"))
         || std::env::var("AWS_REGION")
             .is_ok_and(|value| value.to_ascii_lowercase().starts_with("us-gov-"))
+        || std::env::var("AWS_DEFAULT_REGION")
+            .is_ok_and(|value| value.to_ascii_lowercase().starts_with("us-gov-"))
         || model.id.to_ascii_lowercase().starts_with("us-gov.")
         || model.id.to_ascii_lowercase().starts_with("arn:aws-us-gov:")
 }
@@ -391,7 +393,21 @@ fn build_params(
     Ok(Value::Object(value))
 }
 
+fn extract_arn_region(model: &Model) -> Option<String> {
+    let id = model.id.as_str();
+    if id.starts_with("arn:aws") {
+        let parts: Vec<&str> = id.splitn(6, ':').collect();
+        if parts.len() >= 5 && parts[2] == "bedrock" {
+            return Some(parts[3].to_string());
+        }
+    }
+    None
+}
+
 fn region(model: &Model, options: &BedrockOptions) -> String {
+    if let Some(arn_region) = extract_arn_region(model) {
+        return arn_region;
+    }
     if let Some(value) = options
         .region
         .clone()
@@ -410,12 +426,29 @@ fn region(model: &Model, options: &BedrockOptions) -> String {
         .unwrap_or("us-east-1")
         .to_string()
 }
-fn request_url(model: &Model) -> String {
+fn standard_bedrock_url_for_region(url: &str, new_region: &str) -> Option<String> {
+    let parsed = url::Url::parse(url).ok()?;
+    let lower = parsed.host_str()?.to_ascii_lowercase();
+    if !lower.contains("amazonaws.com") || !lower.starts_with("bedrock-runtime") {
+        return None;
+    }
+    let host = parsed.host_str()?;
+    let dot = lower.find('.')?;
+    let old_region = lower[dot+1..].split('.').next()?;
+    let new_host = host.replace(old_region, new_region);
+    let mut url = url::Url::parse(url).ok()?;
+    url.set_host(Some(&new_host)).ok()?;
+    Some(url.to_string())
+}
+
+fn request_url(model: &Model, options: &BedrockOptions) -> String {
     let encoded: String = url::form_urlencoded::byte_serialize(model.id.as_bytes()).collect();
-    format!(
-        "{}/model/{encoded}/converse-stream",
-        model.base_url.trim_end_matches('/')
-    )
+    let base = model.base_url.trim_end_matches('/');
+    let resolved = region(model, options);
+    if let Some(endpoint) = standard_bedrock_url_for_region(base, &resolved) {
+        return format!("{}/model/{encoded}/converse-stream", endpoint.trim_end_matches('/'));
+    }
+    format!("{base}/model/{encoded}/converse-stream")
 }
 fn sha256(value: &[u8]) -> String {
     ring::digest::digest(&ring::digest::SHA256, value)
@@ -954,7 +987,7 @@ async fn drive(
         params = next;
     }
     let body = params.to_string();
-    let url = request_url(model);
+    let url = request_url(model, options);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_millis(
             options.base.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS),

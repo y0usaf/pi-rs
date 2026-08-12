@@ -114,14 +114,87 @@ pi.register_role({
         options.onError({ message = "Compaction is unavailable after print completion" })
       end
     end,
+    -- PLAN 9.4: extension action methods for print mode
+    send_message = function(action)
+      local msg = action.message
+      if msg then
+        local custom = {
+          role = "custom",
+          customType = msg.customType or "custom",
+          content = msg.content or { { type = "text", text = tostring(msg.text or "") } },
+          display = msg.display,
+          details = msg.details,
+          timestamp = os.time() * 1000,
+        }
+        agent:steer(custom)
+      end
+    end,
+    send_user_message = function(action)
+      local content = action.content
+      if content then
+        agent:steer({
+          role = "user",
+          content = { { type = "text", text = content } },
+          timestamp = os.time() * 1000,
+        })
+      end
+    end,
+    set_model = function(action)
+      if action.model then
+        agent:set_model(action.model)
+      end
+    end,
+    set_thinking_level = function(action)
+      if action.level then
+        agent:set_thinking_level(action.level)
+      end
+    end,
+    set_session_name = function(action)
+      if action.name and session then
+        session:append_session_info(action.name)
+      end
+    end,
+    set_active_tools = function(action)
+      if action.tools then
+        local tools, _ = active_tool_definitions()
+        local valid = {}
+        for _, name in ipairs(action.tools) do
+          for _, t in ipairs(tools) do
+            if t.name == name then
+              valid[#valid + 1] = t
+            end
+          end
+        end
+        if #valid > 0 then
+          agent:set_tools(valid)
+        end
+      end
+    end,
+    set_label = function(action)
+      -- Entry labels are interactive-only; print mode is a no-op.
+    end,
+    append_entry = function(action)
+      -- Custom entries are interactive-only; print mode is a no-op.
+    end,
   }
   local turn_state = { index = 0 }
+  -- PLAN 10: JSON mode writes every event as a JSONL line.
+  local json_mode = request.mode == "json"
+  if json_mode then
+    pi.output(pi.json.encode({
+      type = "session_start", startTime = pi.now_ms(),
+      model = startup.model and { provider = startup.model.provider, id = startup.model.id } or nil,
+      mode = "json",
+    }) .. "\n")
+  end
   agent:subscribe(function(event)
-    local signal = agent:get_state().signal
+    local state = agent:get_state().signal
     EXTENSION_POLICY.emit_agent_event(event,
-      EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = signal }),
+      EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = state }),
       pi.now_ms, turn_state)
-    if event.type == "message_update" and event.assistantMessageEvent and
+    if json_mode then
+      pi.output(pi.json.encode(event) .. "\n")
+    elseif event.type == "message_update" and event.assistantMessageEvent and
        event.assistantMessageEvent.type == "text_delta" then
       pi.output(event.assistantMessageEvent.delta or "")
     end
@@ -679,3 +752,189 @@ pi.register_command("session-parity", { handler = function(args)
 
   return { sessionFile = session:get_session_file() }
 end })
+
+
+-- PLAN 10: RPC mode role handler. Stdin-based JSON-RPC protocol:
+-- commands come one-per-line on stdin; responses and agent events
+-- go to stdout as JSONL.
+pi.register_role({
+  id = "coding-agent-rpc", role = "rpc", active = true, priority = 0,
+  handler = function(args, ctx)
+    local request = pi.json.decode(args)
+    local events = {}
+    local session = construct_session(request)
+    local cwd = session:get_cwd()
+    local startup = session_startup_from_request(session, request)
+    local active_tools, active_tool_names = active_tool_definitions()
+    local model = startup.model or request.model
+    local system_prompt_options = {
+      cwd = cwd, agentDir = request.agentDir, toolNames = active_tool_names,
+      readmePath = request.readmePath, docsPath = request.docsPath,
+      examplesPath = request.examplesPath,
+    }
+    local extension_errors = {}
+    EXTENSION_POLICY.on_error = function(error)
+      extension_errors[#extension_errors + 1] = error
+    end
+    local extension_state = {
+      request = request, cwd = cwd, session_manager = session, model = model,
+      project_trusted = request.projectTrusted == true,
+      extension_mode = "rpc", extension_has_ui = false,
+      extension_actions = {}, extension_context_generation = 0,
+      extension_ui = EXTENSION_HEADLESS_UI,
+      system_prompt_options = system_prompt_options,
+      registry = {
+        get_available = pi.ai.available_models,
+        find = pi.ai.find_model,
+        has_configured_auth = pi.ai.has_configured_auth,
+        is_using_oauth = pi.ai.is_using_oauth,
+      },
+    }
+    local system_prompt = build_session_system_prompt(system_prompt_options)
+    local agent
+    agent = pi.agent.new({
+      initialState = {
+        model = model, tools = active_tools,
+        messages = startup.context.messages,
+        thinkingLevel = startup.thinking_level,
+        systemPrompt = system_prompt,
+      },
+      convertToLlm = convert_to_llm_with_block_images,
+      transformContext = function(messages, signal)
+        return EXTENSION_POLICY.emit_context(messages,
+          EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = signal }))
+      end,
+      apiKey = request.apiKey,
+      getApiKey = function(provider) return pi.auth.get_api_key(provider) end,
+      onPayload = function(payload)
+        return EXTENSION_POLICY.emit_before_provider_request(payload,
+          EXTENSION_CONTEXT_POLICY.snapshot(extension_state,
+            { signal = agent and agent:get_state().signal or nil }))
+      end,
+      onResponse = function(response)
+        EXTENSION_POLICY.emit_generic({ type = "after_provider_response",
+          status = response.status, headers = response.headers },
+          EXTENSION_CONTEXT_POLICY.snapshot(extension_state,
+            { signal = agent and agent:get_state().signal or nil }))
+      end,
+      createToolContext = function(signal)
+        return EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = signal })
+      end,
+      beforeToolCall = function(event, signal)
+        return EXTENSION_POLICY.emit_tool_call(event,
+          EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = signal }))
+      end,
+      afterToolCall = function(event, signal)
+        return EXTENSION_POLICY.emit_tool_result({
+          type = "tool_result", toolCallId = event.toolCall.id,
+          toolName = event.toolCall.name, input = event.args,
+          content = event.result.content, details = event.result.details,
+          isError = event.isError,
+        }, EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = signal }))
+      end,
+      on_event = function(event) events[#events + 1] = event end,
+    })
+    extension_state.agent = agent
+    extension_state.extension_is_idle = function()
+      return agent:get_state().isStreaming ~= true
+    end
+    extension_state.extension_has_pending = function()
+      return agent:has_queued_messages()
+    end
+    extension_state.extension_action_handlers = {
+      abort = function() agent:abort() end,
+      shutdown = function() extension_state.shutdown_requested = true end,
+      compact = function(action)
+        local options = action.options or {}
+        if options.onError then
+          options.onError({ message = "Compaction is unavailable in RPC mode" })
+        end
+      end,
+    }
+
+    EXTENSION_POLICY.emit_generic({ type = "session_start", reason = "startup" },
+      EXTENSION_CONTEXT_POLICY.snapshot(extension_state))
+
+    -- Helper: write a JSONL response line
+    local function rpc_response(cmd_type, success, data)
+      pi.output(pi.json.encode({
+        type = "response", command = cmd_type,
+        success = success, data = data,
+      }) .. "\n")
+    end
+
+    -- Helper: write an agent event as JSONL
+    local function rpc_event(event)
+      pi.output(pi.json.encode({
+        type = "event", eventType = event.type, ev = event,
+      }) .. "\n")
+    end
+
+    agent:subscribe(function(event)
+      local signal = agent:get_state().signal
+      EXTENSION_POLICY.emit_agent_event(event,
+        EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { signal = signal }),
+        pi.now_ms, { index = 0 })
+      rpc_event(event)
+      pcall(persist_agent_event, session, event)
+    end)
+
+    -- Command dispatch loop (RPC protocol)
+    local cmd_id = 0
+    while not extension_state.shutdown_requested do
+      local line = io.stdin:read()
+      if not line then break end
+      local ok, cmd = pcall(pi.json.decode, line)
+      if not ok then
+        cmd_id = cmd_id + 1
+        rpc_response("invalid_json", false, "JSON parse error")
+        goto continue
+      end
+      cmd_id = cmd_id + 1
+      local cmd_type = cmd.type or cmd.command or "unknown"
+      if cmd_type == "shutdown" then
+        rpc_response(cmd_id, true, nil)
+        break
+      elseif cmd_type == "prompt" then
+        local text = cmd.text or cmd.prompt or ""
+        if text ~= "" then
+          rpc_response(cmd_id, true, nil)
+          agent:pump({ role = "user", content = { { type = "text", text = text } } })
+        end
+      elseif cmd_type == "steer" then
+        agent:steer({ role = "user", content = { { type = "text", text = cmd.text } } })
+        rpc_response(cmd_id, true, nil)
+      elseif cmd_type == "abort" then
+        agent:abort()
+        rpc_response(cmd_id, true, nil)
+      elseif cmd_type == "set_model" then
+        agent:set_model(cmd.model)
+        rpc_response(cmd_id, true, nil)
+      elseif cmd_type == "set_thinking" then
+        agent:set_thinking_level(cmd.level)
+        rpc_response(cmd_id, true, nil)
+      elseif cmd_type == "get_state" then
+        local s = agent:get_state()
+        rpc_response(cmd_id, true, {
+          model = s.model, isStreaming = s.isStreaming,
+          messages = s.messages, signal = s.signal,
+        })
+      elseif cmd_type == "get_session" then
+        rpc_response(cmd_id, true, {
+          sessionFile = session:get_session_file(),
+          entryCount = session:entry_count(),
+        })
+      else
+        rpc_response(cmd_id, false, "Unknown command: " .. tostring(cmd_type))
+      end
+      ::continue::
+    end
+
+    EXTENSION_CONTEXT_POLICY.pump(extension_state)
+    local state = agent:get_state()
+    return {
+      mode = "rpc", shutdownRequested = extension_state.shutdown_requested,
+      model = model, events = events,
+    }
+  end
+})

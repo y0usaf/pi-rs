@@ -6,6 +6,7 @@
 //! WS2 bare binary needs: [`fuzzy`] (`--list-models` search).
 
 pub mod autocomplete;
+pub mod compact_evidence;
 pub mod box_component;
 pub mod component;
 pub mod editor;
