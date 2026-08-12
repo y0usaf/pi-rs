@@ -1601,6 +1601,18 @@ end
 
 -- interactive-mode.ts showStatus: Spacer + dim Text appended to the chat;
 -- a status that is still the last chat entry is updated in place.
+local function push_notification(state, message, level)
+  level = level or "info"
+  state.notifications = state.notifications or {}
+  state.notifications[#state.notifications + 1] = {
+    message = message, level = level,
+    timestamp = pi.now_ms(), duration = 8000,
+  }
+  if #state.notifications > 5 then
+    table.remove(state.notifications, 1)
+  end
+end
+
 local function show_status(state, message)
   local transcript = state.transcript
   local last = transcript[#transcript]
@@ -1614,10 +1626,12 @@ local function show_status(state, message)
 end
 
 local function show_error(state, message)
+  push_notification(state, message, "error")
   state.transcript[#state.transcript + 1] = { kind = "error", text = "Error: " .. message }
 end
 
 local function show_warning(state, message)
+  push_notification(state, message, "warning")
   state.transcript[#state.transcript + 1] = { kind = "warning", text = "Warning: " .. message }
 end
 
@@ -5241,8 +5255,29 @@ function default_footer_slot(state, width)
   }, state.theme)
 end
 
+function default_notifications_slot(state, width)
+  local now = pi.now_ms()
+  for i = #state.notifications, 1, -1 do
+    local n = state.notifications[i]
+    if n.duration > 0 and now - n.timestamp > n.duration then
+      table.remove(state.notifications, i)
+    end
+  end
+  if #state.notifications == 0 then return { cells = {} } end
+  local lines = {}
+  local prefix_map = { error = "!", warning = "!", info = "" }
+  local color_map = { error = "31", warning = "33", info = "32" }
+  local max = math.min(#state.notifications, 3)
+  for i = 1, max do
+    local n = state.notifications[#state.notifications - i + 1]
+    local text = "\27[" .. color_map[n.level] .. "m" .. prefix_map[n.level] .. "\27[0m " .. n.message:sub(1, math.max(1, width - 4))
+    lines[#lines + 1] = text
+  end
+  return { { cells = lines } }
+end
 DEFAULT_UI_SLOTS = {
   header = default_header_slot, status = default_status_slot,
+  notifications = default_notifications_slot,
   widget_above = function(state, width) return default_widget_slot(state, width, "aboveEditor") end,
   editor = default_editor_slot,
   widget_below = function(state, width) return default_widget_slot(state, width, "belowEditor") end,
@@ -9631,6 +9666,81 @@ function interactive_extension_action_handlers(state)
       local task = handle_reload_command(state)
       if task then task:join() end
     end,
+    -- PLAN 9.4: extension action methods for interactive mode
+    send_message = function(action)
+      if action.message then
+        local msg = action.message
+        local custom = {
+          role = "custom",
+          customType = msg.customType or "custom",
+          content = msg.content or { { type = "text", text = tostring(msg.text or "") } },
+          display = msg.display,
+          details = msg.details,
+          timestamp = state.wall_now_ms(),
+        }
+        local deliver_as = (action.options or {}).deliverAs or "steer"
+        if deliver_as == "followUp" then
+          state.agent:follow_up(custom)
+        else
+          state.agent:steer(custom)
+        end
+      end
+    end,
+    send_user_message = function(action)
+      if action.content then
+        local msg = {
+          role = "user",
+          content = { { type = "text", text = action.content } },
+          timestamp = state.wall_now_ms(),
+        }
+        local deliver_as = (action.options or {}).deliverAs or "steer"
+        if deliver_as == "followUp" then
+          state.agent:follow_up(msg)
+        else
+          state.agent:steer(msg)
+        end
+      end
+    end,
+    set_model = function(action)
+      if action.model then
+        pcall(session_set_model, state, action.model)
+      end
+    end,
+    set_thinking_level = function(action)
+      if action.level then
+        session_set_thinking_level(state, action.level)
+      end
+    end,
+    set_session_name = function(action)
+      if action.name then
+        state.session_manager:append_session_info(action.name)
+      end
+    end,
+    set_active_tools = function(action)
+      if action.tools then
+        local tools = {}
+        for _, t in ipairs(pi.registered_tools()) do
+          for _, name in ipairs(action.tools) do
+            if t.name == name then
+              tools[#tools + 1] = t
+            end
+          end
+        end
+        if #tools > 0 then
+          state.agent:set_tools(tools)
+        end
+      end
+    end,
+    set_label = function(action)
+      if action.entryId then
+        state.session_manager:append_label_change(action.entryId, action.label)
+      end
+    end,
+    append_entry = function(action)
+      if action.customType then
+        state.session_manager:append_custom_entry(action.customType, action.data)
+      end
+    end,
   }
 end
 
@@ -9761,6 +9871,8 @@ local function run_interactive_state(state)
   return process:run(function(event)
     if event.type == "signal" then return { exit = true } end
     if event.type == "start" or event.type == "resize" then
+  state.notifications = {}
+  state.notification_id = 0
       state.columns = event.columns
       state.rows = event.rows
       state.editor.editor:set_terminal_rows(event.rows)

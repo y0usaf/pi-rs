@@ -25,6 +25,7 @@ pub mod config;
 mod convert;
 pub mod discover;
 mod error;
+mod frontmatter;
 mod exec;
 pub mod hljs;
 mod http;

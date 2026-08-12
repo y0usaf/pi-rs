@@ -467,6 +467,39 @@ function EXTENSION_CONTEXT_POLICY.snapshot(state, options)
       EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
         { kind = "compact", options = compact_options or {} })
     end,
+    -- PLAN 9.4: extension action methods
+    sendMessage = function(msg, options)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "send_message", message = msg, options = options or {} })
+    end,
+    sendUserMessage = function(content, options)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "send_user_message", content = content, options = options or {} })
+    end,
+    setModel = function(model_selection)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "set_model", model = model_selection })
+    end,
+    setThinkingLevel = function(level)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "set_thinking_level", level = level })
+    end,
+    setSessionName = function(name)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "set_session_name", name = name })
+    end,
+    setActiveTools = function(names)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "set_active_tools", tools = names })
+    end,
+    setLabel = function(entryId, label)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "set_label", entryId = entryId, label = label })
+    end,
+    appendEntry = function(customType, data)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "append_entry", customType = customType, data = data })
+    end,
   }
   if options.command then
     context.getSystemPromptOptions = function()
