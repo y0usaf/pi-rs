@@ -869,6 +869,31 @@
    "rust_entrypoints": []
   },
   {
+   "id": "role.rpc",
+   "kind": "application role",
+   "title": "Default non-interactive JSON-RPC application",
+   "packages": [
+    "coding-agent"
+   ],
+   "public_declaration": "pi.register_role with explicit activation and priority",
+   "disable_path": "suppress rpc-application in the declarative builtin manifest",
+   "replacement_evidence": "crates/pi-rs-app/tests/assembly.rs file-backed role replacement uses the same public registry",
+   "status": "implemented",
+   "rung": "9.1b",
+   "coverage": [],
+   "anchors": [
+    {
+     "path": "crates/pi-rs-app/src/builtins/coding-agent.lua",
+     "text": "role = \"rpc\"",
+     "count": 1
+    }
+   ],
+   "declarations": [
+    "role:rpc"
+   ],
+   "rust_entrypoints": []
+  },
+  {
    "id": "role.interactive",
    "kind": "application role",
    "title": "Default interactive application",
