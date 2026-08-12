@@ -139,6 +139,59 @@ async function reloadOrder(): Promise<any> {
   }
 }
 
+async function waitCancellation(): Promise<any> {
+  // PLAN 9.2: __ context.waitForIdle() resolves (not throws, not hangs) when
+  // the agent is aborted mid-stream. Pi: waitForIdle is `agent.waitForIdle()`
+  // which resolves when activeRun dispatches even on abort; the agent sets
+  // isStreaming false and resolves the run promise on abort/failure.
+  const harness = await createHarness();
+  try {
+    const runner = harness.session.extensionRunner as any;
+    runner.bindCore(
+      {} as any,
+      {
+        getModel: () => harness.getModel(),
+        isIdle: () => !harness.session.agent.isStreaming,
+        isProjectTrusted: () => true,
+        getSignal: () => harness.session.agent.signal,
+        abort: () => harness.session.agent.abort(),
+        hasPendingMessages: () => false,
+        shutdown: () => {},
+        getContextUsage: () => undefined,
+        compact: () => {},
+        getSystemPrompt: () => "",
+      },
+    );
+    runner.bindCommandContext({
+      waitForIdle: () => harness.session.agent.waitForIdle(),
+      newSession: async () => ({ cancelled: false }),
+      fork: async () => ({ cancelled: false }),
+      navigateTree: async () => ({ cancelled: false }),
+      switchSession: async () => ({ cancelled: false }),
+      reload: async () => {},
+    });
+    const ctx = runner.createCommandContext();
+    const promptPromise = harness.session.prompt("hello")
+      .then(() => "prompt-resolved")
+      .catch((e: unknown) => "prompt-error:" + (e instanceof Error ? e.message : String(e)));
+    await new Promise((r) => setTimeout(r, 20));
+    const streaming = harness.session.agent.isStreaming;
+    const wait = ctx.waitForIdle().then(
+      () => "resolved",
+      (e: unknown) => "threw:" + (e instanceof Error ? e.message : String(e)),
+    );
+    harness.session.agent.abort();
+    const waitOutcome = await Promise.race([
+      wait,
+      new Promise((r) => setTimeout(() => r("pending"), 500)),
+    ]);
+    const promptOutcome = await promptPromise;
+    return { streaming, waitOutcome, promptOutcome };
+  } finally {
+    harness.cleanup();
+  }
+}
+
 async function main(): Promise<void> {
   const harness = await createHarness({ systemPrompt: "context oracle prompt" });
   try {
@@ -173,7 +226,7 @@ async function main(): Promise<void> {
       await actionsHarness.session.bindExtensions({ mode: "tui", uiContext: noUi });
       actions = await actionMatrix(actionsHarness.session.extensionRunner);
     } finally { actionsHarness.cleanup(); }
-    process.stdout.write(`${JSON.stringify({ snapshot, stale, modes, actions, replacement: await replacementOrder(), reload: await reloadOrder() }, null, "\t")}\n`);
+    process.stdout.write(`${JSON.stringify({ snapshot, stale, modes, actions, replacement: await replacementOrder(), reload: await reloadOrder(), waitCancellation: await waitCancellation() }, null, "\t")}\n`);
   } finally { harness.cleanup(); }
 }
 

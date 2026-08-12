@@ -247,6 +247,10 @@ fn extension_context_snapshots_and_shutdown_match_pi() {
     assert_eq!(actual["actions"], expected["actions"]);
     assert_eq!(actual["replacement"], expected["replacement"]);
     assert_eq!(actual["reload"], expected["reload"]);
+    assert_eq!(
+        actual["waitCancellation"]["waitOutcome"],
+        expected["waitCancellation"]["waitOutcome"]
+    );
 
     let mut tool_request = request;
     tool_request["tool"] = "finish_and_exit".into();
