@@ -3,9 +3,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 oracle=tests/extension-event-parity/oracle.json
+seams=tests/extension-event-parity/seams-oracle.json
 if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
   nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
 fi
 nix shell nixpkgs#bun --command bun \
   tests/extension-event-parity/gen-oracle.ts > "$oracle"
+nix shell nixpkgs#bun --command bun \
+  tests/extension-event-parity/gen-seams-oracle.ts > "$seams"
 echo "wrote $oracle"
+echo "wrote $seams"

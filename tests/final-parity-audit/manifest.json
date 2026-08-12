@@ -567,10 +567,13 @@
       "id": "coding.extension-events",
       "status": "parity",
       "owner": "closed",
-      "rationale": "The full Pi event fold is pinned by two differential tests against the Pi-generated extension-event oracle: `complete_event_folds_match_pi_runner_oracle` asserts strict whole-output equality for the complete event vocabulary, ordering, fold/middleware results, transformed input, blocked tool_call, compact/tree/session-switch, context, trust, resources, and error isolation; `real_product_seams_follow_pi_generated_event_order` verifies productTrace and extensionErrors idempotent with the oracle at real startup/tool-using/provider seams through the print role on an SSE stub.",
+      "rationale": "The full Pi event fold is pinned by two differential tests against the Pi-generated extension-event oracle: `complete_event_folds_match_pi_runner_oracle` asserts strict whole-output equality for the complete event vocabulary, ordering, fold/middleware results, transformed input, blocked tool_call, compact/tree/session-switch, context, trust, resources, and error isolation; `real_product_seams_follow_pi_generated_event_order` verifies productTrace and extensionErrors idempotent with the oracle at real startup/tool-using/provider seams through the print role on an SSE stub. The three acceptance paths those two do not cover — provider-failure (auto-retry re-drive), abort (mid-stream signal), and reload (session replacement) — are closed by `provider_failure_reload_and_abort_paths_follow_pi_seam_oracle`, which reproduces them through the real interactive AgentSession over the scripted streamFn seam with the shared 03-seams trace extension and asserts strict equality against the Pi-generated `tests/extension-event-parity/seams-oracle.json`.",
       "evidence": [
         {
           "path": "tests/extension-event-parity/oracle.json"
+        },
+        {
+          "path": "tests/extension-event-parity/seams-oracle.json"
         },
         {
           "path": "crates/pi-rs-app/tests/extension_loading.rs",
@@ -579,6 +582,10 @@
         {
           "path": "crates/pi-rs-app/tests/extension_loading.rs",
           "contains": "real_product_seams_follow_pi_generated_event_order"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/extension_event_seams.rs",
+          "contains": "provider_failure_reload_and_abort_paths_follow_pi_seam_oracle"
         }
       ],
       "refs": [

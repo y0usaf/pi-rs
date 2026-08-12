@@ -181,7 +181,7 @@ Complete these rungs before growing the extension surface further.
       in `rpc_binds_real_extension_ui_context_matching_pi`. Event emission
       itself closes in 9.3.
 
-- [ ] **9.3 Complete event pipeline and fold semantics.** Emit the pinned event
+- [x] **9.3 Complete event pipeline and fold semantics.** Emit the pinned event
       vocabulary at real product seams: project/resources; session start/switch/
       fork/compact/tree/shutdown; context/provider request/response; agent/turn/
       message/tool lifecycles; model/thinking selection; `tool_call`,
@@ -193,6 +193,22 @@ Complete these rungs before growing the extension surface further.
       transformed-input, bash, compact/tree/session-switch, provider-failure,
       abort, and reload paths; Lua sees equivalent snapshots and produces
       equivalent requests, final state, and transcript.
+
+      Closed by two Pi-generated differentials: `complete_event_folds_match_pi_runner_oracle`
+      and `real_product_seams_follow_pi_generated_event_order` assert strict whole-output
+      equality against `tests/extension-event-parity/oracle.json` for the complete event
+      vocabulary, ordering, fold/middleware results, transformed input, blocked `tool_call`,
+      compact/tree/session-switch, context, trust, resources, and error isolation (the latter
+      also pins productTrace + extensionErrors at real startup/tool-using/provider seams through
+      the print role on an SSE stub). `provider_failure_reload_and_abort_paths_follow_pi_seam_oracle`
+      pins the three acceptance paths the fold oracle does not cover — provider-failure (auto-retry
+      re-drive), abort (mid-stream signal), and reload (session replacement) — against
+      `tests/extension-event-parity/seams-oracle.json`, reproduced through the real interactive
+      AgentSession over the scripted streamFn seam with the shared 03-seams trace extension.
+      Each Lua record's replacement-vs-mutation, error isolation, result-merge, and ordering
+      semantics live in `crates/pi-rs-app/src/builtins/utils/extensions.lua` (`EXTENSION_POLICY`
+      fold) and are dispatched at every product seam (coding-agent.lua print/rpc, interactive.lua).
+      Regenerate both oracles with `scripts/extension-event-oracle`.
 
 - [ ] **9.4 Complete non-UI ExtensionAPI actions and registries.** Finish dynamic
       tools/active-tool changes, async argument completion, shortcut conflicts,
