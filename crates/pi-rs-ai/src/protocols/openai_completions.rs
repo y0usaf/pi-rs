@@ -4,8 +4,9 @@
 //! cerebras, nvidia, cloudflare, vercel gateway, …).
 //!
 //! The spec drives the OpenAI SDK; the SDK's contribution is reproduced
-//! explicitly and pinned by the replay/request tests in
-//! `tests/openai_completions.rs`:
+//! explicitly and pinned by the deterministic Pi differential in
+//! `crates/pi-rs-ai/tests/openai_completions_parity.rs` (replaying
+//! `tests/openai-completions-parity/oracle.json`):
 //!
 //! - `client.chat.completions.create(params).withResponse()` →
 //!   [`crate::transport`] `post_with_retry` against
