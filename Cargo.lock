@@ -1076,6 +1076,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pi-rs-tools"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "pi-rs-tui"
 version = "0.1.0"
 dependencies = [

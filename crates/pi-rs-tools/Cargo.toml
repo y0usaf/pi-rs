@@ -1,0 +1,17 @@
+[package]
+name = "pi-rs-tools"
+description = "A.3 source-language gate (reject new foreign-language first-party files)"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "pi-rs-tools"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { workspace = true }
+thiserror = { workspace = true }
