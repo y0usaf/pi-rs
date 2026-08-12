@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1",
+  "note": "Browser-export JavaScript allowlist (A.3). Standalone-page-only, provenance-marked; can never become an extension/package/generator/test/host dependency.",
+  "files": {
+    "crates/pi-rs-app/src/builtins/interactive/export-html/template.js": {
+      "language": "JavaScript"
+    },
+    "crates/pi-rs-app/src/builtins/interactive/export-html/vendor/highlight.min.js": {
+      "language": "JavaScript"
+    },
+    "crates/pi-rs-app/src/builtins/interactive/export-html/vendor/marked.min.js": {
+      "language": "JavaScript"
+    }
+  }
+}

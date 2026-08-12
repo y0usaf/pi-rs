@@ -152,6 +152,40 @@ Complete these rungs before growing the extension surface further.
       opt-in regeneration remains deterministic against hash-pinned sources; and
       shipped extension/config/package execution is Lua-only.
 
+      **Status — source-language gate (landed).** The gate ships as a Rust binary
+      (`crates/pi-rs-tools`, `pi-rs-tools gate {scan,update-manifests,check}`) and
+      is wired into `nix flake check` as `checks.source-language-gate`. It rejects
+      new first-party `.ts`/`.py`/`.sh`/shebang files and `.js` outside the
+      browser-export allowlist, while the current footprint is frozen in
+      `tests/source-language/legacy.json` (grandfathered) and
+      `tests/source-language/allowlist.json` (3 browser-export JS). Normal checks
+      run the gate with no Node/Bun/Python runtime.
+
+      **Status — construction inventory (landed).** `scripts/construction-inventory`
+      (Python) and `tests/construction-inventory/test_checker.py` are ported to
+      Rust: `pi-rs-tools construction-inventory {--check,--print-extracted}` plus
+      an offline negative-control `selftest` that mirrors the Python unittest.
+      The flake `construction-inventory` check now runs the Rust binary with no
+      repo-owned Python; both Python predecessors are deleted and withdrawn from
+      `tests/source-language/legacy.json`.
+
+      **Remaining — port the named workflows.** The grandfathered generators are
+      still Python/bash/TS and must gain Rust/Lua owners before A.3 closes.
+      Model-catalog has closed: `scripts/update-model-catalog.ts` → Rust
+      (`crates/pi-rs-tools`, `pi-rs-tools model-catalog {update,selftest}`), its
+      bash fixture harness deleted, and the flake check/app repointed to the Rust
+      binary with no bun. Remaining:
+      - `scripts/{final-parity-audit,extension-inventory,
+        external-extension-inventory,dogfood-oracle}` (Python) → Rust/Lua.
+      - the `scripts/*-oracle` bash regen wrappers + `gen-arch.sh` → Rust.
+      - `tests/*/gen-oracle.ts`, `tests/ui-parity/pi-*.ts` → Rust/Lua harnesses.
+      - `tests/external-extension-inventory/fixtures/**` (external TS) →
+        hash-locked Nix oracle input + provenance/capability manifests.
+      Each port deletes its predecessor and, when the set is complete, removes it
+      from `tests/source-language/legacy.json` so the gate's grandfathered set
+      shrinks to zero. Oracle regeneration stays opt-in against hash-pinned
+      sources; normal offline checks consume canonical outputs.
+
 ## Extension/configuration closure
 
 - [ ] **9.2 Extension contexts + lifecycle actions.** Complete live
@@ -181,7 +215,7 @@ Complete these rungs before growing the extension surface further.
       in `rpc_binds_real_extension_ui_context_matching_pi`. Event emission
       itself closes in 9.3.
 
-- [ ] **9.3 Complete event pipeline and fold semantics.** Emit the pinned event
+- [x] **9.3 Complete event pipeline and fold semantics.** Emit the pinned event
       vocabulary at real product seams: project/resources; session start/switch/
       fork/compact/tree/shutdown; context/provider request/response; agent/turn/
       message/tool lifecycles; model/thinking selection; `tool_call`,
@@ -193,6 +227,22 @@ Complete these rungs before growing the extension surface further.
       transformed-input, bash, compact/tree/session-switch, provider-failure,
       abort, and reload paths; Lua sees equivalent snapshots and produces
       equivalent requests, final state, and transcript.
+
+      Closed by two Pi-generated differentials: `complete_event_folds_match_pi_runner_oracle`
+      and `real_product_seams_follow_pi_generated_event_order` assert strict whole-output
+      equality against `tests/extension-event-parity/oracle.json` for the complete event
+      vocabulary, ordering, fold/middleware results, transformed input, blocked `tool_call`,
+      compact/tree/session-switch, context, trust, resources, and error isolation (the latter
+      also pins productTrace + extensionErrors at real startup/tool-using/provider seams through
+      the print role on an SSE stub). `provider_failure_reload_and_abort_paths_follow_pi_seam_oracle`
+      pins the three acceptance paths the fold oracle does not cover — provider-failure (auto-retry
+      re-drive), abort (mid-stream signal), and reload (session replacement) — against
+      `tests/extension-event-parity/seams-oracle.json`, reproduced through the real interactive
+      AgentSession over the scripted streamFn seam with the shared 03-seams trace extension.
+      Each Lua record's replacement-vs-mutation, error isolation, result-merge, and ordering
+      semantics live in `crates/pi-rs-app/src/builtins/utils/extensions.lua` (`EXTENSION_POLICY`
+      fold) and are dispatched at every product seam (coding-agent.lua print/rpc, interactive.lua).
+      Regenerate both oracles with `scripts/extension-event-oracle`.
 
 - [ ] **9.4 Complete non-UI ExtensionAPI actions and registries.** Finish dynamic
       tools/active-tool changes, async argument completion, shortcut conflicts,
@@ -287,7 +337,7 @@ Complete these rungs before growing the extension surface further.
       to differential evidence, executable Lua, or an explicit DESIGN exception;
       all in-scope examples run through the shipped public surface.
 
-- [ ] **9.9 Inventory-driven Lua mechanism supersurface.** Implement only the
+- [x] **9.9 Inventory-driven Lua mechanism supersurface.** Implement only the
       low-level capabilities owned by construction/dogfood rows: abort-aware HTTP
       streaming, managed subprocess pipes/process-tree cancellation, TCP framed
       clients, filesystem watch/atomic/symlink/metadata operations, reviewed
@@ -298,6 +348,19 @@ Complete these rungs before growing the extension surface further.
       Product mutation remains queued; embedded/file-backed capabilities are
       identical; each operation has cancellation, timeout, reload, shutdown, and
       leak contracts.
+
+      Landed (`examples/extensions/*.lua` exercisers + host/app tests drive each):
+      `pi.http.fetch` and abort-aware `pi.http.stream(on_chunk)`; `pi.process.spawn`
+      with stdio pipes, process-tree SIGTERM/SIGKILL, and Drop-tree kill;
+      `pi.tcp.connect` with read/write/close and Drop-socket disposal;
+      `pi.fs` symlink/lstat/chmod/rename/access/copy/mkdtemp/remove_dir/remove_dir_all
+      + atomic write + richer stat + pollable `watch_file`; `pi.crypto` (sha1/sha256/md5/xxhash/random_uuid)
+      and `pi.buffer`; `pi.set_timeout/set_interval/clear_*`; the public
+      `pi.tools.file-mutation` module. `LUA_SURFACE.md` documents the low-level
+      register and the construction inventory closes the `module.file-mutation-queue`
+      row. The dependent Gecko/RLM/Pomodoro/Hashline/Morph/Webfetch primitives are all
+      available Lua-natively with no missing-primitive shell workaround; full dogfood
+      translations and leak fixtures remain with 9.11.
 
       **Accept:** file-backed examples exercise every mechanism; no process/task/
       socket/watcher survives disposal; Gecko, RLM, Pomodoro, Hashline, Morph,
@@ -333,19 +396,37 @@ Complete these rungs before growing the extension surface further.
 
 ## Remaining AI/auth and modes
 
-- [ ] **8. Complete coding-agent AI/auth compatibility.** Keep one shared
+- [x] **8. Complete coding-agent AI/auth compatibility.** Keep one shared
       transport/conversion pipeline per protocol family rather than provider
-      clones. Already landed: Anthropic, OpenAI Completions baseline, OpenAI
-      Responses, Codex Responses SSE/WebSocket/fallback, Azure Responses, Google
-      Generative AI, and Google Vertex including authorized-user, service-account,
-      workload file/URL/executable/AWS ADC paths. Catalog dispatch currently
-      covers those families and subscription auth breadth is complete.
+      clones. Anthropic, OpenAI Completions, OpenAI Responses, Codex Responses
+      SSE/WebSocket/fallback, Azure Responses, Google Generative AI, and Google
+      Vertex (authorized-user, service-account, workload file/URL/executable/
+      certificate/AWS ADC paths), plus Mistral Conversations and Bedrock Converse
+      Stream all route through one registered `api` dispatch
+      (`crates/pi-rs-ai/src/registry/stream.rs`) with a single shared HTTP/SSE
+      transport. Catalog dispatch covers those nine API families and three
+      subscription OAuth providers; cert external-account ADC is closed.
 
-      **Remaining:** certificate external-account ADC; deterministic Pi
-      differentials and dispatch for `mistral-conversations` and
-      `bedrock-converse-stream`; replace the old OpenAI Completions fixtures with
-      one Pi differential; run catalog/auth acceptance and delete superseded
-      provider fixtures/harnesses under A.2.
+      **Closed (deterministic Pi differentials + registry acceptance):** every
+      advertised coding-agent API has a focused Pi-derived replay
+      (`tests/{anthropic,openai-completions,openai-responses,openai-codex-websocket,
+      azure-openai-responses,google-generative-ai,google-vertex,mistral-conversations,
+      bedrock-converse-stream}-parity/oracle.json`). The certificate external-account
+      ADC path (mtls subject-token + STS exchange) is a `google-vertex-parity`
+      case (`adc-workload-certificate`). `mistral-conversations` and
+      `bedrock-converse-stream` have Pi differentials (`tests/mistral-conversations-parity/`,
+      `tests/bedrock-converse-stream-parity/`) plus registered dispatch
+      (`stream_mistral`/`stream_simple_mistral`, `stream_bedrock`/
+      `stream_simple_bedrock`), both asserted by `crates/pi-rs-ai/tests/
+      mistral_conversations_parity.rs`, `.../bedrock_converse_stream_parity.rs`,
+      and the registry (`crates/pi-rs-ai/tests/registry.rs`). The old hand-built
+      OpenAI Completions fixtures were replaced by the ONE Pi differential:
+      `tests/openai-completions-parity/` now also pins `tools: []` on bare
+      tool-history and the `content_filter` finish-reason error, and the superseded
+      `crates/pi-rs-ai/tests/openai_completions.rs` + `tests/fixtures/
+      openai-completions/` deleted. Whole-catalog/subscription-auth acceptance:
+      `crates/pi-rs-app/tests/ai_auth_catalog.rs`
+      (`every_catalog_api_dispatches_and_subscription_auth_registry_is_complete`).
 
       **Accept:** supported model inventory matches Pi's coding agent; every
       advertised API has a focused deterministic replay; three subscription

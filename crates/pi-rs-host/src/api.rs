@@ -239,6 +239,45 @@ impl UserData for LuaSpawnHandle {
     }
 }
 
+/// Handle for a `set_timeout`/`set_interval` background coroutine. The cancel
+/// channel and the JoinHandle are consumed by `clear_*`; a timer never fires
+/// after it is cleared, and the task drops with its dispatch's LocalSet.
+struct LuaTimerHandle {
+    cancel: std::cell::RefCell<Option<tokio::sync::mpsc::UnboundedSender<()>>>,
+    handle: std::cell::RefCell<Option<tokio::task::JoinHandle<()>>>,
+}
+
+/// `clearTimeout`/`clearInterval`: cancel the timer if it has not fired yet.
+fn cancel_timer(value: mlua::AnyUserData) -> mlua::Result<()> {
+    let timer = value.borrow::<LuaTimerHandle>()?;
+    if let Some(cancel) = timer.cancel.borrow_mut().take() {
+        let _ = cancel.send(());
+    }
+    if let Some(handle) = timer.handle.borrow_mut().take() {
+        handle.abort();
+    }
+    Ok(())
+}
+
+impl UserData for LuaTimerHandle {
+    fn add_fields<F: mlua::UserDataFields<Self>>(_fields: &mut F) {}
+}
+
+impl Drop for LuaTimerHandle {
+    /// A dropped timer handlable must not keep firing: abort the background
+    /// task and signal its cancel channel so nothing survives disposal (reload
+    /// or VM shutdown). `clear_*` consumes both fields first, leaving Drop as a
+    /// no-op safety net.
+    fn drop(&mut self) {
+        if let Some(cancel) = self.cancel.borrow_mut().take() {
+            let _ = cancel.send(());
+        }
+        if let Some(handle) = self.handle.borrow_mut().take() {
+            handle.abort();
+        }
+    }
+}
+
 struct LuaProcessTui(pi_rs_tui::process::ProcessTui);
 
 impl UserData for LuaProcessTui {
@@ -1859,7 +1898,8 @@ pub(crate) fn build(
                 // `io.output():write(...)` cannot reach protocol stdout.
                 let stderr_handle: mlua::Value = io.get("stderr")?;
                 io.set("stdout", stderr_handle.clone())?;
-                io.get::<mlua::Function>("output")?.call::<()>(stderr_handle)?;
+                io.get::<mlua::Function>("output")?
+                    .call::<()>(stderr_handle)?;
                 registry.set(GUARD_ON, "on".to_owned())?;
             } else {
                 let orig_print: mlua::Function = registry.get(ORIG_PRINT)?;
@@ -1868,7 +1908,8 @@ pub(crate) fn build(
                 io.set("write", registry.get::<mlua::Function>(ORIG_IO_WRITE)?)?;
                 let orig_stdout: mlua::Value = registry.get(ORIG_IO_STDOUT)?;
                 io.set("stdout", orig_stdout.clone())?;
-                io.get::<mlua::Function>("output")?.call::<()>(orig_stdout)?;
+                io.get::<mlua::Function>("output")?
+                    .call::<()>(orig_stdout)?;
                 registry.set(GUARD_ON, "off".to_owned())?;
             }
             Ok(())
@@ -2047,6 +2088,73 @@ pub(crate) fn build(
         lua.create_function(|lua, func: mlua::Function| {
             let handle = tokio::task::spawn_local(func.call_async::<mlua::Value>(()));
             lua.create_userdata(LuaSpawnHandle(std::cell::RefCell::new(Some(handle))))
+        })?,
+    )?;
+
+    // Timers scoped to the current dispatch. A timer fires its callback as a
+    // background coroutine on the dispatch's task set (so it interleaves with
+    // the handler at await points); `set_timeout` cancels safely via
+    // `clear_timeout`, and any timer still pending when the dispatch returns is
+    // dropped with the LocalSet (no timer survives a reload or VM shutdown).
+    // These are Lua translations of `setTimeout`/`setInterval`.
+    pi.set(
+        "set_timeout",
+        lua.create_function(|lua, (ms, callback): (u64, mlua::Function)| {
+            let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+            let interval = ms;
+            let func = callback.clone();
+            let handle = tokio::task::spawn_local(async move {
+                tokio::select! {
+                    () = tokio::time::sleep(std::time::Duration::from_millis(interval)) => {
+                        if func.call_async::<mlua::Value>(()).await.is_err() {
+                            // callback error is swallowed; the task set reaps it
+                        }
+                    }
+                    _ = cancel_rx.recv() => {}
+                }
+            });
+            lua.create_userdata(LuaTimerHandle {
+                cancel: std::cell::RefCell::new(Some(cancel_tx)),
+                handle: std::cell::RefCell::new(Some(handle)),
+            })
+        })?,
+    )?;
+    pi.set(
+        "set_interval",
+        lua.create_function(|lua, (ms, callback): (u64, mlua::Function)| {
+            let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+            let period = ms.max(1);
+            let func = callback.clone();
+            let handle = tokio::task::spawn_local(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_millis(period));
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            if func.call_async::<mlua::Value>(()).await.is_err() {
+                                break;
+                            }
+                        }
+                        _ = cancel_rx.recv() => break,
+                    }
+                }
+            });
+            lua.create_userdata(LuaTimerHandle {
+                cancel: std::cell::RefCell::new(Some(cancel_tx)),
+                handle: std::cell::RefCell::new(Some(handle)),
+            })
+        })?,
+    )?;
+    pi.set(
+        "clear_timeout",
+        lua.create_function(|_, handle: mlua::AnyUserData| {
+            cancel_timer(handle).map_err(|e| mlua::Error::runtime(e.to_string()))
+        })?,
+    )?;
+    pi.set(
+        "clear_interval",
+        lua.create_function(|_, handle: mlua::AnyUserData| {
+            cancel_timer(handle).map_err(|e| mlua::Error::runtime(e.to_string()))?;
+            Ok(())
         })?,
     )?;
     let epoch = std::time::Instant::now();
@@ -2236,23 +2344,24 @@ pub(crate) fn build(
         Ok(())
     })?;
 
-    
     pi.set("register_shortcut", register_shortcut)?;
     // PLAN 9.4: registeredMessageRenderer(kind, priority, handler)
     // where handler is (message, ctx) -> rendered_message or nil.
-    let register_message_handler = lua.create_function(|lua, (kind, priority, handler): (String, u64, mlua::Function)| {
-        let source = crate::api::current_source(lua);
-        let registry = crate::api::registry_table(lua)?;
-        let exts: mlua::Table = registry.get("exts")?;
-        let ext: mlua::Table = exts.get(source.as_str())?;
-        let handlers: mlua::Table = ext.get("message_handlers")?;
-        let entry = lua.create_table()?;
-        entry.set("kind", kind.clone())?;
-        entry.set("priority", priority)?;
-        entry.set("handler", handler)?;
-        handlers.push(entry)?;
-        Ok(())
-    })?;
+    let register_message_handler = lua.create_function(
+        |lua, (kind, priority, handler): (String, u64, mlua::Function)| {
+            let source = crate::api::current_source(lua);
+            let registry = crate::api::registry_table(lua)?;
+            let exts: mlua::Table = registry.get("exts")?;
+            let ext: mlua::Table = exts.get(source.as_str())?;
+            let handlers: mlua::Table = ext.get("message_handlers")?;
+            let entry = lua.create_table()?;
+            entry.set("kind", kind.clone())?;
+            entry.set("priority", priority)?;
+            entry.set("handler", handler)?;
+            handlers.push(entry)?;
+            Ok(())
+        },
+    )?;
     pi.set("register_message_handler", register_message_handler)?;
 
     // List registered message handlers for a kind, sorted by priority descending.
@@ -2283,7 +2392,6 @@ pub(crate) fn build(
         Ok(all)
     })?;
     pi.set("registered_message_renderers", registered_message_handlers)?;
-
 
     // Resolved first-registration-wins view for the frontend (spec
     // runner.ts getShortcuts, minus the keybinding-conflict diagnostics
@@ -2621,15 +2729,14 @@ pub(crate) fn build(
     // keyed-by-api-only "last remaining registration wins" semantics.
     fn rebuild_custom_stream(lua: &mlua::Lua) -> mlua::Result<()> {
         let registry = registry_table(lua)?;
-        let custom_stream: mlua::Table = if let Some(custom) =
-            registry.get::<Option<mlua::Table>>("custom_stream")?
-        {
-            custom
-        } else {
-            let custom = lua.create_table()?;
-            registry.set("custom_stream", &custom)?;
-            custom
-        };
+        let custom_stream: mlua::Table =
+            if let Some(custom) = registry.get::<Option<mlua::Table>>("custom_stream")? {
+                custom
+            } else {
+                let custom = lua.create_table()?;
+                registry.set("custom_stream", &custom)?;
+                custom
+            };
         // Clear == spec `resetApiProviders()` (the map is keyed by api
         // strings; drop every recorded key).
         let mut keys: Vec<String> = Vec::new();
@@ -3467,6 +3574,9 @@ pub(crate) fn build(
     crate::exec::install(lua, &pi, cwd)?;
     crate::git::install(lua, &pi)?;
     crate::http::install(lua, &pi)?;
+    crate::crypto::install(lua, &pi)?;
+    crate::process::install(lua, &pi)?;
+    crate::tcp::install(lua, &pi)?;
     crate::os::install(lua, &pi, cwd)?;
     let settings = crate::settings::install(lua, &pi, cwd, project_trusted)?;
     crate::config::install_runtime(lua, &pi, cwd, project_trusted, settings)?;
@@ -3474,14 +3584,16 @@ pub(crate) fn build(
     crate::trust::install(lua, &pi)?;
     crate::clipboard::install(lua, &pi)?;
 
-
     // Spec: parse_frontmatter(content) -- parse YAML frontmatter from markdown.
     let parse_frontmatter = lua.create_function(|lua, content: String| {
         let document = crate::frontmatter::parse_frontmatter(&content).map_err(|message| {
             mlua::Error::runtime(format!("Failed to parse frontmatter: {message}"))
         })?;
         let table = lua.create_table()?;
-        table.set("frontmatter", crate::convert::json_to_lua(lua, &serde_json::Value::Object(document.frontmatter))?)?;
+        table.set(
+            "frontmatter",
+            crate::convert::json_to_lua(lua, &serde_json::Value::Object(document.frontmatter))?,
+        )?;
         table.set("body", document.body)?;
         Ok(table)
     })?;
