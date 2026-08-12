@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       revision:
-        description: "Exact upstream revision (blank = latest main)"
+        description: "Exact upstream git revision (only used with --local)"
         required: false
         type: string
   schedule:
@@ -33,7 +33,8 @@ jobs:
         run: |
           args=()
           if [[ -n "$MODEL_CATALOG_REVISION" ]]; then
-            args+=(--revision "$MODEL_CATALOG_REVISION")
+            # Pin to an exact upstream git revision via the offline path.
+            args+=(--local --revision "$MODEL_CATALOG_REVISION")
           fi
           nix run .#update-model-catalog -- "${args[@]}" --summary-output "$SUMMARY_PATH"
       - name: Open or refresh generated PR
