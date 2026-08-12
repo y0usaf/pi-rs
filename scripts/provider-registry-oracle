@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Regenerate the provider-registry parity oracle from Pi's real
+# ModelRegistry.registerProvider validation (coding-agent model-registry.ts)
+# and the custom-API-stream registry (ai api-registry.ts).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
+  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
+fi
+nix shell nixpkgs#nodejs_22 --command \
+  ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json \
+  tests/provider-registry-parity/gen-oracle.ts \
+  tests/provider-registry-parity/oracle.json
+echo "wrote tests/provider-registry-parity/oracle.json"

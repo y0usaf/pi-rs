@@ -1,0 +1,365 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "cases": [
+    {
+      "name": "stream-simple-no-api",
+      "config": {
+        "streamSimple": "<function>"
+      },
+      "threw": "Provider stream-simple-no-api: \"api\" is required when registering streamSimple.",
+      "apiStream": [
+        "anthropic-messages",
+        "azure-openai-responses",
+        "bedrock-converse-stream",
+        "google-generative-ai",
+        "google-vertex",
+        "mistral-conversations",
+        "openai-codex-responses",
+        "openai-completions",
+        "openai-responses"
+      ]
+    },
+    {
+      "name": "stream-simple-empty-api",
+      "config": {
+        "api": "",
+        "streamSimple": "<function>"
+      },
+      "threw": "Provider stream-simple-empty-api: \"api\" is required when registering streamSimple.",
+      "apiStream": [
+        "anthropic-messages",
+        "azure-openai-responses",
+        "bedrock-converse-stream",
+        "google-generative-ai",
+        "google-vertex",
+        "mistral-conversations",
+        "openai-codex-responses",
+        "openai-completions",
+        "openai-responses"
+      ]
+    },
+    {
+      "name": "stream-simple-blank-api",
+      "config": {
+        "api": "   ",
+        "streamSimple": "<function>"
+      },
+      "threw": null,
+      "apiStream": [
+        "   ",
+        "anthropic-messages",
+        "azure-openai-responses",
+        "bedrock-converse-stream",
+        "google-generative-ai",
+        "google-vertex",
+        "mistral-conversations",
+        "openai-codex-responses",
+        "openai-completions",
+        "openai-responses"
+      ]
+    },
+    {
+      "name": "stream-simple-with-api",
+      "config": {
+        "api": "custom-api-a",
+        "streamSimple": "<function>"
+      },
+      "threw": null,
+      "apiStream": [
+        "   ",
+        "anthropic-messages",
+        "azure-openai-responses",
+        "bedrock-converse-stream",
+        "custom-api-a",
+        "google-generative-ai",
+        "google-vertex",
+        "mistral-conversations",
+        "openai-codex-responses",
+        "openai-completions",
+        "openai-responses"
+      ]
+    },
+    {
+      "name": "models-no-baseurl",
+      "config": {
+        "api": "x",
+        "apiKey": "k",
+        "models": [
+          {
+            "id": "a",
+            "name": "a",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 100000,
+            "maxTokens": 8000
+          }
+        ]
+      },
+      "threw": "Provider models-no-baseurl: \"baseUrl\" is required when defining models.",
+      "apiStream": [
+        "   ",
+        "anthropic-messages",
+        "azure-openai-responses",
+        "bedrock-converse-stream",
+        "custom-api-a",
+        "google-generative-ai",
+        "google-vertex",
+        "mistral-conversations",
+        "openai-codex-responses",
+        "openai-completions",
+        "openai-responses"
+      ]
+    },
+    {
+      "name": "models-no-credential",
+      "config": {
+        "api": "x",
+        "baseUrl": "https://x",
+        "models": [
+          {
+            "id": "b",
+            "name": "b",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 100000,
+            "maxTokens": 8000
+          }
+        ]
+      },
+      "threw": "Provider models-no-credential: \"apiKey\" or \"oauth\" is required when defining models.",
+      "apiStream": [
+        "   ",
+        "anthropic-messages",
+        "azure-openai-responses",
+        "bedrock-converse-stream",
+        "custom-api-a",
+        "google-generative-ai",
+        "google-vertex",
+        "mistral-conversations",
+        "openai-codex-responses",
+        "openai-completions",
+        "openai-responses"
+      ]
+    },
+    {
+      "name": "models-with-oauth",
+      "config": {
+        "api": "x",
+        "baseUrl": "https://x",
+        "oauth": {
+          "provider": "x"
+        },
+        "models": [
+          {
+            "id": "c",
+            "name": "c",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 100000,
+            "maxTokens": 8000
+          }
+        ]
+      },
+      "threw": null,
+      "apiStream": [
+        "   ",
+        "anthropic-messages",
+        "azure-openai-responses",
+        "bedrock-converse-stream",
+        "custom-api-a",
+        "google-generative-ai",
+        "google-vertex",
+        "mistral-conversations",
+        "openai-codex-responses",
+        "openai-completions",
+        "openai-responses"
+      ]
+    },
+    {
+      "name": "models-model-no-api",
+      "config": {
+        "baseUrl": "https://x",
+        "apiKey": "k",
+        "models": [
+          {
+            "id": "c",
+            "name": "c",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 100000,
+            "maxTokens": 8000
+          }
+        ]
+      },
+      "threw": "Provider models-model-no-api, model c: no \"api\" specified.",
+      "apiStream": [
+        "   ",
+        "anthropic-messages",
+        "azure-openai-responses",
+        "bedrock-converse-stream",
+        "custom-api-a",
+        "google-generative-ai",
+        "google-vertex",
+        "mistral-conversations",
+        "openai-codex-responses",
+        "openai-completions",
+        "openai-responses"
+      ]
+    },
+    {
+      "name": "models-model-own-api",
+      "config": {
+        "baseUrl": "https://x",
+        "apiKey": "k",
+        "models": [
+          {
+            "id": "d",
+            "name": "d",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 100000,
+            "maxTokens": 8000,
+            "api": "x"
+          }
+        ]
+      },
+      "threw": null,
+      "apiStream": [
+        "   ",
+        "anthropic-messages",
+        "azure-openai-responses",
+        "bedrock-converse-stream",
+        "custom-api-a",
+        "google-generative-ai",
+        "google-vertex",
+        "mistral-conversations",
+        "openai-codex-responses",
+        "openai-completions",
+        "openai-responses"
+      ]
+    },
+    {
+      "name": "models-provider-api",
+      "config": {
+        "api": "x",
+        "baseUrl": "https://x",
+        "apiKey": "k",
+        "models": [
+          {
+            "id": "e",
+            "name": "e",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 100000,
+            "maxTokens": 8000
+          }
+        ]
+      },
+      "threw": null,
+      "apiStream": [
+        "   ",
+        "anthropic-messages",
+        "azure-openai-responses",
+        "bedrock-converse-stream",
+        "custom-api-a",
+        "google-generative-ai",
+        "google-vertex",
+        "mistral-conversations",
+        "openai-codex-responses",
+        "openai-completions",
+        "openai-responses"
+      ]
+    },
+    {
+      "name": "stream-two-providers-same-source",
+      "config": {
+        "api": "custom-api-a",
+        "streamSimple": "<function>"
+      },
+      "threw": null,
+      "apiStream": [
+        "   ",
+        "anthropic-messages",
+        "azure-openai-responses",
+        "bedrock-converse-stream",
+        "custom-api-a",
+        "google-generative-ai",
+        "google-vertex",
+        "mistral-conversations",
+        "openai-codex-responses",
+        "openai-completions",
+        "openai-responses"
+      ]
+    },
+    {
+      "name": "stream-streamsimple-dispatches-before-rust",
+      "config": {
+        "api": "custom-api-b",
+        "streamSimple": "<function>"
+      },
+      "threw": null,
+      "apiStream": [
+        "   ",
+        "anthropic-messages",
+        "azure-openai-responses",
+        "bedrock-converse-stream",
+        "custom-api-a",
+        "custom-api-b",
+        "google-generative-ai",
+        "google-vertex",
+        "mistral-conversations",
+        "openai-codex-responses",
+        "openai-completions",
+        "openai-responses"
+      ]
+    }
+  ]
+}
