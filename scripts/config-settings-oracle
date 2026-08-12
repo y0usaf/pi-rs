@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Regenerate the config-settings parity oracle from Pi's real SettingsManager
+# (merge + migration + typed getters) and KeybindingsManager (resolution +
+# legacy-name migration). See tests/config-settings-parity/.
+#
+# Run via scripts/config-settings-oracle. Offline normal checks consume the
+# checked oracle; opt-in regeneration drives the pinned Pi source.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+oracle=tests/config-settings-parity/oracle.json
+if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
+  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
+fi
+ref/pi/node_modules/.bin/tsx --tsconfig ref/pi/tsconfig.json \
+  tests/config-settings-parity/gen-oracle.ts "$oracle"
+echo "wrote $oracle"

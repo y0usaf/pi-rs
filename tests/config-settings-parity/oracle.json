@@ -1,0 +1,1755 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "getters": [
+    "getTheme",
+    "getDefaultProvider",
+    "getDefaultModel",
+    "getSteeringMode",
+    "getFollowUpMode",
+    "getDefaultThinkingLevel",
+    "getTransport",
+    "getCompactionEnabled",
+    "getCompactionReserveTokens",
+    "getCompactionKeepRecentTokens",
+    "getCompactionSettings",
+    "getBranchSummarySettings",
+    "getBranchSummarySkipPrompt",
+    "getRetryEnabled",
+    "getRetrySettings",
+    "getHttpIdleTimeoutMs",
+    "getProviderRetrySettings",
+    "getWebSocketConnectTimeoutMs",
+    "getHideThinkingBlock",
+    "getShellPath",
+    "getQuietStartup",
+    "getDefaultProjectTrust",
+    "getShellCommandPrefix",
+    "getNpmCommand",
+    "getCollapseChangelog",
+    "getEnableInstallTelemetry",
+    "getPackages",
+    "getExtensionPaths",
+    "getSkillPaths",
+    "getPromptTemplatePaths",
+    "getThemePaths",
+    "getEnableSkillCommands",
+    "getThinkingBudgets",
+    "getShowImages",
+    "getImageWidthCells",
+    "getClearOnShrink",
+    "getShowTerminalProgress",
+    "getImageAutoResize",
+    "getBlockImages",
+    "getEnabledModels",
+    "getDoubleEscapeAction",
+    "getTreeFilterMode",
+    "getShowHardwareCursor",
+    "getEditorPaddingX",
+    "getAutocompleteMaxVisible",
+    "getCodeBlockIndent",
+    "getWarnings"
+  ],
+  "scenarios": [
+    {
+      "name": "defaults",
+      "projectTrusted": true,
+      "global": {},
+      "project": {},
+      "getters": {
+        "getTheme": null,
+        "getDefaultProvider": null,
+        "getDefaultModel": null,
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": null,
+        "getTransport": "auto",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": true,
+        "getRetrySettings": {
+          "enabled": true,
+          "maxRetries": 3,
+          "baseDelayMs": 2000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "maxRetryDelayMs": 60000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": false,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [],
+        "getExtensionPaths": [],
+        "getSkillPaths": [],
+        "getPromptTemplatePaths": [],
+        "getThemePaths": [],
+        "getEnableSkillCommands": true,
+        "getThinkingBudgets": null,
+        "getShowImages": true,
+        "getImageWidthCells": 60,
+        "getClearOnShrink": false,
+        "getShowTerminalProgress": false,
+        "getImageAutoResize": true,
+        "getBlockImages": false,
+        "getEnabledModels": null,
+        "getDoubleEscapeAction": "tree",
+        "getTreeFilterMode": "default",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 0,
+        "getAutocompleteMaxVisible": 5,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    },
+    {
+      "name": "global-only-theme-retry",
+      "projectTrusted": true,
+      "global": {
+        "theme": "dark",
+        "retry": {
+          "enabled": true,
+          "maxRetries": 2
+        }
+      },
+      "project": {},
+      "getters": {
+        "getTheme": "dark",
+        "getDefaultProvider": null,
+        "getDefaultModel": null,
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": null,
+        "getTransport": "auto",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": true,
+        "getRetrySettings": {
+          "enabled": true,
+          "maxRetries": 2,
+          "baseDelayMs": 2000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "maxRetryDelayMs": 60000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": false,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [],
+        "getExtensionPaths": [],
+        "getSkillPaths": [],
+        "getPromptTemplatePaths": [],
+        "getThemePaths": [],
+        "getEnableSkillCommands": true,
+        "getThinkingBudgets": null,
+        "getShowImages": true,
+        "getImageWidthCells": 60,
+        "getClearOnShrink": false,
+        "getShowTerminalProgress": false,
+        "getImageAutoResize": true,
+        "getBlockImages": false,
+        "getEnabledModels": null,
+        "getDoubleEscapeAction": "tree",
+        "getTreeFilterMode": "default",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 0,
+        "getAutocompleteMaxVisible": 5,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    },
+    {
+      "name": "project-overrides-global",
+      "projectTrusted": true,
+      "global": {
+        "theme": "dark",
+        "retry": {
+          "enabled": true,
+          "maxRetries": 2
+        },
+        "enabledModels": [
+          "openai/*"
+        ]
+      },
+      "project": {
+        "theme": "light",
+        "retry": {
+          "enabled": false
+        },
+        "enabledModels": [
+          "anthropic/*"
+        ]
+      },
+      "getters": {
+        "getTheme": "light",
+        "getDefaultProvider": null,
+        "getDefaultModel": null,
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": null,
+        "getTransport": "auto",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": false,
+        "getRetrySettings": {
+          "enabled": false,
+          "maxRetries": 2,
+          "baseDelayMs": 2000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "maxRetryDelayMs": 60000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": false,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [],
+        "getExtensionPaths": [],
+        "getSkillPaths": [],
+        "getPromptTemplatePaths": [],
+        "getThemePaths": [],
+        "getEnableSkillCommands": true,
+        "getThinkingBudgets": null,
+        "getShowImages": true,
+        "getImageWidthCells": 60,
+        "getClearOnShrink": false,
+        "getShowTerminalProgress": false,
+        "getImageAutoResize": true,
+        "getBlockImages": false,
+        "getEnabledModels": [
+          "anthropic/*"
+        ],
+        "getDoubleEscapeAction": "tree",
+        "getTreeFilterMode": "default",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 0,
+        "getAutocompleteMaxVisible": 5,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    },
+    {
+      "name": "untrusted-project-ignored",
+      "projectTrusted": false,
+      "global": {
+        "theme": "dark"
+      },
+      "project": {},
+      "getters": {
+        "getTheme": "dark",
+        "getDefaultProvider": null,
+        "getDefaultModel": null,
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": null,
+        "getTransport": "auto",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": true,
+        "getRetrySettings": {
+          "enabled": true,
+          "maxRetries": 3,
+          "baseDelayMs": 2000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "maxRetryDelayMs": 60000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": false,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [],
+        "getExtensionPaths": [],
+        "getSkillPaths": [],
+        "getPromptTemplatePaths": [],
+        "getThemePaths": [],
+        "getEnableSkillCommands": true,
+        "getThinkingBudgets": null,
+        "getShowImages": true,
+        "getImageWidthCells": 60,
+        "getClearOnShrink": false,
+        "getShowTerminalProgress": false,
+        "getImageAutoResize": true,
+        "getBlockImages": false,
+        "getEnabledModels": null,
+        "getDoubleEscapeAction": "tree",
+        "getTreeFilterMode": "default",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 0,
+        "getAutocompleteMaxVisible": 5,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    },
+    {
+      "name": "nested-one-level-merge-keeps-untouched",
+      "projectTrusted": true,
+      "global": {
+        "retry": {
+          "enabled": true,
+          "maxRetries": 3,
+          "baseDelayMs": 5000
+        }
+      },
+      "project": {
+        "retry": {
+          "enabled": false
+        }
+      },
+      "getters": {
+        "getTheme": null,
+        "getDefaultProvider": null,
+        "getDefaultModel": null,
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": null,
+        "getTransport": "auto",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": false,
+        "getRetrySettings": {
+          "enabled": false,
+          "maxRetries": 3,
+          "baseDelayMs": 5000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "maxRetryDelayMs": 60000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": false,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [],
+        "getExtensionPaths": [],
+        "getSkillPaths": [],
+        "getPromptTemplatePaths": [],
+        "getThemePaths": [],
+        "getEnableSkillCommands": true,
+        "getThinkingBudgets": null,
+        "getShowImages": true,
+        "getImageWidthCells": 60,
+        "getClearOnShrink": false,
+        "getShowTerminalProgress": false,
+        "getImageAutoResize": true,
+        "getBlockImages": false,
+        "getEnabledModels": null,
+        "getDoubleEscapeAction": "tree",
+        "getTreeFilterMode": "default",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 0,
+        "getAutocompleteMaxVisible": 5,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    },
+    {
+      "name": "migrations-queueMode-websockets",
+      "projectTrusted": true,
+      "global": {
+        "steeringMode": "one-at-a-time",
+        "transport": "sse"
+      },
+      "project": {},
+      "getters": {
+        "getTheme": null,
+        "getDefaultProvider": null,
+        "getDefaultModel": null,
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": null,
+        "getTransport": "sse",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": true,
+        "getRetrySettings": {
+          "enabled": true,
+          "maxRetries": 3,
+          "baseDelayMs": 2000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "maxRetryDelayMs": 60000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": false,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [],
+        "getExtensionPaths": [],
+        "getSkillPaths": [],
+        "getPromptTemplatePaths": [],
+        "getThemePaths": [],
+        "getEnableSkillCommands": true,
+        "getThinkingBudgets": null,
+        "getShowImages": true,
+        "getImageWidthCells": 60,
+        "getClearOnShrink": false,
+        "getShowTerminalProgress": false,
+        "getImageAutoResize": true,
+        "getBlockImages": false,
+        "getEnabledModels": null,
+        "getDoubleEscapeAction": "tree",
+        "getTreeFilterMode": "default",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 0,
+        "getAutocompleteMaxVisible": 5,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    },
+    {
+      "name": "migrations-skills-object-format",
+      "projectTrusted": true,
+      "global": {
+        "skills": [
+          "dir1",
+          "dir2"
+        ],
+        "enableSkillCommands": false
+      },
+      "project": {},
+      "getters": {
+        "getTheme": null,
+        "getDefaultProvider": null,
+        "getDefaultModel": null,
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": null,
+        "getTransport": "auto",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": true,
+        "getRetrySettings": {
+          "enabled": true,
+          "maxRetries": 3,
+          "baseDelayMs": 2000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "maxRetryDelayMs": 60000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": false,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [],
+        "getExtensionPaths": [],
+        "getSkillPaths": [
+          "dir1",
+          "dir2"
+        ],
+        "getPromptTemplatePaths": [],
+        "getThemePaths": [],
+        "getEnableSkillCommands": false,
+        "getThinkingBudgets": null,
+        "getShowImages": true,
+        "getImageWidthCells": 60,
+        "getClearOnShrink": false,
+        "getShowTerminalProgress": false,
+        "getImageAutoResize": true,
+        "getBlockImages": false,
+        "getEnabledModels": null,
+        "getDoubleEscapeAction": "tree",
+        "getTreeFilterMode": "default",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 0,
+        "getAutocompleteMaxVisible": 5,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    },
+    {
+      "name": "migrations-retry-maxDelayMs",
+      "projectTrusted": true,
+      "global": {
+        "retry": {
+          "provider": {
+            "maxRetryDelayMs": 9000
+          }
+        }
+      },
+      "project": {},
+      "getters": {
+        "getTheme": null,
+        "getDefaultProvider": null,
+        "getDefaultModel": null,
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": null,
+        "getTransport": "auto",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": true,
+        "getRetrySettings": {
+          "enabled": true,
+          "maxRetries": 3,
+          "baseDelayMs": 2000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "maxRetryDelayMs": 9000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": false,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [],
+        "getExtensionPaths": [],
+        "getSkillPaths": [],
+        "getPromptTemplatePaths": [],
+        "getThemePaths": [],
+        "getEnableSkillCommands": true,
+        "getThinkingBudgets": null,
+        "getShowImages": true,
+        "getImageWidthCells": 60,
+        "getClearOnShrink": false,
+        "getShowTerminalProgress": false,
+        "getImageAutoResize": true,
+        "getBlockImages": false,
+        "getEnabledModels": null,
+        "getDoubleEscapeAction": "tree",
+        "getTreeFilterMode": "default",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 0,
+        "getAutocompleteMaxVisible": 5,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    },
+    {
+      "name": "migrations-retry-maxDelayMs-keeps-provider",
+      "projectTrusted": true,
+      "global": {
+        "retry": {
+          "provider": {
+            "timeoutMs": 1000,
+            "maxRetryDelayMs": 9000
+          }
+        }
+      },
+      "project": {},
+      "getters": {
+        "getTheme": null,
+        "getDefaultProvider": null,
+        "getDefaultModel": null,
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": null,
+        "getTransport": "auto",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": true,
+        "getRetrySettings": {
+          "enabled": true,
+          "maxRetries": 3,
+          "baseDelayMs": 2000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "timeoutMs": 1000,
+          "maxRetryDelayMs": 9000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": false,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [],
+        "getExtensionPaths": [],
+        "getSkillPaths": [],
+        "getPromptTemplatePaths": [],
+        "getThemePaths": [],
+        "getEnableSkillCommands": true,
+        "getThinkingBudgets": null,
+        "getShowImages": true,
+        "getImageWidthCells": 60,
+        "getClearOnShrink": false,
+        "getShowTerminalProgress": false,
+        "getImageAutoResize": true,
+        "getBlockImages": false,
+        "getEnabledModels": null,
+        "getDoubleEscapeAction": "tree",
+        "getTreeFilterMode": "default",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 0,
+        "getAutocompleteMaxVisible": 5,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    },
+    {
+      "name": "terminal-images-context",
+      "projectTrusted": true,
+      "global": {
+        "terminal": {
+          "showImages": false,
+          "imageWidthCells": 40,
+          "clearOnShrink": true,
+          "showTerminalProgress": true
+        },
+        "images": {
+          "autoResize": false,
+          "blockImages": true
+        }
+      },
+      "project": {},
+      "getters": {
+        "getTheme": null,
+        "getDefaultProvider": null,
+        "getDefaultModel": null,
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": null,
+        "getTransport": "auto",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": true,
+        "getRetrySettings": {
+          "enabled": true,
+          "maxRetries": 3,
+          "baseDelayMs": 2000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "maxRetryDelayMs": 60000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": false,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [],
+        "getExtensionPaths": [],
+        "getSkillPaths": [],
+        "getPromptTemplatePaths": [],
+        "getThemePaths": [],
+        "getEnableSkillCommands": true,
+        "getThinkingBudgets": null,
+        "getShowImages": false,
+        "getImageWidthCells": 40,
+        "getClearOnShrink": true,
+        "getShowTerminalProgress": true,
+        "getImageAutoResize": false,
+        "getBlockImages": true,
+        "getEnabledModels": null,
+        "getDoubleEscapeAction": "tree",
+        "getTreeFilterMode": "default",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 0,
+        "getAutocompleteMaxVisible": 5,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    },
+    {
+      "name": "clamped-getters-editorPadding-autocomplete",
+      "projectTrusted": true,
+      "global": {
+        "editorPaddingX": 9,
+        "autocompleteMaxVisible": 99,
+        "imageWidthCells": 200
+      },
+      "project": {},
+      "getters": {
+        "getTheme": null,
+        "getDefaultProvider": null,
+        "getDefaultModel": null,
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": null,
+        "getTransport": "auto",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": true,
+        "getRetrySettings": {
+          "enabled": true,
+          "maxRetries": 3,
+          "baseDelayMs": 2000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "maxRetryDelayMs": 60000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": false,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [],
+        "getExtensionPaths": [],
+        "getSkillPaths": [],
+        "getPromptTemplatePaths": [],
+        "getThemePaths": [],
+        "getEnableSkillCommands": true,
+        "getThinkingBudgets": null,
+        "getShowImages": true,
+        "getImageWidthCells": 60,
+        "getClearOnShrink": false,
+        "getShowTerminalProgress": false,
+        "getImageAutoResize": true,
+        "getBlockImages": false,
+        "getEnabledModels": null,
+        "getDoubleEscapeAction": "tree",
+        "getTreeFilterMode": "default",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 9,
+        "getAutocompleteMaxVisible": 99,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    },
+    {
+      "name": "thinking-levels",
+      "projectTrusted": true,
+      "global": {
+        "defaultThinkingLevel": "high",
+        "hideThinkingBlock": true
+      },
+      "project": {},
+      "getters": {
+        "getTheme": null,
+        "getDefaultProvider": null,
+        "getDefaultModel": null,
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": "high",
+        "getTransport": "auto",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": true,
+        "getRetrySettings": {
+          "enabled": true,
+          "maxRetries": 3,
+          "baseDelayMs": 2000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "maxRetryDelayMs": 60000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": true,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [],
+        "getExtensionPaths": [],
+        "getSkillPaths": [],
+        "getPromptTemplatePaths": [],
+        "getThemePaths": [],
+        "getEnableSkillCommands": true,
+        "getThinkingBudgets": null,
+        "getShowImages": true,
+        "getImageWidthCells": 60,
+        "getClearOnShrink": false,
+        "getShowTerminalProgress": false,
+        "getImageAutoResize": true,
+        "getBlockImages": false,
+        "getEnabledModels": null,
+        "getDoubleEscapeAction": "tree",
+        "getTreeFilterMode": "default",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 0,
+        "getAutocompleteMaxVisible": 5,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    },
+    {
+      "name": "session-navigation-reads",
+      "projectTrusted": true,
+      "global": {
+        "doubleEscapeAction": "fork",
+        "treeFilterMode": "no-tools"
+      },
+      "project": {},
+      "getters": {
+        "getTheme": null,
+        "getDefaultProvider": null,
+        "getDefaultModel": null,
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": null,
+        "getTransport": "auto",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": true,
+        "getRetrySettings": {
+          "enabled": true,
+          "maxRetries": 3,
+          "baseDelayMs": 2000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "maxRetryDelayMs": 60000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": false,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [],
+        "getExtensionPaths": [],
+        "getSkillPaths": [],
+        "getPromptTemplatePaths": [],
+        "getThemePaths": [],
+        "getEnableSkillCommands": true,
+        "getThinkingBudgets": null,
+        "getShowImages": true,
+        "getImageWidthCells": 60,
+        "getClearOnShrink": false,
+        "getShowTerminalProgress": false,
+        "getImageAutoResize": true,
+        "getBlockImages": false,
+        "getEnabledModels": null,
+        "getDoubleEscapeAction": "fork",
+        "getTreeFilterMode": "no-tools",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 0,
+        "getAutocompleteMaxVisible": 5,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    },
+    {
+      "name": "resource-paths-packages",
+      "projectTrusted": true,
+      "global": {
+        "extensions": [
+          "ext1"
+        ],
+        "skills": [
+          "skill1"
+        ],
+        "prompts": [
+          "prompt1"
+        ],
+        "themes": [
+          "theme1"
+        ],
+        "packages": [
+          "pkg1",
+          {
+            "source": "git:demo",
+            "extensions": [
+              "a.lua"
+            ]
+          }
+        ]
+      },
+      "project": {},
+      "getters": {
+        "getTheme": null,
+        "getDefaultProvider": null,
+        "getDefaultModel": null,
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": null,
+        "getTransport": "auto",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": true,
+        "getRetrySettings": {
+          "enabled": true,
+          "maxRetries": 3,
+          "baseDelayMs": 2000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "maxRetryDelayMs": 60000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": false,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [
+          "pkg1",
+          {
+            "source": "git:demo",
+            "extensions": [
+              "a.lua"
+            ]
+          }
+        ],
+        "getExtensionPaths": [
+          "ext1"
+        ],
+        "getSkillPaths": [
+          "skill1"
+        ],
+        "getPromptTemplatePaths": [
+          "prompt1"
+        ],
+        "getThemePaths": [
+          "theme1"
+        ],
+        "getEnableSkillCommands": true,
+        "getThinkingBudgets": null,
+        "getShowImages": true,
+        "getImageWidthCells": 60,
+        "getClearOnShrink": false,
+        "getShowTerminalProgress": false,
+        "getImageAutoResize": true,
+        "getBlockImages": false,
+        "getEnabledModels": null,
+        "getDoubleEscapeAction": "tree",
+        "getTreeFilterMode": "default",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 0,
+        "getAutocompleteMaxVisible": 5,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    },
+    {
+      "name": "project-merge-all-kinds",
+      "projectTrusted": true,
+      "global": {
+        "theme": "dark",
+        "defaultProvider": "anthropic",
+        "defaultModel": "claude-opus-4-6",
+        "terminal": {
+          "showImages": false,
+          "imageWidthCells": 50
+        },
+        "packages": [
+          "global-pkg"
+        ]
+      },
+      "project": {
+        "theme": "light",
+        "terminal": {
+          "showImages": true
+        },
+        "packages": [
+          "project-pkg"
+        ]
+      },
+      "getters": {
+        "getTheme": "light",
+        "getDefaultProvider": "anthropic",
+        "getDefaultModel": "claude-opus-4-6",
+        "getSteeringMode": "one-at-a-time",
+        "getFollowUpMode": "one-at-a-time",
+        "getDefaultThinkingLevel": null,
+        "getTransport": "auto",
+        "getCompactionEnabled": true,
+        "getCompactionReserveTokens": 16384,
+        "getCompactionKeepRecentTokens": 20000,
+        "getCompactionSettings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 20000
+        },
+        "getBranchSummarySettings": {
+          "reserveTokens": 16384,
+          "skipPrompt": false
+        },
+        "getBranchSummarySkipPrompt": false,
+        "getRetryEnabled": true,
+        "getRetrySettings": {
+          "enabled": true,
+          "maxRetries": 3,
+          "baseDelayMs": 2000
+        },
+        "getHttpIdleTimeoutMs": 300000,
+        "getProviderRetrySettings": {
+          "maxRetryDelayMs": 60000
+        },
+        "getWebSocketConnectTimeoutMs": null,
+        "getHideThinkingBlock": false,
+        "getShellPath": null,
+        "getQuietStartup": false,
+        "getDefaultProjectTrust": "ask",
+        "getShellCommandPrefix": null,
+        "getNpmCommand": null,
+        "getCollapseChangelog": false,
+        "getEnableInstallTelemetry": true,
+        "getPackages": [
+          "project-pkg"
+        ],
+        "getExtensionPaths": [],
+        "getSkillPaths": [],
+        "getPromptTemplatePaths": [],
+        "getThemePaths": [],
+        "getEnableSkillCommands": true,
+        "getThinkingBudgets": null,
+        "getShowImages": true,
+        "getImageWidthCells": 50,
+        "getClearOnShrink": false,
+        "getShowTerminalProgress": false,
+        "getImageAutoResize": true,
+        "getBlockImages": false,
+        "getEnabledModels": null,
+        "getDoubleEscapeAction": "tree",
+        "getTreeFilterMode": "default",
+        "getShowHardwareCursor": false,
+        "getEditorPaddingX": 0,
+        "getAutocompleteMaxVisible": 5,
+        "getCodeBlockIndent": "  ",
+        "getWarnings": {}
+      }
+    }
+  ],
+  "keybindings": {
+    "migrate": [
+      {
+        "name": "legacy-and-modern",
+        "raw": {
+          "cursorUp": "ctrl+p",
+          "app.exit": [
+            "ctrl+q"
+          ]
+        },
+        "config": {
+          "tui.editor.cursorUp": "ctrl+p",
+          "app.exit": [
+            "ctrl+q"
+          ]
+        },
+        "migrated": true
+      },
+      {
+        "name": "legacy-collision-keeps-modern",
+        "raw": {
+          "cursorUp": "ctrl+p",
+          "tui.editor.cursorUp": "ctrl+e"
+        },
+        "config": {
+          "tui.editor.cursorUp": "ctrl+e"
+        },
+        "migrated": true
+      },
+      {
+        "name": "unknown-and-array",
+        "raw": {
+          "no.such.action": "ctrl+x",
+          "app.tools.expand": [
+            "ctrl+o",
+            "ctrl+1"
+          ]
+        },
+        "config": {
+          "app.tools.expand": [
+            "ctrl+o",
+            "ctrl+1"
+          ],
+          "no.such.action": "ctrl+x"
+        },
+        "migrated": false
+      }
+    ],
+    "resolved": [
+      {
+        "name": "simple-overrides",
+        "user": {
+          "app.exit": [
+            "ctrl+d",
+            "ctrl+q"
+          ],
+          "tui.editor.cursorLeft": "ctrl+h"
+        },
+        "resolved": {
+          "tui.editor.cursorUp": "up",
+          "tui.editor.cursorDown": "down",
+          "tui.editor.cursorLeft": "ctrl+h",
+          "tui.editor.cursorRight": [
+            "right",
+            "ctrl+f"
+          ],
+          "tui.editor.cursorWordLeft": [
+            "alt+left",
+            "ctrl+left",
+            "alt+b"
+          ],
+          "tui.editor.cursorWordRight": [
+            "alt+right",
+            "ctrl+right",
+            "alt+f"
+          ],
+          "tui.editor.cursorLineStart": [
+            "home",
+            "ctrl+a"
+          ],
+          "tui.editor.cursorLineEnd": [
+            "end",
+            "ctrl+e"
+          ],
+          "tui.editor.jumpForward": "ctrl+]",
+          "tui.editor.jumpBackward": "ctrl+alt+]",
+          "tui.editor.pageUp": "pageUp",
+          "tui.editor.pageDown": "pageDown",
+          "tui.editor.deleteCharBackward": "backspace",
+          "tui.editor.deleteCharForward": [
+            "delete",
+            "ctrl+d"
+          ],
+          "tui.editor.deleteWordBackward": [
+            "ctrl+w",
+            "alt+backspace"
+          ],
+          "tui.editor.deleteWordForward": [
+            "alt+d",
+            "alt+delete"
+          ],
+          "tui.editor.deleteToLineStart": "ctrl+u",
+          "tui.editor.deleteToLineEnd": "ctrl+k",
+          "tui.editor.yank": "ctrl+y",
+          "tui.editor.yankPop": "alt+y",
+          "tui.editor.undo": "ctrl+-",
+          "tui.input.newLine": "shift+enter",
+          "tui.input.submit": "enter",
+          "tui.input.tab": "tab",
+          "tui.input.copy": "ctrl+c",
+          "tui.select.up": "up",
+          "tui.select.down": "down",
+          "tui.select.pageUp": "pageUp",
+          "tui.select.pageDown": "pageDown",
+          "tui.select.confirm": "enter",
+          "tui.select.cancel": [
+            "escape",
+            "ctrl+c"
+          ],
+          "app.interrupt": "escape",
+          "app.clear": "ctrl+c",
+          "app.exit": [
+            "ctrl+d",
+            "ctrl+q"
+          ],
+          "app.suspend": "ctrl+z",
+          "app.thinking.cycle": "shift+tab",
+          "app.model.cycleForward": "ctrl+p",
+          "app.model.cycleBackward": "shift+ctrl+p",
+          "app.model.select": "ctrl+l",
+          "app.tools.expand": "ctrl+o",
+          "app.thinking.toggle": "ctrl+t",
+          "app.session.toggleNamedFilter": "ctrl+n",
+          "app.editor.external": "ctrl+g",
+          "app.message.followUp": "alt+enter",
+          "app.message.dequeue": "alt+up",
+          "app.clipboard.pasteImage": "ctrl+v",
+          "app.session.new": [],
+          "app.session.tree": [],
+          "app.session.fork": [],
+          "app.session.resume": [],
+          "app.tree.foldOrUp": [
+            "ctrl+left",
+            "alt+left"
+          ],
+          "app.tree.unfoldOrDown": [
+            "ctrl+right",
+            "alt+right"
+          ],
+          "app.tree.editLabel": "shift+l",
+          "app.tree.toggleLabelTimestamp": "shift+t",
+          "app.session.togglePath": "ctrl+p",
+          "app.session.toggleSort": "ctrl+s",
+          "app.session.rename": "ctrl+r",
+          "app.session.delete": "ctrl+d",
+          "app.session.deleteNoninvasive": "ctrl+backspace",
+          "app.models.save": "ctrl+s",
+          "app.models.enableAll": "ctrl+a",
+          "app.models.clearAll": "ctrl+x",
+          "app.models.toggleProvider": "ctrl+p",
+          "app.models.reorderUp": "alt+up",
+          "app.models.reorderDown": "alt+down",
+          "app.tree.filter.default": "ctrl+d",
+          "app.tree.filter.noTools": "ctrl+t",
+          "app.tree.filter.userOnly": "ctrl+u",
+          "app.tree.filter.labeledOnly": "ctrl+l",
+          "app.tree.filter.all": "ctrl+a",
+          "app.tree.filter.cycleForward": "ctrl+o",
+          "app.tree.filter.cycleBackward": "shift+ctrl+o"
+        },
+        "conflicts": []
+      },
+      {
+        "name": "empty-defaults-action",
+        "user": {
+          "app.session.new": "ctrl+n"
+        },
+        "resolved": {
+          "tui.editor.cursorUp": "up",
+          "tui.editor.cursorDown": "down",
+          "tui.editor.cursorLeft": [
+            "left",
+            "ctrl+b"
+          ],
+          "tui.editor.cursorRight": [
+            "right",
+            "ctrl+f"
+          ],
+          "tui.editor.cursorWordLeft": [
+            "alt+left",
+            "ctrl+left",
+            "alt+b"
+          ],
+          "tui.editor.cursorWordRight": [
+            "alt+right",
+            "ctrl+right",
+            "alt+f"
+          ],
+          "tui.editor.cursorLineStart": [
+            "home",
+            "ctrl+a"
+          ],
+          "tui.editor.cursorLineEnd": [
+            "end",
+            "ctrl+e"
+          ],
+          "tui.editor.jumpForward": "ctrl+]",
+          "tui.editor.jumpBackward": "ctrl+alt+]",
+          "tui.editor.pageUp": "pageUp",
+          "tui.editor.pageDown": "pageDown",
+          "tui.editor.deleteCharBackward": "backspace",
+          "tui.editor.deleteCharForward": [
+            "delete",
+            "ctrl+d"
+          ],
+          "tui.editor.deleteWordBackward": [
+            "ctrl+w",
+            "alt+backspace"
+          ],
+          "tui.editor.deleteWordForward": [
+            "alt+d",
+            "alt+delete"
+          ],
+          "tui.editor.deleteToLineStart": "ctrl+u",
+          "tui.editor.deleteToLineEnd": "ctrl+k",
+          "tui.editor.yank": "ctrl+y",
+          "tui.editor.yankPop": "alt+y",
+          "tui.editor.undo": "ctrl+-",
+          "tui.input.newLine": "shift+enter",
+          "tui.input.submit": "enter",
+          "tui.input.tab": "tab",
+          "tui.input.copy": "ctrl+c",
+          "tui.select.up": "up",
+          "tui.select.down": "down",
+          "tui.select.pageUp": "pageUp",
+          "tui.select.pageDown": "pageDown",
+          "tui.select.confirm": "enter",
+          "tui.select.cancel": [
+            "escape",
+            "ctrl+c"
+          ],
+          "app.interrupt": "escape",
+          "app.clear": "ctrl+c",
+          "app.exit": "ctrl+d",
+          "app.suspend": "ctrl+z",
+          "app.thinking.cycle": "shift+tab",
+          "app.model.cycleForward": "ctrl+p",
+          "app.model.cycleBackward": "shift+ctrl+p",
+          "app.model.select": "ctrl+l",
+          "app.tools.expand": "ctrl+o",
+          "app.thinking.toggle": "ctrl+t",
+          "app.session.toggleNamedFilter": "ctrl+n",
+          "app.editor.external": "ctrl+g",
+          "app.message.followUp": "alt+enter",
+          "app.message.dequeue": "alt+up",
+          "app.clipboard.pasteImage": "ctrl+v",
+          "app.session.new": "ctrl+n",
+          "app.session.tree": [],
+          "app.session.fork": [],
+          "app.session.resume": [],
+          "app.tree.foldOrUp": [
+            "ctrl+left",
+            "alt+left"
+          ],
+          "app.tree.unfoldOrDown": [
+            "ctrl+right",
+            "alt+right"
+          ],
+          "app.tree.editLabel": "shift+l",
+          "app.tree.toggleLabelTimestamp": "shift+t",
+          "app.session.togglePath": "ctrl+p",
+          "app.session.toggleSort": "ctrl+s",
+          "app.session.rename": "ctrl+r",
+          "app.session.delete": "ctrl+d",
+          "app.session.deleteNoninvasive": "ctrl+backspace",
+          "app.models.save": "ctrl+s",
+          "app.models.enableAll": "ctrl+a",
+          "app.models.clearAll": "ctrl+x",
+          "app.models.toggleProvider": "ctrl+p",
+          "app.models.reorderUp": "alt+up",
+          "app.models.reorderDown": "alt+down",
+          "app.tree.filter.default": "ctrl+d",
+          "app.tree.filter.noTools": "ctrl+t",
+          "app.tree.filter.userOnly": "ctrl+u",
+          "app.tree.filter.labeledOnly": "ctrl+l",
+          "app.tree.filter.all": "ctrl+a",
+          "app.tree.filter.cycleForward": "ctrl+o",
+          "app.tree.filter.cycleBackward": "shift+ctrl+o"
+        },
+        "conflicts": []
+      },
+      {
+        "name": "conflicts",
+        "user": {
+          "app.exit": "ctrl+a",
+          "app.clear": "ctrl+a"
+        },
+        "resolved": {
+          "tui.editor.cursorUp": "up",
+          "tui.editor.cursorDown": "down",
+          "tui.editor.cursorLeft": [
+            "left",
+            "ctrl+b"
+          ],
+          "tui.editor.cursorRight": [
+            "right",
+            "ctrl+f"
+          ],
+          "tui.editor.cursorWordLeft": [
+            "alt+left",
+            "ctrl+left",
+            "alt+b"
+          ],
+          "tui.editor.cursorWordRight": [
+            "alt+right",
+            "ctrl+right",
+            "alt+f"
+          ],
+          "tui.editor.cursorLineStart": [
+            "home",
+            "ctrl+a"
+          ],
+          "tui.editor.cursorLineEnd": [
+            "end",
+            "ctrl+e"
+          ],
+          "tui.editor.jumpForward": "ctrl+]",
+          "tui.editor.jumpBackward": "ctrl+alt+]",
+          "tui.editor.pageUp": "pageUp",
+          "tui.editor.pageDown": "pageDown",
+          "tui.editor.deleteCharBackward": "backspace",
+          "tui.editor.deleteCharForward": [
+            "delete",
+            "ctrl+d"
+          ],
+          "tui.editor.deleteWordBackward": [
+            "ctrl+w",
+            "alt+backspace"
+          ],
+          "tui.editor.deleteWordForward": [
+            "alt+d",
+            "alt+delete"
+          ],
+          "tui.editor.deleteToLineStart": "ctrl+u",
+          "tui.editor.deleteToLineEnd": "ctrl+k",
+          "tui.editor.yank": "ctrl+y",
+          "tui.editor.yankPop": "alt+y",
+          "tui.editor.undo": "ctrl+-",
+          "tui.input.newLine": "shift+enter",
+          "tui.input.submit": "enter",
+          "tui.input.tab": "tab",
+          "tui.input.copy": "ctrl+c",
+          "tui.select.up": "up",
+          "tui.select.down": "down",
+          "tui.select.pageUp": "pageUp",
+          "tui.select.pageDown": "pageDown",
+          "tui.select.confirm": "enter",
+          "tui.select.cancel": [
+            "escape",
+            "ctrl+c"
+          ],
+          "app.interrupt": "escape",
+          "app.clear": "ctrl+a",
+          "app.exit": "ctrl+a",
+          "app.suspend": "ctrl+z",
+          "app.thinking.cycle": "shift+tab",
+          "app.model.cycleForward": "ctrl+p",
+          "app.model.cycleBackward": "shift+ctrl+p",
+          "app.model.select": "ctrl+l",
+          "app.tools.expand": "ctrl+o",
+          "app.thinking.toggle": "ctrl+t",
+          "app.session.toggleNamedFilter": "ctrl+n",
+          "app.editor.external": "ctrl+g",
+          "app.message.followUp": "alt+enter",
+          "app.message.dequeue": "alt+up",
+          "app.clipboard.pasteImage": "ctrl+v",
+          "app.session.new": [],
+          "app.session.tree": [],
+          "app.session.fork": [],
+          "app.session.resume": [],
+          "app.tree.foldOrUp": [
+            "ctrl+left",
+            "alt+left"
+          ],
+          "app.tree.unfoldOrDown": [
+            "ctrl+right",
+            "alt+right"
+          ],
+          "app.tree.editLabel": "shift+l",
+          "app.tree.toggleLabelTimestamp": "shift+t",
+          "app.session.togglePath": "ctrl+p",
+          "app.session.toggleSort": "ctrl+s",
+          "app.session.rename": "ctrl+r",
+          "app.session.delete": "ctrl+d",
+          "app.session.deleteNoninvasive": "ctrl+backspace",
+          "app.models.save": "ctrl+s",
+          "app.models.enableAll": "ctrl+a",
+          "app.models.clearAll": "ctrl+x",
+          "app.models.toggleProvider": "ctrl+p",
+          "app.models.reorderUp": "alt+up",
+          "app.models.reorderDown": "alt+down",
+          "app.tree.filter.default": "ctrl+d",
+          "app.tree.filter.noTools": "ctrl+t",
+          "app.tree.filter.userOnly": "ctrl+u",
+          "app.tree.filter.labeledOnly": "ctrl+l",
+          "app.tree.filter.all": "ctrl+a",
+          "app.tree.filter.cycleForward": "ctrl+o",
+          "app.tree.filter.cycleBackward": "shift+ctrl+o"
+        },
+        "conflicts": [
+          {
+            "key": "ctrl+a",
+            "keybindings": [
+              "app.exit",
+              "app.clear"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "no-user",
+        "user": {},
+        "resolved": {
+          "tui.editor.cursorUp": "up",
+          "tui.editor.cursorDown": "down",
+          "tui.editor.cursorLeft": [
+            "left",
+            "ctrl+b"
+          ],
+          "tui.editor.cursorRight": [
+            "right",
+            "ctrl+f"
+          ],
+          "tui.editor.cursorWordLeft": [
+            "alt+left",
+            "ctrl+left",
+            "alt+b"
+          ],
+          "tui.editor.cursorWordRight": [
+            "alt+right",
+            "ctrl+right",
+            "alt+f"
+          ],
+          "tui.editor.cursorLineStart": [
+            "home",
+            "ctrl+a"
+          ],
+          "tui.editor.cursorLineEnd": [
+            "end",
+            "ctrl+e"
+          ],
+          "tui.editor.jumpForward": "ctrl+]",
+          "tui.editor.jumpBackward": "ctrl+alt+]",
+          "tui.editor.pageUp": "pageUp",
+          "tui.editor.pageDown": "pageDown",
+          "tui.editor.deleteCharBackward": "backspace",
+          "tui.editor.deleteCharForward": [
+            "delete",
+            "ctrl+d"
+          ],
+          "tui.editor.deleteWordBackward": [
+            "ctrl+w",
+            "alt+backspace"
+          ],
+          "tui.editor.deleteWordForward": [
+            "alt+d",
+            "alt+delete"
+          ],
+          "tui.editor.deleteToLineStart": "ctrl+u",
+          "tui.editor.deleteToLineEnd": "ctrl+k",
+          "tui.editor.yank": "ctrl+y",
+          "tui.editor.yankPop": "alt+y",
+          "tui.editor.undo": "ctrl+-",
+          "tui.input.newLine": "shift+enter",
+          "tui.input.submit": "enter",
+          "tui.input.tab": "tab",
+          "tui.input.copy": "ctrl+c",
+          "tui.select.up": "up",
+          "tui.select.down": "down",
+          "tui.select.pageUp": "pageUp",
+          "tui.select.pageDown": "pageDown",
+          "tui.select.confirm": "enter",
+          "tui.select.cancel": [
+            "escape",
+            "ctrl+c"
+          ],
+          "app.interrupt": "escape",
+          "app.clear": "ctrl+c",
+          "app.exit": "ctrl+d",
+          "app.suspend": "ctrl+z",
+          "app.thinking.cycle": "shift+tab",
+          "app.model.cycleForward": "ctrl+p",
+          "app.model.cycleBackward": "shift+ctrl+p",
+          "app.model.select": "ctrl+l",
+          "app.tools.expand": "ctrl+o",
+          "app.thinking.toggle": "ctrl+t",
+          "app.session.toggleNamedFilter": "ctrl+n",
+          "app.editor.external": "ctrl+g",
+          "app.message.followUp": "alt+enter",
+          "app.message.dequeue": "alt+up",
+          "app.clipboard.pasteImage": "ctrl+v",
+          "app.session.new": [],
+          "app.session.tree": [],
+          "app.session.fork": [],
+          "app.session.resume": [],
+          "app.tree.foldOrUp": [
+            "ctrl+left",
+            "alt+left"
+          ],
+          "app.tree.unfoldOrDown": [
+            "ctrl+right",
+            "alt+right"
+          ],
+          "app.tree.editLabel": "shift+l",
+          "app.tree.toggleLabelTimestamp": "shift+t",
+          "app.session.togglePath": "ctrl+p",
+          "app.session.toggleSort": "ctrl+s",
+          "app.session.rename": "ctrl+r",
+          "app.session.delete": "ctrl+d",
+          "app.session.deleteNoninvasive": "ctrl+backspace",
+          "app.models.save": "ctrl+s",
+          "app.models.enableAll": "ctrl+a",
+          "app.models.clearAll": "ctrl+x",
+          "app.models.toggleProvider": "ctrl+p",
+          "app.models.reorderUp": "alt+up",
+          "app.models.reorderDown": "alt+down",
+          "app.tree.filter.default": "ctrl+d",
+          "app.tree.filter.noTools": "ctrl+t",
+          "app.tree.filter.userOnly": "ctrl+u",
+          "app.tree.filter.labeledOnly": "ctrl+l",
+          "app.tree.filter.all": "ctrl+a",
+          "app.tree.filter.cycleForward": "ctrl+o",
+          "app.tree.filter.cycleBackward": "shift+ctrl+o"
+        },
+        "conflicts": []
+      }
+    ]
+  }
+}
