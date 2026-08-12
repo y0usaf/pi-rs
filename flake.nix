@@ -290,7 +290,7 @@
             nativeBuildInputs = [ tools ];
           }
           ''
-            pi-rs-tools model-catalog selftest
+            pi-rs-tools model-catalog selftest --root ${self}
             touch $out
           '';
 

@@ -184,9 +184,30 @@ fn run_model_catalog(args: &[String]) -> Result<ExitCode, Box<dyn std::error::Er
     }
     match args[0].as_str() {
         "selftest" => {
-            // Self-test lives in an integration test; this is a thin shim that
-            // the flake check calls to prove the binary is wired.
-            pi_rs_tools::selftest::run()?;
+            // Offline fixture selftest. `--root DIR` points at the repository
+            // containing tests/model-catalog-update/ fixtures (the flake passes
+            // ${self}); otherwise it resolves from CARGO_MANIFEST_DIR.
+            let mut root_arg: Option<String> = None;
+            let mut it = args[1..].iter();
+            while let Some(a) = it.next() {
+                match a.as_str() {
+                    "--root" => {
+                        root_arg = it.next().cloned();
+                        if root_arg.is_none() {
+                            eprintln!("selftest --root requires a path");
+                            return Ok(ExitCode::from(2));
+                        }
+                    }
+                    other => {
+                        eprintln!("unknown selftest flag {other:?}");
+                        return Ok(ExitCode::from(2));
+                    }
+                }
+            }
+            match root_arg {
+                Some(r) => pi_rs_tools::selftest::run_root(std::path::Path::new(&r))?,
+                None => pi_rs_tools::selftest::run()?,
+            }
             Ok(ExitCode::SUCCESS)
         }
         "update" => {
