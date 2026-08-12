@@ -9,6 +9,7 @@ description = "Lua extension host: coroutine async seam, event bus, watchdog"
 base64.workspace = true
 fancy-regex.workspace = true
 libc.workspace = true
+getrandom.workspace = true
 futures-util.workspace = true
 pi-rs-ai.workspace = true
 pi-rs-ai-auth.workspace = true
@@ -36,6 +37,10 @@ unicode-normalization.workspace = true
 # own jpeg dependency). Pinned by tests/image-parity.
 image = { version = "=0.24.9", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "pnm", "tga", "ico", "hdr", "dds", "farbfeld"] }
 jpeg-decoder = { version = "=0.3.1", default-features = false, features = ["platform_independent", "rayon"] }
+twox-hash = "2.1.3"
+sha1 = "0.11.0"
+md-5 = "0.11.0"
+sha2.workspace = true
 
 [lints]
 workspace = true
