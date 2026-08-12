@@ -20,8 +20,8 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 
 | Classification | Source files | Public exports |
 |---|---:|---:|
-| `parity` | 173 | 455 |
-| `open` | 69 | 253 |
+| `parity` | 177 | 467 |
+| `open` | 65 | 241 |
 | `design` | 0 | 0 |
 | `out-of-scope` | 28 | 343 |
 
@@ -58,7 +58,7 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | `coding.assembly` | `open` | PLAN 11 | 3 | Generic role assembly is implemented (zero-pack boot, per-package suppression, file-backed replacement per construction-inventory implemented rows); the final side-by-side CLI differential remains the PLAN 11 gate. Evidence: `PLAN.md`. |
 | `coding.noninteractive` | `open` | PLAN 10 | 11 | Print, JSON/RPC, complete argument/file-input behavior, and serialized stdout/stderr/exit contracts remain prerequisites. Evidence: `PLAN.md`. |
 | `coding.extension-context` | `open` | PLAN 9.2 | 3 | Complete contexts in every mode plus session actions, cancellation, rebinding, and command-only restrictions remain open. Evidence: `PLAN.md`. |
-| `coding.extension-events` | `open` | PLAN 9.3 | 4 | The complete event vocabulary, fold/middleware semantics, and lifecycle ordering are not yet emitted at every real product seam. Evidence: `PLAN.md`. |
+| `coding.extension-events` | `parity` | closed | 4 | The full Pi event fold is pinned by two differential tests against the Pi-generated extension-event oracle: `complete_event_folds_match_pi_runner_oracle` asserts strict whole-output equality for the complete event vocabulary, ordering, fold/middleware results, transformed input, blocked tool_call, compact/tree/session-switch, context, trust, resources, and error isolation; `real_product_seams_follow_pi_generated_event_order` verifies productTrace and extensionErrors idempotent with the oracle at real startup/tool-using/provider seams through the print role on an SSE stub. Evidence: `tests/extension-event-parity/oracle.json`, `crates/pi-rs-app/tests/extension_loading.rs`, `crates/pi-rs-app/tests/extension_loading.rs`. |
 | `coding.extension-api` | `open` | PLAN 9.4 | 8 | Dynamic tools/messages/flags/shortcuts/providers and their live registry effects remain incomplete. Evidence: `PLAN.md`. |
 | `coding.extension-ui` | `open` | PLAN 9.5 | 12 | Public extension dialogs, slots, custom row rendering, editor/overlay composition, cleanup, and headless outcomes remain incomplete. Evidence: `PLAN.md`. |
 | `coding.lua-config` | `open` | PLAN 9.6 | 7 | The temporary JSON settings/keybindings/theme path must be replaced by atomic global/project config.lua declarations and mutations. Evidence: `PLAN.md`. |
@@ -142,17 +142,6 @@ Reference rows (3):
 - `packages/coding-agent/src/core/agent-session-runtime.ts`
 - `packages/coding-agent/src/core/agent-session-services.ts`
 - `packages/coding-agent/src/core/sdk.ts`
-
-### PLAN 9.3 — `coding.extension-events`
-
-The complete event vocabulary, fold/middleware semantics, and lifecycle ordering are not yet emitted at every real product seam.
-
-Reference rows (4):
-
-- `packages/coding-agent/src/core/agent-session.ts`
-- `packages/coding-agent/src/core/diagnostics.ts`
-- `packages/coding-agent/src/core/event-bus.ts`
-- `packages/coding-agent/src/core/timings.ts`
 
 ### PLAN 9.4 — `coding.extension-api`
 
@@ -267,5 +256,5 @@ Reference rows (2):
 - `ai:public:./openai-codex-responses` → `packages/ai/src/providers/openai-codex-responses.ts`: 7 exports (parity=7)
 - `ai:public:./openai-completions` → `packages/ai/src/providers/openai-completions.ts`: 4 exports (parity=4)
 - `ai:public:./openai-responses` → `packages/ai/src/providers/openai-responses.ts`: 3 exports (parity=3)
-- `coding-agent:public:.` → `packages/coding-agent/src/index.ts`: 337 exports (open=220, parity=117)
+- `coding-agent:public:.` → `packages/coding-agent/src/index.ts`: 337 exports (open=208, parity=129)
 - `tui:public:.` → `packages/tui/src/index.ts`: 100 exports (open=14, parity=86)
