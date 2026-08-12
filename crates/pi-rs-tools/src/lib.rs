@@ -13,6 +13,8 @@
 //! enumerated in the allowlist/legacy manifests is a rejection.
 
 pub mod acquire;
+pub mod construction_inventory;
+pub mod construction_inventory_selftest;
 pub mod gate;
 pub mod jsvalue;
 pub mod manifest;

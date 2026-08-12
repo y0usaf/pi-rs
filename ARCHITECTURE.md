@@ -501,6 +501,14 @@ crate pi_rs_tools
 ├── mod acquire: pub
 │   ├── struct Acquired: pub
 │   └── struct TempDir: pub
+├── mod construction_inventory: pub
+│   ├── enum InventoryError: pub
+│   ├── type Memberships: pub(self)
+│   └── type Result: pub(self)
+├── mod construction_inventory_selftest: pub
+│   ├── type Result: pub(self)
+│   ├── enum SelftestError: pub
+│   └── struct Temp: pub(self)
 ├── mod gate: pub
 │   ├── struct Flag: pub
 │   ├── struct Gate: pub

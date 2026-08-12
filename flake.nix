@@ -296,19 +296,30 @@
 
       # Fail-closed first-party construction inventory: embedded source units,
       # declarations, Rust launch/composition seams, and named open risks must
-      # all remain classified; negative controls pin rejection behavior.
+      # all remain classified; negative controls pin rejection behavior. Rust
+      # owner (`pi-rs-tools construction-inventory {check,selftest}`); no
+      # repo-owned Python runtime.
       mkConstructionInventoryTest =
         system:
         let
-          pkgs = mkPkgs system;
+          c = mkCraneLib system;
+          tools = c.craneLib.buildPackage {
+            inherit (c) src cargoArtifacts;
+            pname = "pi-rs-tools";
+            version = "0.1.0";
+            nativeBuildInputs = c.commonEnv.nativeBuildInputs;
+            cargoExtraArgs = "-p pi-rs-tools";
+            doCheck = false;
+            meta.mainProgram = "pi-rs-tools";
+          };
         in
-        pkgs.runCommand "construction-inventory-test"
+        c.pkgs.runCommand "construction-inventory-test"
           {
-            nativeBuildInputs = [ pkgs.python3 ];
+            nativeBuildInputs = [ tools ];
           }
           ''
-            python3 ${self}/scripts/construction-inventory --check
-            python3 ${self}/tests/construction-inventory/test_checker.py
+            pi-rs-tools construction-inventory --check --root ${self}
+            pi-rs-tools construction-inventory selftest --root ${self}
             touch $out
           '';
 
