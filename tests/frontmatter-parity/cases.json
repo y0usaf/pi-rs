@@ -1,0 +1,30 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "cases": [
+    {"name": "no-frontmatter", "content": "Hello world, just body text.\nLine two."},
+    {"name": "basic", "content": "---\nname: my-skill\ndescription: Does something\n---\n\nBody text here.\n"},
+    {"name": "empty-frontmatter", "content": "---\n---\n\nBody.\n"},
+    {"name": "no-closing", "content": "---\nname: skill\nNo closing delimiter here."},
+    {"name": "bare-delimiter", "content": "---\n"},
+    {"name": "body-no-trailing-newline", "content": "---\nname: test\n---\nBody without trailing newline"},
+    {"name": "multiline-yaml", "content": "---\ndescription: |\n  Multi-line\n  text.\n---\nBody"},
+    {"name": "scalar-values", "content": "---\ncount: 42\nenabled: true\n---\nBody"},
+    {"name": "nested", "content": "---\nkey: value\nnested:\n  inner: val\n---\nBody"},
+    {"name": "crlf", "content": "---\r\nname: win\ndescription: CRLF doc\r\n---\r\nBody after CRLF.\r\n"},
+    {"name": "cr-only", "content": "---\rname: cr\ndescription: CR only\r---\rBody after CR.\r"},
+    {"name": "closing-without-newline", "content": "---\nname: nl\n---End of body, dash not followed by newline"},
+    {"name": "triple-dash-inline-start", "content": "-----start but no real frontmatter\nbody"},
+    {"name": "empty-body-no-frontmatter-line", "content": "---\nname: x\n---\n"},
+    {"name": "leading-space-dashes", "content": "  ---\nname: indented\n---\nBody (delimiter indented)"},
+    {"name": "yaml-invalid", "content": "---\nname: [unclosed\n---\nBody"},
+    {"name": "html-in-body", "content": "Body\n---\nNot frontmatter (--- mid-document)\nmore"},
+    {"name": "empty-string", "content": ""},
+    {"name": "dash-inside-yaml", "content": "---\na: ----\n---\nBody"},
+    {"name": "yaml-empty-after-parse", "content": "---\n---\n\n"},
+    {"name": "unicode-body", "content": "---\nname: cjk\n---\n\u4e2d\u6587 body \u2713 ok"},
+    {"name": "frontmatter-only-no-body", "content": "---\nname: snippet\n---"},
+    {"name": "numeric-string-yaml", "content": "---\nversion: \"1.0\"\n---\nBody"},
+    {"name": "list-aware", "content": "---\ntags:\n  - a\n  - b\n---\nBody"},
+    {"name": "timestamp-like", "content": "---\ncreated: 2026-01-02\n---\nBody"}
+  ]
+}

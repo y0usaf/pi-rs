@@ -216,7 +216,7 @@ fn run() -> Result<ExitCode, HarnessError> {
     );
     let oracle_path = PathBuf::from(
         args.next()
-            .unwrap_or_else(|| "tests/ui-parity/basic-turn.pi.json".into()),
+            .unwrap_or_else(|| "tests/ui-parity/basic-turn.pci.json".into()),
     );
     if let Some(raw_path) = args.next() {
         if args.next().is_some() {
@@ -250,9 +250,11 @@ fn run() -> Result<ExitCode, HarnessError> {
             source,
         })?;
     let expected: Vec<FrameSnapshot> =
-        serde_json::from_str(&read(&oracle_path)?).map_err(|source| HarnessError::Json {
-            path: oracle_path.clone(),
-            source,
+        pi_rs_tui::compact_evidence::load_frames(&oracle_path).map_err(|source| {
+            HarnessError::Io {
+                path: oracle_path.clone(),
+                source,
+            }
         })?;
     // Scenario files land in a fresh temp cwd, mirroring the Pi driver's
     // mkdtemp; renderers only surface the relative paths from the args.

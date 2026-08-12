@@ -96,7 +96,7 @@ checked copies of external TypeScript extensions, Python inventory generators,
 and shell wrappers. Preserve the contracts, not their current representation.
 Complete these rungs before growing the extension surface further.
 
-- [ ] **A.1 Compact exact UI evidence without reducing coverage.** Replace the
+- [x] **A.1 Compact exact UI evidence without reducing coverage.** Replace the
       one-object-per-cell `tests/ui-parity/*.pi.json` format with one versioned,
       reviewable canonical format using a shared style palette, text/style runs,
       and frame deltas or an equally compact representation. Decode to the same

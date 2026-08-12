@@ -1,0 +1,195 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "cases": [
+    {
+      "name": "no-frontmatter",
+      "content": "Hello world, just body text.\nLine two.",
+      "frontmatter": {},
+      "body": "Hello world, just body text.\nLine two."
+    },
+    {
+      "name": "basic",
+      "content": "---\nname: my-skill\ndescription: Does something\n---\n\nBody text here.\n",
+      "frontmatter": {
+        "name": "my-skill",
+        "description": "Does something"
+      },
+      "body": "Body text here."
+    },
+    {
+      "name": "empty-frontmatter",
+      "content": "---\n---\n\nBody.\n",
+      "frontmatter": {},
+      "body": "Body."
+    },
+    {
+      "name": "no-closing",
+      "content": "---\nname: skill\nNo closing delimiter here.",
+      "frontmatter": {},
+      "body": "---\nname: skill\nNo closing delimiter here."
+    },
+    {
+      "name": "bare-delimiter",
+      "content": "---\n",
+      "frontmatter": {},
+      "body": "---\n"
+    },
+    {
+      "name": "body-no-trailing-newline",
+      "content": "---\nname: test\n---\nBody without trailing newline",
+      "frontmatter": {
+        "name": "test"
+      },
+      "body": "Body without trailing newline"
+    },
+    {
+      "name": "multiline-yaml",
+      "content": "---\ndescription: |\n  Multi-line\n  text.\n---\nBody",
+      "frontmatter": {
+        "description": "Multi-line\ntext.\n"
+      },
+      "body": "Body"
+    },
+    {
+      "name": "scalar-values",
+      "content": "---\ncount: 42\nenabled: true\n---\nBody",
+      "frontmatter": {
+        "count": 42,
+        "enabled": true
+      },
+      "body": "Body"
+    },
+    {
+      "name": "nested",
+      "content": "---\nkey: value\nnested:\n  inner: val\n---\nBody",
+      "frontmatter": {
+        "key": "value",
+        "nested": {
+          "inner": "val"
+        }
+      },
+      "body": "Body"
+    },
+    {
+      "name": "crlf",
+      "content": "---\r\nname: win\ndescription: CRLF doc\r\n---\r\nBody after CRLF.\r\n",
+      "frontmatter": {
+        "name": "win",
+        "description": "CRLF doc"
+      },
+      "body": "Body after CRLF."
+    },
+    {
+      "name": "cr-only",
+      "content": "---\rname: cr\ndescription: CR only\r---\rBody after CR.\r",
+      "frontmatter": {
+        "name": "cr",
+        "description": "CR only"
+      },
+      "body": "Body after CR."
+    },
+    {
+      "name": "closing-without-newline",
+      "content": "---\nname: nl\n---End of body, dash not followed by newline",
+      "frontmatter": {
+        "name": "nl"
+      },
+      "body": "End of body, dash not followed by newline"
+    },
+    {
+      "name": "triple-dash-inline-start",
+      "content": "-----start but no real frontmatter\nbody",
+      "frontmatter": {},
+      "body": "-----start but no real frontmatter\nbody"
+    },
+    {
+      "name": "empty-body-no-frontmatter-line",
+      "content": "---\nname: x\n---\n",
+      "frontmatter": {
+        "name": "x"
+      },
+      "body": ""
+    },
+    {
+      "name": "leading-space-dashes",
+      "content": "  ---\nname: indented\n---\nBody (delimiter indented)",
+      "frontmatter": {},
+      "body": "  ---\nname: indented\n---\nBody (delimiter indented)"
+    },
+    {
+      "name": "yaml-invalid",
+      "content": "---\nname: [unclosed\n---\nBody",
+      "threw": true,
+      "error": "Flow sequence in block collection must be sufficiently indented and end with a ] at line 1, column 16:\n\nname: [unclosed\n               ^\n"
+    },
+    {
+      "name": "html-in-body",
+      "content": "Body\n---\nNot frontmatter (--- mid-document)\nmore",
+      "frontmatter": {},
+      "body": "Body\n---\nNot frontmatter (--- mid-document)\nmore"
+    },
+    {
+      "name": "empty-string",
+      "content": "",
+      "frontmatter": {},
+      "body": ""
+    },
+    {
+      "name": "dash-inside-yaml",
+      "content": "---\na: ----\n---\nBody",
+      "frontmatter": {
+        "a": "----"
+      },
+      "body": "Body"
+    },
+    {
+      "name": "yaml-empty-after-parse",
+      "content": "---\n---\n\n",
+      "frontmatter": {},
+      "body": ""
+    },
+    {
+      "name": "unicode-body",
+      "content": "---\nname: cjk\n---\n中文 body ✓ ok",
+      "frontmatter": {
+        "name": "cjk"
+      },
+      "body": "中文 body ✓ ok"
+    },
+    {
+      "name": "frontmatter-only-no-body",
+      "content": "---\nname: snippet\n---",
+      "frontmatter": {
+        "name": "snippet"
+      },
+      "body": ""
+    },
+    {
+      "name": "numeric-string-yaml",
+      "content": "---\nversion: \"1.0\"\n---\nBody",
+      "frontmatter": {
+        "version": "1.0"
+      },
+      "body": "Body"
+    },
+    {
+      "name": "list-aware",
+      "content": "---\ntags:\n  - a\n  - b\n---\nBody",
+      "frontmatter": {
+        "tags": [
+          "a",
+          "b"
+        ]
+      },
+      "body": "Body"
+    },
+    {
+      "name": "timestamp-like",
+      "content": "---\ncreated: 2026-01-02\n---\nBody",
+      "frontmatter": {
+        "created": "2026-01-02"
+      },
+      "body": "Body"
+    }
+  ]
+}

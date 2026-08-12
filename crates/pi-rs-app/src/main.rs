@@ -154,7 +154,9 @@ async fn run(args: Args) -> ExitCode {
 
     let interactive = args.messages.is_empty()
         && std::io::stdin().is_terminal()
-        && std::io::stdout().is_terminal();
+        && std::io::stdout().is_terminal()
+        && !args.print
+        && args.mode == pi_rs_app::cli::args::Mode::Text;
     if args.messages.is_empty() && !interactive {
         // Preserve the existing headless/no-stdin behavior. Interactive mode
         // is selected only when both sides of the terminal are live.
@@ -525,6 +527,7 @@ async fn run(args: Args) -> ExitCode {
         // the settings default from the VM's own `pi.settings` store).
         "modelFromCli": args.model.is_some(),
         "thinkingFromCli": args.thinking.is_some(),
+        "mode": args.mode.to_string(),
         "projectTrusted": project_trusted,
     });
     let role = if interactive { "interactive" } else { "print" };
@@ -542,7 +545,10 @@ async fn run(args: Args) -> ExitCode {
                     ExitCode::FAILURE
                 };
             }
-            if result
+            // JSON mode: output is already JSONL from the handler
+            if args.mode == pi_rs_app::cli::args::Mode::Json {
+                ExitCode::SUCCESS
+            } else if result
                 .get("text")
                 .and_then(serde_json::Value::as_str)
                 .is_some()

@@ -20,8 +20,8 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 
 | Classification | Source files | Public exports |
 |---|---:|---:|
-| `parity` | 163 | 415 |
-| `open` | 79 | 293 |
+| `parity` | 172 | 453 |
+| `open` | 70 | 255 |
 | `design` | 0 | 0 |
 | `out-of-scope` | 28 | 343 |
 
@@ -45,7 +45,7 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 |---|---|---|---:|---|
 | `ai.images` | `out-of-scope` | DESIGN product boundary | 6 | Image-generation APIs are a separate Pi product surface; coding-agent image attachments remain covered by the coding image oracle. Evidence: `DESIGN.md`. |
 | `ai.cli` | `out-of-scope` | DESIGN product boundary | 1 | The standalone pi-ai CLI is not required by the coding-agent product. Evidence: `DESIGN.md`. |
-| `ai.protocol-tail` | `open` | PLAN 8 | 8 | Bedrock, Mistral, the differential OpenAI Completions gate, and Vertex certificate ADC remain explicitly open prerequisites. Evidence: `PLAN.md`. |
+| `ai.protocol-tail` | `parity` | closed | 8 | Pi-derived request/event/final-message oracles cover Bedrock Converse Stream, Mistral Conversations, Google Vertex, and OpenAI Completions protocol pipelines. Evidence: `tests/bedrock-converse-stream-parity/oracle.json`, `tests/mistral-conversations-parity/oracle.json`, `tests/google-vertex-parity/oracle.json`, `tests/openai-completions-parity/oracle.json`. |
 | `ai.custom-provider` | `open` | PLAN 9.4 | 2 | Faux/custom-provider registration is part of the still-open immediate provider registration and custom-stream contract. Evidence: `PLAN.md`. |
 | `ai.protocols-proven` | `parity` | closed | 12 | Pi-derived request/event/final-message oracles cover the landed Anthropic, Responses, Codex, Azure, and Google protocol pipelines. Evidence: `tests/anthropic-parity/oracle.json`, `tests/openai-responses-parity/oracle.json`, `tests/openai-codex-websocket-parity/oracle.json`, `tests/azure-openai-responses-parity/oracle.json`, `tests/google-generative-ai-parity/oracle.json`. |
 | `ai.auth` | `parity` | closed | 9 | Credential lookup and all three coding-agent subscription OAuth paths have deterministic public/auth fixtures. Evidence: `crates/pi-rs-ai-auth/tests/subscription_providers.rs`, `crates/pi-rs-host/tests/auth_bindings.rs`. |
@@ -64,7 +64,7 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | `coding.lua-config` | `open` | PLAN 9.6 | 7 | The temporary JSON settings/keybindings/theme path must be replaced by atomic global/project config.lua declarations and mutations. Evidence: `PLAN.md`. |
 | `coding.resources-packages` | `open` | PLAN 9.7 | 9 | Resource discovery, Lua modules, prompt/skill/theme provenance, package transport, and pi config remain open. Evidence: `PLAN.md`. |
 | `coding.public-assembly` | `open` | PLAN 9.10 | 2 | The coding-agent barrel still exposes policy implemented through monolithic/private composition; decomposition, ablation, and replacement must close before its public capability map can be accepted. Evidence: `PLAN.md`. |
-| `coding.highlight-catalog` | `open` | PLAN 11 | 1 | The checked highlight mechanism has 41 of Pi highlight.js’s 191 registered grammars; unknown reachable fence tags still fall back differently. Evidence: `DESIGN.md`. |
+| `coding.highlight-catalog` | `parity` | closed | 1 | The checked highlight mechanism has 190 of Pi highlight.js's 191 registered grammars; the excluded grammar (mathematica) has a filter callback the Rust engine does not implement. Evidence: `crates/pi-rs-host/data/hljs-grammars.json`, `tests/hljs-parity/gen-grammars.ts`. |
 | `coding.platform-clipboard` | `open` | PLAN 11 | 1 | Pi can use its optional native clipboard addon on macOS/Windows/X11; pi-rs currently only matches Pi’s addon-unavailable fallback. Evidence: `DESIGN.md`. |
 | `coding.footer-git` | `open` | PLAN 11 | 2 | The default footer lacks Pi’s live git-branch discovery/watcher and extension-status data provider; frame fixtures currently inject deterministic footer data. Evidence: `crates/pi-rs-app/src/builtins/interactive/PARITY.md`. |
 | `coding.platform-update` | `open` | PLAN 11 | 2 | Windows self-update and sandbox/Bun environment restoration have no equivalent platform differential evidence on the current base. Evidence: `DESIGN.md`. |
@@ -76,21 +76,6 @@ Files: **270** (agent=25, ai=54, coding-agent=164, tui=27); public export rows: 
 | `coding.platform-utils` | `parity` | closed | 25 | Process, clipboard fallback, image, shell, path, JSON, ANSI, telemetry/changelog, and startup utilities are exercised by tool/image/product fixtures. Evidence: `crates/pi-rs-host/tests/clipboard_bindings.rs`, `tests/image-parity/oracle.json`, `crates/pi-rs-app/tests/startup_network.rs`. |
 
 ## Open gaps
-
-### PLAN 8 — `ai.protocol-tail`
-
-Bedrock, Mistral, the differential OpenAI Completions gate, and Vertex certificate ADC remain explicitly open prerequisites.
-
-Reference rows (8):
-
-- `packages/ai/src/bedrock-provider.ts`
-- `packages/ai/src/index.ts`
-- `packages/ai/src/providers/amazon-bedrock.ts`
-- `packages/ai/src/providers/google-vertex.ts`
-- `packages/ai/src/providers/mistral.ts`
-- `packages/ai/src/providers/openai-completions.ts`
-- `packages/ai/src/providers/register-builtins.ts`
-- `packages/coding-agent/src/bun/register-bedrock.ts`
 
 ### PLAN 9.4 — `ai.custom-provider`
 
@@ -241,14 +226,6 @@ Reference rows (2):
 - `packages/coding-agent/src/core/index.ts`
 - `packages/coding-agent/src/index.ts`
 
-### PLAN 11 — `coding.highlight-catalog`
-
-The checked highlight mechanism has 41 of Pi highlight.js’s 191 registered grammars; unknown reachable fence tags still fall back differently.
-
-Reference rows (1):
-
-- `packages/coding-agent/src/utils/syntax-highlight.ts`
-
 ### PLAN 11 — `coding.platform-clipboard`
 
 Pi can use its optional native clipboard addon on macOS/Windows/X11; pi-rs currently only matches Pi’s addon-unavailable fallback.
@@ -279,16 +256,16 @@ Reference rows (2):
 
 - `agent:public:.` → `packages/agent/src/index.ts`: 194 exports (out-of-scope=166, parity=28)
 - `agent:public:./node` → `packages/agent/src/node.ts`: 195 exports (out-of-scope=167, parity=28)
-- `ai:public:.` → `packages/ai/src/index.ts`: 157 exports (open=46, out-of-scope=10, parity=101)
+- `ai:public:.` → `packages/ai/src/index.ts`: 157 exports (open=19, out-of-scope=10, parity=128)
 - `ai:public:./anthropic` → `packages/ai/src/providers/anthropic.ts`: 5 exports (parity=5)
 - `ai:public:./azure-openai-responses` → `packages/ai/src/providers/azure-openai-responses.ts`: 3 exports (parity=3)
-- `ai:public:./bedrock-provider` → `packages/ai/src/bedrock-provider.ts`: 1 exports (open=1)
+- `ai:public:./bedrock-provider` → `packages/ai/src/bedrock-provider.ts`: 1 exports (parity=1)
 - `ai:public:./google` → `packages/ai/src/providers/google.ts`: 3 exports (parity=3)
-- `ai:public:./google-vertex` → `packages/ai/src/providers/google-vertex.ts`: 3 exports (open=3)
-- `ai:public:./mistral` → `packages/ai/src/providers/mistral.ts`: 3 exports (open=3)
+- `ai:public:./google-vertex` → `packages/ai/src/providers/google-vertex.ts`: 3 exports (parity=3)
+- `ai:public:./mistral` → `packages/ai/src/providers/mistral.ts`: 3 exports (parity=3)
 - `ai:public:./oauth` → `packages/ai/src/oauth.ts`: 36 exports (parity=36)
 - `ai:public:./openai-codex-responses` → `packages/ai/src/providers/openai-codex-responses.ts`: 7 exports (parity=7)
-- `ai:public:./openai-completions` → `packages/ai/src/providers/openai-completions.ts`: 4 exports (open=4)
+- `ai:public:./openai-completions` → `packages/ai/src/providers/openai-completions.ts`: 4 exports (parity=4)
 - `ai:public:./openai-responses` → `packages/ai/src/providers/openai-responses.ts`: 3 exports (parity=3)
 - `coding-agent:public:.` → `packages/coding-agent/src/index.ts`: 337 exports (open=222, parity=115)
 - `tui:public:.` → `packages/tui/src/index.ts`: 100 exports (open=14, parity=86)
