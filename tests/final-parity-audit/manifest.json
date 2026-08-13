@@ -35,11 +35,19 @@
       "number": 3,
       "status": "open",
       "owner": "PLAN 9.8",
-      "finding": "Lua replaces TypeScript as the extension language only; every in-scope pinned example still requires an executable translated equivalent.",
+      "finding": "Lua replaces TypeScript as the extension language only; every in-scope pinned example still requires an executable translated equivalent. 47 of 82 pinned examples have executable Lua translations that load and register through the shipped public surface — 41 gated by `translated_9_8_examples_load_through_the_public_surface` (the Plan 9.8 gate) and 6 by their owning earlier gates; the session facade gained `get_label`/`get_leaf_entry`, and mac-system-theme/git-merge-and-resolve/github-issue-autocomplete were added; the remaining 35 large custom-UI / LLM-`complete()` / external-infrastructure examples are classified as explicit `DESIGN exception 3` in `tests/extension-inventory/manifest.json`.",
       "evidence": [
         {
           "path": "PLAN.md",
           "contains": "Translation matrix"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/extension_loading.rs",
+          "contains": "translated_9_8_examples_load_through_the_public_surface"
+        },
+        {
+          "path": "examples/extensions/session-name.lua",
+          "contains": "pi.setSessionName"
         }
       ]
     },

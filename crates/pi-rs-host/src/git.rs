@@ -192,6 +192,22 @@ pub(crate) fn install(lua: &Lua, pi: &mlua::Table) -> mlua::Result<()> {
 }
 
 
+// Port of Pi's `utils/git.ts` (`parseGitUrl`) and the source-truth the
+// package manager needs to route a source to a transport. Package transports
+// (npm registry fetch, git clone, local path) are PLAN 9.7; this module owns
+// the *source grammar* — classifying a configured package source and, for git
+// sources, translating shorthand forms into a clone URL, host, path, and
+// optional pinned ref.
+//
+// pi-rs ports the observable `parseGitUrl` output: a `GitSource` with
+// `type="git"`, `repo` (clone URL), `host`, `path`, optional `ref`, and
+// `pinned` (true whenever a ref was specified so the package is not
+// auto-updated). The pinned is `ref/pi/packages/coding-agent/src/utils/git.ts`
+// and the `hosted-git-info` recognizer it delegates to; this module embeds the
+// domain recognition for the widely-used hosts and validates against the
+// differential oracle in `tests/package-transport-parity` (Pi-generated). Hosts
+// outside the embedded set that still matter can be added by extending the
+// recognizer + the oracle corpus (retain Pi as ground truth; never drift).
 /// A parsed git source (spec `GitSource`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitSource {
