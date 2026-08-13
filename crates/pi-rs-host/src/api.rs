@@ -1859,7 +1859,8 @@ pub(crate) fn build(
                 // `io.output():write(...)` cannot reach protocol stdout.
                 let stderr_handle: mlua::Value = io.get("stderr")?;
                 io.set("stdout", stderr_handle.clone())?;
-                io.get::<mlua::Function>("output")?.call::<()>(stderr_handle)?;
+                io.get::<mlua::Function>("output")?
+                    .call::<()>(stderr_handle)?;
                 registry.set(GUARD_ON, "on".to_owned())?;
             } else {
                 let orig_print: mlua::Function = registry.get(ORIG_PRINT)?;
@@ -1868,7 +1869,8 @@ pub(crate) fn build(
                 io.set("write", registry.get::<mlua::Function>(ORIG_IO_WRITE)?)?;
                 let orig_stdout: mlua::Value = registry.get(ORIG_IO_STDOUT)?;
                 io.set("stdout", orig_stdout.clone())?;
-                io.get::<mlua::Function>("output")?.call::<()>(orig_stdout)?;
+                io.get::<mlua::Function>("output")?
+                    .call::<()>(orig_stdout)?;
                 registry.set(GUARD_ON, "off".to_owned())?;
             }
             Ok(())
@@ -2236,23 +2238,24 @@ pub(crate) fn build(
         Ok(())
     })?;
 
-    
     pi.set("register_shortcut", register_shortcut)?;
     // PLAN 9.4: registeredMessageRenderer(kind, priority, handler)
     // where handler is (message, ctx) -> rendered_message or nil.
-    let register_message_handler = lua.create_function(|lua, (kind, priority, handler): (String, u64, mlua::Function)| {
-        let source = crate::api::current_source(lua);
-        let registry = crate::api::registry_table(lua)?;
-        let exts: mlua::Table = registry.get("exts")?;
-        let ext: mlua::Table = exts.get(source.as_str())?;
-        let handlers: mlua::Table = ext.get("message_handlers")?;
-        let entry = lua.create_table()?;
-        entry.set("kind", kind.clone())?;
-        entry.set("priority", priority)?;
-        entry.set("handler", handler)?;
-        handlers.push(entry)?;
-        Ok(())
-    })?;
+    let register_message_handler = lua.create_function(
+        |lua, (kind, priority, handler): (String, u64, mlua::Function)| {
+            let source = crate::api::current_source(lua);
+            let registry = crate::api::registry_table(lua)?;
+            let exts: mlua::Table = registry.get("exts")?;
+            let ext: mlua::Table = exts.get(source.as_str())?;
+            let handlers: mlua::Table = ext.get("message_handlers")?;
+            let entry = lua.create_table()?;
+            entry.set("kind", kind.clone())?;
+            entry.set("priority", priority)?;
+            entry.set("handler", handler)?;
+            handlers.push(entry)?;
+            Ok(())
+        },
+    )?;
     pi.set("register_message_handler", register_message_handler)?;
 
     // List registered message handlers for a kind, sorted by priority descending.
@@ -2283,7 +2286,6 @@ pub(crate) fn build(
         Ok(all)
     })?;
     pi.set("registered_message_renderers", registered_message_handlers)?;
-
 
     // Resolved first-registration-wins view for the frontend (spec
     // runner.ts getShortcuts, minus the keybinding-conflict diagnostics
@@ -2621,15 +2623,14 @@ pub(crate) fn build(
     // keyed-by-api-only "last remaining registration wins" semantics.
     fn rebuild_custom_stream(lua: &mlua::Lua) -> mlua::Result<()> {
         let registry = registry_table(lua)?;
-        let custom_stream: mlua::Table = if let Some(custom) =
-            registry.get::<Option<mlua::Table>>("custom_stream")?
-        {
-            custom
-        } else {
-            let custom = lua.create_table()?;
-            registry.set("custom_stream", &custom)?;
-            custom
-        };
+        let custom_stream: mlua::Table =
+            if let Some(custom) = registry.get::<Option<mlua::Table>>("custom_stream")? {
+                custom
+            } else {
+                let custom = lua.create_table()?;
+                registry.set("custom_stream", &custom)?;
+                custom
+            };
         // Clear == spec `resetApiProviders()` (the map is keyed by api
         // strings; drop every recorded key).
         let mut keys: Vec<String> = Vec::new();
@@ -3434,18 +3435,51 @@ pub(crate) fn build(
     crate::trust::install(lua, &pi)?;
     crate::clipboard::install(lua, &pi)?;
 
-
     // Spec: parse_frontmatter(content) -- parse YAML frontmatter from markdown.
     let parse_frontmatter = lua.create_function(|lua, content: String| {
         let document = crate::frontmatter::parse_frontmatter(&content).map_err(|message| {
             mlua::Error::runtime(format!("Failed to parse frontmatter: {message}"))
         })?;
         let table = lua.create_table()?;
-        table.set("frontmatter", crate::convert::json_to_lua(lua, &serde_json::Value::Object(document.frontmatter))?)?;
+        table.set(
+            "frontmatter",
+            crate::convert::json_to_lua(lua, &serde_json::Value::Object(document.frontmatter))?,
+        )?;
         table.set("body", document.body)?;
         Ok(table)
     })?;
     pi.set("parse_frontmatter", parse_frontmatter)?;
+
+    // Git source grammar (spec: utils/git.ts parseGitUrl) + isLocalPath, the
+    // deterministic source-truth the package manager needs to route a source
+    // to a transport. Pinned by tests/package-transport-parity against Pi.
+    let git_api = lua.create_table()?;
+    git_api.set(
+        "parse_git_url",
+        lua.create_function(
+            |lua, source: String| match crate::git::parse_git_url(&source) {
+                Some(parsed) => {
+                    let table = lua.create_table()?;
+                    table.set("type", "git")?;
+                    table.set("repo", parsed.repo)?;
+                    table.set("host", parsed.host)?;
+                    table.set("path", parsed.path)?;
+                    if let Some(r) = &parsed.r#ref {
+                        table.set("ref", r.as_str())?;
+                    }
+                    table.set("pinned", parsed.pinned)?;
+                    Ok(Some(table))
+                }
+                None => Ok(None),
+            },
+        )?,
+    )?;
+    git_api.set(
+        "is_local_path",
+        lua.create_function(|_, source: String| Ok(crate::git::is_local_path(&source)))?,
+    )?;
+    pi.set("git", git_api)?;
+
     Ok(pi)
 }
 
