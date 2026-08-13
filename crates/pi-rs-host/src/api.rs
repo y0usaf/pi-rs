@@ -1703,6 +1703,35 @@ pub(crate) fn build(
     // Compatibility alias for the first product-loading slice. Its behavior
     // is now declaration-driven and source-identity-neutral.
     pi.set("registered_extension_tools", registered_active_tools)?;
+    // Spec `getAllTools()`: every registered tool with its source metadata
+    // (the resolved first-registration-wins view plus `sourceInfo`, mirroring
+    // `agent-session.ts getAllTools` over `_toolDefinitions`). The adapter
+    // returns `{ name, description, parameters, promptGuidelines, sourceInfo }`
+    // for each tool; sourceInfo path uses the stable source key.
+    pi.set(
+        "registered_tools_with_source",
+        lua.create_function(|lua, ()| {
+            let result = lua.create_table()?;
+            for (source, name, def) in all_tools(lua)? {
+                let info = lua.create_table()?;
+                info.set("name", name.as_str())?;
+                info.set("description", def.get::<Option<mlua::Value>>("description")?)?;
+                info.set("parameters", def.get::<Option<mlua::Value>>("parameters")?)?;
+                info.set(
+                    "promptGuidelines",
+                    def.get::<Option<mlua::Value>>("promptGuidelines")?,
+                )?;
+                let source_info = lua.create_table()?;
+                source_info.set("path", source.as_str())?;
+                source_info.set("source", "extension")?;
+                source_info.set("scope", "project")?;
+                source_info.set("origin", "top-level")?;
+                info.set("sourceInfo", source_info)?;
+                result.push(info)?;
+            }
+            Ok(result)
+        })?,
+    )?;
     pi.set(
         "registered_extension_commands",
         lua.create_function(|lua, ()| {

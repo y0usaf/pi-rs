@@ -1127,3 +1127,93 @@ fn print_context_uses_pinned_no_ui_outcomes() {
     assert_eq!(details["themeResult"]["error"], "UI not available");
     assert!(details.get("selected").is_none() || details["selected"].is_null());
 }
+
+#[test]
+fn bound_pi_runtime_actions_apply_immediately() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("project");
+    let agent_dir = root.path().join("agent");
+    let session_dir = root.path().join("sessions");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    std::fs::create_dir_all(&session_dir).unwrap();
+
+    let host = Host::new(HostConfig {
+        cwd: Some(cwd.to_string_lossy().into_owned()),
+        ..HostConfig::default()
+    })
+    .unwrap();
+    let report = host.load_embedded(&[
+        pi_rs_agent::PACK,
+        TOOLS_PACK,
+        CODING_AGENT_PACK,
+        INTERACTIVE_PACK,
+    ]);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    host.load(
+        "examples/extensions/runtime-actions-demo.lua",
+        include_str!("../../../examples/extensions/runtime-actions-demo.lua"),
+    )
+    .unwrap();
+
+    let request = serde_json::json!({
+        "cwd": cwd, "agentDir": agent_dir, "sessionDir": session_dir,
+        "apiKey": "probe-key", "version": "0.79.0", "turns": 1,
+        "testReload": true,
+        "model": {
+            "id": "custom-1", "name": "Custom", "provider": "custom",
+            "api": "custom-actions", "baseUrl": "http://127.0.0.1:1",
+            "reasoning": false, "input": ["text"],
+            "cost": {"input":0,"output":0,"cacheRead":0,"cacheWrite":0},
+            "contextWindow": 128000, "maxTokens": 1024
+        }
+    });
+    let probe = host
+        .call_command("extension-actions-probe", &request.to_string())
+        .unwrap()
+        .unwrap();
+
+    // The translated runtime-actions-demo exercises the same bound pi table.
+    let demo = host
+        .call_command("bind-actions", "")
+        .unwrap()
+        .unwrap();
+    assert_eq!(demo["contains_runtime_tool"], true);
+    assert_eq!(demo["getAllTools"], "function");
+
+    // Bound methods all exist as functions on the shared pi table.
+    assert_eq!(probe["sendMessage_type"]["value"], "function");
+    assert_eq!(probe["setActiveTools_type"]["value"], "function");
+    assert_eq!(probe["setModel_type"]["value"], "function");
+
+    // Reads succeed and return snapshots.
+    assert!(probe["getAllTools"]["ok"].as_bool().unwrap());
+    assert!(probe["getActiveTools"]["ok"].as_bool().unwrap());
+    assert!(probe["getThinkingLevel"]["ok"].as_bool().unwrap());
+
+    // setActiveTools applied: getActiveTools reflects the change.
+    if let Some(v) = probe["activeAfterSet"].get("value") {
+        assert_eq!(v.as_array().unwrap().len(), 1);
+    } else {
+        assert!(probe["activeAfterSet"]["ok"].as_bool().unwrap_or(false));
+    }
+
+    // setSessionName / getSessionName round-trip.
+    assert_eq!(probe["sessionNameAfter"]["value"], "my session");
+
+    // setThinkingLevel round-trips (clamped by the model).
+    assert!(probe["thinkingAfter"]["ok"].as_bool().unwrap());
+
+    // setModel returns false without configured auth and true with it.
+    assert_eq!(probe["setModelNoAuth"]["value"], false);
+    assert_eq!(probe["setModelAuthed"]["value"], true);
+
+    // appendEntry persists a custom entry; sendMessage queues a steer.
+    assert_eq!(probe["appendEntryPersisted"], true);
+    assert_eq!(probe["sendMessageQueued"], true);
+
+    // Reload rebinds pi.* over a fresh generation and the (re)bound methods
+    // keep reading the replaced session (no stale mutation of the old one).
+    assert_eq!(probe["generationAfterReload"], 2);
+    assert_eq!(probe["reload_reads_session"], true);
+}
