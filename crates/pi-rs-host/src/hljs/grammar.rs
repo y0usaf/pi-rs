@@ -51,7 +51,7 @@ struct ModeJson {
     ends_parent: bool,
     end_same_as_begin: bool,
     sub_language: Option<serde_json::Value>,
-        relevance: Option<f64>,
+    relevance: Option<f64>,
     before_begin: Option<String>,
     on_begin: Option<String>,
     on_end: Option<String>,
