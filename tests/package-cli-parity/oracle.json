@@ -1,0 +1,304 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "cases": [
+    {
+      "name": "install-help",
+      "argv": [
+        "install",
+        "--help"
+      ],
+      "handled": true,
+      "exitCode": 0,
+      "stdout": "Usage:\n  pi install <source> [-l] [--approve|--no-approve]\n\nInstall a package and add it to settings.\n\nOptions:\n  -l, --local       Install project-locally (.pi/settings.json)\n  -a, --approve     Trust project-local files for this command\n  -na, --no-approve Ignore project-local files for this command\n\nExamples:\n  pi install npm:@foo/bar\n  pi install git:github.com/user/repo\n  pi install git:git@github.com:user/repo\n  pi install https://github.com/user/repo\n  pi install ssh://git@github.com/user/repo\n  pi install ./local/path\n\n",
+      "stderr": "",
+      "threw": null
+    },
+    {
+      "name": "install-help-h",
+      "argv": [
+        "install",
+        "-h"
+      ],
+      "handled": true,
+      "exitCode": 0,
+      "stdout": "Usage:\n  pi install <source> [-l] [--approve|--no-approve]\n\nInstall a package and add it to settings.\n\nOptions:\n  -l, --local       Install project-locally (.pi/settings.json)\n  -a, --approve     Trust project-local files for this command\n  -na, --no-approve Ignore project-local files for this command\n\nExamples:\n  pi install npm:@foo/bar\n  pi install git:github.com/user/repo\n  pi install git:git@github.com:user/repo\n  pi install https://github.com/user/repo\n  pi install ssh://git@github.com/user/repo\n  pi install ./local/path\n\n",
+      "stderr": "",
+      "threw": null
+    },
+    {
+      "name": "remove-help",
+      "argv": [
+        "remove",
+        "--help"
+      ],
+      "handled": true,
+      "exitCode": 0,
+      "stdout": "Usage:\n  pi remove <source> [-l] [--approve|--no-approve]\n\nRemove a package and its source from settings.\nAlias: pi uninstall <source> [-l]\n\nOptions:\n  -l, --local       Remove from project settings (.pi/settings.json)\n  -a, --approve     Trust project-local files for this command\n  -na, --no-approve Ignore project-local files for this command\n\nExamples:\n  pi remove npm:@foo/bar\n  pi uninstall npm:@foo/bar\n\n",
+      "stderr": "",
+      "threw": null
+    },
+    {
+      "name": "uninstall-help",
+      "argv": [
+        "uninstall",
+        "--help"
+      ],
+      "handled": true,
+      "exitCode": 0,
+      "stdout": "Usage:\n  pi remove <source> [-l] [--approve|--no-approve]\n\nRemove a package and its source from settings.\nAlias: pi uninstall <source> [-l]\n\nOptions:\n  -l, --local       Remove from project settings (.pi/settings.json)\n  -a, --approve     Trust project-local files for this command\n  -na, --no-approve Ignore project-local files for this command\n\nExamples:\n  pi remove npm:@foo/bar\n  pi uninstall npm:@foo/bar\n\n",
+      "stderr": "",
+      "threw": null
+    },
+    {
+      "name": "update-help",
+      "argv": [
+        "update",
+        "--help"
+      ],
+      "handled": true,
+      "exitCode": 0,
+      "stdout": "Usage:\n  pi update [source|self|pi] [--self] [--extensions] [--extension <source>] [--approve|--no-approve] [--force]\n\nUpdate pi and installed packages.\n\nOptions:\n  --self                  Update pi only\n  --extensions            Update installed packages only\n  --extension <source>    Update one package only\n  -a, --approve           Trust project-local files for this command\n  -na, --no-approve       Ignore project-local files for this command\n  --force                 Reinstall pi even if the current version is latest\n\nShort forms:\n  pi update                Update pi and all extensions\n  pi update <source>       Update one package\n  pi update pi             Update pi only (self works as alias to pi)\n\n",
+      "stderr": "",
+      "threw": null
+    },
+    {
+      "name": "list-help",
+      "argv": [
+        "list",
+        "--help"
+      ],
+      "handled": true,
+      "exitCode": 0,
+      "stdout": "Usage:\n  pi list [--approve|--no-approve]\n\nList installed packages from user and project settings.\n\nOptions:\n  -a, --approve      Trust project-local files for this command\n  -na, --no-approve  Ignore project-local files for this command\n\n",
+      "stderr": "",
+      "threw": null
+    },
+    {
+      "name": "not-a-command",
+      "argv": [
+        "echo",
+        "hi"
+      ],
+      "handled": false,
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": "",
+      "threw": null
+    },
+    {
+      "name": "garbage-command",
+      "argv": [
+        "bogus"
+      ],
+      "handled": false,
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": "",
+      "threw": null
+    },
+    {
+      "name": "install-missing-source",
+      "argv": [
+        "install"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "Missing install source.\nUsage: pi install <source> [-l] [--approve|--no-approve]\n",
+      "threw": null
+    },
+    {
+      "name": "remove-missing-source",
+      "argv": [
+        "remove"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "Missing remove source.\nUsage: pi remove <source> [-l] [--approve|--no-approve]\n",
+      "threw": null
+    },
+    {
+      "name": "list-local-invalid",
+      "argv": [
+        "list",
+        "--local"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "Unknown option --local for \"list\".\nUse \"pi --help\" or \"pi list [--approve|--no-approve]\".\n",
+      "threw": null
+    },
+    {
+      "name": "list-self-invalid",
+      "argv": [
+        "list",
+        "--self"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "Unknown option --self for \"list\".\nUse \"pi --help\" or \"pi list [--approve|--no-approve]\".\n",
+      "threw": null
+    },
+    {
+      "name": "install-self-invalid",
+      "argv": [
+        "install",
+        "x",
+        "--self"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "Unknown option --self for \"install\".\nUse \"pi --help\" or \"pi install <source> [-l] [--approve|--no-approve]\".\n",
+      "threw": null
+    },
+    {
+      "name": "remove-force-invalid",
+      "argv": [
+        "remove",
+        "x",
+        "--force"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "Unknown option --force for \"remove\".\nUse \"pi --help\" or \"pi remove <source> [-l] [--approve|--no-approve]\".\n",
+      "threw": null
+    },
+    {
+      "name": "list-unknown-flag",
+      "argv": [
+        "list",
+        "--nope"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "Unknown option --nope for \"list\".\nUse \"pi --help\" or \"pi list [--approve|--no-approve]\".\n",
+      "threw": null
+    },
+    {
+      "name": "install-two-sources",
+      "argv": [
+        "install",
+        "a",
+        "b"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "Unexpected argument b.\nUsage: pi install <source> [-l] [--approve|--no-approve]\n",
+      "threw": null
+    },
+    {
+      "name": "remove-two-sources",
+      "argv": [
+        "remove",
+        "a",
+        "b"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "Unexpected argument b.\nUsage: pi remove <source> [-l] [--approve|--no-approve]\n",
+      "threw": null
+    },
+    {
+      "name": "update-self-and-pos",
+      "argv": [
+        "update",
+        "foo",
+        "--self"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "positional update targets cannot be combined with --self or --extensions\nUsage: pi update [source|self|pi] [--self] [--extensions] [--extension <source>] [--approve|--no-approve] [--force]\n",
+      "threw": null
+    },
+    {
+      "name": "update-ext-and-pos",
+      "argv": [
+        "update",
+        "foo",
+        "--extensions"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "positional update targets cannot be combined with --self or --extensions\nUsage: pi update [source|self|pi] [--self] [--extensions] [--extension <source>] [--approve|--no-approve] [--force]\n",
+      "threw": null
+    },
+    {
+      "name": "update-two-extension",
+      "argv": [
+        "update",
+        "--extension",
+        "a",
+        "--extension",
+        "b"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "--extension can only be provided once\nUsage: pi update [source|self|pi] [--self] [--extensions] [--extension <source>] [--approve|--no-approve] [--force]\n",
+      "threw": null
+    },
+    {
+      "name": "update-extension-and-self",
+      "argv": [
+        "update",
+        "--extension",
+        "a",
+        "--self"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "--extension cannot be combined with --self or --extensions\nUsage: pi update [source|self|pi] [--self] [--extensions] [--extension <source>] [--approve|--no-approve] [--force]\n",
+      "threw": null
+    },
+    {
+      "name": "install-extension-invalid",
+      "argv": [
+        "install",
+        "x",
+        "--extension",
+        "a"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "Unknown option --extension for \"install\".\nUse \"pi --help\" or \"pi install <source> [-l] [--approve|--no-approve]\".\n",
+      "threw": null
+    },
+    {
+      "name": "update-extension-missing-value",
+      "argv": [
+        "update",
+        "--extension"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "Missing value for --extension.\nUsage: pi update [source|self|pi] [--self] [--extensions] [--extension <source>] [--approve|--no-approve] [--force]\n",
+      "threw": null
+    },
+    {
+      "name": "remove-extension-missing",
+      "argv": [
+        "remove",
+        "x",
+        "--extension"
+      ],
+      "handled": true,
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "Unknown option --extension for \"remove\".\nUse \"pi --help\" or \"pi remove <source> [-l] [--approve|--no-approve]\".\n",
+      "threw": null
+    }
+  ]
+}

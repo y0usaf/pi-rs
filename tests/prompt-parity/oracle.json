@@ -1,0 +1,249 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "parseArgs": [
+    {
+      "name": "empty",
+      "input": "",
+      "args": []
+    },
+    {
+      "name": "simple",
+      "input": "alpha beta gamma",
+      "args": [
+        "alpha",
+        "beta",
+        "gamma"
+      ]
+    },
+    {
+      "name": "double-quoted",
+      "input": "one \"two three\" four",
+      "args": [
+        "one",
+        "two three",
+        "four"
+      ]
+    },
+    {
+      "name": "single-quoted",
+      "input": "a 'b c' d",
+      "args": [
+        "a",
+        "b c",
+        "d"
+      ]
+    },
+    {
+      "name": "nested-quote",
+      "input": "x \"y'z\" w",
+      "args": [
+        "x",
+        "y'z",
+        "w"
+      ]
+    },
+    {
+      "name": "unterminated",
+      "input": "\"open quoted",
+      "args": [
+        "open quoted"
+      ]
+    },
+    {
+      "name": "leading-space",
+      "input": "   item",
+      "args": [
+        "item"
+      ]
+    },
+    {
+      "name": "trailing-space",
+      "input": "item   ",
+      "args": [
+        "item"
+      ]
+    },
+    {
+      "name": "consecutive-spaces",
+      "input": "a  b   c",
+      "args": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    {
+      "name": "escaped-nothing",
+      "input": "back\\slash path",
+      "args": [
+        "back\\slash",
+        "path"
+      ]
+    }
+  ],
+  "substitute": [
+    {
+      "name": "positional",
+      "content": "hello $1 and $2",
+      "args": [
+        "world",
+        "friend"
+      ],
+      "result": "hello world and friend"
+    },
+    {
+      "name": "all-args",
+      "content": "all: $@",
+      "args": [
+        "a",
+        "b",
+        "c"
+      ],
+      "result": "all: a b c"
+    },
+    {
+      "name": "arguments-word",
+      "content": "args: $ARGUMENTS",
+      "args": [
+        "x",
+        "y"
+      ],
+      "result": "args: x y"
+    },
+    {
+      "name": "missing-index",
+      "content": "$3 ghost",
+      "args": [
+        "a",
+        "b"
+      ],
+      "result": " ghost"
+    },
+    {
+      "name": "default-value",
+      "content": "${1:-fallback}",
+      "args": [
+        "real"
+      ],
+      "result": "real"
+    },
+    {
+      "name": "default-fallback",
+      "content": "${2:-none}",
+      "args": [
+        "only"
+      ],
+      "result": "none"
+    },
+    {
+      "name": "empty-arg-default",
+      "content": "${1:-fb}",
+      "args": [
+        ""
+      ],
+      "result": "fb"
+    },
+    {
+      "name": "slice-from",
+      "content": "${@:2}",
+      "args": [
+        "a",
+        "b",
+        "c"
+      ],
+      "result": "b c"
+    },
+    {
+      "name": "slice-length",
+      "content": "${@:2:2}",
+      "args": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "result": "b c"
+    },
+    {
+      "name": "slice-zero",
+      "content": "${@:0:2}",
+      "args": [
+        "a",
+        "b",
+        "c"
+      ],
+      "result": "a b"
+    },
+    {
+      "name": "slice-zero-lenless",
+      "content": "${@:0}",
+      "args": [
+        "a",
+        "b"
+      ],
+      "result": "a b"
+    },
+    {
+      "name": "mixed-no-recursion",
+      "content": "$1 $2",
+      "args": [
+        "$1",
+        "$@"
+      ],
+      "result": "$1 $@"
+    },
+    {
+      "name": "no-pattern",
+      "content": "no placeholders here",
+      "args": [
+        "x"
+      ],
+      "result": "no placeholders here"
+    },
+    {
+      "name": "dollar-dollar",
+      "content": "$1 $ARGUMENTS ${@:1}",
+      "args": [
+        "p"
+      ],
+      "result": "p p p"
+    }
+  ],
+  "expand": [
+    {
+      "name": "not-template",
+      "text": "just text",
+      "result": "just text"
+    },
+    {
+      "name": "no-slash",
+      "text": "hello /world",
+      "result": "hello /world"
+    },
+    {
+      "name": "named",
+      "text": "/plan review the code",
+      "result": "Plan: review"
+    },
+    {
+      "name": "empty-args",
+      "text": "/plan",
+      "result": "Nothing"
+    },
+    {
+      "name": "unknown-template",
+      "text": "/missing arg",
+      "result": "/missing arg"
+    },
+    {
+      "name": "multiline-args",
+      "text": "/plan one two",
+      "result": "one two done"
+    },
+    {
+      "name": "slash-inside",
+      "text": "/plan /nested path",
+      "result": "go /nested path"
+    }
+  ]
+}

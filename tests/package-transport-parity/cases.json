@@ -1,0 +1,32 @@
+{
+	"gitSources": [
+		{ "name": "git-short", "source": "git:github.com/user/repo" },
+		{ "name": "git-short-ref", "source": "git:github.com/user/repo@v1.2.3" },
+		{ "name": "git-short-gitsuffix", "source": "git:github.com/user/repo.git" },
+		{ "name": "git-https", "source": "git:https://github.com/user/repo.git" },
+		{ "name": "git-https-ref", "source": "git:https://github.com/user/repo.git@main" },
+		{ "name": "git-ssh", "source": "git:ssh://git@github.com/user/repo.git" },
+		{ "name": "git-git", "source": "git:git://github.com/user/repo.git" },
+		{ "name": "git-scm", "source": "git:git@github.com:user/repo.git" },
+		{ "name": "https", "source": "https://github.com/user/repo.git" },
+		{ "name": "https-ref", "source": "https://github.com/user/repo.git#feat" },
+		{ "name": "https-org-nested", "source": "https://github.com/acme/team/repo" },
+		{ "name": "gitlab", "source": "git:gitlab.com/group/subgroup/project" },
+		{ "name": "bitbucket", "source": "git:bitbucket.org/user/repo@v2" },
+		{ "name": "hosted-with-hash", "source": "git:github.com/user/repo#branch-name" },
+		{ "name": "gitlab-hash", "source": "git:gitlab.com/user/repo#release" },
+		{ "name": "localhost", "source": "git:localhost/user/repo" },
+		{ "name": "gh-user-repo", "source": "github:user/repo" },
+		{ "name": "bare-domain", "source": "git:example.com/repo" },
+		{ "name": "ref-at-in-path", "source": "git:github.com/user/repo@feature/x" },
+		{ "name": "no-git-prefix-plain", "source": "github.com/user/repo" },
+		{ "name": "npm-reference", "source": "npm:some-package@^1.0.0" },
+		{ "name": "file-url", "source": "file:///tmp/foo" },
+		{ "name": "abs-path", "source": "/tmp/local/path" },
+		{ "name": "rel-path", "source": "./relative/path" },
+		{ "name": "tilde-path", "source": "~/.pi/packages" },
+		{ "name": "git-me", "source": "git:me" },
+		{ "name": "git-scp-ref", "source": "git:git@github.com:user/repo@tag-1" },
+		{ "name": "windows-drive", "source": "C:\\\\repo" }
+	]
+}

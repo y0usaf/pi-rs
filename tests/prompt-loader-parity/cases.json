@@ -1,0 +1,60 @@
+{
+  "cases": [
+    {
+      "name": "defaults-only",
+      "includeDefaults": true,
+      "promptPaths": [],
+      "files": []
+    },
+    {
+      "name": "no-defaults-empty",
+      "includeDefaults": false,
+      "promptPaths": [],
+      "files": []
+    },
+    {
+      "name": "single-explicit-file",
+      "includeDefaults": true,
+      "promptPaths": ["explicit/special.md"],
+      "files": ["explicit/special.md"],
+      "fileContents": {
+        "explicit/special.md": "---\nname: ignored-for-prompts\ndescription: Explicit file desc\nargument-hint: <text>\n---\nExplicit body with $1 $2"
+      }
+    },
+    {
+      "name": "explicit-dir",
+      "includeDefaults": true,
+      "promptPaths": ["extra"],
+      "files": ["extra/one.md", "extra/two.md", "extra/readme.txt"],
+      "fileContents": {
+        "extra/one.md": "---\ndescription: First in dir\n---\nOne body",
+        "extra/two.md": "Two body starts here\nand continues",
+        "extra/readme.txt": "not a template"
+      }
+    },
+    {
+      "name": "missing-explicit-skipped",
+      "includeDefaults": true,
+      "promptPaths": ["does-not-exist.md"],
+      "files": []
+    },
+    {
+      "name": "description-from-first-line-truncated",
+      "includeDefaults": false,
+      "promptPaths": ["stable/longline.md"],
+      "files": ["stable/longline.md"],
+      "fileContents": {
+        "stable/longline.md": "A very long first line that is definitely more than sixty characters long so it must be truncated with an ellipsis at the boundary\nsecond line"
+      }
+    },
+    {
+      "name": "explicit-file-dir-outside-defaults",
+      "includeDefaults": false,
+      "promptPaths": ["assets/prompts"],
+      "files": ["assets/prompts/custom.md"],
+      "fileContents": {
+        "assets/prompts/custom.md": "---\ndescription: Custom desc\n---\nCustom body"
+      }
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "cases": [
+    {
+      "name": "empty-dir",
+      "dir": "skills",
+      "source": "path",
+      "files": {}
+    },
+    {
+      "name": "single-skill-dir",
+      "dir": "skills",
+      "source": "path",
+      "files": {
+        "code-review/SKILL.md": "---\nname: code-review\ndescription: Review code for bugs and style\n---\nFocus on correctness.\n"
+      }
+    },
+    {
+      "name": "skill-name-from-dirname",
+      "dir": "skills",
+      "source": "path",
+      "files": {
+        "my-custom-skill/SKILL.md": "---\ndescription: Uses the parent dir name\n---\nBody here.\n"
+      }
+    },
+    {
+      "name": "inline-bash-skill",
+      "dir": "skills",
+      "source": "path",
+      "files": {
+        "inline-bash.md": "---\ndescription: A root-level inline skill\n---\nRoot inline body.\n"
+      }
+    },
+    {
+      "name": "root-md-and-dirs",
+      "dir": "skills",
+      "source": "path",
+      "files": {
+        "root-skill.md": "---\ndescription: Root skill\n---\nRoot body.\n",
+        "nested/inner/SKILL.md": "---\ndescription: Nested skill\n---\nNested body.\n"
+      }
+    },
+    {
+      "name": "skippable-and-warnings",
+      "dir": "skills",
+      "source": "path",
+      "files": {
+        "no-desc/SKILL.md": "---\nname: no-desc\n---\nMissing description\n",
+        "bad-name-desc/SKILL.md": "---\nname: Bad_Name!-x\ndescription: This description is just fine\n---\nBody\n",
+        "node_modules/ignored/SKILL.md": "---\ndescription: Should be skipped\n---\nBody\n",
+        ".hidden/SKILL.md": "---\ndescription: Dotdir skill\n---\nBody\n"
+      }
+    },
+    {
+      "name": "disable-model-invocation",
+      "dir": "skills",
+      "source": "path",
+      "files": {
+        "hidden-skill/SKILL.md": "---\nname: hidden-skill\ndescription: Manual invocation only\ndisable-model-invocation: true\n---\nBody\n"
+      }
+    },
+    {
+      "name": "description-too-long",
+      "dir": "skills",
+      "source": "path",
+      "files": {
+        "long-desc/SKILL.md": "---\nname: long-desc\ndescription: $LONG_1100$\n---\nBody\n"
+      }
+    }
+  ]
+}

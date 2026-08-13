@@ -915,4 +915,42 @@ fn file_backed_extension_imports_builtin_tool_and_render_modules() {
             "truncated": true
         })
     );
+
+    // The same file-backed package imports the mutation-queue and shell
+    // public modules through the identical exact-version mechanism builtins
+    // use — no hidden native module or JS runtime.
+    let mutation = host
+        .call_command("module-demo-mutation", "")
+        .expect("mutation command runs")
+        .expect("mutation command result");
+    assert_eq!(mutation["executed"], true);
+    assert!(
+        mutation["key"]
+            .as_str()
+            .unwrap_or("")
+            .ends_with("/tmp/mutate.txt"),
+        "mutation key resolves to the realpath: {:?}",
+        mutation["key"]
+    );
+    assert!(
+        mutation["resolved"]
+            .as_str()
+            .unwrap_or("")
+            .ends_with("/tmp/mutate.txt"),
+        "mutation resolved path: {:?}",
+        mutation["resolved"]
+    );
+
+    let shell_result = host
+        .call_command("module-demo-shell", "")
+        .expect("shell command runs")
+        .expect("shell command result");
+    assert!(
+        shell_result["binary"]
+            .as_str()
+            .is_some_and(|b| !b.is_empty()),
+        "shell binary resolved: {:?}",
+        shell_result["binary"]
+    );
+    assert_eq!(shell_result["argCount"], 1);
 }
