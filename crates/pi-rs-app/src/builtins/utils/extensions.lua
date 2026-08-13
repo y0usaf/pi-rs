@@ -2,7 +2,10 @@
 -- snapshots; this Lua policy chooses active tools and the complete Pi event
 -- fold semantics. Every product seam dispatches through extension_handlers;
 -- there is no embedded-only callback path. Each product pack gets an isolated
--- policy table while using the same public API.
+-- policy table while using the same public API. The chunk argument is bound
+-- locally here (this fragment no longer depends on a concat-ordered helper
+-- declaring `local pi` above it — see mod.rs): the pack chunk exposes `pi`.
+local pi = ...
 local EXTENSION_POLICY = { api = pi }
 
 function EXTENSION_POLICY.active_tools()

@@ -1,6 +1,14 @@
 -- output-accumulator.ts — bounded streaming collection and tail snapshots.
 -- Raw persistence is performed by pi.exec; this object retains only enough
 -- bytes to calculate the exact displayed tail and exact aggregate counters.
+--
+-- This fragment is concatenated into the tools pack chunk, so the chunk-local
+-- helpers it relies on (truncate_tail, utf8_lossy, DEFAULT_MAX_*) are in scope
+-- here. The same closures are also exposed as the public exact-version module
+-- `pi.tools.output-accumulator` so a file-backed tool replacement imports the
+-- identical policy instead of a chunk-local copy (PLAN 9.10). Because the
+-- module factory runs lazily on require and the concatenated chunk defines the
+-- helpers above it, the factory captures the same in-scope closures.
 local function new_output_accumulator(full_path)
   local tail, total_bytes, newline_count = "", 0, 0
   local last_was_newline, finished = false, false
@@ -61,3 +69,14 @@ local function new_output_accumulator(full_path)
     end,
   }
 end
+
+-- Public exact-version module: a file-backed bash tool imports the same
+-- accumulator closures rather than re-implementing the tail/truncation policy.
+pi.module.define({
+  name = "pi.tools.output-accumulator",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return { new_output_accumulator = new_output_accumulator }
+  end,
+})

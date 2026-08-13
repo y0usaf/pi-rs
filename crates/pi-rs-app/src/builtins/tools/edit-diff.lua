@@ -207,3 +207,27 @@ local function compute_edits_diff(path, edits, base_cwd)
   if ok then return result end
   return { error = tostring(result) }
 end
+
+-- Public module: the edit-matching, application, and diff policy shared by
+-- the builtin edit tool and ordinary file-backed edit operations (PLAN 9.10).
+-- The factory captures the same in-scope closures the concatenated tool pack
+-- uses; file-backed packages resolve them by exact module name.
+pi.module.define({
+  name = "pi.tools.edit-diff",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      normalize_to_lf = normalize_to_lf,
+      detect_line_ending = detect_line_ending,
+      restore_line_endings = restore_line_endings,
+      normalize_for_fuzzy_match = normalize_for_fuzzy_match,
+      fuzzy_find_text = fuzzy_find_text,
+      count_occurrences = count_occurrences,
+      apply_edits_to_normalized_content = apply_edits_to_normalized_content,
+      generate_diff_string = generate_diff_string,
+      generate_unified_patch = generate_unified_patch,
+      compute_edits_diff = compute_edits_diff,
+    }
+  end,
+})

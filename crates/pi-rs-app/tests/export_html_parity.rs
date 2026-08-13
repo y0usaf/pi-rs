@@ -4,7 +4,7 @@
 //! records the exact JSON text embedded in the HTML (including object order and
 //! explicit nulls) and the SHA-256 of the complete document.
 
-use pi_rs_app::builtins::{INTERACTIVE_PACK, TOOLS_PACK};
+use pi_rs_app::builtins::{AGENT_CORE_PACK, INTERACTIVE_PACK, TOOLS_PACK};
 use pi_rs_host::{Host, HostConfig};
 use sha2::{Digest, Sha256};
 
@@ -56,7 +56,7 @@ fn html_document_and_embedded_payload_match_pi() {
         ..HostConfig::default()
     })
     .unwrap();
-    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
+    let report = host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     host.call_command(
         "export-html-parity",
@@ -89,4 +89,31 @@ fn html_document_and_embedded_payload_match_pi() {
 
     let digest = format!("{:x}", Sha256::digest(html.as_bytes()));
     assert_eq!(digest, oracle["htmlSha256"].as_str().unwrap());
+}
+
+#[test]
+fn file_backed_package_imports_the_same_export_html_module() {
+    let temp = tempfile::tempdir().unwrap();
+    let host = Host::new(HostConfig {
+        cwd: Some(temp.path().to_string_lossy().into_owned()),
+        ..HostConfig::default()
+    })
+    .unwrap();
+    let report =
+        host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    let consumer = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/extensions/export-html-consumer.lua"
+    );
+    host.load_file(consumer).expect("consumer example loads");
+    let result = host
+        .call_command("export-html-consumer", "")
+        .expect("consumer command runs")
+        .expect("consumer command result");
+    // A file-backed package resolves the *same* exact-version module the
+    // builtin frontend exports — identical closures, no hidden native module
+    // or load-order global.
+    assert_eq!(result["resolved"], true);
+    assert_eq!(result["base64"], "aGVsbG8KCnBpIGV4cG9ydA==");
 }

@@ -7,7 +7,7 @@
 #![allow(clippy::needless_collect, clippy::redundant_closure)]
 #![allow(clippy::manual_contains, unsafe_code)]
 
-use pi_rs_app::builtins::INTERACTIVE_PACK;
+use pi_rs_app::builtins::{AGENT_CORE_PACK, INTERACTIVE_PACK};
 use pi_rs_host::{Host, HostConfig};
 use serde_json::{Value, json};
 use std::sync::Mutex;
@@ -58,7 +58,7 @@ fn hermetic_host(cwd: &std::path::Path, agent_dir: &std::path::Path) -> Host {
     })
     .expect("host build");
     unsafe { std::env::remove_var("PI_CODING_AGENT_DIR") };
-    let report = host.load_embedded(&[INTERACTIVE_PACK]);
+    let report = host.load_embedded(&[AGENT_CORE_PACK, INTERACTIVE_PACK]);
     assert!(report.errors.is_empty(), "load errors: {:?}", report.errors);
     host.load("resources-runner", RUNNER).expect("runner loads");
     host

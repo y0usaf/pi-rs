@@ -4,6 +4,7 @@ use pi_rs_host::{Host, HostConfig};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
+use pi_rs_app::builtins::AGENT_CORE_PACK;
 
 #[test]
 fn startup_network_policy_matches_pi_request_and_release_shapes() {
@@ -39,7 +40,7 @@ fn startup_network_policy_matches_pi_request_and_release_shapes() {
         ..Default::default()
     })
     .unwrap();
-    let report = host.load_embedded(&[
+    let report = host.load_embedded(&[AGENT_CORE_PACK, 
         pi_rs_agent::PACK,
         pi_rs_app::builtins::TOOLS_PACK,
         pi_rs_app::builtins::CODING_AGENT_PACK,

@@ -21,6 +21,7 @@
 
 use pi_rs_host::{Host, HostConfig};
 use serde_json::Value;
+use pi_rs_app::builtins::AGENT_CORE_PACK;
 
 fn fixture(name: &str) -> Value {
     let path = format!(
@@ -141,7 +142,7 @@ fn tool_execute_matches_pi_oracle() {
             ..HostConfig::default()
         })
         .expect("host boots");
-        let report = host.load_embedded(&[
+        let report = host.load_embedded(&[AGENT_CORE_PACK, 
             pi_rs_app::builtins::TOOLS_PACK,
             pi_rs_app::builtins::CODING_AGENT_PACK,
         ]);

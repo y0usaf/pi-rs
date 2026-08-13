@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 
-use pi_rs_app::builtins::{CODING_AGENT_PACK, TOOLS_PACK};
+use pi_rs_app::builtins::{AGENT_CORE_PACK, CODING_AGENT_PACK, TOOLS_PACK};
 use pi_rs_host::{Host, HostConfig};
 
 const CASES: &str = include_str!("../../../tests/session-parity/cases.json");
@@ -111,7 +111,7 @@ fn session_files_match_pi_for_every_oracle_case() {
             ..HostConfig::default()
         })
         .unwrap();
-        let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
+        let report = host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
         assert!(report.errors.is_empty(), "{:?}", report.errors);
 
         let request = serde_json::json!({

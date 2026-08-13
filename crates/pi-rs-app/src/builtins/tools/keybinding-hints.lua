@@ -24,3 +24,18 @@ end
 local function key_hint(theme, binding, description)
   return theme:fg("dim", key_text(binding)) .. theme:fg("muted", " " .. description)
 end
+
+-- Public module: the tool keybinding-hint presenter (PLAN 9.10). Builtin
+-- and file-backed tool renderers import the same closures.
+pi.module.define({
+  name = "pi.tui.keybinding-hints",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      key_text = key_text,
+      key_hint = key_hint,
+      format_key_text = format_key_text,
+    }
+  end,
+})
