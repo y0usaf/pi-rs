@@ -188,7 +188,7 @@ Complete these rungs before growing the extension surface further.
 
 ## Extension/configuration closure
 
-- [ ] **9.2 Extension contexts + lifecycle actions.** Complete live
+- [x] **9.2 Extension contexts + lifecycle actions.** Complete live
       `ExtensionContext`/`ExtensionCommandContext` snapshots and queued actions:
       UI, mode/hasUI/cwd/trust, read-only session/model registry, model/signal,
       idle/abort/pending/shutdown, context usage, compaction, system prompt, and
@@ -214,6 +214,28 @@ Complete these rungs before growing the extension surface further.
       `extension_ui_request` JSONL records on stdout, asserted differentially
       in `rpc_binds_real_extension_ui_context_matching_pi`. Event emission
       itself closes in 9.3.
+
+      **Carried through JSON/RPC (this stream):** print/json and RPC extension
+      commands now receive live `ExtensionCommandContext` snapshots. Pi's
+      `session.prompt()` (which every mode drives via its `messages[]` loop or
+      the `prompt` RPC command) routes leading-`/` messages to the registered
+      command handler with a command context and does not send them to the
+      model (provider response stays pending, session messages stay empty).
+      pi-rs reproduces `_tryExecuteExtensionCommand` via
+      `EXTENSION_POLICY.try_execute_extension_command` and wires it into the
+      print/json initial + follow-up messages and the RPC `prompt` command.
+      Differential coverage pins delivery context (mode/hasUI/cwd/trust/idle/
+      pending/session/model-registry/wait/new/fork/tree/switch/reload) and the
+      not-consumed behavior for print, json, and rpc against a Pi-generated
+      oracle section (extension-context-parity `delivery`) asserted by
+      `crates/pi-rs-app/tests/command_delivery_parity.rs`
+      (`print_and_json_command_delivery_matches_pi_oracle`,
+      `rpc_command_delivery_matches_pi_oracle`). The rpc delivery also pins
+      `hasUI=true` + `ui.notify` (real `createExtensionUIContext`). Context,
+      replacement, cancellation, stale-handle, and lifecycle/event ordering
+      remain pinned by the pre-existing oracle sections (`snapshot`, `stale`,
+      `modes`, `actions`, `replacement`, `reload`, `waitCancellation`)
+      asserted in `extension_context_snapshots_and_shutdown_match_pi`.
 
 - [x] **9.3 Complete event pipeline and fold semantics.** Emit the pinned event
       vocabulary at real product seams: project/resources; session start/switch/
