@@ -28,6 +28,3 @@ __pycache__/
 /.parity-trajectory-*.jsonl
 /.parity-run.log
 /.parity-supervisor.log
-
-# Agent/tool private state (never commit)
-/.reasonix/
