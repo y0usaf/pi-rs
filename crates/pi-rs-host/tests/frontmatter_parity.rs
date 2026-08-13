@@ -41,7 +41,8 @@ fn pi_frontmatter_matches_vendored_oracle() {
     let oracle = fixture("oracle.json");
 
     let host = Host::new(HostConfig::default()).expect("host");
-    host.load("frontmatter-runner", RUNNER).expect("runner loads");
+    host.load("frontmatter-runner", RUNNER)
+        .expect("runner loads");
 
     let oracle_cases = oracle["cases"].as_array().expect("oracle cases");
     let mut diffs = Vec::new();
@@ -72,13 +73,15 @@ fn pi_frontmatter_matches_vendored_oracle() {
         let want_frontmatter = oracle_frontmatter.cloned().unwrap_or(Value::Null);
         let want_body = oracle_body.cloned().unwrap_or(Value::Null);
         if got_frontmatter != want_frontmatter || got_body != want_body {
-            diffs.push(format!(
-                "{name}:\n  oracle={oracle_case}\n  got   ={got}"
-            ));
+            diffs.push(format!("{name}:\n  oracle={oracle_case}\n  got   ={got}"));
         }
     }
 
     if !diffs.is_empty() {
-        panic!("frontmatter divergences from Pi oracle ({}):\n{}", diffs.len(), diffs.join("\n"));
+        panic!(
+            "frontmatter divergences from Pi oracle ({}):\n{}",
+            diffs.len(),
+            diffs.join("\n")
+        );
     }
 }

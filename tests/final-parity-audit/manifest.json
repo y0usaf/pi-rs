@@ -341,13 +341,27 @@
     },
     {
       "id": "tui.extension-composition",
-      "status": "open",
-      "owner": "PLAN 9.5",
-      "rationale": "Overlay/custom-component composition and public rendering middleware remain open even though the default terminal renderer is proven.",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "Overlay/custom-component composition and public rendering middleware are closed. Temporary custom component/overlay composition (overlay + overlayOptions anchor/margin/width/height + OverlayHandle hide/setHidden/focus/unfocus/isHidden/isFocused) with input routing, focus release, cleanup/dispose, and resize is driven by interactive-extension-ui-parity-sequence (focused-overlay routing) + pinned by file_backed_ui_showcase_drives_dialogs_slots_editor_and_cleanup. Ordered public rendering middleware covers every transcript row kind and the header/status/widget/editor/footer slots via register_render_middleware/register_ui_slot (api.rs), receiving immutable snapshots and returning components/actions with error fallthrough and watchdog-bounded dispatch; pi-compact.lua reproduces compact rendering file-backed without private classes.",
       "evidence": [
         {
-          "path": "PLAN.md",
-          "contains": "temporary custom"
+          "path": "crates/pi-rs-host/src/api.rs"
+        },
+        {
+          "path": "crates/pi-rs-app/src/builtins/interactive.lua"
+        },
+        {
+          "path": "crates/pi-rs-host/tests/registries.rs"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/extension_loading.rs"
+        },
+        {
+          "path": "examples/extensions/ui-surface-demo.lua"
+        },
+        {
+          "path": "examples/extensions/pi-compact.lua"
         }
       ],
       "refs": [
@@ -624,13 +638,27 @@
     },
     {
       "id": "coding.extension-ui",
-      "status": "open",
-      "owner": "PLAN 9.5",
-      "rationale": "Public extension dialogs, slots, custom row rendering, editor/overlay composition, cleanup, and headless outcomes remain incomplete.",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "Public extension dialogs, slots, custom row rendering, editor/overlay composition, cleanup, and headless outcomes are closed. ctx.ui.select/confirm/input/editor/custom/notify/onTerminalInput, status/widgets/header/footer/title, working message/indicator/visibility, hidden-thinking label, editor text/paste, tool expansion, theme access/switching, custom editor, and print-mode headless no-UI outcomes are driven by EXTENSION_UI_POLICY under builtins/interactive.lua (headless pinned by print_context_uses_pinned_no_ui_outcomes). Temporary custom overlay composition (overlay + overlayOptions + OverlayHandle) and per-customType message rendering (pi.register_message_renderer, first-wins) are implemented and pinned.",
       "evidence": [
         {
-          "path": "PLAN.md",
-          "contains": "Complete composable"
+          "path": "crates/pi-rs-app/src/builtins/interactive.lua"
+        },
+        {
+          "path": "crates/pi-rs-host/src/api.rs"
+        },
+        {
+          "path": "crates/pi-rs-host/tests/registries.rs"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/extension_loading.rs"
+        },
+        {
+          "path": "examples/extensions/ui-surface-demo.lua"
+        },
+        {
+          "path": "examples/extensions/message-render-demo.lua"
         }
       ],
       "refs": [

@@ -45,7 +45,8 @@ fn text_file_processing_matches_pi_byte_for_byte() {
         // Image cases are generated with autoResizeImages:false (deterministic
         // base64); text cases use the default true. Match the generator so the
         // comparison is byte-for-byte.
-        let expect_images = case["images"].as_array().is_some() && !case["images"].as_array().unwrap().is_empty();
+        let expect_images =
+            case["images"].as_array().is_some() && !case["images"].as_array().unwrap().is_empty();
         let auto_resize = !expect_images;
         let expected = substitute(case["text"].as_str().unwrap());
 

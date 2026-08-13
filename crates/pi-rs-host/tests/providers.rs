@@ -274,7 +274,10 @@ fn shared_api_handler_survives_co_tenant_unregister() {
         .call_command("shared-api-probe", &model.to_string())
         .unwrap()
         .unwrap();
-    assert_eq!(got["provider"], "tenant-b", "last registration wins for shared api");
+    assert_eq!(
+        got["provider"], "tenant-b",
+        "last registration wins for shared api"
+    );
 
     // Unregister tenant-a (the other co-tenant). Pi's refresh rebuilds the
     // handler from the remaining provider (tenant-b), so it stays live.
@@ -447,5 +450,8 @@ fn provider_models_validation_matches_spec() {
     .unwrap();
     let providers = host.providers().unwrap();
     let names: Vec<&str> = providers.iter().map(|p| p.name.as_str()).collect();
-    assert!(names.contains(&"ok"), "valid registration is stored: {names:?}");
+    assert!(
+        names.contains(&"ok"),
+        "valid registration is stored: {names:?}"
+    );
 }

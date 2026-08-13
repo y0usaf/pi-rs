@@ -1234,13 +1234,31 @@ function default_transcript_row(state, item, width, has_prior)
   elseif item.kind == "tool" then append(lines, tool_execution_lines(item, width, state.theme, tool_opts))
   elseif item.kind == "bash" then append(lines, bash_execution_lines(item, width, state.theme))
   elseif item.kind == "custom" then
-    lines[#lines + 1] = ""
     local message = item.message or item
-    local label = message.customType and ("[" .. message.customType .. "]") or "[custom]"
-    local content = type(message.content) == "string" and message.content or pi.json.encode(message.content or {})
-    local child = pi.tui.text_render(state.theme:fg("customMessageLabel", state.theme:bold(label))
-      .. "\n\n" .. state.theme:fg("customMessageText", content), math.max(1, width - 2), 0, 0)
-    append(lines, box_lines(child, width, function(text) return state.theme:bg("customMessageBg", text) end))
+    -- PLAN 9.5: per-customType message renderers (spec registerMessageRenderer /
+    -- getMessageRenderer). First registration per customType wins; the renderer
+    -- receives an immutable message snapshot `(message, { expanded }, theme)` and
+    -- returns a component or lines. Errors fall through to the default box.
+    local render_type = message.customType
+    local rendered_custom = nil
+    if render_type then
+      local renderers = pi.registered_message_renderers(render_type)
+      if renderers[1] and renderers[1].renderer then
+        local ok, component = pcall(renderers[1].renderer,
+          readonly_snapshot(message), { expanded = state.tools_expanded or false }, state.theme)
+        if ok then rendered_custom = component end
+      end
+    end
+    if rendered_custom ~= nil then
+      append(lines, extension_component_lines(rendered_custom, math.max(1, width - 2)))
+    else
+      lines[#lines + 1] = ""
+      local label = message.customType and ("[" .. message.customType .. "]") or "[custom]"
+      local content = type(message.content) == "string" and message.content or pi.json.encode(message.content or {})
+      local child = pi.tui.text_render(state.theme:fg("customMessageLabel", state.theme:bold(label))
+        .. "\n\n" .. state.theme:fg("customMessageText", content), math.max(1, width - 2), 0, 0)
+      append(lines, box_lines(child, width, function(text) return state.theme:bg("customMessageBg", text) end))
+    end
   elseif item.kind == "branch_summary" then
     lines[#lines + 1] = ""
     append(lines, branch_summary_message_lines(item.message, width, state.theme, state.md_theme,
@@ -11059,7 +11077,9 @@ pi.register_command("interactive-extension-ui-parity-sequence", {
       EXTENSION_UI_POLICY.pump(state)
     end
     local function feed(data)
-      if state.selector then state.selector:handle_input(data)
+      if state.overlay_component and state.overlay_focused and state.overlay_component.handle_input then
+        state.overlay_component:handle_input(data)
+      elseif state.selector then state.selector:handle_input(data)
       else
         local effect = state.editor:handle_input(data)
         if effect.kind == "submit" then state.submit(effect.text or effect.value or "") end
