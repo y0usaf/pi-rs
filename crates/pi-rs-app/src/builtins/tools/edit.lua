@@ -128,7 +128,11 @@ pi.register_tool({
     local path, edits = params.path, params.edits
     if type(edits) ~= "table" or #edits == 0 then error("Edit tool input is invalid. edits must contain at least one replacement.", 0) end
     local absolute_path = resolve_to_cwd(path)
-    return with_file_mutation_queue(absolute_path, function()
+    -- Public exact-version dependency on the mutation-queue module (spec:
+    -- edit.ts enters the file mutation queue for path/x); a file-backed
+    -- replacement tool imports the same closures, not a chunk-local.
+    local mutation_queue = pi.module.require("pi.tools.file-mutation-queue", "1")
+    return mutation_queue.with_file_mutation_queue(absolute_path, function()
       if signal and signal:is_aborted() then error("Operation aborted", 0) end
       if not pi.fs.exists(absolute_path) then error("Could not edit file: " .. path .. ". Error code: ENOENT.", 0) end
       local raw = utf8_lossy(pi.fs.read_bytes(absolute_path))

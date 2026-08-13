@@ -771,11 +771,39 @@
       "id": "coding.resources-packages",
       "status": "open",
       "owner": "PLAN 9.7",
-      "rationale": "Resource discovery, Lua modules, prompt/skill/theme provenance, package transport, and pi config remain open.",
+      "rationale": "The disk resource-loader seam, the git source grammar, and the package-lifecycle core are landed and pinned: the public Lua modules pi.tools.file-mutation-queue, pi.tools.shell, pi.interactive.export-html, pi.interactive.prompts, pi.resources.skills, and pi.packages are consumed by embedded builtins and file-backed packages through one pi.module.require mechanism; load_prompt_templates (tests/prompt-loader-parity) and load_skills_from_dir (tests/skills-parity) are pinned against Pi's real prompt-templates.ts/skills.ts, the git source grammar via pi.git (tests/package-transport-parity), and the packages CLI parse/help/early-error surface + deterministic list/local-install/remove exec legs are pinned differentially against handlePackageCommand (tests/package-cli-parity, package_cli_exec.rs). The deterministic resource-resolution engine pi.resources (resolve(): precedence/sort, canonical-path dedupe/collisions, pattern toggles, project-trust gating, attribution) and disk theme discovery are covered by resources_parity.rs, and /reload resolves resources + applies a registered custom theme (interactive_reload.rs). Still open: the network-modulated packages CLI legs (npm/git install/update, self-update, the TUI config command) and live update/offline-cache pruning, which are network/install-method dependent (represented by the deterministic offline-skip behavior rather than pinned network outcomes).",
       "evidence": [
         {
           "path": "PLAN.md",
           "contains": "Resources, public Lua modules, and package transport"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/resources_parity.rs",
+          "contains": "fn theme_discovery_registers_and_loads_disk_json_themes"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/prompt_loader_parity.rs",
+          "contains": "fn prompt_loader_matches_pi_oracle"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/skills_parity.rs",
+          "contains": "fn skills_from_dir_match_pi_oracle"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/package_lifecycle.rs",
+          "contains": "fn parse_source_routes_git_npm_local"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/package_cli_parity.rs",
+          "contains": "fn package_cli_hermetic_surface_matches_pi_oracle"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/package_cli_exec.rs",
+          "contains": "fn list_shows_configured_user_packages"
+        },
+        {
+          "path": "crates/pi-rs-host/tests/package_transport_parity.rs",
+          "contains": "fn git_url_parse_matches_pi_oracle"
         }
       ],
       "refs": [

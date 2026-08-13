@@ -1,0 +1,224 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "cases": [
+    {
+      "name": "defaults-only",
+      "includeDefaults": true,
+      "promptPaths": [],
+      "templates": [
+        {
+          "name": "global-md",
+          "description": "Global body",
+          "argumentHint": "<arg>",
+          "content": "Global body",
+          "filePath": "agent/prompts/global-md.md",
+          "sourceInfo": {
+            "source": "local",
+            "scope": "user",
+            "origin": "top-level",
+            "baseDir": "agent/prompts"
+          }
+        },
+        {
+          "name": "project-md",
+          "description": "Project template description",
+          "content": "Project body $1",
+          "filePath": "cwd/.pi/prompts/project-md.md",
+          "sourceInfo": {
+            "source": "local",
+            "scope": "project",
+            "origin": "top-level",
+            "baseDir": "cwd/.pi/prompts"
+          }
+        }
+      ]
+    },
+    {
+      "name": "no-defaults-empty",
+      "includeDefaults": false,
+      "promptPaths": [],
+      "templates": []
+    },
+    {
+      "name": "single-explicit-file",
+      "includeDefaults": true,
+      "promptPaths": [
+        "explicit/special.md"
+      ],
+      "templates": [
+        {
+          "name": "global-md",
+          "description": "Global body",
+          "argumentHint": "<arg>",
+          "content": "Global body",
+          "filePath": "agent/prompts/global-md.md",
+          "sourceInfo": {
+            "source": "local",
+            "scope": "user",
+            "origin": "top-level",
+            "baseDir": "agent/prompts"
+          }
+        },
+        {
+          "name": "project-md",
+          "description": "Project template description",
+          "content": "Project body $1",
+          "filePath": "cwd/.pi/prompts/project-md.md",
+          "sourceInfo": {
+            "source": "local",
+            "scope": "project",
+            "origin": "top-level",
+            "baseDir": "cwd/.pi/prompts"
+          }
+        },
+        {
+          "name": "special",
+          "description": "Explicit file desc",
+          "argumentHint": "<text>",
+          "content": "Explicit body with $1 $2",
+          "filePath": "explicit/special.md",
+          "sourceInfo": {
+            "source": "local",
+            "scope": "temporary",
+            "origin": "top-level",
+            "baseDir": "explicit"
+          }
+        }
+      ]
+    },
+    {
+      "name": "explicit-dir",
+      "includeDefaults": true,
+      "promptPaths": [
+        "extra"
+      ],
+      "templates": [
+        {
+          "name": "global-md",
+          "description": "Global body",
+          "argumentHint": "<arg>",
+          "content": "Global body",
+          "filePath": "agent/prompts/global-md.md",
+          "sourceInfo": {
+            "source": "local",
+            "scope": "user",
+            "origin": "top-level",
+            "baseDir": "agent/prompts"
+          }
+        },
+        {
+          "name": "project-md",
+          "description": "Project template description",
+          "content": "Project body $1",
+          "filePath": "cwd/.pi/prompts/project-md.md",
+          "sourceInfo": {
+            "source": "local",
+            "scope": "project",
+            "origin": "top-level",
+            "baseDir": "cwd/.pi/prompts"
+          }
+        },
+        {
+          "name": "one",
+          "description": "First in dir",
+          "content": "One body",
+          "filePath": "extra/one.md",
+          "sourceInfo": {
+            "source": "local",
+            "scope": "temporary",
+            "origin": "top-level",
+            "baseDir": "extra"
+          }
+        },
+        {
+          "name": "two",
+          "description": "Two body starts here",
+          "content": "Two body starts here\nand continues",
+          "filePath": "extra/two.md",
+          "sourceInfo": {
+            "source": "local",
+            "scope": "temporary",
+            "origin": "top-level",
+            "baseDir": "extra"
+          }
+        }
+      ]
+    },
+    {
+      "name": "missing-explicit-skipped",
+      "includeDefaults": true,
+      "promptPaths": [
+        "does-not-exist.md"
+      ],
+      "templates": [
+        {
+          "name": "global-md",
+          "description": "Global body",
+          "argumentHint": "<arg>",
+          "content": "Global body",
+          "filePath": "agent/prompts/global-md.md",
+          "sourceInfo": {
+            "source": "local",
+            "scope": "user",
+            "origin": "top-level",
+            "baseDir": "agent/prompts"
+          }
+        },
+        {
+          "name": "project-md",
+          "description": "Project template description",
+          "content": "Project body $1",
+          "filePath": "cwd/.pi/prompts/project-md.md",
+          "sourceInfo": {
+            "source": "local",
+            "scope": "project",
+            "origin": "top-level",
+            "baseDir": "cwd/.pi/prompts"
+          }
+        }
+      ]
+    },
+    {
+      "name": "description-from-first-line-truncated",
+      "includeDefaults": false,
+      "promptPaths": [
+        "stable/longline.md"
+      ],
+      "templates": [
+        {
+          "name": "longline",
+          "description": "A very long first line that is definitely more than sixty ch...",
+          "content": "A very long first line that is definitely more than sixty characters long so it must be truncated with an ellipsis at the boundary\nsecond line",
+          "filePath": "stable/longline.md",
+          "sourceInfo": {
+            "source": "local",
+            "scope": "temporary",
+            "origin": "top-level",
+            "baseDir": "stable"
+          }
+        }
+      ]
+    },
+    {
+      "name": "explicit-file-dir-outside-defaults",
+      "includeDefaults": false,
+      "promptPaths": [
+        "assets/prompts"
+      ],
+      "templates": [
+        {
+          "name": "custom",
+          "description": "Custom desc",
+          "content": "Custom body",
+          "filePath": "assets/prompts/custom.md",
+          "sourceInfo": {
+            "source": "local",
+            "scope": "temporary",
+            "origin": "top-level",
+            "baseDir": "assets/prompts"
+          }
+        }
+      ]
+    }
+  ]
+}

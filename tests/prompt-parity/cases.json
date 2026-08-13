@@ -1,0 +1,39 @@
+{
+	"parseArgs": [
+		{ "name": "empty", "input": "" },
+		{ "name": "simple", "input": "alpha beta gamma" },
+		{ "name": "double-quoted", "input": "one \"two three\" four" },
+		{ "name": "single-quoted", "input": "a 'b c' d" },
+		{ "name": "nested-quote", "input": "x \"y'z\" w" },
+		{ "name": "unterminated", "input": "\"open quoted" },
+		{ "name": "leading-space", "input": "   item" },
+		{ "name": "trailing-space", "input": "item   " },
+		{ "name": "consecutive-spaces", "input": "a  b   c" },
+		{ "name": "escaped-nothing", "input": "back\\slash path" }
+	],
+	"substitute": [
+		{ "name": "positional", "content": "hello $1 and $2", "args": ["world", "friend"] },
+		{ "name": "all-args", "content": "all: $@", "args": ["a", "b", "c"] },
+		{ "name": "arguments-word", "content": "args: $ARGUMENTS", "args": ["x", "y"] },
+		{ "name": "missing-index", "content": "$3 ghost", "args": ["a", "b"] },
+		{ "name": "default-value", "content": "${1:-fallback}", "args": ["real"] },
+		{ "name": "default-fallback", "content": "${2:-none}", "args": ["only"] },
+		{ "name": "empty-arg-default", "content": "${1:-fb}", "args": [""] },
+		{ "name": "slice-from", "content": "${@:2}", "args": ["a", "b", "c"] },
+		{ "name": "slice-length", "content": "${@:2:2}", "args": ["a", "b", "c", "d"] },
+		{ "name": "slice-zero", "content": "${@:0:2}", "args": ["a", "b", "c"] },
+		{ "name": "slice-zero-lenless", "content": "${@:0}", "args": ["a", "b"] },
+		{ "name": "mixed-no-recursion", "content": "$1 $2", "args": ["$1", "$@"] },
+		{ "name": "no-pattern", "content": "no placeholders here", "args": ["x"] },
+		{ "name": "dollar-dollar", "content": "$1 $ARGUMENTS ${@:1}", "args": ["p"] }
+	],
+	"expand": [
+		{ "name": "not-template", "text": "just text", "templates": [] },
+		{ "name": "no-slash", "text": "hello /world", "templates": [] },
+		{ "name": "named", "text": "/plan review the code", "templates": [{ "name": "plan", "content": "Plan: $1" }] },
+		{ "name": "empty-args", "text": "/plan", "templates": [{ "name": "plan", "content": "Nothing" }] },
+		{ "name": "unknown-template", "text": "/missing arg", "templates": [{ "name": "plan", "content": "P" }] },
+		{ "name": "multiline-args", "text": "/plan one two", "templates": [{ "name": "plan", "content": "$@ done" }] },
+		{ "name": "slash-inside", "text": "/plan /nested path", "templates": [{ "name": "plan", "content": "go $@" }] }
+	]
+}

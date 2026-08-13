@@ -3655,6 +3655,38 @@ pub(crate) fn build(
         Ok(table)
     })?;
     pi.set("parse_frontmatter", parse_frontmatter)?;
+
+    // Git source grammar (spec: utils/git.ts parseGitUrl) + isLocalPath, the
+    // deterministic source-truth the package manager needs to route a source
+    // to a transport. Pinned by tests/package-transport-parity against Pi.
+    // Merge into the `pi.git` table installed above (which already carries
+    // `current_branch`) rather than replacing it.
+    let git_api: mlua::Table = pi.get("git")?;
+    git_api.set(
+        "parse_git_url",
+        lua.create_function(
+            |lua, source: String| match crate::git::parse_git_url(&source) {
+                Some(parsed) => {
+                    let table = lua.create_table()?;
+                    table.set("type", "git")?;
+                    table.set("repo", parsed.repo)?;
+                    table.set("host", parsed.host)?;
+                    table.set("path", parsed.path)?;
+                    if let Some(r) = &parsed.r#ref {
+                        table.set("ref", r.as_str())?;
+                    }
+                    table.set("pinned", parsed.pinned)?;
+                    Ok(Some(table))
+                }
+                None => Ok(None),
+            },
+        )?,
+    )?;
+    git_api.set(
+        "is_local_path",
+        lua.create_function(|_, source: String| Ok(crate::git::is_local_path(&source)))?,
+    )?;
+
     Ok(pi)
 }
 

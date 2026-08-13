@@ -12,6 +12,7 @@ use pi_rs_app::cli::args::{Args, help_text, parse_args};
 use pi_rs_app::cli::extensions::load_product_extensions;
 use pi_rs_app::cli::list_models::render_model_list;
 use pi_rs_app::cli::login::run_login;
+use pi_rs_app::cli::packages::handle_package_command_hermetic;
 use pi_rs_app::cli::session_select::{SessionChoice, choose_session, session_header_cwd};
 use pi_rs_app::config::VERSION;
 use pi_rs_app::core::auth_guidance::format_no_models_available_message;
@@ -26,9 +27,7 @@ use pi_rs_host::trust::{ProjectTrustStore, has_project_trust_inputs, project_tru
 /// `print`/`io.write` from extension chunks write to stderr instead of stdout,
 /// so non-interactive (print/RPC) protocol output stays byte-clean. The product
 /// channel `pi.output` writes directly to stdout and is unaffected.
-const ENABLE_STDOUT_GUARD: &str =
-    "local pi = ...\npi.apply_stdout_guard(true)\n";
-
+const ENABLE_STDOUT_GUARD: &str = "local pi = ...\npi.apply_stdout_guard(true)\n";
 
 /// Minimal chalk analogue: color only when the stream is a terminal.
 fn stderr_paint(code: &str, text: &str) -> String {
@@ -88,6 +87,83 @@ fn load_host_with_trust(cwd: &str, project_trusted: bool) -> Result<pi_rs_host::
 
 fn load_host(cwd: &str) -> Result<pi_rs_host::Host, String> {
     load_host_with_trust(cwd, true)
+}
+
+/// Run the packages CLI *execution* legs through the public `pi.packages`
+/// module (spec `package-manager-cli.ts` `handlePackageCommand`, the clauses
+/// that reach the package manager after the parse/help/early-error prefix).
+///
+/// This loads a fresh host at the current cwd, dispatches the parsed command
+/// to the `pkg-exec` Lua role, and mirrors Pi's console.log (stdout) /
+/// console.error (stderr) ordering and exit code. It runs on a "*would
+/// execute*" package command (the `i32::MIN` sentinel from the hermetic
+/// handler). The deterministic legs are `list` and local-path `install`/
+/// `remove`; network-modulated `update`/self-update and npm/git install are
+/// routed back as out-of-scope (here, a clear error) — they are documented in
+/// PLAN 9.7 as open-by-design and cannot be faithfully pinned without a live
+/// registry/git remote.
+fn run_package_command_exec(raw_args: &[String]) -> ExitCode {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let cwd_string = cwd.to_string_lossy().into_owned();
+    let agent_dir = pi_rs_app::config::get_agent_dir()
+        .to_string_lossy()
+        .into_owned();
+
+    let parsed = pi_rs_app::cli::packages::parse_package_command(raw_args);
+    let Some(options) = parsed else {
+        error_line("Error: package command parse failed");
+        return ExitCode::FAILURE;
+    };
+
+    // Network-modulated / out-of-scope commands are not routed to the
+    // deterministic exec legs in this build.
+    if options.command == pi_rs_app::cli::packages::PackageCommand::Update {
+        error_line("Error: pi update is not available in this build");
+        return ExitCode::FAILURE;
+    }
+
+    let host = match load_host(&cwd_string) {
+        Ok(host) => host,
+        Err(message) => {
+            error_line(&message);
+            return ExitCode::FAILURE;
+        }
+    };
+    let request = pi_rs_app::cli::packages::package_exec_request(&options, cwd_string, agent_dir);
+    let result = match host.call_role("pkg-exec", &request.to_string()) {
+        Ok(Some(result)) => result,
+        Ok(None) => {
+            error_line("Error: package command produced no result");
+            return ExitCode::FAILURE;
+        }
+        Err(error) => {
+            error_line(&format!("Error: {error}"));
+            return ExitCode::FAILURE;
+        }
+    };
+    if result
+        .get("out_of_scope")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+    {
+        error_line("Error: this package command is out of scope in this build");
+        return ExitCode::FAILURE;
+    }
+    if let Some(stdout) = result.get("stdout").and_then(serde_json::Value::as_str) {
+        print!("{stdout}");
+    }
+    if let Some(stderr) = result.get("stderr").and_then(serde_json::Value::as_str) {
+        eprint!("{stderr}");
+    }
+    let exit = result
+        .get("exitCode")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    if exit == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
 
 /// Plan 10 (modes/rpc/rpc-mode.ts): run the headless RPC protocol.
@@ -216,7 +292,38 @@ fn run_rpc_mode(
 }
 
 fn main() -> ExitCode {
-    let args = parse_args(std::env::args().skip(1));
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
+
+    // Spec (`main.ts`): `handlePackageCommand(args)` runs on the RAW argv
+    // before `parseArgs`. The pi-rs port handles the hermetic parse/help/
+    // early-error surface (cases that return before settings/trust/network)
+    // byte-for-byte (`package_cli_parity.rs`). Commands that would proceed to
+    // install/remove/list execution are dispatched through the `pkg-exec` Lua
+    // role (the deterministic legs: `list`, and local-path `install`/`remove`);
+    // network-modulated `update`/self-update and npm/git install remain out of
+    // the deterministic fixture scope.
+    if let Some((code, stdout, stderr)) = handle_package_command_hermetic(&raw_args) {
+        if code == i32::MIN {
+            // Would-execute: run the deterministic execution legs through the
+            // public pi.packages module (lazy, after stderr/stdout helper setup).
+            return run_package_command_exec(&raw_args);
+        }
+        // Strings already end in `\n` (mirroring console.log/console.error),
+        // so write without an extra newline.
+        if !stdout.is_empty() {
+            print!("{stdout}");
+        }
+        if !stderr.is_empty() {
+            eprint!("{stderr}");
+        }
+        return if code == 0 {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+    }
+
+    let args = parse_args(raw_args);
 
     // Spec: report parse diagnostics; errors are fatal.
     let mut had_error = false;
@@ -577,7 +684,8 @@ async fn run(mut args: Args) -> ExitCode {
             &settings_manager,
             &args.extensions,
             args.no_extensions,
-        );    }
+        );
+    }
 
     // Spec (`buildSessionOptions` / `findInitialModel`): CLI model wins
     // (a `:<thinking>` suffix applies unless --thinking is explicit),
@@ -710,9 +818,7 @@ async fn run(mut args: Args) -> ExitCode {
     // Non-interactive modes (print/text/json) keep stdout protocol-clean:
     // enable the output guard before extension loading (spec: output-guard.ts
     // takeOverStdout). Interactive mode leaves it off (TUI owns the terminal).
-    if !interactive
-        && let Err(message) = host.load("stdout-guard", ENABLE_STDOUT_GUARD)
-    {
+    if !interactive && let Err(message) = host.load("stdout-guard", ENABLE_STDOUT_GUARD) {
         error_line(&message.to_string());
         return ExitCode::FAILURE;
     }

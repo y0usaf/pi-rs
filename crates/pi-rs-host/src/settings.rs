@@ -249,6 +249,262 @@ pub(crate) fn install(
         })?,
     )?;
 
+    // Packages (spec: SettingsManager getPackages/setPackages/setProjectPackages).
+    // Package lifecycle policy lives in Lua (`pi.packages`); the settings store
+    // is the persistence channel. Values are `string | { source, resources... }`
+    // entries that cross the bridge as JSON.
+    let store = Arc::clone(&settings);
+    table.set(
+        "packages",
+        lua.create_function(move |lua, ()| {
+            let packages = lock(&store)?.get_packages();
+            let table = lua.create_table()?;
+            for p in packages {
+                table.push(crate::convert::json_to_lua(lua, &p)?)?;
+            }
+            Ok(table)
+        })?,
+    )?;
+    let store = Arc::clone(&settings);
+    table.set(
+        "set_packages",
+        lua.create_function(move |_, value: mlua::Value| {
+            let packages = match crate::convert::lua_to_json(value)? {
+                serde_json::Value::Array(packages) => packages,
+                // An empty Lua table is ambiguous (array vs object); packages
+                // are always an array, so normalize an empty object.
+                serde_json::Value::Object(m) if m.is_empty() => Vec::new(),
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "set_packages: expected a table of package entries",
+                    ));
+                }
+            };
+            lock(&store)?.set_packages(packages);
+            Ok(())
+        })?,
+    )?;
+    let store = Arc::clone(&settings);
+    table.set(
+        "set_project_packages",
+        lua.create_function(move |_, value: mlua::Value| {
+            let packages = match crate::convert::lua_to_json(value)? {
+                serde_json::Value::Array(packages) => packages,
+                serde_json::Value::Object(m) if m.is_empty() => Vec::new(),
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "set_project_packages: expected a table of package entries",
+                    ));
+                }
+            };
+            lock(&store)?
+                .set_project_packages(packages)
+                .map_err(mlua::Error::external)?;
+            Ok(())
+        })?,
+    )?;
+    // Project-scope packages getter (spec: project settings packages). The
+    // package lifecycle reads both scopes for list/remove/update; a string-or-
+    // object entry crosses the bridge as JSON like the user-scope getter.
+    let store = Arc::clone(&settings);
+    table.set(
+        "project_packages",
+        lua.create_function(move |lua, ()| {
+            let packages = lock(&store)?
+                .get_project_settings()
+                .get("packages")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let table = lua.create_table()?;
+            for p in packages {
+                table.push(crate::convert::json_to_lua(lua, &p)?)?;
+            }
+            Ok(table)
+        })?,
+    )?;
+    // Global-scope (user) packages getter, equalable to the project getter:
+    // the package lifecycle reads user scope from getGlobalSettings().packages
+    // and project scope from getProjectSettings().packages (spec
+    // listConfiguredPackages), never the merged settings.
+    let store = Arc::clone(&settings);
+    table.set(
+        "global_packages",
+        lua.create_function(move |lua, ()| {
+            let packages = lock(&store)?
+                .get_global_settings()
+                .get("packages")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let table = lua.create_table()?;
+            for p in packages {
+                table.push(crate::convert::json_to_lua(lua, &p)?)?;
+            }
+            Ok(table)
+        })?,
+    )?;
+
+    // Resource-type settings channels (extensions/skills/prompts/themes) for
+    // both scopes. The pi.resources resolver reads these (the "settings entry"
+    // resource source) alongside auto-discovery and packages. Paths cross the
+    // bridge as JSON string arrays. `$key` is the settings key (plural), used
+    // to read the raw project settings for the project-scope getter.
+    macro_rules! resource_channel {
+        ($get_global:ident, $set_global:ident, $set_project:ident, $name:expr, $key:expr) => {{
+            // Global (user scope) getter.
+            let store = Arc::clone(&settings);
+            let exposed = format!("{}_paths", $name);
+            table.set(
+                exposed.as_str(),
+                lua.create_function(move |lua, ()| {
+                    let paths = lock(&store)?.$get_global();
+                    let t = lua.create_table()?;
+                    for p in paths {
+                        t.push(p)?;
+                    }
+                    Ok(t)
+                })?,
+            )?;
+            // Global setter.
+            let store = Arc::clone(&settings);
+            let exposed = format!("set_{}_paths", $name);
+            table.set(
+                exposed.as_str(),
+                lua.create_function(move |_, value: mlua::Value| {
+                    let paths = match crate::convert::lua_to_json(value)? {
+                        serde_json::Value::Array(paths) => paths,
+                        serde_json::Value::Object(m) if m.is_empty() => Vec::new(),
+                        _ => {
+                            return Err(mlua::Error::runtime(format!(
+                                "{}: expected a table of paths",
+                                $name
+                            )));
+                        }
+                    };
+                    let strings = paths
+                        .into_iter()
+                        .map(|v| match v {
+                            serde_json::Value::String(s) => Ok(s),
+                            other => Err(mlua::Error::runtime(format!(
+                                "{}: expected string entries, got {}",
+                                $name, other
+                            ))),
+                        })
+                        .collect::<mlua::Result<Vec<String>>>()?;
+                    lock(&store)?.$set_global(&strings);
+                    Ok(())
+                })?,
+            )?;
+            // Project scope setter.
+            let store = Arc::clone(&settings);
+            let exposed = format!("set_project_{}_paths", $name);
+            table.set(
+                exposed.as_str(),
+                lua.create_function(move |_, value: mlua::Value| {
+                    let paths = match crate::convert::lua_to_json(value)? {
+                        serde_json::Value::Array(paths) => paths,
+                        serde_json::Value::Object(m) if m.is_empty() => Vec::new(),
+                        _ => {
+                            return Err(mlua::Error::runtime(format!(
+                                "{}: expected a table of paths",
+                                $name
+                            )));
+                        }
+                    };
+                    let strings = paths
+                        .into_iter()
+                        .map(|v| match v {
+                            serde_json::Value::String(s) => Ok(s),
+                            other => Err(mlua::Error::runtime(format!(
+                                "{}: expected string entries, got {}",
+                                $name, other
+                            ))),
+                        })
+                        .collect::<mlua::Result<Vec<String>>>()?;
+                    lock(&store)?
+                        .$set_project(&strings)
+                        .map_err(mlua::Error::external)?;
+                    Ok(())
+                })?,
+            )?;
+            // Project scope getter: read raw project settings (no public API),
+            // exposed as a Lua table via JSON round-trip.
+            let store = Arc::clone(&settings);
+            let exposed = format!("project_{}_paths", $name);
+            table.set(
+                exposed.as_str(),
+                lua.create_function(move |lua, ()| {
+                    let project_settings = lock(&store)?.get_project_settings();
+                    let paths = project_settings
+                        .get($key)
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|v| v.as_str().map(str::to_owned).unwrap_or_default())
+                        .collect::<Vec<String>>();
+                    let t = lua.create_table()?;
+                    for p in paths {
+                        t.push(p)?;
+                    }
+                    Ok(t)
+                })?,
+            )?;
+        }};
+    }
+    resource_channel!(
+        get_extension_paths,
+        set_extension_paths,
+        set_project_extension_paths,
+        "extension",
+        "extensions"
+    );
+    resource_channel!(
+        get_skill_paths,
+        set_skill_paths,
+        set_project_skill_paths,
+        "skill",
+        "skills"
+    );
+    resource_channel!(
+        get_prompt_template_paths,
+        set_prompt_template_paths,
+        set_project_prompt_template_paths,
+        "prompt",
+        "prompts"
+    );
+    resource_channel!(
+        get_theme_paths,
+        set_theme_paths,
+        set_project_theme_paths,
+        "theme",
+        "themes"
+    );
+
+    // Project trust (spec: isProjectTrusted) — the resolver gates project-scope
+    // resources behind it.
+    let store = Arc::clone(&settings);
+    table.set(
+        "is_project_trusted",
+        lua.create_function(move |_, ()| Ok(lock(&store)?.is_project_trusted()))?,
+    )?;
+
+    // npmCommand (spec: getNpmCommand) — the package install/update transport
+    // uses the configured npm command, defaulting to `npm`.
+    let store = Arc::clone(&settings);
+    table.set(
+        "npm_command",
+        lua.create_function(move |lua, ()| {
+            let npm = lock(&store)?.get_npm_command().unwrap_or_default();
+            let t = lua.create_table()?;
+            for part in npm {
+                t.push(part)?;
+            }
+            Ok(t)
+        })?,
+    )?;
+
     pi.set("settings", table)?;
     Ok(settings)
 }

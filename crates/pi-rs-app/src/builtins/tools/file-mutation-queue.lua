@@ -5,7 +5,9 @@
 -- Exposed as the public module `pi.tools.file-mutation` so embedded and
 -- file-backed mutating tools import the same implementation (PLAN 7/9.9),
 -- while a compatibility `with_file_mutation_queue` stays available to the
--- concatenated tool pack.
+-- concatenated tool pack. Also registered under `pi.tools.file-mutation-queue`
+-- (the PLAN 9.7 exact-version name) so builtin tools and file-backed packages
+-- share one dependency mechanism.
 --
 -- Ownership/leak contract: when the host later drives parallel tool dispatch,
 -- each mutation acquires the file's (Lua-side) mutex; a mutation that errors
@@ -73,16 +75,26 @@ local function active_lock_count()
   return n
 end
 
+local function factory()
+  return {
+    with_file_mutation_queue = with_file_mutation_queue,
+    is_file_locked = is_file_locked,
+    active_lock_count = active_lock_count,
+    key = mutation_queue_key,
+    mutation_queue_key = mutation_queue_key,
+  }
+end
+
 pi.module.define({
   name = "pi.tools.file-mutation",
   version = "1",
   dependencies = {},
-  factory = function()
-    return {
-      with_file_mutation_queue = with_file_mutation_queue,
-      is_file_locked = is_file_locked,
-      active_lock_count = active_lock_count,
-      key = mutation_queue_key,
-    }
-  end,
+  factory = factory,
+})
+
+pi.module.define({
+  name = "pi.tools.file-mutation-queue",
+  version = "1",
+  dependencies = {},
+  factory = factory,
 })

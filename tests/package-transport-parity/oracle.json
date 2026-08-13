@@ -1,0 +1,295 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "gitSources": [
+    {
+      "name": "git-short",
+      "source": "git:github.com/user/repo",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://github.com/user/repo",
+        "host": "github.com",
+        "path": "user/repo",
+        "pinned": false
+      }
+    },
+    {
+      "name": "git-short-ref",
+      "source": "git:github.com/user/repo@v1.2.3",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://github.com/user/repo",
+        "host": "github.com",
+        "path": "user/repo",
+        "ref": "v1.2.3",
+        "pinned": true
+      }
+    },
+    {
+      "name": "git-short-gitsuffix",
+      "source": "git:github.com/user/repo.git",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://github.com/user/repo.git",
+        "host": "github.com",
+        "path": "user/repo",
+        "pinned": false
+      }
+    },
+    {
+      "name": "git-https",
+      "source": "git:https://github.com/user/repo.git",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://github.com/user/repo.git",
+        "host": "github.com",
+        "path": "user/repo",
+        "pinned": false
+      }
+    },
+    {
+      "name": "git-https-ref",
+      "source": "git:https://github.com/user/repo.git@main",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://github.com/user/repo.git",
+        "host": "github.com",
+        "path": "user/repo",
+        "ref": "main",
+        "pinned": true
+      }
+    },
+    {
+      "name": "git-ssh",
+      "source": "git:ssh://git@github.com/user/repo.git",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "ssh://git@github.com/user/repo.git",
+        "host": "github.com",
+        "path": "user/repo",
+        "pinned": false
+      }
+    },
+    {
+      "name": "git-git",
+      "source": "git:git://github.com/user/repo.git",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "git://github.com/user/repo.git",
+        "host": "github.com",
+        "path": "user/repo",
+        "pinned": false
+      }
+    },
+    {
+      "name": "git-scm",
+      "source": "git:git@github.com:user/repo.git",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "git@github.com:user/repo.git",
+        "host": "github.com",
+        "path": "user/repo",
+        "pinned": false
+      }
+    },
+    {
+      "name": "https",
+      "source": "https://github.com/user/repo.git",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://github.com/user/repo.git",
+        "host": "github.com",
+        "path": "user/repo",
+        "pinned": false
+      }
+    },
+    {
+      "name": "https-ref",
+      "source": "https://github.com/user/repo.git#feat",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://github.com/user/repo.git#feat",
+        "host": "github.com",
+        "path": "user/repo",
+        "ref": "feat",
+        "pinned": true
+      }
+    },
+    {
+      "name": "https-org-nested",
+      "source": "https://github.com/acme/team/repo",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://github.com/acme/team/repo",
+        "host": "github.com",
+        "path": "acme/team/repo",
+        "pinned": false
+      }
+    },
+    {
+      "name": "gitlab",
+      "source": "git:gitlab.com/group/subgroup/project",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://gitlab.com/group/subgroup/project",
+        "host": "gitlab.com",
+        "path": "group/subgroup/project",
+        "pinned": false
+      }
+    },
+    {
+      "name": "bitbucket",
+      "source": "git:bitbucket.org/user/repo@v2",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://bitbucket.org/user/repo",
+        "host": "bitbucket.org",
+        "path": "user/repo",
+        "ref": "v2",
+        "pinned": true
+      }
+    },
+    {
+      "name": "hosted-with-hash",
+      "source": "git:github.com/user/repo#branch-name",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://github.com/user/repo#branch-name",
+        "host": "github.com",
+        "path": "user/repo",
+        "ref": "branch-name",
+        "pinned": true
+      }
+    },
+    {
+      "name": "gitlab-hash",
+      "source": "git:gitlab.com/user/repo#release",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://gitlab.com/user/repo#release",
+        "host": "gitlab.com",
+        "path": "user/repo",
+        "ref": "release",
+        "pinned": true
+      }
+    },
+    {
+      "name": "localhost",
+      "source": "git:localhost/user/repo",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://localhost/user/repo",
+        "host": "localhost",
+        "path": "user/repo",
+        "pinned": false
+      }
+    },
+    {
+      "name": "gh-user-repo",
+      "source": "github:user/repo",
+      "isLocalPath": false,
+      "git": null
+    },
+    {
+      "name": "bare-domain",
+      "source": "git:example.com/repo",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://example.com/repo",
+        "host": "github.com",
+        "path": "example.com/repo",
+        "pinned": false
+      }
+    },
+    {
+      "name": "ref-at-in-path",
+      "source": "git:github.com/user/repo@feature/x",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "https://github.com/user/repo",
+        "host": "github.com",
+        "path": "user/repo",
+        "ref": "feature/x",
+        "pinned": true
+      }
+    },
+    {
+      "name": "no-git-prefix-plain",
+      "source": "github.com/user/repo",
+      "isLocalPath": true,
+      "git": null
+    },
+    {
+      "name": "npm-reference",
+      "source": "npm:some-package@^1.0.0",
+      "isLocalPath": false,
+      "git": null
+    },
+    {
+      "name": "file-url",
+      "source": "file:///tmp/foo",
+      "isLocalPath": true,
+      "git": null
+    },
+    {
+      "name": "abs-path",
+      "source": "/tmp/local/path",
+      "isLocalPath": true,
+      "git": null
+    },
+    {
+      "name": "rel-path",
+      "source": "./relative/path",
+      "isLocalPath": true,
+      "git": null
+    },
+    {
+      "name": "tilde-path",
+      "source": "~/.pi/packages",
+      "isLocalPath": true,
+      "git": null
+    },
+    {
+      "name": "git-me",
+      "source": "git:me",
+      "isLocalPath": false,
+      "git": null
+    },
+    {
+      "name": "git-scp-ref",
+      "source": "git:git@github.com:user/repo@tag-1",
+      "isLocalPath": false,
+      "git": {
+        "type": "git",
+        "repo": "git@github.com:user/repo",
+        "host": "github.com",
+        "path": "user/repo",
+        "ref": "tag-1",
+        "pinned": true
+      }
+    },
+    {
+      "name": "windows-drive",
+      "source": "C:\\\\repo",
+      "isLocalPath": true,
+      "git": null
+    }
+  ]
+}
