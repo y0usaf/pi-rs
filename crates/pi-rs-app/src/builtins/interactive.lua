@@ -6935,6 +6935,11 @@ function bind_session_runtime(state, session_manager)
     end
     state.async_render = true
   end
+  -- PLAN 9.4: (re)bind the ExtensionAPI runtime action/view methods onto the
+  -- shared `pi` table for this (possibly replaced) session. On `/reload` the
+  -- generation bump above makes previously-captured `pi.*` handles stale so
+  -- stale extensions fail loudly instead of mutating a replaced session.
+  EXTENSION_POLICY.bind_pi_actions(state)
   state.session_manager = session_manager
   state.cwd = session_manager:get_cwd()
   local startup = session_startup_from_request(session_manager, request)
@@ -9793,8 +9798,18 @@ function interactive_extension_action_handlers(state)
             end
           end
         end
-        if #tools > 0 then
+        if #tools > 0 or action.refresh then
           state.agent:set_tools(tools)
+          -- Pi `setActiveToolsByName` / `_refreshToolRegistry` rebuilds the
+          -- base system prompt to reflect the new tool set.
+          if state.system_prompt_options then
+            local active_names = {}
+            for _, t in ipairs(tools) do active_names[#active_names + 1] = t.name end
+            local previous = state.system_prompt_options.toolNames or {}
+            state.system_prompt_options.toolNames = #active_names > 0 and active_names or previous
+            local prompt = build_session_system_prompt(state.system_prompt_options)
+            state.agent:set_system_prompt(prompt)
+          end
         end
       end
     end,
