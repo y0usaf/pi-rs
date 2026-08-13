@@ -300,7 +300,7 @@ Complete these rungs before growing the extension surface further.
       event-bus, preset, provider, and stateful-tool examples run unprivileged;
       focused differential contracts pin immediate effects and reload recovery.
 
-- [ ] **9.5 Complete composable extension UI/rendering.** Expose Pi-equivalent
+- [x] **9.5 Complete composable extension UI/rendering.** Expose Pi-equivalent
       select/confirm/input/editor dialogs, notifications, status/widgets,
       working message, header/footer, title, editor text/paste, tool expansion,
       theme access/switching, raw input, custom editor, and temporary custom
@@ -315,6 +315,42 @@ Complete these rungs before growing the extension surface further.
       **Accept:** representative translated UI examples match Pi frames/input;
       one file-backed compact-rendering package reproduces `pi-compact` behavior
       without private classes; default middleware preserves retained UI parity.
+
+      Closed (this stream): the composable extension UI surface is complete and
+      pinned through the mobile/files surface. `ctx.ui.select/confirm/input/
+      editor/custom/notify`, status/widgets/header/footer/title, working
+      message/indicator/visibility, hidden-thinking label, editor text/paste,
+      tool expansion, theme access/switching, raw input (`onTerminalInput`),
+      custom editor (`setEditorComponent`), and headless no-UI outcomes are all
+      driven by `EXTENSION_UI_POLICY` under `builtins/interactive.lua`, with
+      print-mode headless outcomes pinned by `print_context_uses_pinned_no_ui_
+      outcomes`. Temporary custom component/overlay composition now supports
+      `overlay` + `overlayOptions` (anchor/margin/width/height) + `onHandle`
+      (hide/setHidden/focus/unfocus/isHidden/isFocused) with input routing,
+      focus release, cleanup/dispose, and resize (`interactive-extension-ui-
+      parity-sequence` `feed` routes a focused overlay; `file_backed_ui_showcase_
+      drives_dialogs_slots_editor_and_cleanup` drives the full showcase incl. an
+      anchored overlay). Custom message rendering is closed: `pi.register_
+      message_renderer(customType, renderer)` (Pi `registerMessageRenderer`)
+      registers the first per-customType renderer, resolved by
+      `pi.registered_message_renderers(customType)` with source attribution and
+      first-wins semantics; the interactive custom-message transcript row consults
+      it over an immutable snapshot, falling through to the default box on renderer
+      error; pinned by `message_renderers_resolve_first_wins_attributed_and_roll_
+      back` (`crates/pi-rs-host/tests/registries.rs`) +
+      `file_backed_message_renderers_drive_custom_transcript_rows` +
+      `examples/extensions/message-render-demo.lua`. Custom tool rendering
+      (`renderCall`/`renderResult`/`renderShell`) rides the same immutable-context,
+      error-fallthrough path (`tool-render-demo.lua`, `tool_execution_lines`).
+      Ordered public rendering middleware covers every `DEFAULT_TRANSCRIPT_KINDS`
+      row kind plus `header`/`status`/`widget_above`/`editor`/`widget_below`/
+      `footer` slots via `pi.register_render_middleware`/`pi.register_ui_slot`
+      (additive `api.rs` registries), receiving immutable snapshots and returning
+      components/actions with error fallthrough and watchdog-bounded dispatch;
+      `pi-compact.lua` reproduces compact rendering file-backed without private
+      classes (`file_backed_compact_middleware_composes_without_frontend_patching`).
+      Retained interactive UI parity is unchanged (the extension-ui and full
+      `scripts/ui-diff` suites remain green).
 
 - [x] **9.6 Canonical `config.lua` declaration + mutation pipeline.** Provide one
       Lua declaration mechanism per kind: settings, keybindings, models/providers,

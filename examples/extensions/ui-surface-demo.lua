@@ -47,6 +47,33 @@ pi.register_command("ui-showcase", {
         dispose = function() end,
       }
     end)
-    ctx.ui.notify(accepted and "Showcase complete" or "Showcase closed", "info")
+
+    -- Temporary custom overlay composition: anchors over the existing content,
+    -- exposes an OverlayHandle for visibility/focus control, and is disposed on
+    -- close (reinforcing focus cleanup to the editor).
+    local overlay_closed = false
+    ctx.ui.custom(function(_, theme, _, done)
+      local hidden = false
+      return {
+        render = function(_, width)
+          local text = theme:bold(theme:fg("accent", "Overlay")) .. " for " .. name .. ": " .. notes
+          return pi.tui.text_render(text .. "\n" .. theme:fg("dim", "Enter to dismiss"), width, 1, 0)
+        end,
+        handle_input = function(_, data)
+          if data == "\r" or data == "\n" then done(true) end
+        end,
+        set_focused = function() end,
+        dispose = function() overlay_closed = true end,
+      }
+    end, {
+      overlay = true,
+      overlayOptions = { anchor = "center", minWidth = 30, maxHeight = "40%", margin = 2 },
+      onHandle = function(handle)
+        -- Probe the handle contract without mutating (nonCapturing false by default).
+        if handle.isFocused then handle.focus() end
+      end,
+    })
+
+    ctx.ui.notify(accepted and overlay_closed and "Showcase complete" or "Showcase closed", "info")
   end,
 })

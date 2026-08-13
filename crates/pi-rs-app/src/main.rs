@@ -26,9 +26,7 @@ use pi_rs_host::trust::{ProjectTrustStore, has_project_trust_inputs, project_tru
 /// `print`/`io.write` from extension chunks write to stderr instead of stdout,
 /// so non-interactive (print/RPC) protocol output stays byte-clean. The product
 /// channel `pi.output` writes directly to stdout and is unaffected.
-const ENABLE_STDOUT_GUARD: &str =
-    "local pi = ...\npi.apply_stdout_guard(true)\n";
-
+const ENABLE_STDOUT_GUARD: &str = "local pi = ...\npi.apply_stdout_guard(true)\n";
 
 /// Minimal chalk analogue: color only when the stream is a terminal.
 fn stderr_paint(code: &str, text: &str) -> String {
@@ -531,7 +529,8 @@ async fn run(mut args: Args) -> ExitCode {
             &settings_manager,
             &args.extensions,
             args.no_extensions,
-        );    }
+        );
+    }
 
     // Spec (`buildSessionOptions` / `findInitialModel`): CLI model wins
     // (a `:<thinking>` suffix applies unless --thinking is explicit),
@@ -664,9 +663,7 @@ async fn run(mut args: Args) -> ExitCode {
     // Non-interactive modes (print/text/json) keep stdout protocol-clean:
     // enable the output guard before extension loading (spec: output-guard.ts
     // takeOverStdout). Interactive mode leaves it off (TUI owns the terminal).
-    if !interactive
-        && let Err(message) = host.load("stdout-guard", ENABLE_STDOUT_GUARD)
-    {
+    if !interactive && let Err(message) = host.load("stdout-guard", ENABLE_STDOUT_GUARD) {
         error_line(&message.to_string());
         return ExitCode::FAILURE;
     }

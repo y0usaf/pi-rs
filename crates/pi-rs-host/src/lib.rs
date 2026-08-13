@@ -42,8 +42,8 @@ mod schema;
 mod session;
 mod settings;
 pub mod settings_manager;
-pub mod trust;
 mod tcp;
+pub mod trust;
 mod vm;
 
 pub use error::HostError;

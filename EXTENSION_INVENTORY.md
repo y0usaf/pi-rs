@@ -57,7 +57,7 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 | `on` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
 | `registerCommand` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
 | `registerFlag` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
-| `registerMessageRenderer` | planned 9.4 | Non-UI ExtensionAPI actions/registries + translated examples |
+| `registerMessageRenderer` | implemented | `pi.register_message_renderer(customType, renderer)` first-registration-wins per customType (`api.rs`), consumed by the interactive custom-message transcript row; pinned by `message_renderers_resolve_first_wins_attributed_and_roll_back` (registries.rs) + `file_backed_message_renderers_drive_custom_transcript_rows` (extension_loading.rs) + `examples/extensions/message-render-demo.lua` |
 | `registerProvider` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
 | `registerShortcut` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
 | `registerTool` | implemented | Product/runtime differential + pi-rs-host registry/OS binding tests; Lua uses snake_case |
@@ -76,9 +76,9 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 |---|---|---|
 | `addAutocompleteProvider` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
 | `confirm` | implemented | Queued action oracle + extension-ui terminal differential |
-| `custom` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `editor` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `getAllThemes` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
+| `custom` | implemented | Queued extension UI action surface + overlay composition (`overlay`/`overlayOptions`/`onHandle`/focus) pinned by `file_backed_ui_showcase_drives_dialogs_slots_editor_and_cleanup` + `examples/extensions/ui-surface-demo.lua` |
+| `editor` | implemented | Queued extension UI action surface + `file_backed_ui_showcase_drives_dialogs_slots_editor_and_cleanup` |
+| `getAllThemes` | implemented | Queued extension UI action surface + print-mode no-UI outcomes (`print_context_uses_pinned_no_ui_outcomes`) |
 | `getEditorComponent` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
 | `getEditorText` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
 | `getTheme` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |

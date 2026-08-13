@@ -22,9 +22,9 @@
 // data, set_session_name, get_session_stats, export_html) and the async
 // agent-streaming commands (prompt, steer, follow_up, abort, bash, compact,
 // fork, clone, new_session, switch_session) remain PLAN 10 open rows.
+use serde_json::Value;
 use std::io::Write;
 use std::process::{Command, Stdio};
-use serde_json::Value;
 
 fn oracle() -> Value {
     serde_json::from_str(include_str!("../../../tests/rpc-parity/oracle.json")).unwrap()
@@ -123,7 +123,10 @@ fn rpc_unknown_command_matches_pi_oracle_byte_shape() {
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    assert_eq!(got, expected, "unknown-command response must match Pi oracle");
+    assert_eq!(
+        got, expected,
+        "unknown-command response must match Pi oracle"
+    );
 }
 
 #[test]
@@ -279,8 +282,7 @@ fn rpc_await_depth_ordering_matches_pi_oracle() {
             .lines()
             .filter(|l| !l.trim().is_empty())
             .map(|l| {
-                serde_json::from_str::<Value>(l)
-                    .unwrap()["command"]
+                serde_json::from_str::<Value>(l).unwrap()["command"]
                     .as_str()
                     .unwrap()
                     .to_owned()
@@ -288,16 +290,10 @@ fn rpc_await_depth_ordering_matches_pi_oracle() {
             .collect();
         let got_commands: Vec<String> = got
             .iter()
-            .map(|r| {
-                r["command"]
-                    .as_str()
-                    .unwrap()
-                    .to_owned()
-            })
+            .map(|r| r["command"].as_str().unwrap().to_owned())
             .collect();
         assert_eq!(
-            got_commands,
-            expected_commands,
+            got_commands, expected_commands,
             "{name}: Pi record emission order not reproduced"
         );
     }
@@ -351,7 +347,10 @@ fn rpc_loads_cli_extension_files() {
     );
     // The extension load error aborts before any RPC record is produced and
     // the process exits nonzero with the sentinel on stderr.
-    assert_eq!(stdout, "", "no RPC records when the CLI extension fails to load");
+    assert_eq!(
+        stdout, "",
+        "no RPC records when the CLI extension fails to load"
+    );
     assert_eq!(code, 1, "RPC exits nonzero on extension load failure");
     assert!(
         stderr.contains("SENTINEL-EXT-LOADED"),
@@ -384,13 +383,28 @@ fn rpc_stdout_guard_routes_extension_stdout_to_stderr() {
         &cwd,
         &ext.to_string_lossy(),
     );
-    assert_eq!(code, 0, "RPC completes successfully with a well-formed extension");
+    assert_eq!(
+        code, 0,
+        "RPC completes successfully with a well-formed extension"
+    );
     // The extension's own `print`/`io.write` must NOT appear on stdout, so the
     // protocol stream a consumer reads stays clean of stray logging.
-    assert!(!stdout.contains("EXT-PRINT"), "print must not pollute stdout");
-    assert!(!stdout.contains("EXT-IOWRITE"), "io.write must not pollute stdout");
-    assert!(!stdout.contains("EXT-HANDLE"), "io.stdout:write must not pollute stdout");
-    assert!(!stdout.contains("EXT-DEFAULT"), "io.output():write must not pollute stdout");
+    assert!(
+        !stdout.contains("EXT-PRINT"),
+        "print must not pollute stdout"
+    );
+    assert!(
+        !stdout.contains("EXT-IOWRITE"),
+        "io.write must not pollute stdout"
+    );
+    assert!(
+        !stdout.contains("EXT-HANDLE"),
+        "io.stdout:write must not pollute stdout"
+    );
+    assert!(
+        !stdout.contains("EXT-DEFAULT"),
+        "io.output():write must not pollute stdout"
+    );
     assert!(
         stderr.contains("EXT-PRINT")
             && stderr.contains("EXT-IOWRITE")
@@ -443,7 +457,10 @@ fn rpc_binds_real_extension_ui_context_matching_pi() {
         &cwd,
         &ext.to_string_lossy(),
     );
-    assert_eq!(code, 0, "RPC completes successfully with a well-formed extension");
+    assert_eq!(
+        code, 0,
+        "RPC completes successfully with a well-formed extension"
+    );
     // The extension observes a real RPC UI context: mode "rpc", hasUI true.
     assert!(
         stderr.contains("RPC_CTX mode=rpc hasUI=true"),

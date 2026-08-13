@@ -1034,7 +1034,8 @@ fn file_backed_ui_showcase_drives_dialogs_slots_editor_and_cleanup() {
             {"name":"open","submit":"/ui-showcase"},
             {"name":"input","input":["A","d","a","\r"]},
             {"name":"editor","input":["\r"]},
-            {"name":"custom","input":["\r"]}
+            {"name":"custom","input":["\r"]},
+            {"name":"overlay","input":["\r"]}
         ]
     });
     let result = host
@@ -1083,11 +1084,60 @@ fn file_backed_ui_showcase_drives_dialogs_slots_editor_and_cleanup() {
         "Above editor widget",
         "Below editor widget",
         "Showcase status slot",
+        "Overlay",
     ] {
         assert!(
             rendered.contains(expected),
             "missing {expected}: {rendered}"
         );
+    }
+}
+
+#[test]
+fn file_backed_message_renderers_drive_custom_transcript_rows() {
+    let host = Host::new(HostConfig::default()).unwrap();
+    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    host.load(
+        "examples/extensions/message-render-demo.lua",
+        include_str!("../../../examples/extensions/message-render-demo.lua"),
+    )
+    .unwrap();
+
+    // render-probe has a registered renderer; no-renderer and broken-probe do not
+    // produce a rendered row (broken falls through to the default box).
+    for (enabled, custom_type, needle) in [
+        (true, "render-probe", "[render-probe] hello"),
+        (false, "no-renderer", "[custom]"),
+        (false, "broken-probe", ""),
+    ] {
+        let request = serde_json::json!({
+            "width": 64, "version": "0.79.0", "cwd": "/tmp/project",
+            "model": {"id":"faux","provider":"faux","contextWindow":128000,"reasoning":false},
+            "transcript": [
+                {"kind":"custom","message":{"role":"custom","customType":custom_type,
+                    "content":"hello","display":true, "details":{"level":"info","timestamp":1234}}}
+            ]
+        });
+        let result = host
+            .call_command("interactive-frame", &request.to_string())
+            .unwrap()
+            .unwrap();
+        let rendered = result["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .collect::<Vec<_>>()
+            .join("\n");
+        if enabled {
+            assert!(rendered.contains(needle), "{custom_type}: {rendered}");
+        } else {
+            assert!(
+                !rendered.contains("renderer failed"),
+                "{custom_type}: {rendered}"
+            );
+        }
     }
 }
 
@@ -1174,10 +1224,7 @@ fn bound_pi_runtime_actions_apply_immediately() {
         .unwrap();
 
     // The translated runtime-actions-demo exercises the same bound pi table.
-    let demo = host
-        .call_command("bind-actions", "")
-        .unwrap()
-        .unwrap();
+    let demo = host.call_command("bind-actions", "").unwrap().unwrap();
     assert_eq!(demo["contains_runtime_tool"], true);
     assert_eq!(demo["getAllTools"], "function");
 
