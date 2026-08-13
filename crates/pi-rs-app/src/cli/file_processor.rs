@@ -135,7 +135,6 @@ fn is_static_png(buf: &[u8]) -> bool {
     true
 }
 
-
 /// Expand `~` and resolve relative to `base_dir` exactly as the spec's
 /// `resolveReadPath` (via `resolveToCwd` + `normalizePath` with
 /// `stripAtPrefix`/`normalizeUnicodeSpaces`). Used by file processing only
@@ -444,7 +443,7 @@ mod tests {
         assert_eq!(detect_supported_image_mime_type(&b), None);
     }
 
-// IDAT length field begins after sig(8) + IHDR len(4) + "IHDR"(4) + payload(13)
+    // IDAT length field begins after sig(8) + IHDR len(4) + "IHDR"(4) + payload(13)
     // + IHDR CRC(4).
     const IDAT_LEN_OFFSET: usize = 8 + 4 + 4 + 13 + 4;
 
@@ -491,7 +490,10 @@ mod tests {
         let mut b = static_png();
         // Splice a zero-length acTL chunk between IHDR and IDAT.
         b.splice(IDAT_LEN_OFFSET..IDAT_LEN_OFFSET, [0u8, 0, 0, 0]);
-        b.splice(IDAT_LEN_OFFSET + 4..IDAT_LEN_OFFSET + 4, b"acTL".iter().copied());
+        b.splice(
+            IDAT_LEN_OFFSET + 4..IDAT_LEN_OFFSET + 4,
+            b"acTL".iter().copied(),
+        );
         assert_eq!(detect_supported_image_mime_type(&b), None);
     }
 
@@ -503,15 +505,24 @@ mod tests {
             Some("image/jpeg")
         );
         // FF D8 FF F7 -> JPG, rejected
-        assert_eq!(detect_supported_image_mime_type(&[0xff, 0xd8, 0xff, 0xf7]), None);
+        assert_eq!(
+            detect_supported_image_mime_type(&[0xff, 0xd8, 0xff, 0xf7]),
+            None
+        );
         // Pi allows a 3-byte "FF D8 FF" as jpeg (buffer[3] is undefined, not
         // 0xf7).
-        assert_eq!(detect_supported_image_mime_type(&[0xff, 0xd8, 0xff]), Some("image/jpeg"));
+        assert_eq!(
+            detect_supported_image_mime_type(&[0xff, 0xd8, 0xff]),
+            Some("image/jpeg")
+        );
     }
 
     #[test]
     fn sniff_gif_and_webp() {
-        assert_eq!(detect_supported_image_mime_type(b"GIF89a"), Some("image/gif"));
+        assert_eq!(
+            detect_supported_image_mime_type(b"GIF89a"),
+            Some("image/gif")
+        );
         assert_eq!(
             detect_supported_image_mime_type(b"RIFF\x00\x00\x00\x00WEBP"),
             Some("image/webp")

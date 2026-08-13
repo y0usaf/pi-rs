@@ -7,4 +7,5 @@ pub mod extensions;
 pub mod file_processor;
 pub mod list_models;
 pub mod login;
+pub mod packages;
 pub mod session_select;
