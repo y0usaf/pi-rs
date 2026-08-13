@@ -1234,13 +1234,41 @@ function default_transcript_row(state, item, width, has_prior)
   elseif item.kind == "tool" then append(lines, tool_execution_lines(item, width, state.theme, tool_opts))
   elseif item.kind == "bash" then append(lines, bash_execution_lines(item, width, state.theme))
   elseif item.kind == "custom" then
-    lines[#lines + 1] = ""
     local message = item.message or item
-    local label = message.customType and ("[" .. message.customType .. "]") or "[custom]"
-    local content = type(message.content) == "string" and message.content or pi.json.encode(message.content or {})
-    local child = pi.tui.text_render(state.theme:fg("customMessageLabel", state.theme:bold(label))
-      .. "\n\n" .. state.theme:fg("customMessageText", content), math.max(1, width - 2), 0, 0)
-    append(lines, box_lines(child, width, function(text) return state.theme:bg("customMessageBg", text) end))
+    -- PLAN 9.5: per-customType message renderers (spec registerMessageRenderer /
+    -- getMessageRenderer). First registration per customType wins; the renderer
+    -- receives an immutable message snapshot `(message, { expanded }, theme)` and
+    -- returns a component or lines. Errors fall through to the default box.
+    local render_type = message.customType
+    local rendered_custom = nil
+    if render_type then
+      local renderers = pi.registered_message_renderers(render_type)
+      if renderers[1] and renderers[1].renderer then
+        local ok, component = pcall(renderers[1].renderer,
+          readonly_snapshot(message), { expanded = state.tools_expanded or false }, state.theme)
+        if ok then rendered_custom = component end
+      end
+    end
+    if rendered_custom ~= nil then
+      local custom_lines = extension_component_lines(rendered_custom, math.max(1, width - 2))
+      if custom_lines == nil then
+        lines[#lines + 1] = ""
+        local label = message.customType and ("[" .. message.customType .. "]") or "[custom]"
+        local content = type(message.content) == "string" and message.content or pi.json.encode(message.content or {})
+        local child = pi.tui.text_render(state.theme:fg("customMessageLabel", state.theme:bold(label))
+          .. "\n\n" .. state.theme:fg("customMessageText", content), math.max(1, width - 2), 0, 0)
+        append(lines, box_lines(child, width, function(text) return state.theme:bg("customMessageBg", text) end))
+      else
+        append(lines, custom_lines)
+      end
+    else
+      lines[#lines + 1] = ""
+      local label = message.customType and ("[" .. message.customType .. "]") or "[custom]"
+      local content = type(message.content) == "string" and message.content or pi.json.encode(message.content or {})
+      local child = pi.tui.text_render(state.theme:fg("customMessageLabel", state.theme:bold(label))
+        .. "\n\n" .. state.theme:fg("customMessageText", content), math.max(1, width - 2), 0, 0)
+      append(lines, box_lines(child, width, function(text) return state.theme:bg("customMessageBg", text) end))
+    end
   elseif item.kind == "branch_summary" then
     lines[#lines + 1] = ""
     append(lines, branch_summary_message_lines(item.message, width, state.theme, state.md_theme,
@@ -1352,7 +1380,9 @@ function render_transcript_row(state, item, width, has_prior)
     }
     local ok, result = pcall(entry.render, readonly_snapshot(current), live_context, next_render)
     if not ok or result == nil then return next_render() end
-    return extension_component_lines and extension_component_lines(result, width) or result
+    local lines = extension_component_lines(result, width)
+    if lines == nil then return next_render() end
+    return lines
   end
   return run(1, item)
 end
@@ -4337,11 +4367,21 @@ local setup_shell_editor
 -- tables and may await settlement; only the frontend pump mutates state.
 EXTENSION_UI_POLICY = {}
 
+-- Evaluate an extension-returned component under guard: a throwing render must
+-- not escape into the host dispatch, and a nil result falls through to the
+-- caller's default (PLAN 9.5 "errors fall through"). Returns `nil` for nil /
+-- error so call sites can fall back cleanly.
 extension_component_lines = function(component, width)
-  if component == nil then return {} end
-  if type(component) == "function" then return component(width) or {} end
-  if type(component) == "table" and component.render then return component:render(width) or {} end
-  return type(component) == "table" and component or {}
+  if component == nil then return nil end
+  if type(component) == "function" then
+    local ok, lines = pcall(component, width)
+    return ok and lines or nil
+  end
+  if type(component) == "table" and component.render then
+    local ok, lines = pcall(component.render, component, width)
+    return ok and lines or nil
+  end
+  return type(component) == "table" and component or nil
 end
 
 function dispose_extension_component(component)
@@ -5221,8 +5261,9 @@ end
 
 function default_header_slot(state, width)
   local lines = { "" }
-  if state.custom_header then
-    append(lines, extension_component_lines(state.custom_header, width))
+  local custom = state.custom_header and extension_component_lines(state.custom_header, width)
+  if custom then
+    append(lines, custom)
   else
     append(lines, pi.tui.text_render(header({ app_name = state.app_name, version = state.version,
       expanded = state.header_expanded }, state.theme), width, 1, 0))
@@ -5239,7 +5280,8 @@ function default_widget_slot(state, width, placement)
   if placement == "aboveEditor" then lines[#lines + 1] = "" end
   for _, key in ipairs(state.extension_widget_order or {}) do
     local widget = widgets[key]
-    if widget then append(lines, extension_component_lines(widget, width)) end
+    local widget_lines = widget and extension_component_lines(widget, width)
+    if widget_lines then append(lines, widget_lines) end
   end
   return lines
 end
@@ -5252,7 +5294,11 @@ function default_editor_slot(state, width)
 end
 
 function default_footer_slot(state, width)
-  if state.custom_footer then return extension_component_lines(state.custom_footer, width) end
+  if state.custom_footer then
+    local custom = extension_component_lines(state.custom_footer, width)
+    if custom then return custom end
+    -- fall through to the default footer on component error
+  end
   local usage, cache_hit_rate, context_percent = state.usage, nil, state.context_percent
   if state.agent then
     usage, cache_hit_rate, context_percent = footer_agent_data(state)
@@ -5329,7 +5375,9 @@ function render_ui_slot(state, slot, width)
       default = function() return DEFAULT_UI_SLOTS[slot](state, width) end }
     local ok, result = pcall(entry.render, snapshot, context, next_slot)
     if not ok or result == nil then return next_slot() end
-    return extension_component_lines(result, width)
+    local slot_lines = extension_component_lines(result, width)
+    if slot_lines == nil then return next_slot() end
+    return slot_lines
   end
   return run(1)
 end
@@ -5358,7 +5406,7 @@ function composite_overlay(state, lines, width)
   local overlay_width = parse_overlay_size(opts.width, width) or math.min(80, aw)
   if opts.minWidth then overlay_width = math.max(overlay_width, opts.minWidth) end
   overlay_width = math.max(1, math.min(overlay_width, aw))
-  local overlay = extension_component_lines(state.overlay_component, overlay_width)
+  local overlay = state.overlay_component and extension_component_lines(state.overlay_component, overlay_width) or {}
   local max_height = parse_overlay_size(opts.maxHeight, height)
   if max_height then
     max_height = math.max(1, math.min(max_height, ah))
@@ -11097,9 +11145,15 @@ pi.register_command("interactive-extension-ui-parity-sequence", {
       EXTENSION_UI_POLICY.pump(state)
     end
     local function feed(data)
-      if state.selector then state.selector:handle_input(data)
+      -- Mirror the real input route (event.type == "input"): extension
+      -- onTerminalInput listeners run first and may consume or transform.
+      local routed = EXTENSION_UI_POLICY.handle_raw_input(state, data)
+      if not routed then settle(); return end
+      if state.overlay_component and state.overlay_focused and state.overlay_component.handle_input then
+        state.overlay_component:handle_input(routed)
+      elseif state.selector then state.selector:handle_input(routed)
       else
-        local effect = state.editor:handle_input(data)
+        local effect = state.editor:handle_input(routed)
         if effect.kind == "submit" then state.submit(effect.text or effect.value or "") end
       end
       settle()
@@ -11133,7 +11187,26 @@ pi.register_command("interactive-extension-ui-parity-sequence", {
       end
       capture(step.name, step.name == "startup" or step.resize ~= nil)
     end
+    -- Optional synchronous readback of extension commands against the live
+    -- interactive context (after all steps). Used by ui-ops tests to assert
+    -- raw-input routing, theme access, and custom-editor state that the demo
+    -- module keeps in its own locals.
+    local readback = {}
+    if request.readbackCommands then
+      for _, name in ipairs(request.readbackCommands) do
+        for _, command in ipairs(pi.registered_extension_commands()) do
+          if command.invocation_name == name then
+            local context = EXTENSION_CONTEXT_POLICY.snapshot(state, { command = true })
+            readback[name] = { result = (function()
+              local ok, value = pcall(command.handler, "", context)
+              return ok and value or nil
+            end)() }
+          end
+        end
+      end
+    end
     return { frames = frames, permissionResult = permission_result, actions = state.extension_ui_trace,
+      readback = readback,
       uiState = {
         editorText = state.editor.editor:get_expanded_text(), toolsExpanded = state.tools_expanded,
         title = state.terminal_title, customHeader = state.custom_header ~= nil,

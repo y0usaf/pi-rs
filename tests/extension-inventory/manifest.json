@@ -126,8 +126,8 @@
         ]
       },
       {
-        "status": "planned 9.5",
-        "evidence": "Queued extension UI action surface + frame/input fixtures",
+        "status": "implemented",
+        "evidence": "EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase",
         "items": [
           "addAutocompleteProvider",
           "custom",
