@@ -21,7 +21,9 @@
 // get_last_assistant_text, set_model, cycle_model, get_commands with seeded
 // data, set_session_name, get_session_stats, export_html) and the async
 // agent-streaming commands (prompt, steer, follow_up, abort, bash, compact,
-// fork, clone, new_session, switch_session) remain PLAN 10 open rows.
+// fork, clone, new_session, switch_session) follow now under PLAN 10 through
+// the seeded parity path, which exercises them against Pi's `runRpcMode`
+// oracle; see the sibling `rpc_streaming_parity.rs`.
 use std::io::Write;
 use std::process::{Command, Stdio};
 use serde_json::Value;
