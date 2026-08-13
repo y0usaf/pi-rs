@@ -469,6 +469,7 @@ fn translated_tool_examples_execute_through_the_public_surface() {
 fn translated_9_8_examples_load_through_the_public_surface() {
     let host = Host::new(HostConfig::default()).unwrap();
     let report = host.load_embedded(&[
+        AGENT_CORE_PACK,
         pi_rs_agent::PACK,
         TOOLS_PACK,
         CODING_AGENT_PACK,

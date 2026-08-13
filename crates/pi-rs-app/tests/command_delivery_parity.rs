@@ -12,7 +12,7 @@
 // pi-rs's real print and RPC roles with a file-backed extension and asserts
 // the observed context matches the Pi oracle byte for byte.
 use pi_rs_agent::PACK;
-use pi_rs_app::builtins::{CODING_AGENT_PACK, TOOLS_PACK};
+use pi_rs_app::builtins::{AGENT_CORE_PACK, CODING_AGENT_PACK, TOOLS_PACK};
 use pi_rs_host::{Host, HostConfig};
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -81,7 +81,7 @@ fn host_with_command(temp: &tempfile::TempDir) -> Host {
         ..HostConfig::default()
     })
     .unwrap();
-    let rep = host.load_embedded(&[PACK, TOOLS_PACK, CODING_AGENT_PACK]);
+    let rep = host.load_embedded(&[AGENT_CORE_PACK, PACK, TOOLS_PACK, CODING_AGENT_PACK]);
     assert!(rep.errors.is_empty(), "{:?}", rep.errors);
     load_delivery_extension(&host);
     host
