@@ -94,6 +94,38 @@ fn load_host(cwd: &str) -> Result<pi_rs_host::Host, String> {
 /// Commands are read from stdin and responses/events written to stdout as
 /// JSONL by the `rpc` Lua role. This runs before model resolution and auth, so
 /// no network occurs at startup; the role constructs its own session. Returns
+/// Test-only differential seed for the RPC role (Plan 10 RPC streaming).
+///
+/// Gated by `debug_assertions` (compiled OUT of release binaries) AND a magic
+/// one-time token prefix: `PI_RPC_SCRIPTED_SEED` must be exactly
+/// `PARITY_SEED_PREFIX` concatenated with the JSON seed. Without the token the
+/// function returns `None` and the seam is inert, so an arbitrary/accidental
+/// env value can never activate it. Only the sibling `rpc_streaming_parity`
+/// test (which spawns `pi`) sets this exact value, passing the seed JSON
+/// through to `request.scriptedRpc` so the streaming + seeded-read commands
+/// reproduce Pi's `runRpcMode` oracle.
+#[cfg(debug_assertions)]
+fn scripted_rpc_seed() -> Option<serde_json::Value> {
+    const PARITY_SEED_PREFIX: &str = "parity-seed:";
+    let value = std::env::var("PI_RPC_SCRIPTED_SEED").ok()?;
+    // Only an exact magic-token match activates the seam: strip the prefix and
+    // parse the remainder as JSON, else treat it as absent. This both gates
+    // spoofing (the token is not a user-visible setting) and rejects any
+    // malformed/unrelated env value, keeping the seam inert outside the
+    // harness that sets the matching token.
+    match value.strip_prefix(PARITY_SEED_PREFIX) {
+        Some(seed) => serde_json::from_str(seed).ok(),
+        None => None,
+    }
+}
+
+/// Non-debug builds never read the seed: the seam is compiled out entirely.
+#[cfg(not(debug_assertions))]
+fn scripted_rpc_seed() -> Option<serde_json::Value> {
+    None
+}
+
+/// RPC mode: dispatch to the faithful `rpc` role. Returns the process exit as
 /// the role's exit code.
 fn run_rpc_mode(
     cwd: &str,
@@ -145,6 +177,20 @@ fn run_rpc_mode(
         "sessionDir": session_dir,
         "mode": "rpc",
         "projectTrusted": project_trusted,
+        // Differential parity seam (Plan 10 RPC streaming): when the test
+        // harness sets PI_RPC_SCRIPTED_SEED (with the internal magic token —
+        // see scripted_rpc_seed), its JSON is passed through to the RPC role so
+        // the streaming commands (prompt/bash/compact/fork/clone/
+        // new_session/switch_session/get_fork_messages) reproduce Pi's
+        // `runRpcMode` oracle (generated from a scripted session stub).
+        // SECURITY: this env var is a test-only backdoor — it can spoof RPC
+        // responses (bash results, export paths, fork text). It is compiled OUT
+        // of release binaries (`debug_assertions`) AND requires the magic token
+        // value before `scripted_rpc_seed` returns anything, and it is set only
+        // by the sibling rpc_streaming_parity test that spawns `pi`. In normal
+        // runs the var is unset (or lacks the token) and the seam is inert
+        // (scriptedRpc = null), so the real (unseeded) code paths run unchanged.
+        "scriptedRpc": scripted_rpc_seed(),
     });
     match host.call_role("rpc", &request.to_string()) {
         Ok(Some(result)) => {

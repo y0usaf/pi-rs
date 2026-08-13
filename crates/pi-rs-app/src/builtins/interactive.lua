@@ -10110,6 +10110,44 @@ pi.register_role({
   end,
 })
 
+-- Deterministic startup-selector exerciser (no terminal ownership): drives the
+-- same selector composition cli/startup-ui.ts showStartupSelector uses over a
+-- scripted input stream via pi.tui.session (deterministic Terminal), so a
+-- focused Rust test can pin that a startup prompt's option list, focus, and
+-- selection/cancel semantics match Pi without a live TTY. The live
+-- `coding-agent-startup-selector` role above delegates the same
+-- title/options/theme → value behavior through process_session for a real TTY.
+pi.register_command("startup-selector-parity", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local data = request.theme == "light" and light_json or dark_json
+    local theme = create_theme(data, request.colorMode or "truecolor")
+    local result, settled = nil, false
+    local selector = extension_selector({
+      theme = theme,
+      title = request.title,
+      options = request.options,
+      on_select = function(option) result = option; settled = true end,
+      on_cancel = function() settled = true end,
+    })
+    selector:set_focused(true)
+    local events = {}
+    for _, input in ipairs(request.inputs or {}) do
+      selector:handle_input(input)
+      events[#events + 1] = { input = input, selected = selector.selected,
+        settled = settled, result = result }
+    end
+    local frames = {}
+    local terminal = pi.tui.session(request.columns or 80, 24, true)
+    terminal:start()
+    terminal:request_render(true)
+    terminal:render(selector:render(request.columns or 80))
+    frames[#frames + 1] = { ansi = terminal:output() }
+    return { value = result, settled = settled, selected = selector.selected,
+      events = events, frames = frames }
+  end,
+})
+
 -- Deterministic composition exerciser (no terminal ownership or provider I/O).
 pi.register_command("interactive-frame", {
   handler = function(args)
