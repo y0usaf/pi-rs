@@ -4,6 +4,12 @@
   "audit_base": "pi-rs 50608024c274d10c92ab07da28043d4557282b8f",
   "embedded_packages": [
     {
+      "id": "agent-core",
+      "descriptor": "crates/pi-rs-app/src/builtins/mod.rs",
+      "constant": "AGENT_CORE_PACK",
+      "source_name": "agent-core"
+    },
+    {
       "id": "agent",
       "descriptor": "crates/pi-rs-agent/src/lib.rs",
       "constant": "PACK",
@@ -46,7 +52,7 @@
     {
       "path": "crates/pi-rs-app/src/main.rs",
       "operation": "call_role",
-      "count": 5,
+      "count": 6,
       "row": "rust.hardcoded-application-dispatch"
     },
     {
@@ -115,7 +121,7 @@
       "row": "rust.pre-runtime-product-dispatch",
       "path": "crates/pi-rs-app/src/main.rs",
       "text": "host.call_role(\"",
-      "count": 4
+      "count": 5
     },
     {
       "id": "synthetic-key-format",

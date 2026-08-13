@@ -271,3 +271,24 @@ local function build_session_system_prompt(args)
     now = args.now,
   })
 end
+
+-- Public exact-version module: system-prompt composition and project-context
+-- discovery policy shared by builtin applications and file-backed replacements
+-- (PLAN 9.7/9.10: module.system-prompt). No cross-pack global or concat-order
+-- helper remains.
+pi.module.define({
+  name = "pi.agent.system-prompt",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      build_system_prompt = build_system_prompt,
+      load_project_context_files = load_project_context_files,
+      build_session_system_prompt = build_session_system_prompt,
+      format_skills_for_prompt = format_skills_for_prompt,
+      load_context_file_from_dir = load_context_file_from_dir,
+      normalize_prompt_snippet = normalize_prompt_snippet,
+      normalize_prompt_guidelines = normalize_prompt_guidelines,
+    }
+  end,
+})

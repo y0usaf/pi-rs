@@ -25,7 +25,9 @@ local function persist_agent_event(session, event)
   end
 end
 
--- sdk.ts createAgentSession — the session-restore slice run once at
+-- Shared module: session persistence/restore policy exposed as the public
+-- exact-version module `pi.agent.session-runtime` (PLAN 9.7/9.10:
+-- module.agent-session) — see the module definition at the end of this file.
 -- session construction:
 --   * model: options.model (the CLI selection) wins; else an existing
 --     session's saved model is restored when the registry knows it and
@@ -141,3 +143,20 @@ local function session_startup_from_request(session, request)
     defaultThinkingLevel = pi.settings.default_thinking_level(),
   })
 end
+
+-- Public exact-version module: session persistence/restore policy shared by
+-- builtin and file-backed applications (PLAN 9.7/9.10: module.agent-session).
+-- No cross-pack global or concat-ordering helper remains.
+pi.module.define({
+  name = "pi.agent.session-runtime",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      persist_agent_event = persist_agent_event,
+      session_startup = session_startup,
+      construct_session = construct_session,
+      session_startup_from_request = session_startup_from_request,
+    }
+  end,
+})

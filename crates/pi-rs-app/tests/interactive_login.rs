@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use pi_rs_ai_auth::{CallbackPages, PkceFlow, register_oauth_provider};
 use pi_rs_host::{Host, HostConfig};
+use pi_rs_app::builtins::AGENT_CORE_PACK;
 
 /// Minimal one-shot HTTP token endpoint (the spec's `postJson` target).
 fn spawn_token_server() -> (std::net::SocketAddr, std::thread::JoinHandle<()>) {
@@ -64,7 +65,7 @@ fn free_port() -> u16 {
 
 fn host() -> Host {
     let host = Host::new(HostConfig::default()).unwrap();
-    let report = host.load_embedded(&[
+    let report = host.load_embedded(&[AGENT_CORE_PACK, 
         pi_rs_app::builtins::TOOLS_PACK,
         pi_rs_app::builtins::INTERACTIVE_PACK,
     ]);

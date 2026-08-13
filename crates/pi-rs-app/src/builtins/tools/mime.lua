@@ -63,3 +63,16 @@ local function detect_supported_image_mime_type(buf)
   end
   return nil
 end
+
+-- Public exact-version module: the image MIME-detection policy shared by
+-- builtin and file-backed read tools (PLAN 9.7/9.10).
+pi.module.define({
+  name = "pi.tools.mime",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      detect_supported_image_mime_type = detect_supported_image_mime_type,
+    }
+  end,
+})

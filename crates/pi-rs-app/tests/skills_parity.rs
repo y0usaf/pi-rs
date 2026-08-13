@@ -9,7 +9,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(clippy::needless_collect, clippy::redundant_closure)]
 
-use pi_rs_app::builtins::INTERACTIVE_PACK;
+use pi_rs_app::builtins::{AGENT_CORE_PACK, INTERACTIVE_PACK};
 use pi_rs_host::{Host, HostConfig};
 use serde_json::{Value, json};
 
@@ -106,7 +106,7 @@ fn skills_from_dir_match_pi_oracle() {
             ..HostConfig::default()
         })
         .expect("host");
-        let report = host.load_embedded(&[INTERACTIVE_PACK]);
+        let report = host.load_embedded(&[AGENT_CORE_PACK, INTERACTIVE_PACK]);
         assert!(report.errors.is_empty(), "load errors: {:?}", report.errors);
         host.load("skills-runner", RUNNER).expect("runner loads");
 
@@ -211,7 +211,7 @@ fn file_backed_package_imports_skill_loader() {
         ..HostConfig::default()
     })
     .expect("host");
-    let report = host.load_embedded(&[INTERACTIVE_PACK]);
+    let report = host.load_embedded(&[AGENT_CORE_PACK, INTERACTIVE_PACK]);
     assert!(report.errors.is_empty(), "load errors: {:?}", report.errors);
     host.load(
         "examples/extensions/skills-consumer.lua",

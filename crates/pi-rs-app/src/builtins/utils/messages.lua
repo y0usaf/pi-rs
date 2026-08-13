@@ -117,3 +117,21 @@ local function convert_to_llm_with_block_images(messages)
   end
   return result
 end
+
+-- Public exact-version module: the LLM message-conversion policy shared by
+-- builtin agent/app packs and file-backed replacements. No cross-pack global
+-- or concat-ordering helper remains (PLAN 9.7/9.10: module.messages).
+pi.module.define({
+  name = "pi.agent.messages",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      msg_num = msg_num,
+      bash_execution_to_text = bash_execution_to_text,
+      convert_to_llm = convert_to_llm,
+      convert_to_llm_with_block_images = convert_to_llm_with_block_images,
+      BLOCK_IMAGES_TEXT = BLOCK_IMAGES_TEXT,
+    }
+  end,
+})

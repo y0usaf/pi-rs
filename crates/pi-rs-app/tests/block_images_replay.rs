@@ -11,7 +11,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use pi_rs_app::builtins::{CODING_AGENT_PACK, TOOLS_PACK};
+use pi_rs_app::builtins::{AGENT_CORE_PACK, CODING_AGENT_PACK, TOOLS_PACK};
 use pi_rs_host::{Host, HostConfig};
 
 // 1x1 red PNG (within every resize limit: auto-resize passes the
@@ -126,7 +126,7 @@ fn block_images_filters_provider_context_but_not_the_session() {
         ..HostConfig::default()
     })
     .unwrap();
-    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
+    let report = host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     let result = host
         .call_role(
