@@ -74,34 +74,34 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 
 | Surface | Status | Evidence / target |
 |---|---|---|
-| `addAutocompleteProvider` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
+| `addAutocompleteProvider` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
 | `confirm` | implemented | Queued action oracle + extension-ui terminal differential |
-| `custom` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `editor` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `getAllThemes` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `getEditorComponent` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `getEditorText` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `getTheme` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `getToolsExpanded` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `input` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
+| `custom` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `editor` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `getAllThemes` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `getEditorComponent` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `getEditorText` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `getTheme` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `getToolsExpanded` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `input` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
 | `notify` | implemented | Queued action oracle + extension-ui terminal differential |
-| `onTerminalInput` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `pasteToEditor` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
+| `onTerminalInput` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `pasteToEditor` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
 | `select` | implemented | Queued action oracle + extension-ui terminal differential |
-| `setEditorComponent` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `setEditorText` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `setFooter` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `setHeader` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `setHiddenThinkingLabel` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `setStatus` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `setTheme` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `setTitle` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `setToolsExpanded` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `setWidget` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `setWorkingIndicator` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `setWorkingMessage` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `setWorkingVisible` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
-| `theme` | planned 9.5 | Queued extension UI action surface + frame/input fixtures |
+| `setEditorComponent` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `setEditorText` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `setFooter` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `setHeader` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `setHiddenThinkingLabel` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `setStatus` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `setTheme` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `setTitle` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `setToolsExpanded` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `setWidget` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `setWorkingIndicator` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `setWorkingMessage` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `setWorkingVisible` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
+| `theme` | implemented | EXTENSION_UI_POLICY under builtins/interactive.lua; raw/custom-editor/theme/autocomplete pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + UI showcase |
 
 ## ExtensionContext fields/actions
 

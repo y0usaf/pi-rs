@@ -341,13 +341,27 @@
     },
     {
       "id": "tui.extension-composition",
-      "status": "open",
-      "owner": "PLAN 9.5",
-      "rationale": "Overlay/custom-component composition and public rendering middleware remain open even though the default terminal renderer is proven.",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "Overlay/custom-component composition and public rendering middleware are closed. Temporary custom component/overlay composition (overlay + overlayOptions anchor/margin/width/height + OverlayHandle hide/setHidden/focus/unfocus/isHidden/isFocused) with input routing, focus release, cleanup/dispose, and resize is driven by interactive-extension-ui-parity-sequence (focused-overlay routing) + pinned by file_backed_ui_showcase_drives_dialogs_slots_editor_and_cleanup. Ordered public rendering middleware covers every transcript row kind and the header/status/widget/editor/footer slots via register_render_middleware/register_ui_slot (api.rs), receiving immutable snapshots and returning components/actions with error fallthrough and watchdog-bounded dispatch; pi-compact.lua reproduces compact rendering file-backed without private classes.",
       "evidence": [
         {
-          "path": "PLAN.md",
-          "contains": "temporary custom"
+          "path": "crates/pi-rs-host/src/api.rs"
+        },
+        {
+          "path": "crates/pi-rs-app/src/builtins/interactive.lua"
+        },
+        {
+          "path": "crates/pi-rs-host/tests/registries.rs"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/extension_loading.rs"
+        },
+        {
+          "path": "examples/extensions/ui-surface-demo.lua"
+        },
+        {
+          "path": "examples/extensions/pi-compact.lua"
         }
       ],
       "refs": [
@@ -604,11 +618,31 @@
       "id": "coding.extension-api",
       "status": "open",
       "owner": "PLAN 9.4",
-      "rationale": "Dynamic tools/messages/flags/shortcuts/providers and their live registry effects remain incomplete.",
+      "rationale": "Non-UI ExtensionAPI registries (dynamic tools flags/shortcuts/commands/messages) and the provider `register/unregister` + custom `streamSimple` dispatch are landed and pinned by oracles. The ExtensionAPI runtime action/view methods (`sendMessage`, `appendEntry`, `setSessionName`/`getSessionName`, `setLabel`, `getActiveTools`/`getAllTools`/`setActiveTools`/`refreshTools`, `setModel`, `getThinkingLevel`/`setThinkingLevel`) are bound onto the live `pi` table by `EXTENSION_POLICY.bind_pi_actions` in both product modes with reload rebinding; tool inventory reads, active-tool writes with system-prompt rebuild, and reload recovery are pinned by `runtime-actions-demo.lua` + `bound_pi_runtime_actions_apply_immediately`. The remaining `open` bucket is narrowed to async argument completion and message-renderer fallthrough (shared with 9.8), not the registries themselves.",
       "evidence": [
         {
-          "path": "PLAN.md",
-          "contains": "Complete non-UI ExtensionAPI actions"
+          "path": "PLAN.md"
+        },
+        {
+          "path": "examples/extensions/runtime-actions-demo.lua"
+        },
+        {
+          "path": "crates/pi-rs-app/src/builtins/utils/extensions.lua"
+        },
+        {
+          "path": "crates/pi-rs-app/src/builtins/interactive.lua"
+        },
+        {
+          "path": "crates/pi-rs-app/src/builtins/coding-agent.lua"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/extension_loading.rs"
+        },
+        {
+          "path": "crates/pi-rs-host/tests/providers.rs"
+        },
+        {
+          "path": "tests/provider-registry-parity/oracle.json"
         }
       ],
       "refs": [
@@ -624,13 +658,30 @@
     },
     {
       "id": "coding.extension-ui",
-      "status": "open",
-      "owner": "PLAN 9.5",
-      "rationale": "Public extension dialogs, slots, custom row rendering, editor/overlay composition, cleanup, and headless outcomes remain incomplete.",
+      "status": "parity",
+      "owner": "closed",
+      "rationale": "Public extension dialogs, slots, custom row rendering, editor/overlay composition, cleanup, and headless outcomes are closed. ctx.ui.select/confirm/input/editor/custom/notify/onTerminalInput, status/widgets/header/footer/title, working message/indicator/visibility, hidden-thinking label, editor text/paste, tool expansion, theme access/switching, custom editor, and print-mode headless no-UI outcomes are driven by EXTENSION_UI_POLICY under builtins/interactive.lua (headless pinned by print_context_uses_pinned_no_ui_outcomes). Raw-input routing (onTerminalInput consume/transform), custom editor (setEditorComponent/getEditorComponent), theme access (getTheme/getAllThemes/setTheme), and autocomplete (addAutocompleteProvider) are pinned by file_backed_ui_ops_drive_raw_input_theme_and_custom_editor + examples/extensions/ui-ops-demo.lua. Temporary custom overlay composition (overlay + overlayOptions + OverlayHandle) and per-customType message rendering (pi.register_message_renderer, first-wins) are implemented and pinned.",
       "evidence": [
         {
-          "path": "PLAN.md",
-          "contains": "Complete composable"
+          "path": "crates/pi-rs-app/src/builtins/interactive.lua"
+        },
+        {
+          "path": "crates/pi-rs-host/src/api.rs"
+        },
+        {
+          "path": "crates/pi-rs-host/tests/registries.rs"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/extension_loading.rs"
+        },
+        {
+          "path": "examples/extensions/ui-surface-demo.lua"
+        },
+        {
+          "path": "examples/extensions/message-render-demo.lua"
+        },
+        {
+          "path": "examples/extensions/ui-ops-demo.lua"
         }
       ],
       "refs": [
