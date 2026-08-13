@@ -2,13 +2,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use pi_rs_host::{Host, HostConfig};
+use pi_rs_app::builtins::{AGENT_CORE_PACK, INTERACTIVE_PACK};
 
 #[test]
 fn selector_order_drives_cycle_and_persists_exact_ids() {
     let agent_dir = tempfile::tempdir().unwrap();
     unsafe { std::env::set_var("PI_CODING_AGENT_DIR", agent_dir.path()) };
     let host = Host::new(HostConfig::default()).expect("host");
-    let report = host.load_embedded(&[pi_rs_app::builtins::INTERACTIVE_PACK]);
+    let report = host.load_embedded(&[AGENT_CORE_PACK, INTERACTIVE_PACK]);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
 
     let scenario_path = format!(

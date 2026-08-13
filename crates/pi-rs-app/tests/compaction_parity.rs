@@ -12,7 +12,7 @@
 //! (Lua has one empty-table value for both encodings).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use pi_rs_app::builtins::{CODING_AGENT_PACK, TOOLS_PACK};
+use pi_rs_app::builtins::{AGENT_CORE_PACK, CODING_AGENT_PACK, TOOLS_PACK};
 use pi_rs_host::{Host, HostConfig};
 
 const CASES: &str = include_str!("../../../tests/compaction-parity/cases.json");
@@ -51,7 +51,7 @@ fn compaction_pipeline_matches_pi_for_every_oracle_case() {
         ..HostConfig::default()
     })
     .unwrap();
-    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
+    let report = host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
 
     let mut checked = 0usize;

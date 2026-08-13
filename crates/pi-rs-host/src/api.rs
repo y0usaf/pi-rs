@@ -2236,6 +2236,20 @@ pub(crate) fn build(
     })?;
     pi.set("register_tool", register_tool)?;
 
+    // First-party tool ablation mechanism (PLAN 9.10). `unregister_tool`
+    // removes a tool by name from the *owning* extension (the first source to
+    // register it — the same one `all_tools`/`find_tool` resolve), regardless
+    // of who calls. This lets a default builtin tool be disabled while the
+    // rest of its pack stays loaded; once the builtin registration is gone, a
+    // file-backed replacement claims the name first-wins on its next
+    // `pi.register_tool`. It is the ordinary register path inverted, and is
+    // Rust mechanism (cross-extension removal cannot be expressed by one
+    // extension mutating another's map) — recorded in DESIGN.
+    let unregister_tool = lua.create_function(|lua, name: String| {
+        unregister_tool(lua, &name).map_err(mlua::Error::runtime)
+    })?;
+    pi.set("unregister_tool", unregister_tool)?;
+
     // Spec `registerCommand` (loader.ts): `{ name, ...options }` into the
     // per-extension map. Options are shallow-copied so later mutation of
     // the caller's table doesn't alias the registry.
@@ -3818,6 +3832,44 @@ pub(crate) fn all_tools(lua: &mlua::Lua) -> mlua::Result<Vec<(String, String, ml
         .into_iter()
         .filter(|(_, name, _)| seen.insert(name.clone()))
         .collect())
+}
+
+/// First-party tool ablation (PLAN 9.10). Remove a registered tool by name
+/// from its owning extension (the first source to register it — the same one
+/// `all_tools`/`find_tool` resolve), regardless of caller. Used by the Lua
+/// `pi.unregister_tool` surface and the Rust `Host::unregister_tool` seam.
+pub(crate) fn unregister_tool(lua: &mlua::Lua, name: &str) -> mlua::Result<()> {
+    if name.trim().is_empty() {
+        return Err(mlua::Error::runtime(
+            "unregister_tool: tool.name must be a non-empty string",
+        ));
+    }
+    let registry = registry_table(lua)?;
+    let exts: mlua::Table = registry.get("exts")?;
+    let ext_order: mlua::Table = registry.get("ext_order")?;
+    let sources: Vec<String> = ext_order
+        .sequence_values::<String>()
+        .collect::<mlua::Result<_>>()?;
+    for source in sources {
+        let Some(ext) = exts.get::<Option<mlua::Table>>(source.as_str())? else {
+            continue;
+        };
+        let tools: mlua::Table = ext.get("tools")?;
+        if tools.get::<Option<mlua::Value>>(name)?.is_some() {
+            tools.set(name, mlua::Nil)?;
+            let order: mlua::Table = ext.get("tool_order")?;
+            let len = order.raw_len();
+            for i in 1..=len {
+                let existing: String = order.raw_get(i)?;
+                if existing == name {
+                    order.raw_set(i, mlua::Nil)?;
+                    break;
+                }
+            }
+            return Ok(());
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn extension_conflicts(lua: &mlua::Lua) -> mlua::Result<Vec<(String, String)>> {
