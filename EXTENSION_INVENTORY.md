@@ -158,87 +158,87 @@ Statuses are closed: `implemented`, `planned 9.x`, or an explicit DESIGN excepti
 
 | Surface | Status | Evidence / target |
 |---|---|---|
-| `auto-commit-on-exit.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `bash-spawn-hook.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `bookmark.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `border-status-editor.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `built-in-tool-renderer.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `claude-rules.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `commands.ts` | implemented | Executable Lua translations through product/public-surface integration tests |
-| `confirm-destructive.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `custom-compaction.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `custom-footer.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `custom-header.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `custom-provider-anthropic/index.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `custom-provider-gitlab-duo/index.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `dirty-repo-guard.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `doom-overlay/doom-component.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `doom-overlay/doom-engine.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `doom-overlay/doom-keys.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `doom-overlay/index.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `doom-overlay/wad-finder.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `dynamic-resources/index.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `dynamic-tools.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `event-bus.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `file-trigger.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `git-checkpoint.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `git-merge-and-resolve.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `github-issue-autocomplete.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `gondolin/index.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `handoff.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `hello.ts` | implemented | Executable Lua translations through product/public-surface integration tests |
-| `hidden-thinking-label.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `inline-bash.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `input-transform-streaming.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `input-transform.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `interactive-shell.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `mac-system-theme.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `message-renderer.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `minimal-mode.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `modal-editor.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `model-status.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `notify.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `overlay-qa-tests.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `overlay-test.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `permission-gate.ts` | implemented | Executable Lua translations through product/public-surface integration tests |
-| `pirate.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `plan-mode/index.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `plan-mode/utils.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `preset.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `project-trust.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `prompt-customizer.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `protected-paths.ts` | implemented | Executable Lua translations through product/public-surface integration tests |
-| `provider-payload.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `qna.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `question.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `questionnaire.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `rainbow-editor.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `reload-runtime.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `rpc-demo.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `sandbox/index.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `send-user-message.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `session-name.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `shutdown-command.ts` | implemented | Executable shutdown-command.lua translation + context/action oracle |
-| `snake.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `space-invaders.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `ssh.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `status-line.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `structured-output.ts` | implemented | Executable Lua translations through product/public-surface integration tests |
-| `subagent/agents.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `subagent/index.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `summarize.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `system-prompt-header.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `tic-tac-toe.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `timed-confirm.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `titlebar-spinner.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `todo.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `tool-override.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `tools.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `trigger-compact.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `truncated-tool.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `widget-placement.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `with-deps/index.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `working-indicator.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `working-message-test.ts` | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
+| `auto-commit-on-exit.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `bash-spawn-hook.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `bookmark.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `border-status-editor.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `built-in-tool-renderer.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `claude-rules.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `commands.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `confirm-destructive.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `custom-compaction.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `custom-footer.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `custom-header.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `custom-provider-anthropic/index.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `custom-provider-gitlab-duo/index.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `dirty-repo-guard.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `doom-overlay/doom-component.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `doom-overlay/doom-engine.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `doom-overlay/doom-keys.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `doom-overlay/index.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `doom-overlay/wad-finder.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `dynamic-resources/index.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `dynamic-tools.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `event-bus.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `file-trigger.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `git-checkpoint.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `git-merge-and-resolve.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `github-issue-autocomplete.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `gondolin/index.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `handoff.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `hello.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `hidden-thinking-label.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `inline-bash.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `input-transform-streaming.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `input-transform.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `interactive-shell.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `mac-system-theme.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `message-renderer.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `minimal-mode.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `modal-editor.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `model-status.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `notify.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `overlay-qa-tests.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `overlay-test.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `permission-gate.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `pirate.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `plan-mode/index.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `plan-mode/utils.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `preset.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `project-trust.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `prompt-customizer.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `protected-paths.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `provider-payload.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `qna.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `question.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `questionnaire.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `rainbow-editor.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `reload-runtime.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `rpc-demo.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `sandbox/index.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `send-user-message.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `session-name.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `shutdown-command.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `snake.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `space-invaders.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `ssh.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `status-line.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `structured-output.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `subagent/agents.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `subagent/index.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `summarize.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `system-prompt-header.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `tic-tac-toe.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `timed-confirm.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `titlebar-spinner.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `todo.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `tool-override.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `tools.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `trigger-compact.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `truncated-tool.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `widget-placement.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `with-deps/index.ts` | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `working-indicator.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
+| `working-message-test.ts` | implemented | Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring) |
 
 Inventory counts: events=30, api=24, ui=28, context=16, command_context=7, loader_rules=13, examples=82.

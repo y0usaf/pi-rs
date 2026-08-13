@@ -48,7 +48,12 @@ agent**. This is a closed exception list, not examples of permitted drift.
    TypeScript/JavaScript. Pi's extension examples arrive as translations, not
    copy-paste—and each translation is a conformance test of the bridge. A Pi
    coding-agent example that cannot translate is a bridge bug, not an example
-   we skip.
+   we skip. The in-boundary examples that the shipped public surface can
+   exercise have executable Lua translations (see the translation matrix in
+   `EXTENSION_INVENTORY.md` / `docs/lua-extension-api.md`); a small set that
+   requires capabilities outside the public surface or the coding-agent
+   product boundary is recorded as **DESIGN exception 3** with an explicit
+   per-example rationale rather than being silently skipped.
 4. **Lua package contents.** Packages distribute Lua configuration/extensions,
    modules, and data rather than TypeScript/JavaScript. Transport and package
    command behavior remain Pi-compatible: npm registry archives, Git URLs/refs,

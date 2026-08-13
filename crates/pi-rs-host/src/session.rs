@@ -215,6 +215,15 @@ impl UserData for SessionHandle {
         methods.add_method("get_leaf_id", |_, this, ()| {
             Ok(this.0.borrow().get_leaf_id().map(str::to_owned))
         });
+        methods.add_method("get_leaf_entry", |lua, this, ()| {
+            match this.0.borrow().get_leaf_entry() {
+                Some(entry) => json_to_lua(lua, entry),
+                None => Ok(Value::Nil),
+            }
+        });
+        methods.add_method("get_label", |_, this, id: String| {
+            Ok(this.0.borrow().get_label(&id).map(str::to_owned))
+        });
         methods.add_method("is_persisted", |_, this, ()| {
             Ok(this.0.borrow().is_persisted())
         });
