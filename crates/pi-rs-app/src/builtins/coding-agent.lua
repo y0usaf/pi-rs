@@ -221,31 +221,48 @@ pi.register_role({
   -- runs. Extensions never mutate the one-shot state directly.
   local turn = pi.spawn(function()
     local context = EXTENSION_CONTEXT_POLICY.snapshot(extension_state)
-    local input = EXTENSION_POLICY.emit_input(request.prompt, nil, "interactive", nil, context)
-    if input.action == "handled" then return end
-    local prompt = input.action == "transform" and input.text or request.prompt
-    local before = EXTENSION_POLICY.emit_before_agent_start(prompt, nil, system_prompt,
-      system_prompt_options, EXTENSION_CONTEXT_POLICY.snapshot(extension_state))
-    agent:set_system_prompt(before and before.systemPrompt or system_prompt)
-    local initial_content = { { type = "text", text = prompt } }
-    for _, img in ipairs(request.initialImages or {}) do
-      initial_content[#initial_content + 1] = img
+    -- Pi `agent-session.ts prompt()` routes leading-`/` messages to extension
+    -- commands before input/emission (Plan 9.2 JSON/print command-context
+    -- delivery): the command runs with a live command context and the message
+    -- is NOT sent to the model. A handled initial command only skips the
+    -- initial agent prompt; any follow-up CLI messages still run sequentially
+    -- (each is its own `session.prompt` in Pi's print-mode messages[] loop).
+    local handled, _ = EXTENSION_POLICY.try_execute_extension_command(
+      request.prompt, EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { command = true }),
+      function(err) extension_errors[#extension_errors + 1] = err end)
+    if not handled then
+      local input = EXTENSION_POLICY.emit_input(request.prompt, nil, "interactive", nil, context)
+      if input.action ~= "handled" then
+        local prompt = input.action == "transform" and input.text or request.prompt
+        local before = EXTENSION_POLICY.emit_before_agent_start(prompt, nil, system_prompt,
+          system_prompt_options, EXTENSION_CONTEXT_POLICY.snapshot(extension_state))
+        agent:set_system_prompt(before and before.systemPrompt or system_prompt)
+        local initial_content = { { type = "text", text = prompt } }
+        for _, img in ipairs(request.initialImages or {}) do
+          initial_content[#initial_content + 1] = img
+        end
+        local prompts = { { role = "user", content = initial_content,
+          timestamp = pi.now_ms() } }
+        for _, message in ipairs(before and before.messages or {}) do
+          prompts[#prompts + 1] = { role = "custom", customType = message.customType,
+            content = message.content, display = message.display, details = message.details,
+            timestamp = pi.now_ms() }
+        end
+        agent:prompt(prompts)
+      end
     end
-    local prompts = { { role = "user", content = initial_content,
-      timestamp = pi.now_ms() } }
-    for _, message in ipairs(before and before.messages or {}) do
-      prompts[#prompts + 1] = { role = "custom", customType = message.customType,
-        content = message.content, display = message.display, details = message.details,
-        timestamp = pi.now_ms() }
-    end
-    agent:prompt(prompts)
     -- Plan 10 (modes/print-mode.ts messages[]): after the initial message,
     -- send each remaining CLI message as a sequential follow-up prompt.
     -- session.prompt(message) appends a user message and runs the agent turn.
     for _, message in ipairs(request.followUpMessages or {}) do
+      local fh, _ = EXTENSION_POLICY.try_execute_extension_command(
+        message, EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { command = true }),
+        function(err) extension_errors[#extension_errors + 1] = err end)
+      if fh then goto continue_followup end
       agent:prompt({ role = "user",
         content = { { type = "text", text = message } },
         timestamp = pi.now_ms() })
+      ::continue_followup::
     end
   end)
   while not turn:done() do
@@ -1187,7 +1204,21 @@ pi.register_role({
         -- prompt yet, so it fails honestly ("Not supported") rather than
         -- telling an RPC client a prompt was answered when nothing ran.
         scripted_prompt_calls = scripted_prompt_calls + 1
-        if scripted and scripted_prompt_error
+        -- Pi `session.prompt()` routes leading-`/` messages to extension
+        -- commands first (Plan 9.2 RPC command-context delivery): the command
+        -- runs with a live command context and the RPC prompt succeeds
+        -- without consuming a provider response. Errors surface as
+        -- `{success:false, error}` like Pi's emitError on command failure.
+        local handled, cmd_err = EXTENSION_POLICY.try_execute_extension_command(
+          cmd.message, EXTENSION_CONTEXT_POLICY.snapshot(extension_state, { command = true }),
+          function(err) extension_errors[#extension_errors + 1] = err end)
+        if handled then
+          if cmd_err then
+            rpc_error(cmd_id, cmd_type, cmd_err)
+          else
+            rpc_ok(cmd_id, cmd_type)
+          end
+        elseif scripted and scripted_prompt_error
            and scripted_prompt_calls >= scripted_prompt_error_on then
           rpc_error(cmd_id, cmd_type, scripted_prompt_error)
         elseif scripted then
