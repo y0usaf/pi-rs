@@ -6935,6 +6935,11 @@ function bind_session_runtime(state, session_manager)
     end
     state.async_render = true
   end
+  -- PLAN 9.4: (re)bind the ExtensionAPI runtime action/view methods onto the
+  -- shared `pi` table for this (possibly replaced) session. On `/reload` the
+  -- generation bump above makes previously-captured `pi.*` handles stale so
+  -- stale extensions fail loudly instead of mutating a replaced session.
+  EXTENSION_POLICY.bind_pi_actions(state)
   state.session_manager = session_manager
   state.cwd = session_manager:get_cwd()
   local startup = session_startup_from_request(session_manager, request)
@@ -9793,8 +9798,18 @@ function interactive_extension_action_handlers(state)
             end
           end
         end
-        if #tools > 0 then
+        if #tools > 0 or action.refresh then
           state.agent:set_tools(tools)
+          -- Pi `setActiveToolsByName` / `_refreshToolRegistry` rebuilds the
+          -- base system prompt to reflect the new tool set.
+          if state.system_prompt_options then
+            local active_names = {}
+            for _, t in ipairs(tools) do active_names[#active_names + 1] = t.name end
+            local previous = state.system_prompt_options.toolNames or {}
+            state.system_prompt_options.toolNames = #active_names > 0 and active_names or previous
+            local prompt = build_session_system_prompt(state.system_prompt_options)
+            state.agent:set_system_prompt(prompt)
+          end
         end
       end
     end,
@@ -12419,6 +12434,132 @@ pi.register_command("extension-event-seams-parity", {
   end,
 })
 
+-- Deterministic bound-`pi.*` action driver (PLAN 9.4). It builds the real
+-- interactive runtime once (which binds the ExtensionAPI runtime action/view
+-- methods onto the shared `pi` table), then invokes those methods and returns
+-- an immutable snapshot of their immediate effects. Mutations are queued
+-- actions; the pump applies them, so the snapshot shows both the read methods
+-- and the applied writes on the live agent/session without a provider round
+-- trip.
+pi.register_command("extension-actions-probe", {
+  handler = function(args)
+    local request = pi.json.decode(args)
+    request.cwd = request.cwd or pi.cwd()
+    request.version = request.version or "0.79.0"
+    request.thinkingLevel = "off"
+    request.modelFromCli = true
+    request.thinkingFromCli = true
+    request.runtimeApiKey = request.apiKey or "actions-probe-key"
+    request.seamsTurns = request.turns
+    local state = create_interactive_state(request)
+    -- Deterministic registry/auth seams (no real auth, no network).
+    state.registry = {
+      refresh = function() end, get_error = function() return nil end,
+      get_available = function() return { state.model } end,
+      find = function(provider, id)
+        if state.model and state.model.provider == provider and state.model.id == id then
+          return state.model
+        end
+        return nil
+      end,
+      has_configured_auth = function(model) return request.authFor and request.authFor == model.id end,
+      is_using_oauth = function() return false end,
+    }
+    local probe = {}
+    local function record(key, fn)
+      local ok, value = pcall(fn)
+      probe[key] = { ok = ok, value = value }
+    end
+    -- Advanced-mode pump: enqueued actions run on spawned coroutines, so wait
+    -- until every queued action has settled before observing its effect.
+    local function settle_all()
+      for _ = 1, 200 do
+        EXTENSION_CONTEXT_POLICY.pump(state)
+        local pending = 0
+        for _, action in ipairs(state.extension_actions) do
+          if not action.settled then pending = pending + 1 end
+        end
+        if pending == 0 then return end
+        pi.sleep(1)
+      end
+    end
+    -- Reads against the bound pi table (methods exist + return snapshots).
+    record("getAllTools", function() return pi.getAllTools() end)
+    record("getActiveTools", function() return pi.getActiveTools() end)
+    record("getSessionName", function() return pi.getSessionName() end)
+    record("getThinkingLevel", function() return pi.getThinkingLevel() end)
+    record("sendMessage_type", function() return type(pi.sendMessage) end)
+    record("setActiveTools_type", function() return type(pi.setActiveTools) end)
+    record("setModel_type", function() return type(pi.setModel) end)
+
+    local active = pi.getActiveTools()
+    record("activeBefore", function() return active end)
+    -- setActiveTools to only tools present in the registry (found via
+    -- getAllTools), then confirm getActiveTools reflects the change.
+    local seen_tool = nil
+    for _, tool in ipairs(pi.getAllTools() or {}) do
+      if tool.name and tool.name ~= "render-demo" and tool.name ~= "structured_output"
+        and tool.name ~= "grep" then seen_tool = tool.name break end
+    end
+    if seen_tool then
+      pi.setActiveTools({ seen_tool })
+      settle_all()
+      record("activeAfterSet", function() return pi.getActiveTools() end)
+    end
+    -- setSessionName + getSessionName round-trip.
+    pi.setSessionName("my session")
+    settle_all()
+    record("sessionNameAfter", function() return pi.getSessionName() end)
+    -- setThinkingLevel + getThinkingLevel round-trip.
+    pi.setThinkingLevel("high")
+    settle_all()
+    record("thinkingAfter", function() return pi.getThinkingLevel() end)
+    -- setModel returns false without auth, true with it.
+    record("setModelNoAuth", function() return pi.setModel(state.model) end)
+    request.authFor = state.model and state.model.id or "x"
+    state.registry.has_configured_auth = function(model) return true end
+    record("setModelAuthed", function() return pi.setModel(state.model) end)
+    -- appendEntry persists a custom entry (interactive sessions).
+    pi.appendEntry("probe-data", { marker = 42 })
+    settle_all()
+    local entries = state.session_manager:get_entries() or {}
+    local custom_found = false
+    for _, entry in ipairs(entries) do
+      if entry.type == "custom" and entry.customType == "probe-data" then
+        custom_found = true
+      end
+    end
+    probe["appendEntryPersisted"] = custom_found
+    -- sendMessage enqueues a custom steer on the agent queue.
+    pi.sendMessage({ customType = "probe-custom", content = "hi", display = true })
+    settle_all()
+    probe["sendMessageQueued"] = state.agent:get_state().isStreaming ~= true
+      and state.agent.has_queued_messages and state.agent:has_queued_messages()
+    -- Reload-recovery: the runtime rebinds `pi.*` over a fresh generation
+    -- (PLAN 9.3/9.4 seam); aliasing the (re)bound table object keeps the
+    -- methods live across the reload, so a subsequent mutation still applies
+    -- to the replaced session.
+    if request.testReload then
+      -- Capture a read fn on the current binding, reload, then confirm the
+      -- same `pi.*` methods still read the healthy (replaced) session.
+      local before_gen = state.extension_context_generation
+      state.reload_impl = function(state)
+        EXTENSION_POLICY.emit_generic({ type = "session_shutdown", reason = "reload" },
+          EXTENSION_CONTEXT_POLICY.snapshot(state))
+        state.extension_shutdown_emitted = true
+        state.next_session_start_event = { type = "session_start", reason = "reload" }
+        bind_session_runtime(state, state.session_manager)
+        state.extension_action_handlers = interactive_extension_action_handlers(state)
+      end
+      state.reload_impl(state)
+      probe["generationAfterReload"] = state.extension_context_generation
+      probe["reload_reads_session"] = (before_gen
+        ~= state.extension_context_generation)
+        and pcall(function() return pi.getSessionName() end)
+    end
+    return probe
+  end,
+})
 -- Deterministic hidden-easter-egg UI driver. It advances the shipped component
 -- state directly, replacing only wall-clock timers and Armin's random choice.
 pi.register_command("interactive-easter-eggs-parity-sequence", {
