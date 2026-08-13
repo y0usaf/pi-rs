@@ -30,6 +30,211 @@
       "source": "structured-output.ts",
       "lua": "examples/extensions/structured-output.lua",
       "evidence": "translated_tool_examples_execute_through_the_public_surface"
+    },
+    {
+      "source": "session-name.ts",
+      "lua": "examples/extensions/session-name.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "bookmark.ts",
+      "lua": "examples/extensions/bookmark.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "event-bus.ts",
+      "lua": "examples/extensions/event-bus.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "model-status.ts",
+      "lua": "examples/extensions/model-status.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "status-line.ts",
+      "lua": "examples/extensions/status-line.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "hidden-thinking-label.ts",
+      "lua": "examples/extensions/hidden-thinking-label.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "working-message-test.ts",
+      "lua": "examples/extensions/working-message-test.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "working-indicator.ts",
+      "lua": "examples/extensions/working-indicator.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "system-prompt-header.ts",
+      "lua": "examples/extensions/system-prompt-header.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "widget-placement.ts",
+      "lua": "examples/extensions/widget-placement.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "notify.ts",
+      "lua": "examples/extensions/notify.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "provider-payload.ts",
+      "lua": "examples/extensions/provider-payload.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "send-user-message.ts",
+      "lua": "examples/extensions/send-user-message.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "custom-header.ts",
+      "lua": "examples/extensions/custom-header.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "custom-footer.ts",
+      "lua": "examples/extensions/custom-footer.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "titlebar-spinner.ts",
+      "lua": "examples/extensions/titlebar-spinner.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "pirate.ts",
+      "lua": "examples/extensions/pirate.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "dirty-repo-guard.ts",
+      "lua": "examples/extensions/dirty-repo-guard.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "project-trust.ts",
+      "lua": "examples/extensions/project-trust.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "auto-commit-on-exit.ts",
+      "lua": "examples/extensions/auto-commit-on-exit.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "git-checkpoint.ts",
+      "lua": "examples/extensions/git-checkpoint.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "trigger-compact.ts",
+      "lua": "examples/extensions/trigger-compact.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "input-transform.ts",
+      "lua": "examples/extensions/input-transform.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "input-transform-streaming.ts",
+      "lua": "examples/extensions/input-transform-streaming.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "reload-runtime.ts",
+      "lua": "examples/extensions/reload-runtime.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "confirm-destructive.ts",
+      "lua": "examples/extensions/confirm-destructive.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "timed-confirm.ts",
+      "lua": "examples/extensions/timed-confirm.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "tool-override.ts",
+      "lua": "examples/extensions/tool-override.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "dynamic-tools.ts",
+      "lua": "examples/extensions/dynamic-tools.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "dynamic-resources/index.ts",
+      "lua": "examples/extensions/dynamic-resources.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "claude-rules.ts",
+      "lua": "examples/extensions/claude-rules.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "prompt-customizer.ts",
+      "lua": "examples/extensions/prompt-customizer.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "bash-spawn-hook.ts",
+      "lua": "examples/extensions/bash-spawn-hook.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "inline-bash.ts",
+      "lua": "examples/extensions/inline-bash.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "file-trigger.ts",
+      "lua": "examples/extensions/file-trigger.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "truncated-tool.ts",
+      "lua": "examples/extensions/truncated-tool.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "message-renderer.ts",
+      "lua": "examples/extensions/message-renderer.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "todo.ts",
+      "lua": "examples/extensions/todo.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "git-merge-and-resolve.ts",
+      "lua": "examples/extensions/git-merge-and-resolve.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "github-issue-autocomplete.ts",
+      "lua": "examples/extensions/github-issue-autocomplete.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
+    },
+    {
+      "source": "mac-system-theme.ts",
+      "lua": "examples/extensions/mac-system-theme.lua",
+      "evidence": "translated_9_8_examples_load_through_the_public_surface"
     }
   ],
   "categories": {
@@ -220,103 +425,96 @@
     "examples": [
       {
         "status": "implemented",
-        "evidence": "Executable Lua translations through product/public-surface integration tests",
-        "items": [
-          "commands.ts",
-          "hello.ts",
-          "permission-gate.ts",
-          "protected-paths.ts",
-          "structured-output.ts"
-        ]
-      },
-      {
-        "status": "implemented",
-        "evidence": "Executable shutdown-command.lua translation + context/action oracle",
-        "items": [
-          "shutdown-command.ts"
-        ]
-      },
-      {
-        "status": "planned 9.8",
-        "evidence": "Translation matrix; bridge capability closes in the owning 9.2–9.7 rung",
+        "evidence": "Executable Lua translations through product/public-surface integration tests (translated_9_8_examples_load_through_the_public_surface + per-example oracle/wiring)",
         "items": [
           "auto-commit-on-exit.ts",
           "bash-spawn-hook.ts",
           "bookmark.ts",
-          "border-status-editor.ts",
-          "built-in-tool-renderer.ts",
           "claude-rules.ts",
+          "commands.ts",
           "confirm-destructive.ts",
-          "custom-compaction.ts",
           "custom-footer.ts",
           "custom-header.ts",
-          "custom-provider-anthropic/index.ts",
-          "custom-provider-gitlab-duo/index.ts",
           "dirty-repo-guard.ts",
-          "doom-overlay/doom-component.ts",
-          "doom-overlay/doom-engine.ts",
-          "doom-overlay/doom-keys.ts",
-          "doom-overlay/index.ts",
-          "doom-overlay/wad-finder.ts",
           "dynamic-resources/index.ts",
           "dynamic-tools.ts",
           "event-bus.ts",
           "file-trigger.ts",
           "git-checkpoint.ts",
-          "git-merge-and-resolve.ts",
-          "github-issue-autocomplete.ts",
-          "gondolin/index.ts",
-          "handoff.ts",
+          "hello.ts",
           "hidden-thinking-label.ts",
           "inline-bash.ts",
           "input-transform-streaming.ts",
           "input-transform.ts",
-          "interactive-shell.ts",
-          "mac-system-theme.ts",
           "message-renderer.ts",
-          "minimal-mode.ts",
-          "modal-editor.ts",
           "model-status.ts",
           "notify.ts",
-          "overlay-qa-tests.ts",
-          "overlay-test.ts",
+          "permission-gate.ts",
           "pirate.ts",
-          "plan-mode/index.ts",
-          "plan-mode/utils.ts",
-          "preset.ts",
           "project-trust.ts",
           "prompt-customizer.ts",
+          "protected-paths.ts",
           "provider-payload.ts",
-          "qna.ts",
-          "question.ts",
-          "questionnaire.ts",
-          "rainbow-editor.ts",
           "reload-runtime.ts",
-          "rpc-demo.ts",
-          "sandbox/index.ts",
           "send-user-message.ts",
           "session-name.ts",
-
-          "snake.ts",
-          "space-invaders.ts",
-          "ssh.ts",
+          "shutdown-command.ts",
           "status-line.ts",
-          "subagent/agents.ts",
-          "subagent/index.ts",
-          "summarize.ts",
+          "structured-output.ts",
           "system-prompt-header.ts",
-          "tic-tac-toe.ts",
           "timed-confirm.ts",
           "titlebar-spinner.ts",
           "todo.ts",
           "tool-override.ts",
-          "tools.ts",
           "trigger-compact.ts",
           "truncated-tool.ts",
           "widget-placement.ts",
-          "with-deps/index.ts",
           "working-indicator.ts",
-          "working-message-test.ts"
+          "working-message-test.ts",
+          "git-merge-and-resolve.ts",
+          "github-issue-autocomplete.ts",
+          "mac-system-theme.ts"
+        ]
+      },
+      {
+        "status": "DESIGN exception 3",
+        "evidence": "DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped",
+        "items": [
+          "border-status-editor.ts",
+          "built-in-tool-renderer.ts",
+          "custom-compaction.ts",
+          "custom-provider-anthropic/index.ts",
+          "custom-provider-gitlab-duo/index.ts",
+          "doom-overlay/doom-component.ts",
+          "doom-overlay/doom-engine.ts",
+          "doom-overlay/doom-keys.ts",
+          "doom-overlay/index.ts",
+          "doom-overlay/wad-finder.ts",
+          "gondolin/index.ts",
+          "handoff.ts",
+          "interactive-shell.ts",
+          "minimal-mode.ts",
+          "modal-editor.ts",
+          "overlay-qa-tests.ts",
+          "overlay-test.ts",
+          "plan-mode/index.ts",
+          "plan-mode/utils.ts",
+          "preset.ts",
+          "qna.ts",
+          "question.ts",
+          "questionnaire.ts",
+          "rainbow-editor.ts",
+          "rpc-demo.ts",
+          "sandbox/index.ts",
+          "snake.ts",
+          "space-invaders.ts",
+          "ssh.ts",
+          "subagent/agents.ts",
+          "subagent/index.ts",
+          "summarize.ts",
+          "tic-tac-toe.ts",
+          "tools.ts",
+          "with-deps/index.ts"
         ]
       }
     ]

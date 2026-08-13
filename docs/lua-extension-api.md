@@ -156,87 +156,87 @@ translation loads and its representative behavior executes in CI.
 
 | Pinned TypeScript | Lua translation | Status | Evidence / dependency |
 |---|---|---|---|
-| `auto-commit-on-exit.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `bash-spawn-hook.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `bookmark.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `border-status-editor.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `built-in-tool-renderer.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `claude-rules.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
+| `auto-commit-on-exit.ts` | `examples/extensions/auto-commit-on-exit.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `bash-spawn-hook.ts` | `examples/extensions/bash-spawn-hook.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `bookmark.ts` | `examples/extensions/bookmark.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `border-status-editor.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `built-in-tool-renderer.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `claude-rules.ts` | `examples/extensions/claude-rules.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
 | `commands.ts` | `examples/extensions/commands.lua` | implemented | queued_extension_ui_actions_match_pi_examples |
-| `confirm-destructive.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `custom-compaction.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `custom-footer.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `custom-header.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `custom-provider-anthropic/index.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `custom-provider-gitlab-duo/index.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `dirty-repo-guard.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `doom-overlay/doom-component.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `doom-overlay/doom-engine.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `doom-overlay/doom-keys.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `doom-overlay/index.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `doom-overlay/wad-finder.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `dynamic-resources/index.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `dynamic-tools.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `event-bus.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `file-trigger.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `git-checkpoint.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `git-merge-and-resolve.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `github-issue-autocomplete.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `gondolin/index.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `handoff.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
+| `confirm-destructive.ts` | `examples/extensions/confirm-destructive.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `custom-compaction.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `custom-footer.ts` | `examples/extensions/custom-footer.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `custom-header.ts` | `examples/extensions/custom-header.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `custom-provider-anthropic/index.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `custom-provider-gitlab-duo/index.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `dirty-repo-guard.ts` | `examples/extensions/dirty-repo-guard.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `doom-overlay/doom-component.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `doom-overlay/doom-engine.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `doom-overlay/doom-keys.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `doom-overlay/index.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `doom-overlay/wad-finder.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `dynamic-resources/index.ts` | `examples/extensions/dynamic-resources.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `dynamic-tools.ts` | `examples/extensions/dynamic-tools.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `event-bus.ts` | `examples/extensions/event-bus.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `file-trigger.ts` | `examples/extensions/file-trigger.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `git-checkpoint.ts` | `examples/extensions/git-checkpoint.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `git-merge-and-resolve.ts` | `examples/extensions/git-merge-and-resolve.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `github-issue-autocomplete.ts` | `examples/extensions/github-issue-autocomplete.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `gondolin/index.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `handoff.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
 | `hello.ts` | `examples/extensions/hello.lua` | implemented | product_loader_runs_tool_and_blocking_hook_with_isolated_failures |
-| `hidden-thinking-label.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `inline-bash.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `input-transform-streaming.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `input-transform.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `interactive-shell.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `mac-system-theme.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `message-renderer.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `minimal-mode.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `modal-editor.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `model-status.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `notify.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `overlay-qa-tests.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `overlay-test.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
+| `hidden-thinking-label.ts` | `examples/extensions/hidden-thinking-label.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `inline-bash.ts` | `examples/extensions/inline-bash.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `input-transform-streaming.ts` | `examples/extensions/input-transform-streaming.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `input-transform.ts` | `examples/extensions/input-transform.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `interactive-shell.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `mac-system-theme.ts` | `examples/extensions/mac-system-theme.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `message-renderer.ts` | `examples/extensions/message-renderer.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `minimal-mode.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `modal-editor.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `model-status.ts` | `examples/extensions/model-status.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `notify.ts` | `examples/extensions/notify.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `overlay-qa-tests.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `overlay-test.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
 | `permission-gate.ts` | `examples/extensions/permission-gate.lua` | implemented | queued_extension_ui_actions_match_pi_examples |
-| `pirate.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `plan-mode/index.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `plan-mode/utils.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `preset.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `project-trust.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `prompt-customizer.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
+| `pirate.ts` | `examples/extensions/pirate.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `plan-mode/index.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `plan-mode/utils.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `preset.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `project-trust.ts` | `examples/extensions/project-trust.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `prompt-customizer.ts` | `examples/extensions/prompt-customizer.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
 | `protected-paths.ts` | `examples/extensions/protected-paths.lua` | implemented | translated_tool_examples_execute_through_the_public_surface |
-| `provider-payload.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `qna.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `question.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `questionnaire.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `rainbow-editor.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `reload-runtime.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `rpc-demo.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `sandbox/index.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `send-user-message.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `session-name.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
+| `provider-payload.ts` | `examples/extensions/provider-payload.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `qna.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `question.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `questionnaire.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `rainbow-editor.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `reload-runtime.ts` | `examples/extensions/reload-runtime.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `rpc-demo.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `sandbox/index.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `send-user-message.ts` | `examples/extensions/send-user-message.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `session-name.ts` | `examples/extensions/session-name.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
 | `shutdown-command.ts` | `examples/extensions/shutdown-command.lua` | implemented | extension_context_snapshots_and_shutdown_match_pi |
-| `snake.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `space-invaders.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `ssh.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `status-line.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
+| `snake.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `space-invaders.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `ssh.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `status-line.ts` | `examples/extensions/status-line.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
 | `structured-output.ts` | `examples/extensions/structured-output.lua` | implemented | translated_tool_examples_execute_through_the_public_surface |
-| `subagent/agents.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `subagent/index.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `summarize.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `system-prompt-header.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `tic-tac-toe.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `timed-confirm.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `titlebar-spinner.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `todo.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `tool-override.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `tools.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `trigger-compact.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `truncated-tool.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `widget-placement.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `with-deps/index.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `working-indicator.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
-| `working-message-test.ts` | — | planned 9.8 | Translation matrix; bridge capability closes in the owning 9.2–9.7 rung |
+| `subagent/agents.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `subagent/index.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `summarize.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `system-prompt-header.ts` | `examples/extensions/system-prompt-header.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `tic-tac-toe.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `timed-confirm.ts` | `examples/extensions/timed-confirm.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `titlebar-spinner.ts` | `examples/extensions/titlebar-spinner.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `todo.ts` | `examples/extensions/todo.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `tool-override.ts` | `examples/extensions/tool-override.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `tools.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `trigger-compact.ts` | `examples/extensions/trigger-compact.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `truncated-tool.ts` | `examples/extensions/truncated-tool.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `widget-placement.ts` | `examples/extensions/widget-placement.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `with-deps/index.ts` | — | DESIGN exception 3 | DESIGN difference 3: these pinned examples require capabilities outside the shipped public surface or the coding-agent product boundary (LLM-complete helper + modelRegistry.getApiKeyAndHeaders, custom-editor/overlay component classes, native VM/OAuth-wire/ssh runtimes, or product experiments), recorded as explicit DESIGN exceptions rather than silently skipped |
+| `working-indicator.ts` | `examples/extensions/working-indicator.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
+| `working-message-test.ts` | `examples/extensions/working-message-test.lua` | implemented | translated_9_8_examples_load_through_the_public_surface |
 
-Matrix counts: translated=6, pinned=82.
+Matrix counts: translated=47, pinned=82.

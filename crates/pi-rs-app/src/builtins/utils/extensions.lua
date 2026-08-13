@@ -448,6 +448,12 @@ function EXTENSION_CONTEXT_POLICY.snapshot(state, options)
     get_entry = function(id)
       assert_active(); return EXTENSION_CONTEXT_POLICY.copy_snapshot(manager:get_entry(id))
     end,
+    get_leaf_entry = function()
+      assert_active(); return EXTENSION_CONTEXT_POLICY.copy_snapshot(manager:get_leaf_entry())
+    end,
+    get_label = function(id)
+      assert_active(); return EXTENSION_CONTEXT_POLICY.copy_snapshot(manager:get_label(id))
+    end,
     build_session_context = function()
       assert_active(); return EXTENSION_CONTEXT_POLICY.copy_snapshot(manager:build_session_context())
     end,

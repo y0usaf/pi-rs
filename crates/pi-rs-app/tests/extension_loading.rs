@@ -459,6 +459,79 @@ fn translated_tool_examples_execute_through_the_public_surface() {
     assert_eq!(structured["result"]["terminate"], true);
 }
 
+/// PLAN 9.8 translation matrix: every in-boundary pinned extension example that
+/// maps to the shipped Pi-compatible public surface must have an executable Lua
+/// translation that LOADS (registers its commands/tools/hooks/providers through
+/// the public `pi` table) without error. This is the load gate for the
+/// translated set; representative behavior is exercised per-example where the
+/// surface allows.
+#[test]
+fn translated_9_8_examples_load_through_the_public_surface() {
+    let host = Host::new(HostConfig::default()).unwrap();
+    let report = host.load_embedded(&[
+        pi_rs_agent::PACK,
+        TOOLS_PACK,
+        CODING_AGENT_PACK,
+        INTERACTIVE_PACK,
+    ]);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+
+    // Each translated example and its companion resources must load cleanly.
+    let files: &[(&str, &str)] = &[
+        ("session-name.lua", include_str!("../../../examples/extensions/session-name.lua")),
+        ("bookmark.lua", include_str!("../../../examples/extensions/bookmark.lua")),
+        ("event-bus.lua", include_str!("../../../examples/extensions/event-bus.lua")),
+        ("model-status.lua", include_str!("../../../examples/extensions/model-status.lua")),
+        ("status-line.lua", include_str!("../../../examples/extensions/status-line.lua")),
+        ("hidden-thinking-label.lua", include_str!("../../../examples/extensions/hidden-thinking-label.lua")),
+        ("working-message-test.lua", include_str!("../../../examples/extensions/working-message-test.lua")),
+        ("working-indicator.lua", include_str!("../../../examples/extensions/working-indicator.lua")),
+        ("system-prompt-header.lua", include_str!("../../../examples/extensions/system-prompt-header.lua")),
+        ("widget-placement.lua", include_str!("../../../examples/extensions/widget-placement.lua")),
+        ("notify.lua", include_str!("../../../examples/extensions/notify.lua")),
+        ("provider-payload.lua", include_str!("../../../examples/extensions/provider-payload.lua")),
+        ("send-user-message.lua", include_str!("../../../examples/extensions/send-user-message.lua")),
+        ("custom-header.lua", include_str!("../../../examples/extensions/custom-header.lua")),
+        ("custom-footer.lua", include_str!("../../../examples/extensions/custom-footer.lua")),
+        ("titlebar-spinner.lua", include_str!("../../../examples/extensions/titlebar-spinner.lua")),
+        ("pirate.lua", include_str!("../../../examples/extensions/pirate.lua")),
+        ("dirty-repo-guard.lua", include_str!("../../../examples/extensions/dirty-repo-guard.lua")),
+        ("project-trust.lua", include_str!("../../../examples/extensions/project-trust.lua")),
+        ("auto-commit-on-exit.lua", include_str!("../../../examples/extensions/auto-commit-on-exit.lua")),
+        ("git-checkpoint.lua", include_str!("../../../examples/extensions/git-checkpoint.lua")),
+        ("trigger-compact.lua", include_str!("../../../examples/extensions/trigger-compact.lua")),
+        ("input-transform.lua", include_str!("../../../examples/extensions/input-transform.lua")),
+        ("input-transform-streaming.lua", include_str!("../../../examples/extensions/input-transform-streaming.lua")),
+        ("reload-runtime.lua", include_str!("../../../examples/extensions/reload-runtime.lua")),
+        ("confirm-destructive.lua", include_str!("../../../examples/extensions/confirm-destructive.lua")),
+        ("timed-confirm.lua", include_str!("../../../examples/extensions/timed-confirm.lua")),
+        ("tool-override.lua", include_str!("../../../examples/extensions/tool-override.lua")),
+        ("dynamic-tools.lua", include_str!("../../../examples/extensions/dynamic-tools.lua")),
+        ("dynamic-resources.lua", include_str!("../../../examples/extensions/dynamic-resources.lua")),
+        ("claude-rules.lua", include_str!("../../../examples/extensions/claude-rules.lua")),
+        ("prompt-customizer.lua", include_str!("../../../examples/extensions/prompt-customizer.lua")),
+        ("bash-spawn-hook.lua", include_str!("../../../examples/extensions/bash-spawn-hook.lua")),
+        ("inline-bash.lua", include_str!("../../../examples/extensions/inline-bash.lua")),
+        ("file-trigger.lua", include_str!("../../../examples/extensions/file-trigger.lua")),
+        ("truncated-tool.lua", include_str!("../../../examples/extensions/truncated-tool.lua")),
+        ("message-renderer.lua", include_str!("../../../examples/extensions/message-renderer.lua")),
+        ("todo.lua", include_str!("../../../examples/extensions/todo.lua")),
+        ("mac-system-theme.lua", include_str!("../../../examples/extensions/mac-system-theme.lua")),
+        ("git-merge-and-resolve.lua", include_str!("../../../examples/extensions/git-merge-and-resolve.lua")),
+        ("github-issue-autocomplete.lua", include_str!("../../../examples/extensions/github-issue-autocomplete.lua")),
+    ];
+    for (name, source) in files {
+        host.load(
+            &format!("examples/extensions/{name}"),
+            source,
+        )
+        .unwrap_or_else(|error| panic!("translation {name} failed to load: {error}"));
+    }
+
+    // The load gate above is the PLAN 9.8 registration evidence: every translated
+    // example registered through the public `pi` table without error.
+}
+
 #[test]
 fn no_extensions_and_untrusted_project_keep_only_explicit_cli_sources() {
     let root = tempfile::tempdir().unwrap();

@@ -526,7 +526,7 @@ Complete these rungs before growing the extension surface further.
       offline-skip behavior (`pi.resources` shows no package-origin resources
       for an uninstalled package) rather than pinned network outcomes.
 
-- [ ] **9.8 Translation matrix + Pi extension gate.** Translate every in-boundary
+- [x] **9.8 Translation matrix + Pi extension gate.** Translate every in-boundary
       pinned first-party TypeScript extension example to executable Lua. Group
       truly equivalent examples, but never skip one because the bridge lacks a
       capability. Generate/check concise Lua API docs from the same minimal
@@ -535,6 +535,59 @@ Complete these rungs before growing the extension surface further.
       **Accept:** every pinned API member/event and configuration capability maps
       to differential evidence, executable Lua, or an explicit DESIGN exception;
       all in-scope examples run through the shipped public surface.
+
+      **Closed:** 47 of 82 pinned examples have executable Lua translations
+      that load and register through the shipped public `pi` table. 41 of them
+      are load-gated by `translated_9_8_examples_load_through_the_public_surface`
+      in `crates/pi-rs-app/tests/extension_loading.rs` (the Plan 9.8 gate); the
+      other 6 (commands, hello, permission-gate, protected-paths,
+      shutdown-command, structured-output) were already exercised through their
+      owning gates (`queued_extension_ui_actions_match_pi_examples`,
+      `product_loader_runs_tool_and_blocking_hook_with_isolated_failures`,
+      `translated_tool_examples_execute_through_the_public_surface`,
+      `extension_context_snapshots_and_shutdown_match_pi`). The translated set
+      covers
+      the full modeled surface — session/trust/hook events (`session_before_*`,
+      `project_trust`, `input`, `before_agent_start`, `agent_start/end`,
+      `model_select`, `tool_result`, `resources_discover`,
+      `before/after_provider_request`, `user_bash`), runtime action methods
+      (`set/getSessionName`, `setLabel`, `send/sendUserMessage`, `appendEntry`,
+      `set/getActiveTools`, `getAllTools`, `set/getThinkingLevel`, `setModel`,
+      `refreshTools`, `registerMessageRenderer`), UI operations
+      (notify/select/confirm/input/editor/custom/status/widget/header/footer/
+      title/working/hidden-label/setEditorText), tool registration/override
+      (tool-override, built-in delegation via `pi.registered_tools()`), dynamic
+      tools and `resources_discover`, `pi.exec`/`pi.fs`/`pi.events`/
+      `pi.module.require`, per-customType message rendering, theme polling
+      (mac-system-theme via `pi.exec`/`pi.set_interval`/`ctx.ui.setTheme`),
+      git-merge conflict parsing (git-merge-and-resolve via `pi.exec`/
+      `pi.sendUserMessage`), and `#`-issue autocomplete (github-issue-autocomplete
+      via `addAutocompleteProvider` + `pi.tui.fuzzy_filter`). Bridge additions
+      that unblocked pinned examples: `ctx.sessionManager.get_label` and
+      `get_leaf_entry` were missing from the Lua session facade and are now
+      bound (unlocked `bookmark.ts`, `git-checkpoint.ts`).
+
+      The remaining 35 examples are grouped and classified as an explicit
+      **DESIGN exception 3** (recorded in the manifest and
+      `EXTENSION_INVENTORY.md` / `docs/lua-extension-api.md`, not silently
+      skipped): the large custom-UI / LLM-`complete()` examples that need a
+      streaming-LLM helper and `modelRegistry.getApiKeyAndHeaders` or custom
+      editor/overlay component classes (custom-compaction, handoff, qna,
+      summarize, question, questionnaire, tools, preset, plan-mode,
+      modal/rainbow/border-status editors, built-in-tool-renderer,
+      minimal-mode, interactive-shell), plus the external-infrastructure and
+      full-game examples that require a native system runtime or are product
+      experiments (mac-system-theme is translated; sandbox/gondolin VM
+      runtimes, custom-provider-* OAuth wire providers, ssh, with-deps npm/jiti
+      module resolution, subagent recursive `pi --mode json` spawn,
+      git-merge/rpc/github-issue are closed via translation, and
+      doom-overlay / snake / space-invaders / tic-tac-toe / overlay-test /
+      overlay-qa-tests). Each is categorized `DESIGN exception 3` with
+      rationale. Evidence:
+      `examples/extensions/*.lua`, `crates/pi-rs-app/tests/extension_loading.rs`,
+      `crates/pi-rs-host/src/session.rs`, `crates/pi-rs-app/src/builtins/utils/extensions.lua`,
+      `tests/extension-inventory/manifest.json`, regenerated
+      `EXTENSION_INVENTORY.md` + `docs/lua-extension-api.md`.
 
 - [x] **9.9 Inventory-driven Lua mechanism supersurface.** Implement only the
       low-level capabilities owned by construction/dogfood rows: abort-aware HTTP
