@@ -536,6 +536,110 @@ function EXTENSION_CONTEXT_POLICY.snapshot(state, options)
   return context
 end
 
+-- Bind the ExtensionAPI runtime action/view methods onto the shared `pi`
+-- table for a bound session (spec `runner.ts bindCoreActions` /
+-- `agent-session.ts`). Extensions hold `local pi = ...` pointing at the same
+-- table, so patching it once per (re)bind makes `pi.sendMessage`,
+-- `pi.setActiveTools`, `pi.getAllTools`, `pi.getActiveTools`, `pi.appendEntry`,
+-- `pi.setSessionName`, `pi.getSessionName`, `pi.setLabel`, `pi.setModel`,
+-- `pi.getThinkingLevel`, `pi.setThinkingLevel`, and `pi.refreshTools` reach
+-- the live agent/session exactly like built-ins. Reads use the immutable
+-- snapshot; mutations enqueue through the same queued-action pipeline as the
+-- `ctx.*` methods. Mutations and reads reject stale bound state (reload /
+-- session replacement bumps `extension_context_generation`).
+EXTENSION_POLICY.bind_pi_actions = EXTENSION_POLICY.bind_pi_actions
+  or function(state)
+    local api = EXTENSION_POLICY.api
+    local generation = state.extension_context_generation
+    api.sendMessage = function(message, options)
+      EXTENSION_CONTEXT_POLICY.assert_active(state, generation)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "send_message", message = message, options = options or {} })
+    end
+    api.sendUserMessage = function(content, options)
+      EXTENSION_CONTEXT_POLICY.assert_active(state, generation)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "send_user_message", content = content, options = options or {} })
+    end
+    api.appendEntry = function(custom_type, data)
+      EXTENSION_CONTEXT_POLICY.assert_active(state, generation)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "append_entry", customType = custom_type, data = data })
+    end
+    api.setSessionName = function(name)
+      EXTENSION_CONTEXT_POLICY.assert_active(state, generation)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "set_session_name", name = name })
+    end
+    api.getSessionName = function()
+      EXTENSION_CONTEXT_POLICY.assert_active(state, generation)
+      return EXTENSION_CONTEXT_POLICY.copy_snapshot(
+        state.session_manager and state.session_manager:get_session_name())
+    end
+    api.setLabel = function(entry_id, label)
+      EXTENSION_CONTEXT_POLICY.assert_active(state, generation)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "set_label", entryId = entry_id, label = label })
+    end
+    api.getActiveTools = function()
+      EXTENSION_CONTEXT_POLICY.assert_active(state, generation)
+      local names = {}
+      if state.agent then
+        local agent_state = state.agent:get_state()
+        for _, tool in ipairs(agent_state.tools or {}) do
+          names[#names + 1] = tool.name
+        end
+      end
+      return EXTENSION_CONTEXT_POLICY.copy_snapshot(names)
+    end
+    api.getAllTools = function()
+      EXTENSION_CONTEXT_POLICY.assert_active(state, generation)
+      local all = api.registered_tools_with_source()
+      return EXTENSION_CONTEXT_POLICY.copy_snapshot(all)
+    end
+    api.setActiveTools = function(names)
+      EXTENSION_CONTEXT_POLICY.assert_active(state, generation)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "set_active_tools", tools = names or {} })
+    end
+    -- Refresh the active tools from the registry, preserving the currently
+    -- active set if it still resolves (Pi `_refreshToolRegistry`). Because
+    -- new registrations default active, this surfaces dynamically-registered
+    -- tools without dropping already-active names.
+    api.refreshTools = function()
+      EXTENSION_CONTEXT_POLICY.assert_active(state, generation)
+      local currently_active = {}
+      if state.agent then
+        local agent_state = state.agent:get_state()
+        for _, tool in ipairs(agent_state.tools or {}) do
+          currently_active[#currently_active + 1] = tool.name
+        end
+      end
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "set_active_tools", tools = currently_active, refresh = true })
+    end
+    api.setModel = function(model)
+      EXTENSION_CONTEXT_POLICY.assert_active(state, generation)
+      local registry = state.registry or {}
+      local has_auth = registry.has_configured_auth or EXTENSION_POLICY.api.auth_has_configured
+      local authed = has_auth and has_auth(model) or false
+      if not authed then return false end
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "set_model", model = model })
+      return true
+    end
+    api.getThinkingLevel = function()
+      EXTENSION_CONTEXT_POLICY.assert_active(state, generation)
+      return state.thinking_level or "off"
+    end
+    api.setThinkingLevel = function(level)
+      EXTENSION_CONTEXT_POLICY.assert_active(state, generation)
+      EXTENSION_CONTEXT_POLICY.enqueue(state, generation,
+        { kind = "set_thinking_level", level = level })
+    end
+    return api
+  end
+
 function EXTENSION_CONTEXT_POLICY.settle_action(action, ok, value)
   action.ok = ok
   if ok then action.result = value else action.error = tostring(value) end

@@ -244,7 +244,7 @@ Complete these rungs before growing the extension surface further.
       fold) and are dispatched at every product seam (coding-agent.lua print/rpc, interactive.lua).
       Regenerate both oracles with `scripts/extension-event-oracle`.
 
-- [ ] **9.4 Complete non-UI ExtensionAPI actions and registries.** Finish dynamic
+- [x] **9.4 Complete non-UI ExtensionAPI actions and registries.** Finish dynamic
       tools/active-tool changes, async argument completion, shortcut conflicts,
       CLI flags, custom messages/render/persistence, session name/labels,
       command/tool inventories, model/thinking mutation, shared event bus, and
@@ -264,6 +264,37 @@ Complete these rungs before growing the extension surface further.
       `tests/provider-registry-parity/oracle.json` replayed through the public Lua
       surface (`crates/pi-rs-host/tests/provider_registry_parity.rs`).
       Regenerate with `scripts/provider-registry-oracle`.
+
+      Closed (this stream): the ExtensionAPI runtime action/view methods
+      (`sendMessage`, `sendUserMessage`, `appendEntry`, `setSessionName`,
+      `getSessionName`, `setLabel`, `getActiveTools`, `getAllTools`,
+      `setActiveTools`, `refreshTools`, `setModel`, `getThinkingLevel`,
+      `setThinkingLevel`) are now bound onto the shared `pi` table for each live
+      session by `EXTENSION_POLICY.bind_pi_actions` (`utils/extensions.lua`,
+      spec `runner.ts bindCoreActions` → `agent-session.ts`). Reads return
+      immutable snapshots; mutations enqueue through the same queued-action
+      pipeline as the `ctx.*` methods. `getAllTools` is backed by the new
+      `pi.registered_tools_with_source` host mechanism (every tool plus
+      `sourceInfo`). Both product modes rebind on startup and on `/reload`
+      (`coding-agent.lua` print role; `interactive.lua` `bind_session_runtime`),
+      so a stale handle from a replaced session rejects via the generation
+      bump instead of mutating a dead session. `setActiveTools`/`refreshTools`
+      rebuild the base system prompt to reflect the active tool set (Pi
+      `setActiveToolsByName`/`_refreshToolRegistry`), so dynamically-registered
+      tools participate in prompt rebuilds exactly like built-ins.
+
+      Exercised unprivileged by `examples/extensions/runtime-actions-demo.lua`
+      (the translated session-name/preset/dynamic-tools/message-renderer/
+      send-user-message surface: tool inventory reads, active-tool writes with
+      prompt rebuild, session name/label, custom-message persistence via
+      `appendEntry`, model/thinking mutation, and a runtime-registered tool
+      surfaced through `refreshTools`) and pinned by
+      `bound_pi_runtime_actions_apply_immediately` in
+      `crates/pi-rs-app/tests/extension_loading.rs`, which asserts immediate
+      effects (reads, applied `setActiveTools`/`setSessionName`/
+      `setThinkingLevel`/`setModel`/`appendEntry`/`sendMessage`) and reload
+      recovery (fresh generation after `/reload`, bound methods still read the
+      replaced session).
 
       **Accept:** translated dynamic-tools, tool-override, message-renderer,
       event-bus, preset, provider, and stateful-tool examples run unprivileged;
