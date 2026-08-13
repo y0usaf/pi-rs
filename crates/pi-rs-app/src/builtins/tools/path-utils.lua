@@ -46,9 +46,10 @@ end
 
 -- Resolve a path relative to the tool cwd; handles ~ expansion and
 -- absolute paths (spec resolveToCwd(path, cwd) — the base defaults to
--- the loader-injected cwd; render contexts pass their own).
+-- the host cwd, and render contexts pass their own). `pi.cwd()` is bound
+-- at call time so the module is self-sufficient for file-backed tools.
 local function resolve_to_cwd(file_path, base)
-  return pi.path.resolve(base or cwd, normalize_path_input(file_path))
+  return pi.path.resolve(base or pi.cwd(), normalize_path_input(file_path))
 end
 
 -- utils/paths.ts formatPathRelativeToCwdOrAbsolute: cwd-relative display
@@ -94,3 +95,21 @@ local function resolve_read_path(file_path)
   end
   return resolved
 end
+
+-- Public exact-version module: the path-resolution policy shared by the
+-- builtin tools and ordinary file-backed packages (PLAN 9.7/9.10).
+pi.module.define({
+  name = "pi.tools.path-utils",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      normalize_path_input = normalize_path_input,
+      resolve_to_cwd = resolve_to_cwd,
+      resolve_read_path = resolve_read_path,
+      format_path_relative_to_cwd_or_absolute = format_path_relative_to_cwd_or_absolute,
+      try_macos_screenshot_path = try_macos_screenshot_path,
+      try_curly_quote_variant = try_curly_quote_variant,
+    }
+  end,
+})

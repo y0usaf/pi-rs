@@ -1,12 +1,17 @@
 -- core/compaction/utils.ts + core/compaction/branch-summarization.ts —
 -- the shared summarization machinery (PLAN 6.4); the compaction pipeline
--- (utils/compaction.lua, PLAN 6.5) builds on the exports. The export table
--- is chunk-local: each product pack owns its copy and never communicates
--- through `_G`.
---
--- Shared fragment: included after utils/messages.lua and extensions.lua. Its
--- export is namespaced on the pack-local policy table, never `_G`.
-EXTENSION_POLICY.branch_summary = (function(pi, convert_to_llm)
+-- (utils/compaction.lua, PLAN 6.5) builds on the exports. Exposed as the
+-- public exact-version module `pi.agent.branch-summary` (PLAN 9.7/9.10:
+-- module.branch-summary) so builtin and file-backed applications import
+-- the same closures instead of a concat-order chunk-local copy.
+pi.module.define({
+  name = "pi.agent.branch-summary",
+  version = "1",
+  dependencies = {
+    messages = { name = "pi.agent.messages", version = "1" },
+  },
+  factory = function(deps)
+  local convert_to_llm = deps.messages.convert_to_llm
   -- ---- compaction.ts estimateTokens (the entry-token slice) ----
 
   -- JS String.length (UTF-16 code units) for the chars/4 heuristic.
@@ -435,4 +440,5 @@ Keep each section concise. Preserve exact file paths, function names, and error 
     iso_ms = iso_ms,
     SUMMARIZATION_SYSTEM_PROMPT = SUMMARIZATION_SYSTEM_PROMPT,
   }
-end)(pi, convert_to_llm)
+  end,
+})

@@ -6,6 +6,29 @@
 local pi = ...
 pi.declare_package({ command_visibility = "internal" })
 
+-- Shared agent-policy modules (defined once by the `agent-core` pack,
+-- PLAN 9.7/9.10): require + rebind the closures this pack's policy wiring
+-- references, instead of concatenating chunk-local copies.
+local agent_messages = pi.module.require("pi.agent.messages", "1")
+local agent_session = pi.module.require("pi.agent.session-runtime", "1")
+local agent_system_prompt = pi.module.require("pi.agent.system-prompt", "1")
+local agent_compaction = pi.module.require("pi.agent.compaction", "1")
+local agent_bash = pi.module.require("pi.agent.bash-executor", "1")
+
+local convert_to_llm_with_block_images = agent_messages.convert_to_llm_with_block_images
+local construct_session = agent_session.construct_session
+local session_startup_from_request = agent_session.session_startup_from_request
+local session_startup = agent_session.session_startup
+local persist_agent_event = agent_session.persist_agent_event
+local build_session_system_prompt = agent_system_prompt.build_session_system_prompt
+local build_system_prompt = agent_system_prompt.build_system_prompt
+local load_project_context_files = agent_system_prompt.load_project_context_files
+-- Rebind the compaction policy onto the pack-local EXTENSION_POLICY table so
+-- extensions.lua's context-usage slice and product wiring keep resolving it.
+EXTENSION_POLICY.compaction = agent_compaction
+EXTENSION_POLICY.branch_summary = pi.module.require("pi.agent.branch-summary", "1")
+EXTENSION_POLICY.bash_executor = agent_bash
+
 -- sdk.ts createAgentSession + agent-session.ts _buildRuntime: activation is
 -- explicit declaration data on each registered tool.
 local function active_tool_definitions()

@@ -1,6 +1,7 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use pi_rs_host::{Host, HostConfig};
+use pi_rs_app::builtins::AGENT_CORE_PACK;
 
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -30,7 +31,7 @@ fn reload_rereads_settings_and_project_context_through_product_policy() {
         ..Default::default()
     })
     .unwrap();
-    let report = host.load_embedded(&[
+    let report = host.load_embedded(&[AGENT_CORE_PACK,
         pi_rs_agent::PACK,
         pi_rs_app::builtins::TOOLS_PACK,
         pi_rs_app::builtins::INTERACTIVE_PACK,
@@ -159,7 +160,7 @@ fn reload_applies_custom_disk_theme_after_reload() {
         ..Default::default()
     })
     .unwrap();
-    let report = host.load_embedded(&[
+    let report = host.load_embedded(&[AGENT_CORE_PACK,
         pi_rs_agent::PACK,
         pi_rs_app::builtins::TOOLS_PACK,
         pi_rs_app::builtins::INTERACTIVE_PACK,

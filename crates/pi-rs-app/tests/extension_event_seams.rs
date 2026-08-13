@@ -12,7 +12,7 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use pi_rs_app::builtins::{CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
+use pi_rs_app::builtins::{AGENT_CORE_PACK, CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
 use pi_rs_host::{Host, HostConfig};
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -47,7 +47,7 @@ fn run(
         ..HostConfig::default()
     })
     .unwrap();
-    let report = host.load_embedded(&[
+    let report = host.load_embedded(&[AGENT_CORE_PACK,
         pi_rs_agent::PACK,
         TOOLS_PACK,
         CODING_AGENT_PACK,

@@ -9,7 +9,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use pi_rs_app::builtins::{CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
+use pi_rs_app::builtins::{AGENT_CORE_PACK, CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
 use pi_rs_app::cli::extensions::load_product_extensions;
 use pi_rs_host::{Host, HostConfig};
 use pi_rs_session::SessionManager;
@@ -80,7 +80,7 @@ fn product_loader_runs_tool_and_blocking_hook_with_isolated_failures() {
         ..HostConfig::default()
     })
     .unwrap();
-    let embedded = host.load_embedded(&[
+    let embedded = host.load_embedded(&[AGENT_CORE_PACK,
         pi_rs_agent::PACK,
         TOOLS_PACK,
         CODING_AGENT_PACK,
@@ -173,7 +173,7 @@ fn queued_extension_ui_actions_match_pi_examples() {
     // SAFETY: this integration-test process owns its environment.
     unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &agent_dir) };
     let host = Host::new(HostConfig::default()).unwrap();
-    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
+    let report = host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     host.load(
         "examples/extensions/commands.lua",
@@ -214,7 +214,7 @@ fn extension_context_snapshots_and_shutdown_match_pi() {
         ..HostConfig::default()
     })
     .unwrap();
-    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
+    let report = host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     host.load(
         "examples/extensions/shutdown-command.lua",
@@ -413,7 +413,7 @@ fn extension_context_snapshots_and_shutdown_match_pi() {
 #[test]
 fn translated_tool_examples_execute_through_the_public_surface() {
     let host = Host::new(HostConfig::default()).unwrap();
-    let report = host.load_embedded(&[
+    let report = host.load_embedded(&[AGENT_CORE_PACK,
         pi_rs_agent::PACK,
         TOOLS_PACK,
         CODING_AGENT_PACK,
@@ -597,7 +597,7 @@ pi.on("tool_call",function() __extension_trace[#__extension_trace + 1]="hook:aft
         ..HostConfig::default()
     })
     .unwrap();
-    let embedded = host.load_embedded(&[
+    let embedded = host.load_embedded(&[AGENT_CORE_PACK,
         pi_rs_agent::PACK,
         TOOLS_PACK,
         CODING_AGENT_PACK,
@@ -783,7 +783,7 @@ fn complete_event_folds_match_pi_runner_oracle() {
         .unwrap()
         .truncate(fold_error_count);
     let host = Host::new(HostConfig::default()).unwrap();
-    let embedded = host.load_embedded(&[pi_rs_agent::PACK, CODING_AGENT_PACK]);
+    let embedded = host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, CODING_AGENT_PACK]);
     assert!(embedded.errors.is_empty(), "{:?}", embedded.errors);
     host.load(
         "01-first",
@@ -873,7 +873,7 @@ fn real_product_seams_follow_pi_generated_event_order() {
         ..HostConfig::default()
     })
     .unwrap();
-    let embedded = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
+    let embedded = host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
     assert!(embedded.errors.is_empty(), "{:?}", embedded.errors);
     host.load(
         "01-first",
@@ -965,7 +965,7 @@ fn real_product_seams_follow_pi_generated_event_order() {
 #[test]
 fn file_backed_compact_middleware_composes_without_frontend_patching() {
     let host = Host::new(HostConfig::default()).unwrap();
-    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
+    let report = host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     host.load(
         "examples/extensions/pi-compact.lua",
@@ -1021,7 +1021,7 @@ fn file_backed_compact_middleware_composes_without_frontend_patching() {
 #[test]
 fn file_backed_ui_showcase_drives_dialogs_slots_editor_and_cleanup() {
     let host = Host::new(HostConfig::default()).unwrap();
-    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
+    let report = host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     host.load(
         "examples/extensions/ui-surface-demo.lua",
@@ -1096,7 +1096,7 @@ fn file_backed_ui_showcase_drives_dialogs_slots_editor_and_cleanup() {
 #[test]
 fn file_backed_message_renderers_drive_custom_transcript_rows() {
     let host = Host::new(HostConfig::default()).unwrap();
-    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
+    let report = host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     host.load(
         "examples/extensions/message-render-demo.lua",
@@ -1144,7 +1144,7 @@ fn file_backed_message_renderers_drive_custom_transcript_rows() {
 #[test]
 fn file_backed_ui_ops_drive_raw_input_theme_and_custom_editor() {
     let host = Host::new(HostConfig::default()).unwrap();
-    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
+    let report = host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, TOOLS_PACK, INTERACTIVE_PACK]);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     host.load(
         "examples/extensions/ui-ops-demo.lua",
@@ -1194,7 +1194,7 @@ fn file_backed_ui_ops_drive_raw_input_theme_and_custom_editor() {
 #[test]
 fn print_context_uses_pinned_no_ui_outcomes() {
     let host = Host::new(HostConfig::default()).unwrap();
-    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
+    let report = host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     host.load(
         "examples/extensions/headless-ui-probe.lua",
@@ -1243,7 +1243,7 @@ fn bound_pi_runtime_actions_apply_immediately() {
         ..HostConfig::default()
     })
     .unwrap();
-    let report = host.load_embedded(&[
+    let report = host.load_embedded(&[AGENT_CORE_PACK,
         pi_rs_agent::PACK,
         TOOLS_PACK,
         CODING_AGENT_PACK,
