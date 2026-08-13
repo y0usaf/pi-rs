@@ -179,6 +179,82 @@ fn read_image_probes_tools_with_pi_policy() {
     );
 }
 
+/// Regression for the `!copied` guard in `write_clipboard_text`: when the
+/// native addon has already copied AND the session is remote, Pi falls straight
+/// to OSC52 and must NOT run the per-platform tools (`pbcopy`/`clip`) a second
+/// time. Binds a fake `@mariozechner/clipboard` through `load_native`, then
+/// drives `write_text` on a non-Linux platform with the platform tool stubbed
+/// to record whether it ran.
+#[test]
+fn native_copy_remote_skips_platform_tools() {
+    let stub_dir = tempfile::tempdir().unwrap();
+    let control = tempfile::tempdir().unwrap();
+    let control_path = control.path().to_string_lossy().into_owned();
+    // pbcopy stub: if the fallback wrongly ran, it writes a marker file.
+    write_stub(
+        stub_dir.path(),
+        "pbcopy",
+        &format!("#!/bin/sh\ncat > \"{control_path}/pbcopy-ran.txt\"\n"),
+    );
+
+    let old_path = std::env::var("PATH").unwrap_or_default();
+    unsafe {
+        std::env::set_var(
+            "PATH",
+            format!("{}:{old_path}", stub_dir.path().to_string_lossy()),
+        )
+    };
+
+    let host = Host::new(HostConfig::default()).expect("host");
+    // Fake native addon: records setText invocations.
+    host.load(
+        "native-copy-test",
+        r#"
+local pi = ...
+pi.register_command("bind-native", {
+  handler = function()
+    local fake = {
+      setText = function(text) _G.native_set_text_calls = (_G.native_set_text_calls or 0) + 1; return true end,
+      hasImage = function() return false end,
+      getImageBinary = function() return {} end,
+    }
+    local root = { ["@mariozechner/clipboard"] = fake }
+    local out = pi.clipboard.load_native({ root }, "darwin", {})
+    return { gate = out.gate, resolved = out.resolved }
+  end,
+})
+pi.register_command("copy-remote", {
+  handler = function(args)
+    local text = pi.json.decode(args).text
+    -- Remote SSH session on darwin with the native addon bound.
+    local ok, err = pcall(pi.clipboard.write_text, text,
+      { platform = "darwin", env = { SSH_CONNECTION = "host 12345 67890" } })
+    return { ok = ok, err = tostring(err), native_calls = _G.native_set_text_calls or 0 }
+  end,
+})
+"#,
+    )
+    .expect("runner loads");
+
+    let bind = host
+        .call_command("bind-native", "")
+        .expect("bind")
+        .expect("bind result");
+    assert_eq!(bind["gate"], true, "gate should be open on darwin");
+    assert_eq!(bind["resolved"], true, "native addon should resolve");
+
+    let got = host
+        .call_command("copy-remote", r#"{"text":"remote copy"}"#)
+        .expect("copy")
+        .expect("copy result");
+    assert_eq!(got["ok"], true, "copy should succeed: {got}");
+    assert_eq!(got["native_calls"], 1, "native addon should have copied");
+    assert!(
+        !control.path().join("pbcopy-ran.txt").exists(),
+        "platform fallback must be skipped when native + remote"
+    );
+}
+
 #[test]
 fn clipboard_demo_example_exercises_the_public_surface() {
     let host = Host::new(HostConfig::default()).expect("host");
