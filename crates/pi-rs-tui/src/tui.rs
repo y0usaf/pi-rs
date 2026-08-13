@@ -221,6 +221,13 @@ impl Tui {
             if is_image_line(text) {
                 continue;
             }
+            // A line's visible width is always <= its raw byte length, except
+            // for tabs (1 byte, width 3). Skip the full ANSI/unicode scan when
+            // the byte length alone already proves the line fits and there is
+            // no tab to inflate the width (the common case).
+            if text.len() <= width && !text.contains('\t') {
+                continue;
+            }
             let actual = visible_width(text);
             if actual > width {
                 return Err(TuiError::LineTooWide {
@@ -307,6 +314,17 @@ impl Tui {
         // Content shrunk below the working area - re-render to clear empty rows.
         if self.clear_on_shrink && new_lines.len() < self.max_lines_rendered {
             self.full_render(true, new_lines, cursor, width, height);
+            return Ok(());
+        }
+
+        // Frame is byte-identical to the last one: no diff work is needed.
+        // `==` short-circuits at the first differing line, cheaper than the
+        // full first/last-changed scan below for the common minimal-diff case,
+        // and identical frames still need the cursor-position pass.
+        if new_lines == self.previous_lines {
+            self.position_hardware_cursor(cursor, new_lines.len());
+            self.previous_viewport_top = prev_viewport_top;
+            self.previous_height = height as i64;
             return Ok(());
         }
 
