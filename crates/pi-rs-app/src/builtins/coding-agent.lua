@@ -169,8 +169,14 @@ pi.register_role({
             end
           end
         end
-        if #valid > 0 then
+        if #valid > 0 or action.refresh then
           agent:set_tools(valid)
+          if system_prompt_options then
+            local names = {}
+            for _, t in ipairs(valid) do names[#names + 1] = t.name end
+            if #names > 0 then system_prompt_options.toolNames = names end
+            agent:set_system_prompt(build_session_system_prompt(system_prompt_options))
+          end
         end
       end
     end,
@@ -181,6 +187,9 @@ pi.register_role({
       -- Custom entries are interactive-only; print mode is a no-op.
     end,
   }
+  -- PLAN 9.4: bind the ExtensionAPI runtime action/view methods onto the
+  -- shared `pi` table for this live session (spec `bindCoreActions`).
+  EXTENSION_POLICY.bind_pi_actions(extension_state)
   local turn_state = { index = 0 }
   -- PLAN 10: JSON mode writes the session header line (when present) then
   -- every agent event as JSONL, matching modes/print-mode.ts
