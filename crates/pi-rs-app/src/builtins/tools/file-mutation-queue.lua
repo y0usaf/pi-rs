@@ -21,3 +21,19 @@ local function with_file_mutation_queue(file_path, fn)
   local _ = mutation_queue_key(file_path)
   return fn()
 end
+
+-- Public exact-version module: builtin and file-backed packages import the
+-- same mutation-queue closures. No `_G` export or load-order-only global
+-- remains (the queue key is a pure function of the path; real queuing lands
+-- with parallel tool dispatch, WS4).
+pi.module.define({
+  name = "pi.tools.file-mutation-queue",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      mutation_queue_key = mutation_queue_key,
+      with_file_mutation_queue = with_file_mutation_queue,
+    }
+  end,
+})

@@ -278,5 +278,19 @@ function export_html.generate(state, output_path)
   return output_path
 end
 
-export_html_lib = export_html
+-- Public exact-version module: the interactive frontend and ordinary
+-- file-backed packages import the same export-html closures. No cross-pack
+-- global remains (previously `export_html_lib`).
+pi.module.define({
+  name = "pi.interactive.export-html",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      generate = export_html.generate,
+      pre_render_tools = pre_render_tools,
+      base64_encode = base64_encode,
+    }
+  end,
+})
 end

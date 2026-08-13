@@ -7222,7 +7222,7 @@ function handle_export_command(state, text)
       local resolved = pi.path.resolve(output_path)
       return state.session_manager:export_branch_jsonl(resolved, iso_from_epoch_ms(state.wall_now_ms()))
     end
-    return export_html_lib.generate(state, output_path)
+    return pi.module.require("pi.interactive.export-html", "1").generate(state, output_path)
   end)
   if ok then show_status(state, "Session exported to: " .. result)
   else show_error(state, "Failed to export session: " .. tostring(result)) end
@@ -7283,8 +7283,9 @@ function handle_share_command(state)
     return
   end
 
+  local export_html = pi.module.require("pi.interactive.export-html", "1")
   local tmp_file = pi.path.join(pi.fs.tmpdir(), "session.html")
-  local exported, export_error = pcall(export_html_lib.generate, state, tmp_file)
+  local exported, export_error = pcall(export_html.generate, state, tmp_file)
   if not exported then
     show_error(state, "Failed to export session: " .. tostring(export_error))
     return
@@ -7777,6 +7778,62 @@ end
 -- interactive-mode.ts handleReloadCommand. The static bordered box is mounted
 -- before the asynchronous reload, then the current session runtime is rebuilt
 -- over freshly loaded settings/context files and the transcript is re-rendered.
+-- resolve_resources_into_state(state): resolve the configured packages/settings/
+-- auto-discovered resources for the runtime's cwd/agentDir, populate the
+-- `pi.resources` theme registry, and stash the resolved skill/prompt/theme
+-- lists on the state so `/reload` and startup can consume them.
+function resolve_resources_into_state(state)
+  local cwd = state.cwd or (state.request and state.request.cwd) or pi.cwd()
+  local agent_dir = state.request and state.request.agentDir
+  local ok, resources = pcall(function()
+    return pi.module.require("pi.resources", "1")
+  end)
+  if not ok or not resources then return nil end
+  local resolved = resources.resolve({
+    cwd = cwd,
+    agentDir = agent_dir,
+    home = state.request and state.request.home or nil,
+    projectTrusted = nil,
+  })
+  -- Populate the disk theme registry from resolved theme paths.
+  resources.sync_themes(resolved.themes or {})
+  state.resolved_resources = resolved
+  state.resolved_skills = resolved.skills or {}
+  state.resolved_prompts = resolved.prompts or {}
+  state.resolved_themes = resolved.themes or {}
+  state.resourced_theme_options = state.resourced_theme_options or {}
+  for _, entry in ipairs(resolved.themes or {}) do
+    if entry.enabled and entry.path and entry.path:sub(-5) == ".json" then
+      local base = pi.path.basename(entry.path)
+      local nm = (base:sub(1, -6) ~= "" and base:sub(1, -6)) or base
+      -- Prefer the theme's declared `name` from its JSON when available.
+      local existing = pi.module.require("pi.resources", "1").get_theme(nm)
+      if existing and existing.name then nm = existing.name end
+      state.resourced_theme_options[nm] = entry.path
+    end
+  end
+  return resolved
+end
+
+-- resolve_active_theme: given the configured theme name, return
+-- (theme_data, theme) preferring a registered custom theme from the
+-- `pi.resources` registry; otherwise fall back to the built-in dark/light.
+local function resolve_active_theme(theme_name, color_mode, state)
+  color_mode = color_mode or "truecolor"
+  state = state or {}
+  if theme_name and theme_name ~= "" and theme_name ~= "dark" and theme_name ~= "light" then
+    local resources = pi.module.require("pi.resources", "1")
+    local custom = resources.get_theme(theme_name)
+    if custom and type(custom.colors) == "table" then
+      local data = { name = custom.name, colors = custom.colors,
+        vars = custom.vars, export = custom.export, sourcePath = custom.sourcePath }
+      return data, create_theme(data, color_mode)
+    end
+  end
+  local data = theme_name == "light" and light_json or dark_json
+  return data, create_theme(data, color_mode)
+end
+
 function reload_box_component(theme)
   local box = {}
   function box:handle_input(_) end
@@ -7816,10 +7873,12 @@ function handle_reload_command(state)
       state.next_session_start_event = { type = "session_start", reason = "reload" }
       pi.config.reload()
       reload_config_keybindings()
+      -- Resolve packages/settings/auto resources and rebuild the theme
+      -- registry so a custom theme selected in settings can be applied.
+      resolve_resources_into_state(state)
       local theme_name = pi.settings.theme()
-      local data = theme_name == "light" and light_json or dark_json
-      state.theme_data = data
-      state.theme = create_theme(data, state.request.colorMode or "truecolor")
+      state.theme_data, state.theme = resolve_active_theme(
+        theme_name, state.request.colorMode or "truecolor", state)
       state.md_theme = get_markdown_theme(state.theme)
       state.hide_thinking_block = pi.settings.hide_thinking_block()
       state.double_escape_action = pi.settings.double_escape_action()
@@ -11955,7 +12014,7 @@ pi.register_command("export-html-parity", {
       theme = create_theme(data, request.colorMode or "truecolor"),
       theme_data = data, cwd = manager:get_cwd(), app_name = request.appName or "pi",
     }
-    return { outputPath = export_html_lib.generate(state, request.outputPath) }
+    return { outputPath = pi.module.require("pi.interactive.export-html", "1").generate(state, request.outputPath) }
   end,
 })
 
