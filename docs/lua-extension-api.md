@@ -120,34 +120,34 @@ Lua-native capabilities and do not change this Pi-compatible vocabulary.
 
 | Pi-compatible field/action | Status |
 |---|---|
-| `ctx.ui.addAutocompleteProvider` | planned 9.5 |
+| `ctx.ui.addAutocompleteProvider` | implemented |
 | `ctx.ui.confirm` | implemented |
-| `ctx.ui.custom` | planned 9.5 |
-| `ctx.ui.editor` | planned 9.5 |
-| `ctx.ui.getAllThemes` | planned 9.5 |
-| `ctx.ui.getEditorComponent` | planned 9.5 |
-| `ctx.ui.getEditorText` | planned 9.5 |
-| `ctx.ui.getTheme` | planned 9.5 |
-| `ctx.ui.getToolsExpanded` | planned 9.5 |
-| `ctx.ui.input` | planned 9.5 |
+| `ctx.ui.custom` | implemented |
+| `ctx.ui.editor` | implemented |
+| `ctx.ui.getAllThemes` | implemented |
+| `ctx.ui.getEditorComponent` | implemented |
+| `ctx.ui.getEditorText` | implemented |
+| `ctx.ui.getTheme` | implemented |
+| `ctx.ui.getToolsExpanded` | implemented |
+| `ctx.ui.input` | implemented |
 | `ctx.ui.notify` | implemented |
-| `ctx.ui.onTerminalInput` | planned 9.5 |
-| `ctx.ui.pasteToEditor` | planned 9.5 |
+| `ctx.ui.onTerminalInput` | implemented |
+| `ctx.ui.pasteToEditor` | implemented |
 | `ctx.ui.select` | implemented |
-| `ctx.ui.setEditorComponent` | planned 9.5 |
-| `ctx.ui.setEditorText` | planned 9.5 |
-| `ctx.ui.setFooter` | planned 9.5 |
-| `ctx.ui.setHeader` | planned 9.5 |
-| `ctx.ui.setHiddenThinkingLabel` | planned 9.5 |
-| `ctx.ui.setStatus` | planned 9.5 |
-| `ctx.ui.setTheme` | planned 9.5 |
-| `ctx.ui.setTitle` | planned 9.5 |
-| `ctx.ui.setToolsExpanded` | planned 9.5 |
-| `ctx.ui.setWidget` | planned 9.5 |
-| `ctx.ui.setWorkingIndicator` | planned 9.5 |
-| `ctx.ui.setWorkingMessage` | planned 9.5 |
-| `ctx.ui.setWorkingVisible` | planned 9.5 |
-| `ctx.ui.theme` | planned 9.5 |
+| `ctx.ui.setEditorComponent` | implemented |
+| `ctx.ui.setEditorText` | implemented |
+| `ctx.ui.setFooter` | implemented |
+| `ctx.ui.setHeader` | implemented |
+| `ctx.ui.setHiddenThinkingLabel` | implemented |
+| `ctx.ui.setStatus` | implemented |
+| `ctx.ui.setTheme` | implemented |
+| `ctx.ui.setTitle` | implemented |
+| `ctx.ui.setToolsExpanded` | implemented |
+| `ctx.ui.setWidget` | implemented |
+| `ctx.ui.setWorkingIndicator` | implemented |
+| `ctx.ui.setWorkingMessage` | implemented |
+| `ctx.ui.setWorkingVisible` | implemented |
+| `ctx.ui.theme` | implemented |
 
 ## Reference translation matrix
 
