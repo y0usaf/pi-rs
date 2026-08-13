@@ -122,5 +122,65 @@
 	"waitCancellation": {
 		"waitOutcome": "resolved",
 		"promptOutcome": "prompt-resolved"
+	},
+	"delivery": {
+		"print": {
+			"observed": [
+				{
+					"args": "hello print",
+					"mode": "print",
+					"hasUI": false,
+					"idle": true,
+					"trusted": true,
+					"hasWait": true,
+					"hasNew": true,
+					"hasFork": true,
+					"hasTree": true,
+					"hasSwitch": true,
+					"hasReload": true
+				}
+			],
+			"pending": 1,
+			"messages": 0
+		},
+		"json": {
+			"observed": [
+				{
+					"args": "hello json",
+					"mode": "json",
+					"hasUI": false,
+					"idle": true,
+					"trusted": true,
+					"hasWait": true,
+					"hasNew": true,
+					"hasFork": true,
+					"hasTree": true,
+					"hasSwitch": true,
+					"hasReload": true
+				}
+			],
+			"pending": 1,
+			"messages": 0
+		},
+		"rpc": {
+			"observed": [
+				{
+					"args": "hello rpc",
+					"mode": "rpc",
+					"hasUI": true,
+					"hasUiNotify": true,
+					"idle": true,
+					"trusted": true,
+					"hasWait": true,
+					"hasNew": true,
+					"hasFork": true,
+					"hasTree": true,
+					"hasSwitch": true,
+					"hasReload": true
+				}
+			],
+			"pending": 1,
+			"messages": 0
+		}
 	}
 }
