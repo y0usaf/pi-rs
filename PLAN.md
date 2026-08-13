@@ -552,6 +552,25 @@ Complete these rungs before growing the extension surface further.
       and ordinary replacement are green; maintained executable source satisfies
       the Rust/Lua gate; no migration-only audit remains. Tag the baseline.
 
+      **Platform sub-rows (stream s09, closed by Pi-generated differentials):**
+      `tui.platform-modifiers` — native modifier polling (`native-modifiers.ts`)
+      + Apple-Terminal Shift+Enter normalization (`terminal.ts`) ported as
+      `pi-rs-tui` mechanism exposed via `pi.tui`; `coding.platform-clipboard` —
+      the optional native clipboard addon resolution core (`loadClipboardNative`)
+      + module-level gate (`!TERMUX_VERSION && hasDisplay`) ported as
+      `pi.clipboard`, then extended past the addon-unavailable fallback with the
+      resolved-addon preference ordering honored by `read_image`/`write_text`;
+      `coding.footer-git` — live git-branch discovery (`findGitPaths` +
+      `resolveGitBranch`) ported as `pi.git.current_branch`, wired into the
+      default footer (`interactive.lua` `footer_live_branch`), with the
+      extension-status data provider flowing through `ctx.ui.setStatus`. Each is
+      pinned against a Pi-generated oracle
+      (`tests/platform-modifiers-parity/`, `tests/platform-clipboard-parity/`,
+      `tests/footer-git-parity/`). `coding.platform-update` is recorded as a
+      DESIGN platform boundary in `DESIGN.md` (native Rust binary ships no
+      self-update, bundled native addons, or Bun empty-env failure). The final
+      live side-by-side gate and `coding.assembly` remain with s14.
+
 ## Post-parity maintenance
 
 Maintain the frozen compatibility contract and deliberately port selected

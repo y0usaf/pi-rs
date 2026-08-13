@@ -495,20 +495,25 @@ async fn write_clipboard_text(
         return Ok(());
     }
 
-    if platform == "darwin" {
-        copied = write_command("pbcopy", &[], text).await;
-    } else if platform == "win32" {
-        copied = write_command("clip", &[], text).await;
-    } else {
-        if env_truthy(env, "TERMUX_VERSION") {
-            copied = write_command("termux-clipboard-set", &[], text).await;
-        }
-        if !copied && is_wayland_session(env) && env_truthy(env, "WAYLAND_DISPLAY") {
-            copied = write_command("wl-copy", &[], text).await;
-        }
-        if !copied && env_truthy(env, "DISPLAY") {
-            copied = write_command("xclip", &["-selection", "clipboard"], text).await
-                || write_command("xsel", &["--clipboard", "--input"], text).await;
+    // Mirror of Pi's `if (!copied) { ... }` guard: platform tools only run when
+    // the native addon did not copy. Pi deliberately skips the addon on Linux,
+    // so on Linux this branch is always the primary path.
+    if !copied {
+        if platform == "darwin" {
+            copied = write_command("pbcopy", &[], text).await;
+        } else if platform == "win32" {
+            copied = write_command("clip", &[], text).await;
+        } else {
+            if env_truthy(env, "TERMUX_VERSION") {
+                copied = write_command("termux-clipboard-set", &[], text).await;
+            }
+            if !copied && is_wayland_session(env) && env_truthy(env, "WAYLAND_DISPLAY") {
+                copied = write_command("wl-copy", &[], text).await;
+            }
+            if !copied && env_truthy(env, "DISPLAY") {
+                copied = write_command("xclip", &["-selection", "clipboard"], text).await
+                    || write_command("xsel", &["--clipboard", "--input"], text).await;
+            }
         }
     }
 
