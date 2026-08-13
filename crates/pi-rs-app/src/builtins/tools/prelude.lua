@@ -78,3 +78,20 @@ local function utf8_lossy(s)
   end
   return table.concat(out)
 end
+
+-- Public exact-version module: the shared JS/String helpers the tool pack
+-- fragments rely on. Builtin and file-backed tools resolve the same
+-- closures through the identical module mechanism instead of chunk-local
+-- boundaries (PLAN 9.7/9.10: module.* helper rows).
+pi.module.define({
+  name = "pi.tools.prelude",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      split = split,
+      fmt_num = fmt_num,
+      utf8_lossy = utf8_lossy,
+    }
+  end,
+})
