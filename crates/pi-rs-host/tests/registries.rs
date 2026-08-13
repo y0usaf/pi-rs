@@ -789,6 +789,65 @@ fn render_and_slot_declarations_are_ordered_attributed_and_rolled_back() {
 }
 
 #[test]
+fn message_renderers_resolve_first_wins_attributed_and_roll_back() {
+    let host = host();
+    host.load(
+        "test://first-renderer",
+        r#"
+            local pi = ...
+            pi.register_message_renderer("status-update", function(message, options, theme)
+                return { "[" .. (message.customType or "?") .. "] " .. message.content }
+            end)
+            pi.register_message_renderer("other-type", function() return { "other" } end)
+            pi.register_command("renderer-probe", { handler=function(custom_type)
+                local list = pi.registered_message_renderers(custom_type)
+                return { count = #list, source = list[1] and list[1].source or nil,
+                    customType = list[1] and list[1].customType or nil,
+                    render = list[1] and list[1].renderer({ customType=custom_type, content="hi" }, { expanded=false }) or {} }
+            end })
+        "#,
+    )
+    .unwrap();
+    assert!(
+        host.load(
+            "test://failed-renderer",
+            r#"
+                local pi = ...
+                pi.register_message_renderer("status-update", function() return { "override" } end)
+                pi.register_message_renderer("ghost-type", function() return { "ghost" } end)
+                error("rollback")
+            "#,
+        )
+        .is_err()
+    );
+    // First registration per customType wins; a re-registration from a new
+    // extension does not replace the earlier one.
+    host.load(
+        "test://later-renderer",
+        r#"
+            local pi = ...
+            pi.register_message_renderer("status-update", function() return { "override" } end)
+        "#,
+    )
+    .unwrap();
+
+    let result = host
+        .call_command("renderer-probe", "status-update")
+        .unwrap()
+        .unwrap();
+    assert_eq!(result["count"], 1);
+    assert_eq!(result["source"], "test://first-renderer");
+    assert_eq!(result["customType"], "status-update");
+    assert_eq!(result["render"], serde_json::json!(["[status-update] hi"]));
+    // unknown types resolve to an empty list
+    let empty = host
+        .call_command("renderer-probe", "missing")
+        .unwrap()
+        .unwrap();
+    assert_eq!(empty["count"], 0);
+}
+
+#[test]
 fn modules_resolve_exact_declared_dependencies_once_with_source_attribution() {
     let host = host();
     host.load(

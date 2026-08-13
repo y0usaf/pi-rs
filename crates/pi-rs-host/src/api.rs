@@ -1218,7 +1218,8 @@ fn ext_entry(lua: &mlua::Lua, source: &str) -> mlua::Result<mlua::Table> {
     entry.set("command_order", lua.create_table()?)?;
     entry.set("providers", lua.create_table()?)?;
     entry.set("provider_order", lua.create_table()?)?;
-    entry.set("message_handlers", lua.create_table()?)?;
+    entry.set("message_renderers", lua.create_table()?)?;
+    entry.set("message_renderer_order", lua.create_table()?)?;
     entry.set("shortcuts", lua.create_table()?)?;
     entry.set("shortcut_order", lua.create_table()?)?;
     entry.set("flags", lua.create_table()?)?;
@@ -1715,7 +1716,10 @@ pub(crate) fn build(
             for (source, name, def) in all_tools(lua)? {
                 let info = lua.create_table()?;
                 info.set("name", name.as_str())?;
-                info.set("description", def.get::<Option<mlua::Value>>("description")?)?;
+                info.set(
+                    "description",
+                    def.get::<Option<mlua::Value>>("description")?,
+                )?;
                 info.set("parameters", def.get::<Option<mlua::Value>>("parameters")?)?;
                 info.set(
                     "promptGuidelines",
@@ -2374,51 +2378,75 @@ pub(crate) fn build(
     })?;
 
     pi.set("register_shortcut", register_shortcut)?;
-    // PLAN 9.4: registeredMessageRenderer(kind, priority, handler)
-    // where handler is (message, ctx) -> rendered_message or nil.
-    let register_message_handler = lua.create_function(
-        |lua, (kind, priority, handler): (String, u64, mlua::Function)| {
+    // PLAN 9.5: `pi.register_message_renderer(customType, renderer)` — spec
+    // `registerMessageRenderer` (loader.ts): each extension registers a
+    // per-`customType` TUI renderer. First registration per customType wins
+    // across extensions (spec `ExtensionRunner.getMessageRenderer`, which walks
+    // its ordered extension list). The renderer is a pure function over an
+    // immutable message snapshot: `(message, { expanded }, theme) -> component | nil`.
+    // Rendering errors fall through to the default custom-message box.
+    let register_message_renderer =
+        lua.create_function(|lua, (custom_type, renderer): (String, mlua::Function)| {
+            if custom_type.trim().is_empty() {
+                return Err(mlua::Error::runtime(
+                    "register_message_renderer: customType must be a non-empty string",
+                ));
+            }
             let source = crate::api::current_source(lua);
-            let registry = crate::api::registry_table(lua)?;
-            let exts: mlua::Table = registry.get("exts")?;
-            let ext: mlua::Table = exts.get(source.as_str())?;
-            let handlers: mlua::Table = ext.get("message_handlers")?;
-            let entry = lua.create_table()?;
-            entry.set("kind", kind.clone())?;
-            entry.set("priority", priority)?;
-            entry.set("handler", handler)?;
-            handlers.push(entry)?;
-            Ok(())
-        },
-    )?;
-    pi.set("register_message_handler", register_message_handler)?;
-
-    // List registered message handlers for a kind, sorted by priority descending.
-    let registered_message_handlers = lua.create_function(|lua, kind: String| {
-        let registry = crate::api::registry_table(lua)?;
-        let all = lua.create_table()?;
-        let exts: mlua::Table = registry.get("exts")?;
-        let ext_order: mlua::Table = registry.get("ext_order")?;
-        for source in ext_order.sequence_values::<String>() {
-            let source = source?;
-            if let Some(ext) = exts.get::<Option<mlua::Table>>(source.as_str())?
-                && let Some(handlers) = ext.get::<Option<mlua::Table>>("message_handlers")?
+            let ext = crate::api::ext_entry(lua, &source)?;
+            let renderers: mlua::Table = ext.get("message_renderers")?;
+            if renderers
+                .get::<Option<mlua::Value>>(custom_type.as_str())?
+                .is_none()
             {
-                for entry in handlers.sequence_values::<mlua::Table>() {
-                    let entry = entry?;
-                    if let Some(entry_kind) = entry.get::<Option<String>>("kind")?
-                        && entry_kind == kind
-                    {
-                        all.push(entry)?;
-                    }
+                let order: mlua::Table = ext.get("message_renderer_order")?;
+                order.push(custom_type.as_str())?;
+            }
+            let entry = lua.create_table()?;
+            entry.set("customType", custom_type.as_str())?;
+            entry.set("renderer", renderer)?;
+            renderers.set(custom_type.as_str(), entry)?;
+            Ok(())
+        })?;
+    pi.set("register_message_renderer", register_message_renderer)?;
+
+    // List registered message renderers for a customType, ordered by insertion
+    // across extensions (spec: first registration per customType wins). Returns
+    // entry tables carrying `customType`, `source`, and a `renderer` function
+    // whose dispatch restores source attribution.
+    let registered_message_handlers = lua.create_function(|lua, custom_type: String| {
+        let entries = registrations(lua, "message_renderers", "message_renderer_order")?
+            .into_iter()
+            .filter_map(|(source, _, entry)| {
+                let entry_type = entry.get::<String>("customType").ok()?;
+                if custom_type != entry_type {
+                    return None;
                 }
+                Some((source, entry))
+            });
+        let result = lua.create_table()?;
+        for (source, entry) in entries {
+            let value = lua.create_table()?;
+            value.set("customType", entry.get::<String>("customType")?)?;
+            value.set("source", source.as_str())?;
+            let renderer = entry.get::<mlua::Function>("renderer")?;
+            value.set(
+                "renderer",
+                lua.create_function(move |lua, args: mlua::MultiValue| {
+                    let previous = current_source(lua);
+                    set_current_source(lua, &source);
+                    let outcome = renderer.call::<mlua::Value>(args);
+                    set_current_source(lua, &previous);
+                    outcome
+                })?,
+            )?;
+            // First registration per customType wins (Pi getMessageRenderer).
+            result.push(value)?;
+            if result.raw_len() >= 1 {
+                break;
             }
         }
-        // Sort by priority descending (higher priority first)
-        // Lua tables don't have sort_by, so we build a sorted version
-        // We store in a table where each row is insert, then sort if possible
-        // For now, just return the collected entries (the consumer sorts)
-        Ok(all)
+        Ok(result)
     })?;
     pi.set("registered_message_renderers", registered_message_handlers)?;
 
