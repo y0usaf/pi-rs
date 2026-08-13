@@ -1,5 +1,7 @@
-// PLAN 9.2: derive contexts, restrictions, and lifecycle action order from Pi's real runner.
+// PLAN 9.2: derive contexts, restrictions, lifecycle action order, and modal
+// extension-command delivery from Pi's real runner/AgentSession.
 import { createHarness } from "../../ref/pi/packages/coding-agent/test/suite/harness.ts";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 
 const staleMessage = "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
 
@@ -140,10 +142,6 @@ async function reloadOrder(): Promise<any> {
 }
 
 async function waitCancellation(): Promise<any> {
-  // PLAN 9.2: __ context.waitForIdle() resolves (not throws, not hangs) when
-  // the agent is aborted mid-stream. Pi: waitForIdle is `agent.waitForIdle()`
-  // which resolves when activeRun dispatches even on abort; the agent sets
-  // isStreaming false and resolves the run promise on abort/failure.
   const harness = await createHarness();
   try {
     const runner = harness.session.extensionRunner as any;
@@ -192,6 +190,96 @@ async function waitCancellation(): Promise<any> {
   }
 }
 
+// Plan 9.2 JSON/RPC delivery: Pi's `session.prompt()` (which print/json/rpc
+// modes all drive) routes leading-`/` messages to the registered extension
+// command handler with a live command context, and the message is NOT sent to
+// the model (provider response stays pending, session messages stay empty).
+// print/json modes bind no UI context (hasUI false); rpc-mode.ts binds a real
+// createExtensionUIContext (hasUI true + ui.notify callable).
+async function delivery(): Promise<any> {
+  const result: Record<string, any> = {};
+  for (const mode of ["print", "json"] as const) {
+    const observed: any[] = [];
+    const harness = await createHarness({
+      systemPrompt: "delivery oracle prompt",
+      extensionFactories: [(pi) => {
+        pi.registerCommand("ctx-deliver", {
+          description: "deliver", handler: (args: unknown, ctx: any) => {
+            observed.push({
+              args, mode: ctx.mode, hasUI: ctx.hasUI,
+              idle: ctx.isIdle(), trusted: ctx.isProjectTrusted(),
+              hasWait: typeof ctx.waitForIdle === "function",
+              hasNew: typeof ctx.newSession === "function",
+              hasFork: typeof ctx.fork === "function",
+              hasTree: typeof ctx.navigateTree === "function",
+              hasSwitch: typeof ctx.switchSession === "function",
+              hasReload: typeof ctx.reload === "function",
+            });
+          },
+        });
+      }],
+    });
+    try {
+      await harness.session.bindExtensions({ mode, commandContextActions: {
+        waitForIdle: () => harness.session.agent.waitForIdle(),
+        newSession: async () => ({ cancelled: false }),
+        fork: async () => ({ cancelled: false }),
+        navigateTree: async () => ({ cancelled: false }),
+        switchSession: async () => ({ cancelled: false }),
+        reload: async () => {},
+      } });
+      harness.setResponses([fauxAssistantMessage("should stay queued")]);
+      await harness.session.prompt(`/ctx-deliver hello ${mode}`);
+      result[mode] = {
+        observed: JSON.parse(JSON.stringify(observed)),
+        pending: harness.getPendingResponseCount(),
+        messages: harness.session.messages.length,
+      };
+    } finally { harness.cleanup(); }
+  }
+  // RPC mode binds a real UI context (rpc-mode.ts createExtensionUIContext),
+  // so ctx.hasUI is true and ctx.ui.notify is callable.
+  const rpcObserved: any[] = [];
+  const rpcHarness = await createHarness({
+    systemPrompt: "delivery oracle prompt",
+    extensionFactories: [(pi) => {
+      pi.registerCommand("ctx-deliver", {
+        description: "deliver", handler: (args: unknown, ctx: any) => {
+          rpcObserved.push({
+            args, mode: ctx.mode, hasUI: ctx.hasUI,
+            hasUiNotify: !!ctx.ui && typeof ctx.ui.notify === "function",
+            idle: ctx.isIdle(), trusted: ctx.isProjectTrusted(),
+            hasWait: typeof ctx.waitForIdle === "function",
+            hasNew: typeof ctx.newSession === "function",
+            hasFork: typeof ctx.fork === "function",
+            hasTree: typeof ctx.navigateTree === "function",
+            hasSwitch: typeof ctx.switchSession === "function",
+            hasReload: typeof ctx.reload === "function",
+          });
+        },
+      });
+    }],
+  });
+  try {
+    await rpcHarness.session.bindExtensions({ mode: "rpc", uiContext: { notify() {} } as any, commandContextActions: {
+      waitForIdle: () => rpcHarness.session.agent.waitForIdle(),
+      newSession: async () => ({ cancelled: false }),
+      fork: async () => ({ cancelled: false }),
+      navigateTree: async () => ({ cancelled: false }),
+      switchSession: async () => ({ cancelled: false }),
+      reload: async () => {},
+    } });
+    rpcHarness.setResponses([fauxAssistantMessage("should stay queued")]);
+    await rpcHarness.session.prompt("/ctx-deliver hello rpc");
+    result["rpc"] = {
+      observed: JSON.parse(JSON.stringify(rpcObserved)),
+      pending: rpcHarness.getPendingResponseCount(),
+      messages: rpcHarness.session.messages.length,
+    };
+  } finally { rpcHarness.cleanup(); }
+  return result;
+}
+
 async function main(): Promise<void> {
   const harness = await createHarness({ systemPrompt: "context oracle prompt" });
   try {
@@ -226,7 +314,7 @@ async function main(): Promise<void> {
       await actionsHarness.session.bindExtensions({ mode: "tui", uiContext: noUi });
       actions = await actionMatrix(actionsHarness.session.extensionRunner);
     } finally { actionsHarness.cleanup(); }
-    process.stdout.write(`${JSON.stringify({ snapshot, stale, modes, actions, replacement: await replacementOrder(), reload: await reloadOrder(), waitCancellation: await waitCancellation() }, null, "\t")}\n`);
+    process.stdout.write(`${JSON.stringify({ snapshot, stale, modes, actions, replacement: await replacementOrder(), reload: await reloadOrder(), waitCancellation: await waitCancellation(), delivery: await delivery() }, null, "\t")}\n`);
   } finally { harness.cleanup(); }
 }
 

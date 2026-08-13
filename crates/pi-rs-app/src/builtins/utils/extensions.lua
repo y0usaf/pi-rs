@@ -315,6 +315,32 @@ function EXTENSION_POLICY.execute_command(text, context, options)
   return false
 end
 
+-- Pi `agent-session.ts _tryExecuteExtensionCommand(text)`: when a message
+-- starts with `/`, route it to the matching registered extension command
+-- handler with a command context and do NOT send it to the model. Returns
+-- (handled, errOrNil) — handled is true only when a command matched. This is
+-- the single entry point JSON/print and RPC prompt routes use so extension
+-- commands receive live command-context snapshots (mode/hasUI/cwd/trust,
+-- session/model registry, signal, system prompt, wait/new/fork/tree/switch/
+-- reload) exactly like the interactive shell does.
+function EXTENSION_POLICY.try_execute_extension_command(text, context, on_error)
+  if type(text) ~= "string" or text:sub(1, 1) ~= "/" then return false end
+  local body = text:sub(2)
+  local command_name, args = body:match("^(%S+)%s?(.*)$")
+  if not command_name then return false end
+  for _, command in ipairs(EXTENSION_POLICY.api.registered_extension_commands()) do
+    if command.invocation_name == command_name then
+      local ok, err = pcall(command.handler, args or "", context)
+      if not ok then
+        if on_error then on_error(tostring(err)) end
+        return true, tostring(err)
+      end
+      return true, nil
+    end
+  end
+  return false
+end
+
 
 
 -- ExtensionContext policy shared by every product mode. Values are copied or
