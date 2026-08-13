@@ -277,6 +277,111 @@ Complete these rungs before growing the extension surface further.
       cycles, and attribution; a file-backed package imports the same helpers as
       builtins without hidden native modules or a JS runtime.
 
+      **Landed:** public exact-version modules `pi.tools.file-mutation-queue`,
+      `pi.tools.shell`, `pi.interactive.export-html`, `pi.interactive.prompts`,
+      `pi.resources.skills`, and `pi.packages` are consumed by embedded builtins
+      and file-backed packages (examples/extensions/module-demo.lua,
+      prompts-consumer.lua, skills-consumer.lua, pm-consumer.lua) through the
+      single `pi.module.require` mechanism; the undeclared cross-pack
+      `export_html_lib` global was removed (now the
+      `pi.interactive.export-html` module).
+
+      The disk resource-loader seam is closed: `pi.interactive.prompts`
+      `load_prompt_templates` and `pi.resources.skills` `load_skills_from_dir`
+      read through `pi.fs`/`pi.parse_frontmatter` and attach Pi's provenance
+      (source/scope/origin/baseDir), validation warnings, and discovery rules
+      (global agent-dir + project `.pi` + explicit paths; SKILL.md root vs
+      recursive dirs vs inline `.md`; dot/node_modules/ignore handling). The
+      git source grammar is exposed to Lua as `pi.git` (parse_git_url,
+      is_local_path).
+
+      The deterministic resource-resolution engine landed as `pi.resources`
+      (module `pi.resources`): a `resolve()` that produces precedence-sorted,
+      de-duplicated, attribution- and trust-aware resource lists
+      (extensions/skills/prompts/themes) from configured packages (project first,
+      identity-dedupe), settings entries with pattern filters, and the
+      auto-discovery convention dirs (`.pi`/agent `extensions`, `skills`,
+      `prompts`, `themes`; `.agents/skills`). Collisions collapse by canonical
+      path; precedence is project+settings > project+auto > user+settings >
+      user+auto > package; project-scope resources are gated by project trust.
+      A disk theme registry (`load_theme_from_path`, `sync_themes`,
+      `get_available_themes`, `get_theme`) parses+validates `.json` themes and
+      is re-populated on `/reload`, so a custom theme selected in settings is
+      applied by name. The host `pi.settings` bridge gained the
+      extensions/skills/prompts/themes path channels (user+project),
+      `is_project_trusted`, and `npm_command`. The `/reload` handler now calls
+      `resolve_resources_into_state` and applies a resolved custom theme.
+      Hermetic fixtures `crates/pi-rs-app/tests/resources_parity.rs` and the
+      file-backed `examples/extensions/resources-consumer.lua` prove precedence,
+      trust gating, collisions/dedupe, attribution, settings-vs-auto precedence,
+      toggles, module cycles, and offline-cache skip through the shared
+      `pi.module.require` mechanism.
+
+      The package lifecycle landed as `pi.packages`: npm/git/local source
+      routing (npm `npm:` spec split, git URL grammar, local paths), the
+      SettingsManager packages channel (`pi.settings.packages()`,
+      `set_packages`, `set_project_packages` with user/project scope),
+      install/remove-from-settings, listConfiguredPackages, and
+      getInstalledPath; install drives npm/git through the public
+      `pi.exec`/`pi.fs` mechanisms and never evaluates package JavaScript.
+
+      Differential: `tests/prompt-parity` pins the prompt-template pure
+      functions (parseCommandArgs/substituteArgs/expandPromptTemplate);
+      `tests/prompt-loader-parity` pins `loadPromptTemplates` (provenance,
+      description/argument-hint, first-line truncation, explicit
+      file/dir/missing/skip, includeDefaults) against Pi's real loader;
+      `tests/skills-parity` pins `loadSkillsFromDir` (name/description
+      validation, dirname fallback, root/recursive/inline discovery,
+      skippables, disable-model-invocation, diagnostics); and
+      `tests/package-transport-parity` pins the git source grammar
+      (parseGitUrl/isLocalPath via `crates/pi-rs-host/src/git.rs` + `pi.git`)
+      against the pinned Pi oracle. The package lifecycle is covered by
+      deterministic hermetic fixtures in `crates/pi-rs-app/tests/package_lifecycle.rs`.
+
+      The packages CLI **parse/help/early-error surface** is closed: the
+      `install`/`remove`/`uninstall`/`update`/`list` command grammar
+      (`parsePackageCommand`), usage/help text, and the console-error prefix
+      (missing source / unknown option / unexpected argument / missing option
+      value / conflicting options) are ported to Rust
+      (`crates/pi-rs-app/src/cli/packages.rs`) and dispatched on the raw argv
+      before `parseArgs` exactly as Pi's `main.ts` runs `handlePackageCommand`
+      first. It is pinned differentially against Pi's real
+      `package-manager-cli.ts` `handlePackageCommand` by the Bun-generated
+      oracle `tests/package-cli-parity/oracle.json`: `package_cli_parity.rs`
+      replays all 24 hermetic cases through the parsed surface byte-for-byte
+      (handled/exitCode/stdout/stderr), and `package_cli_binary.rs` runs the
+      real `pi` binary end-to-end over every handled case, asserting exact
+      stdout/stderr/exit against the oracle. Commands that would proceed to
+      settings/trust/package-manager/network work (real `install`/`remove`/
+      `update`/`list` execution, self-update) remain out of this fixture's
+      scope and are not captured by the hermetic oracle, consistent with the
+      equal-observable-contract goal.
+
+      **Landed:** the packages CLI *execution* legs are wired end-to-end through
+      the public `pi.packages` module: `main()` dispatches a would-execute
+      package command (the hermetic handler's `i32::MIN` sentinel) to the
+      `pkg-exec` Lua role, which runs the deterministic `list` (user/project
+      sections, `(filtered)` markers, installed paths, "No packages installed.")
+      and local-path `install`/`remove` (cwd-resolved existence check, settings
+      add/remove, "Installed/Removed", "No matching package found", untrusted
+      project-write refusal) legs and mirrors Pi's stdout/stderr/exitCode.
+      `pi.settings` gained `global_packages`/`project_packages` getters so the
+      lifecycle reads user/project scope from `getGlobalSettings()`/
+      `getProjectSettings()` exactly as Pi's `listConfiguredPackages`. Hermetic
+      end-to-end coverage through the real `pi` binary:
+      `crates/pi-rs-app/tests/package_cli_exec.rs` (8 cases). Two driving bugs
+      were fixed en route: `remove_and_persist` now returns the
+      `remove_source_from_settings` change boolean, and the local `install`
+      path resolves against the package manager's cwd (Pi `resolvePath`), not
+      the scope base dir.
+
+      **Remaining:** the network-modulated packages CLI legs (npm/git `install`/
+      `update` against live registries, `update`/self-update, the TUI `config`
+      command) and live update checks + offline-cache pruning. These are
+      network/install-method dependent and are represented by the deterministic
+      offline-skip behavior (`pi.resources` shows no package-origin resources
+      for an uninstalled package) rather than pinned network outcomes.
+
 - [ ] **9.8 Translation matrix + Pi extension gate.** Translate every in-boundary
       pinned first-party TypeScript extension example to executable Lua. Group
       truly equivalent examples, but never skip one because the bridge lacks a
