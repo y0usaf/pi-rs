@@ -93,6 +93,7 @@
     "command:interactive-session-parity-sequence",
     "command:interactive-startup-changelog-parity-sequence",
     "command:startup-network-parity",
+    "command:startup-selector-parity",
     "command:interactive-reload-parity-sequence",
     "command:interactive-reload-behavior",
     "command:retry-policy-parity",
@@ -620,10 +621,11 @@
    "kind": "shell policy",
    "title": "Interactive bash execution and output persistence policy",
    "packages": [
-    "interactive"
+    "interactive",
+    "coding-agent"
    ],
    "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from interactive pack concat",
+   "disable_path": "none independently; remove from interactive + coding-agent pack concat",
    "replacement_evidence": "target: public shell module imported by file-backed command policy",
    "status": "open",
    "rung": "9.7",
