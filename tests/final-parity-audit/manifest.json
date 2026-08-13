@@ -437,9 +437,9 @@
     },
     {
       "id": "coding.noninteractive",
-      "status": "open",
+      "status": "parity",
       "owner": "PLAN 10",
-      "rationale": "Print text mode, JSON framing, the `@file`/piped-stdin/initial-message pipeline, the `messages[]` follow-up sequence, the full `--help`/args parse surface, the RPC JSONL framing + synchronous command protocol, the deterministic per-command async scheduling (sync commands emit in arrival order; awaited commands defer to ascending-await-depth/FIFO completion, pinned by the async-steer-followup-abort oracle case), the stdout output-guard (stray extension `print`/`io.write` route to stderr so non-interactive stdout stays protocol-clean), the RPC empty-array serialization for `get_fork_messages`/`get_commands`/`get_messages` (`[]`, not `{}`, pinned by the `empty-fork-messages`/`empty-commands`/`empty-messages` oracle cases), and Pi's RPC extension-UI binding (`ctx.hasUI == true`, real `ExtensionUIContext` transported as `extension_ui_request` JSONL records on stdout, per rpc-mode.ts `createExtensionUIContext`) are closed (see evidence; RPC also loads CLI `--extension` files like Pi's createAgentSessionServices). Remaining: startup-ui, the RPC agent-streaming commands requiring concurrent agent/event streaming or scripted session data (prompt/bash/compact/fork/clone/new_session/switch_session/get_fork_messages with live data), and the Node RpcClient.",
+      "rationale": "Print text mode, JSON framing, the `@file`/piped-stdin/initial-message pipeline, the `messages[]` follow-up sequence, the full `--help`/args parse surface, the RPC JSONL framing + synchronous command protocol, the deterministic per-command async scheduling (sync commands emit in arrival order; awaited commands defer to ascending-await-depth/FIFO completion, pinned by the async-steer-followup-abort oracle case), the stdout output-guard (stray extension `print`/`io.write` route to stderr so non-interactive stdout stays protocol-clean), the RPC empty-array serialization for `get_fork_messages`/`get_commands`/`get_messages` (`[]`, not `{}`, pinned by the `empty-fork-messages`/`empty-commands`/`empty-messages` oracle cases), and Pi's RPC extension-UI binding (`ctx.hasUI == true`, real `ExtensionUIContext` transported as `extension_ui_request` JSONL records on stdout, per rpc-mode.ts `createExtensionUIContext`) are closed (see evidence; RPC also loads CLI `--extension` files like Pi's createAgentSessionServices). Closed (RPC agent-streaming commands): the async agent-streaming commands (prompt, bash, compact, fork, clone, new_session, switch_session, get_fork_messages) plus the model/message-seeded read commands (get_state, get_available_models, cycle_model, set_model, get_messages, get_last_assistant_text, get_session_stats, get_commands, export_html) reproduce Pi's `runRpcMode` oracle through a gated differential seed (`PI_RPC_SCRIPTED_SEED` -> `request.scriptedRpc`, additionally guarded by a magic token and compiled out of release builds) reproducing gen-oracle.ts's scripted session stub; all 16 oracle cases replay through the real `pi --mode rpc` binary in `rpc_streaming_parity` and match record-for-record (order-exact, keys semantic), with an unseeded protocol-cleanliness path. The unseeded (production) streaming paths are pinned honest too: `rpc_unseeded_bash_reports_real_output_in_pi_envelope` runs a real bash through the shared executor and asserts Pi's `{exitCode,stdout,stderr}` envelope carries the run's output, and `rpc_unseeded_compact_and_session_stats_run_real_envelopes` runs the real compact/`get_session_stats` paths; this required wiring `utils/bash-executor.lua` into the coding-agent pack so `EXTENSION_POLICY.bash_executor` exists for the rpc/print roles. Closed (startup-ui): the embedded `startup-selector` role (cli/startup-ui.ts `showStartupSelector`) is exercised by `main.rs` for the missing-session-cwd and project-trust prompts, and its value semantics (option select/cancel, theme, chrome) are pinned deterministically in `interactive_startup`. The Node `RpcClient` (rpc-client.ts) is a downstream headless consumer outside DESIGN's product boundary (\"downstream product behavior\"), so it stays un-ported; the RPC protocol itself (rpc-mode.ts) is what is ported and pinned.",
       "evidence": [
         {
           "path": "PLAN.md",
@@ -519,6 +519,22 @@
         {
           "path": "crates/pi-rs-app/src/builtins/utils/extensions.lua",
           "contains": "rpc_ui_context"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/rpc_streaming_parity.rs",
+          "contains": "rpc_streaming_and_seeded_commands_match_pi_oracle"
+        },
+        {
+          "path": "crates/pi-rs-app/src/builtins/coding-agent.lua",
+          "contains": "Differential parity seam (Plan 10 RPC streaming)"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/interactive_startup.rs",
+          "contains": "startup_selector_value_semantics_match_pi_show_startup_selector"
+        },
+        {
+          "path": "crates/pi-rs-app/src/builtins/interactive.lua",
+          "contains": "startup-selector-parity"
         }
       ],
       "refs": [

@@ -592,3 +592,51 @@ fn external_editor_policy_matches_pi_success_and_failure_settlement() {
             .contains("pi-extension-editor-")
     );
 }
+
+/// startup-ui (cli/startup-ui.ts showStartupSelector): the embedded
+/// startup-selector value semantics. A startup prompt's option list, focus
+/// navigation, and select/cancel return Pi's selected label (or null on
+/// cancel) — driven deterministically over a scripted input stream via
+/// `startup-selector-parity` (the same extension_selector composition the live
+/// `coding-agent-startup-selector` role runs through process_session).
+#[test]
+fn startup_selector_value_semantics_match_pi_show_startup_selector() {
+    let host = host();
+    let run = |inputs: &[&str]| -> serde_json::Value {
+        host.call_command(
+            "startup-selector-parity",
+            &serde_json::json!({
+                "title": "cwd from session file does not exist",
+                "options": ["Continue", "Cancel"],
+                "theme": "dark",
+                "inputs": inputs,
+            })
+            .to_string(),
+        )
+        .unwrap()
+        .unwrap()
+    };
+
+    // Enter on the initially-focused first option ("Continue") selects it.
+    let r = run(&["\r"]);
+    assert_eq!(r["settled"], true);
+    assert_eq!(r["value"], "Continue");
+
+    // Down arrow (j) then enter selects the second option ("Cancel").
+    let r = run(&["j", "\r"]);
+    assert_eq!(r["selected"], 1);
+    assert_eq!(r["value"], "Cancel");
+
+    // Escape cancels: no value returned (null), settled true.
+    let r = run(&["\u{1b}"]);
+    assert_eq!(r["settled"], true);
+    assert!(r["value"].is_null());
+
+    // The rendered frame is the title + option chrome, not empty.
+    let frames = r["frames"].as_array().unwrap();
+    let ansi = frames[0]["ansi"].as_str().unwrap();
+    assert!(
+        ansi.contains("cwd from session file does not exist"),
+        "{ansi:?}"
+    );
+}
