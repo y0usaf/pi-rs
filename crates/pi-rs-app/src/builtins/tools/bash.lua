@@ -146,7 +146,10 @@ pi.register_tool({
       dirty, last_update_ms = false, now
     end
     if on_update then on_update({ content = {} }) end
-    local shell, args = shell_config()
+    -- Public exact-version dependency on the shell module (spec: bash.ts
+    -- resolves the shell via utils/shell.ts shellConfig).
+    local shell_module = pi.module.require("pi.tools.shell", "1")
+    local shell, args = shell_module.shell_config()
     args[#args + 1] = params.command
     local timeout = type(params.timeout) == "number" and params.timeout > 0
       and params.timeout * 1000 or nil

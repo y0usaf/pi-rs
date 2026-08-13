@@ -125,7 +125,10 @@ fn provider_validation_matches_pi_oracle() {
 
         // For streamSimple/accept cases, Pi registers a custom API handler.
         let has_custom_stream = case["config"]["streamSimple"].as_str() == Some("<function>");
-        let api_present = case["config"]["api"].as_str().map(|s| !s.is_empty()).unwrap_or(false);
+        let api_present = case["config"]["api"]
+            .as_str()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false);
         if has_custom_stream && got_threw.is_none() && api_present {
             assert!(
                 got["customDispatches"].as_bool().unwrap_or(false),

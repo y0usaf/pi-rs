@@ -85,7 +85,9 @@ pi.register_tool({
     local path, content = params.path, params.content
     local absolute_path = resolve_to_cwd(path)
     local dir = pi.path.dirname(absolute_path)
-    return with_file_mutation_queue(absolute_path, function()
+    -- Public exact-version dependency on the mutation-queue module.
+    local mutation_queue = pi.module.require("pi.tools.file-mutation-queue", "1")
+    return mutation_queue.with_file_mutation_queue(absolute_path, function()
       if signal and signal:is_aborted() then error("Operation aborted", 0) end
       -- Create parent directories if needed, then write.
       pi.fs.mkdir(dir)

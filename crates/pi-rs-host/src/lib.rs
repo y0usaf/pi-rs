@@ -28,7 +28,7 @@ pub mod discover;
 mod error;
 mod exec;
 mod frontmatter;
-mod git;
+pub mod git;
 pub mod hljs;
 mod http;
 pub mod image;

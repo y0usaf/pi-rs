@@ -1,0 +1,173 @@
+{
+  "oracle": "Pi v0.79.0 c5582102",
+  "cases": [
+    {
+      "name": "empty-dir",
+      "skills": [],
+      "diagnostics": []
+    },
+    {
+      "name": "single-skill-dir",
+      "skills": [
+        {
+          "name": "code-review",
+          "description": "Review code for bugs and style",
+          "filePath": "skills/code-review/SKILL.md",
+          "baseDir": "skills/code-review",
+          "disableModelInvocation": false,
+          "sourceInfo": {
+            "source": "local",
+            "scope": "temporary",
+            "origin": "top-level",
+            "baseDir": "skills/code-review"
+          }
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "skill-name-from-dirname",
+      "skills": [
+        {
+          "name": "my-custom-skill",
+          "description": "Uses the parent dir name",
+          "filePath": "skills/my-custom-skill/SKILL.md",
+          "baseDir": "skills/my-custom-skill",
+          "disableModelInvocation": false,
+          "sourceInfo": {
+            "source": "local",
+            "scope": "temporary",
+            "origin": "top-level",
+            "baseDir": "skills/my-custom-skill"
+          }
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "inline-bash-skill",
+      "skills": [
+        {
+          "name": "skills",
+          "description": "A root-level inline skill",
+          "filePath": "skills/inline-bash.md",
+          "baseDir": "skills",
+          "disableModelInvocation": false,
+          "sourceInfo": {
+            "source": "local",
+            "scope": "temporary",
+            "origin": "top-level",
+            "baseDir": "skills"
+          }
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "root-md-and-dirs",
+      "skills": [
+        {
+          "name": "inner",
+          "description": "Nested skill",
+          "filePath": "skills/nested/inner/SKILL.md",
+          "baseDir": "skills/nested/inner",
+          "disableModelInvocation": false,
+          "sourceInfo": {
+            "source": "local",
+            "scope": "temporary",
+            "origin": "top-level",
+            "baseDir": "skills/nested/inner"
+          }
+        },
+        {
+          "name": "skills",
+          "description": "Root skill",
+          "filePath": "skills/root-skill.md",
+          "baseDir": "skills",
+          "disableModelInvocation": false,
+          "sourceInfo": {
+            "source": "local",
+            "scope": "temporary",
+            "origin": "top-level",
+            "baseDir": "skills"
+          }
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "skippable-and-warnings",
+      "skills": [
+        {
+          "name": "Bad_Name!-x",
+          "description": "This description is just fine",
+          "filePath": "skills/bad-name-desc/SKILL.md",
+          "baseDir": "skills/bad-name-desc",
+          "disableModelInvocation": false,
+          "sourceInfo": {
+            "source": "local",
+            "scope": "temporary",
+            "origin": "top-level",
+            "baseDir": "skills/bad-name-desc"
+          }
+        }
+      ],
+      "diagnostics": [
+        {
+          "type": "warning",
+          "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)",
+          "path": "skills/bad-name-desc/SKILL.md"
+        },
+        {
+          "type": "warning",
+          "message": "description is required",
+          "path": "skills/no-desc/SKILL.md"
+        }
+      ]
+    },
+    {
+      "name": "disable-model-invocation",
+      "skills": [
+        {
+          "name": "hidden-skill",
+          "description": "Manual invocation only",
+          "filePath": "skills/hidden-skill/SKILL.md",
+          "baseDir": "skills/hidden-skill",
+          "disableModelInvocation": true,
+          "sourceInfo": {
+            "source": "local",
+            "scope": "temporary",
+            "origin": "top-level",
+            "baseDir": "skills/hidden-skill"
+          }
+        }
+      ],
+      "diagnostics": []
+    },
+    {
+      "name": "description-too-long",
+      "skills": [
+        {
+          "name": "long-desc",
+          "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "filePath": "skills/long-desc/SKILL.md",
+          "baseDir": "skills/long-desc",
+          "disableModelInvocation": false,
+          "sourceInfo": {
+            "source": "local",
+            "scope": "temporary",
+            "origin": "top-level",
+            "baseDir": "skills/long-desc"
+          }
+        }
+      ],
+      "diagnostics": [
+        {
+          "type": "warning",
+          "message": "description exceeds 1024 characters (1100)",
+          "path": "skills/long-desc/SKILL.md"
+        }
+      ]
+    }
+  ]
+}

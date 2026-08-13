@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Regenerate the package CLI (PLAN 9.7) differential oracle from Pi's real
+# package-manager-cli.ts handlePackageCommand over the hermetic parse / help /
+# early-error surface (cases that return before settings/trust/network work).
+#
+# Run via scripts/package-cli-oracle. Offline normal checks consume the checked
+# oracle; opt-in regeneration drives the pinned Pi source with Bun (the heavy
+# import graph needs true ESM for jiti/static, mirroring the other cli oracles).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+oracle=tests/package-cli-parity/oracle.json
+if [[ ! -x ref/pi/node_modules/.bin/tsx ]]; then
+  nix shell nixpkgs#nodejs_22 --command sh -c 'cd ref/pi && corepack npm ci --ignore-scripts'
+fi
+nix shell nixpkgs#bun --command bun \
+  tests/package-cli-parity/gen-oracle.ts "$oracle"
+echo "wrote $oracle"

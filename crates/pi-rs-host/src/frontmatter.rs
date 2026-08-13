@@ -86,12 +86,9 @@ pub(crate) fn parse_frontmatter(text: &str) -> Result<FrontmatterDocument, Strin
     // one line break the closing delimiter consumes makes serde_yaml's clip
     // chomping match eemeli/yaml's (a trailing newline is a no-op for flow,
     // plain, quoted, and empty scalars, and matches `|`/`>` keep/strip).
-    let parsed = serde_yaml::from_str::<Value>(&format!("{yaml_raw}\n"))
-        .map_err(|e| e.to_string())?;
-    let frontmatter = parsed
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
+    let parsed =
+        serde_yaml::from_str::<Value>(&format!("{yaml_raw}\n")).map_err(|e| e.to_string())?;
+    let frontmatter = parsed.as_object().cloned().unwrap_or_default();
     Ok(FrontmatterDocument { frontmatter, body })
 }
 
@@ -113,8 +110,13 @@ mod tests {
 
     #[test]
     fn basic_frontmatter() {
-        let doc = parse("---\nname: my-skill\ndescription: Does something useful\n---\n\nBody text here.\n");
-        assert_eq!(doc.frontmatter.get("name").and_then(|v| v.as_str()), Some("my-skill"));
+        let doc = parse(
+            "---\nname: my-skill\ndescription: Does something useful\n---\n\nBody text here.\n",
+        );
+        assert_eq!(
+            doc.frontmatter.get("name").and_then(|v| v.as_str()),
+            Some("my-skill")
+        );
         assert_eq!(doc.body, "Body text here.");
     }
 
@@ -136,24 +138,36 @@ mod tests {
     #[test]
     fn crlf_and_cr_are_normalized_like_pi() {
         let doc = parse("---\r\nname: win\r\n---\r\nBody after CRLF.\r\n");
-        assert_eq!(doc.frontmatter.get("name").and_then(|v| v.as_str()), Some("win"));
+        assert_eq!(
+            doc.frontmatter.get("name").and_then(|v| v.as_str()),
+            Some("win")
+        );
         assert_eq!(doc.body, "Body after CRLF.");
         let cr = parse("---\rname: cr\r---\rBody after CR.\r");
-        assert_eq!(cr.frontmatter.get("name").and_then(|v| v.as_str()), Some("cr"));
+        assert_eq!(
+            cr.frontmatter.get("name").and_then(|v| v.as_str()),
+            Some("cr")
+        );
         assert_eq!(cr.body, "Body after CR.");
     }
 
     #[test]
     fn closing_not_followed_by_newline_still_counts() {
         let doc = parse("---\nname: nl\n---End of body, dash not followed by newline");
-        assert_eq!(doc.frontmatter.get("name").and_then(|v| v.as_str()), Some("nl"));
+        assert_eq!(
+            doc.frontmatter.get("name").and_then(|v| v.as_str()),
+            Some("nl")
+        );
         assert_eq!(doc.body, "End of body, dash not followed by newline");
     }
 
     #[test]
     fn empty_body_no_frontmatter_line() {
         let doc = parse("---\nname: x\n---\n");
-        assert_eq!(doc.frontmatter.get("name").and_then(|v| v.as_str()), Some("x"));
+        assert_eq!(
+            doc.frontmatter.get("name").and_then(|v| v.as_str()),
+            Some("x")
+        );
         assert_eq!(doc.body, "");
     }
 
@@ -161,7 +175,10 @@ mod tests {
     fn indented_delimiters_are_not_frontmatter() {
         let doc = parse("  ---\nname: indented\n---\nBody (delimiter indented)");
         assert!(doc.frontmatter.is_empty());
-        assert_eq!(doc.body, "  ---\nname: indented\n---\nBody (delimiter indented)");
+        assert_eq!(
+            doc.body,
+            "  ---\nname: indented\n---\nBody (delimiter indented)"
+        );
     }
 
     #[test]
@@ -173,7 +190,10 @@ mod tests {
     #[test]
     fn dash_inside_yaml_is_data() {
         let doc = parse("---\na: ----\n---\nBody");
-        assert_eq!(doc.frontmatter.get("a").and_then(|v| v.as_str()), Some("----"));
+        assert_eq!(
+            doc.frontmatter.get("a").and_then(|v| v.as_str()),
+            Some("----")
+        );
         assert_eq!(doc.body, "Body");
     }
 
@@ -190,8 +210,14 @@ mod tests {
     #[test]
     fn scalar_values() {
         let doc = parse("---\ncount: 42\nenabled: true\n---\nBody");
-        assert_eq!(doc.frontmatter.get("count").and_then(|v| v.as_i64()), Some(42));
-        assert_eq!(doc.frontmatter.get("enabled").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            doc.frontmatter.get("count").and_then(|v| v.as_i64()),
+            Some(42)
+        );
+        assert_eq!(
+            doc.frontmatter.get("enabled").and_then(|v| v.as_bool()),
+            Some(true)
+        );
     }
 
     #[test]
@@ -211,7 +237,10 @@ mod tests {
     #[test]
     fn frontmatter_only_no_body() {
         let doc = parse("---\nname: snippet\n---");
-        assert_eq!(doc.frontmatter.get("name").and_then(|v| v.as_str()), Some("snippet"));
+        assert_eq!(
+            doc.frontmatter.get("name").and_then(|v| v.as_str()),
+            Some("snippet")
+        );
         assert_eq!(doc.body, "");
     }
 }
