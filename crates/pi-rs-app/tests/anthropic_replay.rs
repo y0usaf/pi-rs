@@ -8,7 +8,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use pi_rs_app::builtins::{CODING_AGENT_PACK, TOOLS_PACK};
+use pi_rs_app::builtins::{AGENT_CORE_PACK, CODING_AGENT_PACK, TOOLS_PACK};
 use pi_rs_host::{Host, HostConfig};
 
 fn read_request(stream: &mut TcpStream) -> serde_json::Value {
@@ -93,7 +93,7 @@ fn anthropic_replay_runs_lua_agent_tool_round_trip_and_persists_messages() {
         ..HostConfig::default()
     })
     .unwrap();
-    let report = host.load_embedded(&[pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
+    let report = host.load_embedded(&[AGENT_CORE_PACK, pi_rs_agent::PACK, TOOLS_PACK, CODING_AGENT_PACK]);
     assert!(report.errors.is_empty(), "{:?}", report.errors);
     let agent_dir_string = agent_dir.to_string_lossy().into_owned();
     let result = host

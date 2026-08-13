@@ -17,7 +17,7 @@
 // when present, then one JSON line per event) rather than byte-identical
 // session content. Text-mode final-message output is byte-for-byte.
 use pi_rs_agent::PACK;
-use pi_rs_app::builtins::{CODING_AGENT_PACK, TOOLS_PACK};
+use pi_rs_app::builtins::{AGENT_CORE_PACK, CODING_AGENT_PACK, TOOLS_PACK};
 use pi_rs_host::{Host, HostConfig};
 use serde_json::{Value, json};
 
@@ -34,7 +34,7 @@ fn capture_host(temp: &tempfile::TempDir) -> Host {
         ..HostConfig::default()
     })
     .unwrap();
-    let rep = host.load_embedded(&[PACK, TOOLS_PACK, CODING_AGENT_PACK]);
+    let rep = host.load_embedded(&[AGENT_CORE_PACK, PACK, TOOLS_PACK, CODING_AGENT_PACK]);
     assert!(rep.errors.is_empty(), "{:?}", rep.errors);
     // Redefine pi.output to also record the exact bytes this role emits, so the
     // differential test observes the same raw stdout a CLI caller would.

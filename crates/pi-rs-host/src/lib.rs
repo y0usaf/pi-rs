@@ -379,6 +379,21 @@ impl Host {
         self.call_tool_with_updates(name, tool_call_id, params, None)
     }
 
+    /// First-party tool ablation (PLAN 9.10): remove a registered tool by
+    /// name from its owning extension. Used by the launcher to honor a
+    /// manifest-level per-tool suppression and allow an ordinary file-backed
+    /// replacement to claim the name.
+    pub fn unregister_tool(&self, name: &str) -> Result<(), HostError> {
+        let (reply, rx) = sync_channel(1);
+        self.tx
+            .send(vm::Msg::UnregisterTool {
+                name: name.to_owned(),
+                reply,
+            })
+            .map_err(|_| HostError::VmUnavailable)?;
+        rx.recv().map_err(|_| HostError::VmUnavailable)?
+    }
+
     /// Execute a registered tool and synchronously forward each partial
     /// result emitted through the spec's `onUpdate` parameter.
     pub fn call_tool_with_updates(

@@ -97,3 +97,19 @@ local function render_diff(diff_text, theme, _options)
   end
   return table.concat(result, "\n")
 end
+
+-- Public module: the diff renderer presentation policy (PLAN 9.10). The
+-- renderer consumes the jsdiff mechanism (`pi.diff`) and the atomized string
+-- helpers; file-backed renderers import the identical closures.
+pi.module.define({
+  name = "pi.tools.diff",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      parse_diff_line = parse_diff_line,
+      render_intra_line_diff = render_intra_line_diff,
+      render_diff = render_diff,
+    }
+  end,
+})

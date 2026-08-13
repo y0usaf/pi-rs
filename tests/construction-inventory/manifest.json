@@ -97,7 +97,9 @@
     "command:interactive-reload-parity-sequence",
     "command:interactive-reload-behavior",
     "command:retry-policy-parity",
-    "command:interactive-easter-eggs-parity-sequence"
+    "command:interactive-easter-eggs-parity-sequence",
+    "command:extension-event-seams-parity",
+    "command:extension-actions-probe"
    ],
    "rust_entrypoints": []
   },
@@ -108,10 +110,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "pi.register_tool",
-   "disable_path": "none per tool; only omit the whole tools pack",
-   "replacement_evidence": "target: file-backed read replacement",
-   "status": "open",
+   "public_declaration": "pi.register_tool tool:read",
+   "disable_path": "builtin read ablated via BuiltinManifest.load_with_suppressed_tools(['read']) (pi.unregister_tool); a file-backed package re-registers the name first-wins",
+   "replacement_evidence": "crates/pi-rs-app/tests/assembly.rs per_tool_suppression_ablates_a_builtin_tool_and_allows_file_backed_replacement (same mechanism for every tool kind)",
+   "status": "implemented",
    "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/read.lua"
@@ -129,10 +131,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "pi.register_tool",
-   "disable_path": "none per tool; only omit the whole tools pack",
-   "replacement_evidence": "target: file-backed bash replacement",
-   "status": "open",
+   "public_declaration": "pi.register_tool tool:bash",
+   "disable_path": "builtin bash ablated via BuiltinManifest.load_with_suppressed_tools(['bash']) (pi.unregister_tool); a file-backed package re-registers the name first-wins",
+   "replacement_evidence": "crates/pi-rs-app/tests/assembly.rs per_tool_suppression_ablates_a_builtin_tool_and_allows_file_backed_replacement (same mechanism for every tool kind)",
+   "status": "implemented",
    "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/bash.lua"
@@ -150,10 +152,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "pi.register_tool",
-   "disable_path": "none per tool; only omit the whole tools pack",
-   "replacement_evidence": "target: file-backed edit replacement",
-   "status": "open",
+   "public_declaration": "pi.register_tool tool:edit",
+   "disable_path": "builtin edit ablated via BuiltinManifest.load_with_suppressed_tools(['edit']) (pi.unregister_tool); a file-backed package re-registers the name first-wins",
+   "replacement_evidence": "crates/pi-rs-app/tests/assembly.rs per_tool_suppression_ablates_a_builtin_tool_and_allows_file_backed_replacement (same mechanism for every tool kind)",
+   "status": "implemented",
    "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/edit.lua"
@@ -171,10 +173,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "pi.register_tool",
-   "disable_path": "none per tool; only omit the whole tools pack",
-   "replacement_evidence": "target: file-backed write replacement",
-   "status": "open",
+   "public_declaration": "pi.register_tool tool:write",
+   "disable_path": "builtin write ablated via BuiltinManifest.load_with_suppressed_tools(['write']) (pi.unregister_tool); a file-backed package re-registers the name first-wins",
+   "replacement_evidence": "crates/pi-rs-app/tests/assembly.rs per_tool_suppression_ablates_a_builtin_tool_and_allows_file_backed_replacement (same mechanism for every tool kind)",
+   "status": "implemented",
    "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/write.lua"
@@ -192,10 +194,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "pi.register_tool",
-   "disable_path": "none per tool; only omit the whole tools pack",
-   "replacement_evidence": "target: file-backed grep replacement",
-   "status": "open",
+   "public_declaration": "pi.register_tool tool:grep",
+   "disable_path": "builtin grep ablated via BuiltinManifest.load_with_suppressed_tools(['grep']) (pi.unregister_tool); a file-backed package re-registers the name first-wins",
+   "replacement_evidence": "crates/pi-rs-app/tests/assembly.rs per_tool_suppression_ablates_a_builtin_tool_and_allows_file_backed_replacement (same mechanism for every tool kind)",
+   "status": "implemented",
    "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/grep.lua"
@@ -213,10 +215,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "pi.register_tool",
-   "disable_path": "none per tool; only omit the whole tools pack",
-   "replacement_evidence": "target: file-backed find replacement",
-   "status": "open",
+   "public_declaration": "pi.register_tool tool:find",
+   "disable_path": "builtin find ablated via BuiltinManifest.load_with_suppressed_tools(['find']) (pi.unregister_tool); a file-backed package re-registers the name first-wins",
+   "replacement_evidence": "crates/pi-rs-app/tests/assembly.rs per_tool_suppression_ablates_a_builtin_tool_and_allows_file_backed_replacement (same mechanism for every tool kind)",
+   "status": "implemented",
    "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/find.lua"
@@ -234,10 +236,10 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "pi.register_tool",
-   "disable_path": "none per tool; only omit the whole tools pack",
-   "replacement_evidence": "target: file-backed ls replacement",
-   "status": "open",
+   "public_declaration": "pi.register_tool tool:ls",
+   "disable_path": "builtin ls ablated via BuiltinManifest.load_with_suppressed_tools(['ls']) (pi.unregister_tool); a file-backed package re-registers the name first-wins",
+   "replacement_evidence": "crates/pi-rs-app/tests/assembly.rs per_tool_suppression_ablates_a_builtin_tool_and_allows_file_backed_replacement (same mechanism for every tool kind)",
+   "status": "implemented",
    "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/ls.lua"
@@ -255,11 +257,11 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: file-backed package imports the public replacement module",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.tools.prelude@1 (split / fmt_num / utf8_lossy)",
+   "disable_path": "omitting the tools pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/tools/prelude.lua defines the public exact-version module; builtin and file-backed tools import the same closures",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/prelude.lua"
    ],
@@ -274,11 +276,11 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public truncation module imported by file-backed package",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.tools.truncate@1 (truncate_head / truncate_tail / truncate_line / format_size / DEFAULT_MAX_LINES / DEFAULT_MAX_BYTES)",
+   "disable_path": "omitting the tools pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/tools/truncate.lua defines the public exact-version module; builtin and file-backed tools import the same closures, and examples/extensions/module-demo.lua + crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules exercise it from a file-backed package",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/truncate.lua"
    ],
@@ -293,11 +295,11 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public path helper module imported by file-backed package",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.tools.path-utils@1 (normalize_path_input / resolve_to_cwd / resolve_read_path / format_path_relative_to_cwd_or_absolute)",
+   "disable_path": "omitting the tools pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/tools/path-utils.lua defines the public exact-version module self-sufficiently (pi.cwd bound at call time); builtin and file-backed tools import the same closures",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/path-utils.lua"
    ],
@@ -312,11 +314,11 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public MIME helper module imported by file-backed package",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.tools.mime@1 (detect_supported_image_mime_type)",
+   "disable_path": "omitting the tools pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/tools/mime.lua defines the public exact-version module; builtin and file-backed read tools import the same closure",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/mime.lua"
    ],
@@ -350,11 +352,11 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public shell operations module used by file-backed package",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.tools.shell@1 (shell_config)",
+   "disable_path": "omitting the tools pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/tools/shell.lua defines the public exact-version module; builtin and file-backed tools import the same shell configuration, and examples/extensions/module-demo.lua + crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules (module-demo-shell) exercise it from a file-backed package",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/shell.lua"
    ],
@@ -369,11 +371,11 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public output helper imported by file-backed process tool",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.tools.output-accumulator@1 (new_output_accumulator)",
+   "disable_path": "omitting the tools pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/tools/output-accumulator.lua defines the public exact-version module capturing the same in-chunk truncate/utf8 closures; a file-backed bash tool imports the identical accumulator",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/output-accumulator.lua"
    ],
@@ -388,11 +390,11 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public render helper imported by file-backed renderer",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.tui.keybinding-hints@1 (key_text / key_hint / format_key_text)",
+   "disable_path": "omitting the tools pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/tools/keybinding-hints.lua defines the public exact-version module; builtin and file-backed tool renderers import the same presenter",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/keybinding-hints.lua"
    ],
@@ -407,11 +409,11 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public truncation helper imported by file-backed renderer",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.tui.visual-truncate@1 (truncate_to_visual_lines)",
+   "disable_path": "omitting the tools pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/tools/visual-truncate.lua defines the public exact-version module; builtin and file-backed renderers import the same visual-line truncation, and examples/extensions/module-demo.lua + crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules exercise it from a file-backed package",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/visual-truncate.lua"
    ],
@@ -426,11 +428,11 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: public render module imported by file-backed renderer",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.tools.render@1 (strip_ansi / sanitize_binary_output / shorten_path / get_text_output / render_tool_path / get_language_from_path / text/box/spacer component factories)",
+   "disable_path": "omitting the tools pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/tools/render-utils.lua defines the public exact-version module; builtin and file-backed tool renderers import the same closures, and examples/extensions/module-demo.lua + crates/pi-rs-app/tests/tools.rs file_backed_extension_imports_builtin_tool_and_render_modules exercise it from a file-backed package",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/render-utils.lua"
    ],
@@ -445,11 +447,11 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: file-backed renderer imports public diff module",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.tools.diff@1 (parse_diff_line / render_intra_line_diff / render_diff)",
+   "disable_path": "omitting the tools pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/tools/diff.lua defines the public exact-version module consuming the jsdiff mechanism; builtin and file-backed edit renderers import the identical presentation",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/diff.lua"
    ],
@@ -464,11 +466,11 @@
    "packages": [
     "tools"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from pack concat",
-   "replacement_evidence": "target: file-backed edit tool imports public edit operations",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.tools.edit-diff@1 (apply_edits_to_normalized_content / generate_diff_string / generate_unified_patch / compute_edits_diff / detect_line_ending / restore_line_endings / normalize_to_lf)",
+   "disable_path": "omitting the tools pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/tools/edit-diff.lua defines the public exact-version module; a file-backed edit tool imports the identical operations rather than re-implementing fuzzy match/apply",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/tools/edit-diff.lua"
    ],
@@ -501,14 +503,13 @@
    "kind": "agent helper",
    "title": "LLM message conversion policy",
    "packages": [
-    "coding-agent",
-    "interactive"
+    "agent-core"
    ],
-   "public_declaration": "none; duplicated into concatenated pack scopes",
-   "disable_path": "none independently; remove from both pack concats",
-   "replacement_evidence": "target: public messages module imported by file-backed agent policy",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.agent.messages@1 (convert_to_llm / convert_to_llm_with_block_images / bash_execution_to_text / msg_num)",
+   "disable_path": "omitting the agent-core pack removes the builtin definition (agent-core is a core substrate, always loaded); a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/messages.lua defines the public exact-version module; builtin coding-agent/interactive packs require + rebind the same closures instead of concatenating chunk-local copies, and a file-backed package may define/import pi.agent.messages@1",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/messages.lua"
    ],
@@ -541,14 +542,13 @@
    "kind": "session policy",
    "title": "Branch-summary preparation and generation policy",
    "packages": [
-    "coding-agent",
-    "interactive"
+    "agent-core"
    ],
-   "public_declaration": "none; duplicated into concatenated pack scopes",
-   "disable_path": "none independently; remove from both pack concats",
-   "replacement_evidence": "target: public session module imported by file-backed application",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.agent.branch-summary@1 (collect_entries_for_branch_summary / prepare_branch_entries / generate_branch_summary / serialize_conversation / estimate_tokens)",
+   "disable_path": "omitting the agent-core pack removes the builtin definition (agent-core is a core substrate, always loaded); a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/branch-summary.lua defines the public exact-version module depending on pi.agent.messages; builtin interactive/coding-agent packs require the same closures",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/branch-summary.lua"
    ],
@@ -561,13 +561,12 @@
    "kind": "compaction policy",
    "title": "Compaction thresholds, preparation, summarization, and overflow policy",
    "packages": [
-    "coding-agent",
-    "interactive"
+    "agent-core"
    ],
-   "public_declaration": "none; duplicated into concatenated pack scopes",
-   "disable_path": "none independently; remove from both pack concats",
-   "replacement_evidence": "target: file-backed compaction policy replacement",
-   "status": "open",
+   "public_declaration": "pi.module.define pi.agent.compaction@1 (prepare_compaction / compact / estimate_context_tokens / should_compact / is_context_overflow / generate_summary)",
+   "disable_path": "omitting the agent-core pack removes the builtin definition (agent-core is a core substrate, always loaded); a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/compaction.lua defines the public exact-version module depending on pi.agent.branch-summary + pi.agent.messages; builtin interactive/coding-agent packs require the same closures",
+   "status": "implemented",
    "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/compaction.lua"
@@ -581,14 +580,13 @@
    "kind": "resource policy",
    "title": "Project context discovery and system-prompt composition",
    "packages": [
-    "coding-agent",
-    "interactive"
+    "agent-core"
    ],
-   "public_declaration": "none; duplicated into concatenated pack scopes",
-   "disable_path": "none independently; remove from both pack concats",
-   "replacement_evidence": "target: public resource/system-prompt module used by file-backed application",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.agent.system-prompt@1 (build_system_prompt / build_session_system_prompt / load_project_context_files)",
+   "disable_path": "omitting the agent-core pack removes the builtin definition (agent-core is a core substrate, always loaded); a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/system-prompt.lua defines the public exact-version module; builtin interactive/coding-agent packs require the same closures",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/system-prompt.lua"
    ],
@@ -601,14 +599,13 @@
    "kind": "session policy",
    "title": "Session persistence, construction, and startup restoration",
    "packages": [
-    "coding-agent",
-    "interactive"
+    "agent-core"
    ],
-   "public_declaration": "none; duplicated into concatenated pack scopes",
-   "disable_path": "none independently; remove from both pack concats",
-   "replacement_evidence": "target: public session module used by file-backed application",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.agent.session-runtime@1 (persist_agent_event / session_startup / construct_session / session_startup_from_request)",
+   "disable_path": "omitting the agent-core pack removes the builtin definition (agent-core is a core substrate, always loaded); a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/agent-session.lua defines the public exact-version module; builtin interactive/coding-agent packs require the same closures",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/agent-session.lua"
    ],
@@ -621,14 +618,13 @@
    "kind": "shell policy",
    "title": "Interactive bash execution and output persistence policy",
    "packages": [
-    "interactive",
-    "coding-agent"
+    "agent-core"
    ],
-   "public_declaration": "none; concatenated chunk-local helpers",
-   "disable_path": "none independently; remove from interactive + coding-agent pack concat",
-   "replacement_evidence": "target: public shell module imported by file-backed command policy",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.agent.bash-executor@1 (execute_bash_with_operations / create_local_bash_operations / get_shell_config)",
+   "disable_path": "omitting the agent-core pack removes the builtin definition (agent-core is a core substrate, always loaded); a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/bash-executor.lua defines the public exact-version module importing pi.tools.truncate; builtin interactive/coding-agent packs require the same closures",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/bash-executor.lua"
    ],
@@ -643,16 +639,94 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; concatenated chunk-local library",
-   "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: public export/render module imported by file-backed package",
-   "status": "open",
-   "rung": "9.7",
+   "public_declaration": "pi.module.define pi.interactive.export-html@1 (generate / pre_render_tools / base64_encode)",
+   "disable_path": "omitting the interactive pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/export-html.lua defines the public exact-version module; builtin and file-backed consumers import the same closures, and examples/extensions/export-html-consumer.lua + crates/pi-rs-app/tests/export_html_parity.rs file_backed_package_imports_the_same_export_html_module exercise it from a file-backed package",
+   "status": "implemented",
+   "rung": "9.10",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/export-html.lua"
    ],
    "anchors": [],
    "declarations": [],
+   "rust_entrypoints": []
+  },
+  {
+   "id": "module.resources",
+   "kind": "resource policy",
+   "title": "Deterministic resource resolution engine",
+   "packages": [
+    "interactive"
+   ],
+   "public_declaration": "pi.module.define pi.resources@1 (resolved, precedence-sorted resource list)",
+   "disable_path": "omitting the interactive pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/resources.lua defines the public exact-version module; resources_parity.rs exercises it and a file-backed package imports the identical resolution engine",
+   "status": "implemented",
+   "rung": "9.7",
+   "coverage": [
+    "crates/pi-rs-app/src/builtins/utils/resources.lua"
+   ],
+   "anchors": [],
+   "declarations": [],
+   "rust_entrypoints": []
+  },
+  {
+   "id": "module.skills",
+   "kind": "resource policy",
+   "title": "Skill discovery and content policy",
+   "packages": [
+    "interactive"
+   ],
+   "public_declaration": "pi.module.define pi.resources.skills@1",
+   "disable_path": "omitting the interactive pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/skills.lua defines the public exact-version module; skills_parity.rs exercises it from a file-backed consumer",
+   "status": "implemented",
+   "rung": "9.7",
+   "coverage": [
+    "crates/pi-rs-app/src/builtins/utils/skills.lua"
+   ],
+   "anchors": [],
+   "declarations": [],
+   "rust_entrypoints": []
+  },
+  {
+   "id": "module.prompts",
+   "kind": "resource policy",
+   "title": "Prompt-template resolution policy",
+   "packages": [
+    "interactive"
+   ],
+   "public_declaration": "pi.module.define pi.interactive.prompts@1",
+   "disable_path": "omitting the interactive pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/prompt-templates.lua defines the public exact-version module; prompt_templates_parity.rs exercises it from a file-backed consumer",
+   "status": "implemented",
+   "rung": "9.7",
+   "coverage": [
+    "crates/pi-rs-app/src/builtins/utils/prompt-templates.lua"
+   ],
+   "anchors": [],
+   "declarations": [],
+   "rust_entrypoints": []
+  },
+  {
+   "id": "module.packages",
+   "kind": "package policy",
+   "title": "Package install/remove/update/list policy",
+   "packages": [
+    "interactive"
+   ],
+   "public_declaration": "pi.module.define pi.packages@1",
+   "disable_path": "omitting the interactive pack removes the builtin definition; a file-backed package may define the same exact-version module",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/package-manager.lua defines the public exact-version module; package_cli_parity.rs exercises it from a file-backed consumer",
+   "status": "implemented",
+   "rung": "9.7",
+   "coverage": [
+    "crates/pi-rs-app/src/builtins/utils/package-manager.lua"
+   ],
+   "anchors": [],
+   "declarations": [
+    "role:pkg-exec"
+   ],
    "rust_entrypoints": []
   },
   {
@@ -1470,7 +1544,7 @@
     {
      "path": "crates/pi-rs-app/src/main.rs",
      "text": "host.call_role(\"",
-     "count": 4
+     "count": 5
     }
    ],
    "declarations": [],

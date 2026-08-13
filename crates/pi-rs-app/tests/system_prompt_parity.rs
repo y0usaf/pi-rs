@@ -12,6 +12,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use pi_rs_host::{Host, HostConfig};
+use pi_rs_app::builtins::AGENT_CORE_PACK;
 
 const README_PATH: &str = "/pi-rs-pkg/README.md";
 const DOCS_PATH: &str = "/pi-rs-pkg/docs";
@@ -27,7 +28,7 @@ fn fixture(name: &str) -> serde_json::Value {
 
 fn host() -> Host {
     let host = Host::new(HostConfig::default()).unwrap();
-    let report = host.load_embedded(&[
+    let report = host.load_embedded(&[AGENT_CORE_PACK,
         pi_rs_app::builtins::TOOLS_PACK,
         pi_rs_app::builtins::CODING_AGENT_PACK,
     ]);
