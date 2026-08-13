@@ -94,6 +94,34 @@ fn load_host(cwd: &str) -> Result<pi_rs_host::Host, String> {
 /// Commands are read from stdin and responses/events written to stdout as
 /// JSONL by the `rpc` Lua role. This runs before model resolution and auth, so
 /// no network occurs at startup; the role constructs its own session. Returns
+/// Test-only differential seed for the RPC role (Plan 10 RPC streaming).
+///
+/// Gated by `debug_assertions`: it is compiled OUT of release binaries, so a
+/// production process can never read `PI_RPC_SCRIPTED_SEED` and the parity seam
+/// never activates outside the test harness. When set (only by the sibling
+/// `rpc_streaming_parity` test that spawns `pi`), its JSON is passed through
+/// to `request.scriptedRpc` so the streaming + seeded-read commands reproduce
+/// Pi's `runRpcMode` oracle. Unset ⇒ `null` and the seam is inert, so the real
+/// unseeded code paths run unchanged.
+#[cfg(debug_assertions)]
+fn scripted_rpc_seed() -> Option<serde_json::Value> {
+    std::env::var_os("PI_RPC_SCRIPTED_SEED").and_then(|seed| {
+        let seed = seed.to_string_lossy().into_owned();
+        if seed.is_empty() {
+            None
+        } else {
+            serde_json::from_str(&seed).ok()
+        }
+    })
+}
+
+/// Non-debug builds never read the seed: the seam is compiled out entirely.
+#[cfg(not(debug_assertions))]
+fn scripted_rpc_seed() -> Option<serde_json::Value> {
+    None
+}
+
+/// RPC mode: dispatch to the faithful `rpc` role. Returns the process exit as
 /// the role's exit code.
 fn run_rpc_mode(
     cwd: &str,
@@ -145,6 +173,19 @@ fn run_rpc_mode(
         "sessionDir": session_dir,
         "mode": "rpc",
         "projectTrusted": project_trusted,
+        // Differential parity seam (Plan 10 RPC streaming): when the test
+        // harness sets PI_RPC_SCRIPTED_SEED, its JSON is passed through to the
+        // RPC role so the streaming commands (prompt/bash/compact/fork/clone/
+        // new_session/switch_session/get_fork_messages) reproduce Pi's
+        // `runRpcMode` oracle (generated from a scripted session stub).
+        // SECURITY: this env var is a test-only backdoor — it can spoof RPC
+        // responses (bash results, export paths, fork text). It is gated by
+        // `debug_assertions` and therefore compiled OUT of release binaries,
+        // so a production process can never read it; it is set only by the
+        // sibling rpc_streaming_parity test that spawns `pi`. In normal runs
+        // the var is unset and the seam is inert (scriptedRpc = null), so the
+        // real (unseeded) code paths run unchanged.
+        "scriptedRpc": scripted_rpc_seed(),
     });
     match host.call_role("rpc", &request.to_string()) {
         Ok(Some(result)) => {

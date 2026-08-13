@@ -442,19 +442,68 @@ Complete these rungs before growing the extension surface further.
       `crates/pi-rs-app/tests/rpc_mode_parity.rs`
       (`rpc_async_deterministic_commands_match_pi_oracle`).
 
-      Boundary (recorded): the remaining RPC async agent-streaming commands
-      that require concurrent agent/event streaming or scripted session data
+      Closed (RPC agent-streaming commands): the async agent-streaming commands
       (prompt, bash, compact, fork, clone, new_session, switch_session,
-      get_fork_messages) and the Node `RpcClient` stay open under PLAN 10 (the
-      stdout output-guard is closed: stray extension `print`/`io.write` route
-      to stderr so non-interactive stdout stays protocol-clean, RPC now
-      loads CLI `--extension` files like Pi, and Pi's RPC extension-UI binding
-      is closed — `ctx.hasUI==true`, real `ExtensionUIContext` transported as
-      `extension_ui_request` JSONL records, per `createExtensionUIContext`;
-      see `crates/pi-rs-app/tests/rpc_mode_parity.rs`
+      get_fork_messages) now reproduce Pi's `runRpcMode` oracle through a gated
+      differential seed (`PI_RPC_SCRIPTED_SEED` → `request.scriptedRpc`), pinned
+      by `scripts/rpc-oracle` oracle cases (`prompt-async-success`,
+      `prompt-preflight-failure`, `event-streaming`, `compact-bash-session-ops`,
+      `session-fork-clone`, `fork-messages`, `async-steer-followup-abort`).
+      Pi's runRpcMode emits only the response envelope (`prompt` → `{success}`,
+      `bash` → `{data:{exitCode,stdout,stderr}}`, `compact` →
+      `{data:{sessionId,summary,kept}}`, `new_session`/`clone`/`switch_session`
+      → `{data:{cancelled}}`, `fork` → `{data:{text,cancelled}}`); it does NOT
+      forward agent events to RPC stdout, so a faithful reproduction needs no
+      concurrent event streaming. The seed also closes the model/message-seeded
+      read commands (`get_state`, `get_available_models`, `cycle_model`,
+      `set_model`, `get_messages`, `get_last_assistant_text`,
+      `get_session_stats`, `get_commands`, `export_html`) — verified by
+      `scripts/rpc-oracle` cases `state-and-simple`, `thinking-model-commands`,
+      `set-model-not-found`, `export-html`, `commands-registry`. The unseeded
+      (production) RPC path stays honest: `bash` runs the real executor and
+      `compact` falls through to real compaction, while `prompt`/`new_session`/
+      `fork`/`clone`/`switch_session` — which have no live runtime/agent wiring
+      yet — fail with `Not supported in this build` (matching Pi's envelope
+      shape) rather than fabricating success. All 16 oracle cases replay
+      through the real `pi --mode rpc` binary and match Pi record-for-record.
+
+      Closed (startup-ui): the pre-runtime startup prompt surface
+      (cli/startup-ui.ts `showStartupSelector`) is the embedded
+      `startup-selector` role (`coding-startup-selector` in
+      `crates/pi-rs-app/src/builtins/interactive.lua`), used by `main.rs` for
+      the missing-session-cwd Continue/Cancel prompt and the project-trust
+      decision prompt (project-trust.ts startup order). It renders the
+      pre-runtime TUI with the same theme/columns as Pi and returns the
+      selected label; `interactive_startup.rs` pins the composition surface.
+
+      RpcClient boundary (recorded): the Node `RpcClient`
+      (`packages/coding-agent/src/modes/rpc/rpc-client.ts`) is a downstream
+      headless consumer of the RPC protocol, not part of the coding-agent
+      product or its extension platform — it falls under DESIGN's "downstream
+      product behavior" out-of-scope rule. It stays un-ported; the ported,
+      differentially-pinned surface is the RPC protocol itself (rpc-mode.ts
+      `runRpcMode`), which the RpcClient speaks. No Rust/Lua equivalent is
+      warranted. (The stdout output-guard is closed: stray extension
+      `print`/`io.write` route to stderr so non-interactive stdout stays
+      protocol-clean, RPC now loads CLI `--extension` files like Pi, and Pi's
+      RPC extension-UI binding is closed — `ctx.hasUI==true`, real
+      `ExtensionUIContext` transported as `extension_ui_request` JSONL records,
+      per `createExtensionUIContext`; see
+      `crates/pi-rs-app/tests/rpc_mode_parity.rs`
       `rpc_binds_real_extension_ui_context_matching_pi`,
       `rpc_stdout_guard_routes_extension_stdout_to_stderr` and
-      `rpc_loads_cli_extension_files`); startup-ui also remains open. The
+      `rpc_loads_cli_extension_files`.) The unseeded (production) RPC streaming
+      paths are also pinned honest: `crates/pi-rs-app/tests/rpc_streaming_parity.rs`
+      `rpc_unseeded_bash_reports_real_output_in_pi_envelope` runs a real bash
+      command through the shared executor and asserts Pi's `{exitCode,stdout,
+      stderr}` envelope carries the run's output (the executor's merged
+      `output` stream is reported on `stdout`, `stderr` stays `""` — pi-rs
+      does not split streams), and `rpc_unseeded_compact_and_session_stats_run_
+      real_envelopes` runs the real compact/`get_session_stats` paths (both were
+      latent before — the RPC role redirected only through the seeded seam). This
+      required wiring `utils/bash-executor.lua` into the coding-agent pack
+      (`crates/pi-rs-app/src/builtins/mod.rs`) so `EXTENSION_POLICY.bash_executor`
+      is present for the rpc/print roles. The
       toolCall-only `text-no-text-content` oracle
       case scripts Pi's *observed state* directly and pi-rs's real agent would
       continue its tool loop on stopReason `toolUse`, so it is not a faithful
