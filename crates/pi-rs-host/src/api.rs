@@ -42,9 +42,137 @@
 
 use mlua::{AnyUserData, UserData, UserDataMethods};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex},
 };
+
+/// Content-addressed memo for `pi.tui.markdown_render`.
+///
+/// During streaming, `interactive.lua` rebuilds the whole transcript every
+/// frame and calls back into Rust to re-render the *full markdown of every
+/// finished, unchanged message part* from scratch (re-lex + per-token Lua
+/// styling callbacks). Those re-renders are pure functions of their inputs, so
+/// we memoize the fully rendered lines. The key captures every input that can
+/// change output: the source text, the terminal layout, and a fingerprint of
+/// the theme/color Lua closures passed in `opts`. If a caller changes a theme
+/// closure between identical-text calls, the fingerprint differs and the cache
+/// misses — never serving stale output. Bounded FIFO eviction (entry + byte).
+struct MarkdownRenderKey {
+    width: usize,
+    padding_x: usize,
+    padding_y: usize,
+    /// Fingerprint of the theme/style closures and option flags.
+    signature: u64,
+    text: String,
+}
+
+struct MarkdownRenderEntry {
+    key: MarkdownRenderKey,
+    text_hash: u64,
+    lines: Vec<String>,
+    bytes: usize,
+}
+
+#[derive(Default)]
+struct MarkdownRenderCache {
+    entries: VecDeque<MarkdownRenderEntry>,
+    total_bytes: usize,
+}
+
+const MD_CACHE_MAX_ENTRIES: usize = 64;
+const MD_CACHE_MAX_BYTES: usize = 4 << 20; // 4 MiB
+
+impl MarkdownRenderCache {
+    /// FNV-1a hash of `(width, padding_x, padding_y, signature, text)`.
+    /// Cheap enough to run per call; the winning cost is skipping the full
+    /// re-lex + Lua styling, not the hashing.
+    fn key_hash(width: usize, padding_x: usize, padding_y: usize, signature: u64, text: &str) -> u64 {
+        let mut h = 0xcbf29ce484222325u64;
+        let mixf = |h: &mut u64, value: u64| {
+            for byte in value.to_le_bytes() {
+                *h ^= u64::from(byte);
+                *h = h.wrapping_mul(0x100000001b3);
+            }
+        };
+        mixf(&mut h, width as u64);
+        mixf(&mut h, padding_x as u64);
+        mixf(&mut h, padding_y as u64);
+        mixf(&mut h, signature);
+        for byte in text.bytes() {
+            h ^= u64::from(byte);
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        h
+    }
+
+    /// Return the memoized lines for an identical key, if present. The lookup
+    /// prefilters by the combined `key_hash` (O(1) miss path) and only does the
+    /// full tuple compare + text compare on a hash match, so it never serves
+    /// stale output when a caller reconfigures theme closures.
+    fn lookup(
+        &self,
+        key_hash: u64,
+        width: usize,
+        padding_x: usize,
+        padding_y: usize,
+        signature: u64,
+        text: &str,
+    ) -> Option<Vec<String>> {
+        for entry in &self.entries {
+            if entry.text_hash == key_hash
+                && entry.key.width == width
+                && entry.key.padding_x == padding_x
+                && entry.key.padding_y == padding_y
+                && entry.key.signature == signature
+                && entry.key.text == text
+            {
+                return Some(entry.lines.clone());
+            }
+        }
+        None
+    }
+
+    /// Insert a memoized render with FIFO entry/byte-bounded eviction.
+    fn insert(&mut self, key: MarkdownRenderKey, text_hash: u64, lines: Vec<String>) {
+        let mut bytes = key.text.len();
+        for line in &lines {
+            bytes += line.len();
+        }
+        if bytes > MD_CACHE_MAX_BYTES {
+            return; // single entry too large to cache
+        }
+        while self.total_bytes + bytes > MD_CACHE_MAX_BYTES && !self.entries.is_empty() {
+            if let Some(evicted) = self.entries.pop_front() {
+                self.total_bytes -= evicted.bytes;
+            }
+        }
+        self.entries.push_back(MarkdownRenderEntry {
+            key,
+            text_hash,
+            lines,
+            bytes,
+        });
+        self.total_bytes += bytes;
+        while self.entries.len() > MD_CACHE_MAX_ENTRIES {
+            if let Some(evicted) = self.entries.pop_front() {
+                self.total_bytes -= evicted.bytes;
+            }
+        }
+    }
+}
+
+/// The per-Lua-state cache, stored as mlua application data so it survives
+/// across calls on the same TUI session but is dropped with the Lua state.
+/// Lazily installed on first use since `set_app_data` needs no `IntoLua`.
+fn markdown_render_cache(lua: &mlua::Lua) -> mlua::Result<Arc<Mutex<MarkdownRenderCache>>> {
+    if let Some(cached) = lua.app_data_ref::<Arc<Mutex<MarkdownRenderCache>>>() {
+        return Ok(Arc::clone(&cached));
+    }
+    let cache = Arc::new(Mutex::new(MarkdownRenderCache::default()));
+    lua.set_app_data(Arc::clone(&cache));
+    Ok(cache)
+}
+
 fn loader_indicator(
     table: Option<mlua::Table>,
 ) -> mlua::Result<Option<pi_rs_tui::loader::Indicator>> {
@@ -3077,36 +3205,66 @@ pub(crate) fn build(
                         }
                     })
                 };
+                // Content-addressed memoization. `signature` fingerprints every
+                // input that can change output — the theme/color Lua closures
+                // (via stable function pointers), style flags, preserve marker
+                // option, and code indent. Combined with (width, padding, text)
+                // it forms the cache key; a caller swapping a theme closure
+                // between identical-text calls changes the signature and misses,
+                // so a cached hit is always byte-identical to a fresh render.
+                let mut signature = 0xcbf29ce484222325u64;
+                fn mix_u64(hash: &mut u64, value: u64) {
+                    for byte in value.to_le_bytes() {
+                        *hash ^= u64::from(byte);
+                        *hash = hash.wrapping_mul(0x100000001b3);
+                    }
+                }
+                fn mix_bytes(hash: &mut u64, bytes: &[u8]) {
+                    for byte in bytes {
+                        *hash ^= u64::from(*byte);
+                        *hash = hash.wrapping_mul(0x100000001b3);
+                    }
+                }
+                mix_u64(&mut signature, 0x5A17); // markdown_render signature v1 marker
+                mix_bytes(&mut signature, b"preserve:"); // disambiguate the flag fields
+
                 let mut theme = MarkdownTheme::plain();
                 let mut default_style = DefaultTextStyle::default();
                 let mut options = MarkdownOptions::default();
                 if let Some(opts) = &opts {
                     if let Some(theme_table) = opts.get::<Option<mlua::Table>>("theme")? {
-                        let set = |slot: &mut StyleFn<'_>, key: &str| -> mlua::Result<()> {
+                        // Helper: if `key` is present in `table`, record its
+                        // function pointer in the signature and assign it to
+                        // the theme slot (absent => `identity`, not fingerprinted).
+                        let set = |slot: &mut StyleFn<'_>, key: &str, sig: &mut u64| -> mlua::Result<()> {
                             if let Some(function) =
                                 theme_table.get::<Option<mlua::Function>>(key)?
                             {
+                                mix_bytes(sig, key.as_bytes());
+                                mix_u64(sig, function.to_pointer() as u64);
                                 *slot = style_fn(function);
                             }
                             Ok(())
                         };
-                        set(&mut theme.heading, "heading")?;
-                        set(&mut theme.link, "link")?;
-                        set(&mut theme.link_url, "link_url")?;
-                        set(&mut theme.code, "code")?;
-                        set(&mut theme.code_block, "code_block")?;
-                        set(&mut theme.code_block_border, "code_block_border")?;
-                        set(&mut theme.quote, "quote")?;
-                        set(&mut theme.quote_border, "quote_border")?;
-                        set(&mut theme.hr, "hr")?;
-                        set(&mut theme.list_bullet, "list_bullet")?;
-                        set(&mut theme.bold, "bold")?;
-                        set(&mut theme.italic, "italic")?;
-                        set(&mut theme.strikethrough, "strikethrough")?;
-                        set(&mut theme.underline, "underline")?;
+                        set(&mut theme.heading, "heading", &mut signature)?;
+                        set(&mut theme.link, "link", &mut signature)?;
+                        set(&mut theme.link_url, "link_url", &mut signature)?;
+                        set(&mut theme.code, "code", &mut signature)?;
+                        set(&mut theme.code_block, "code_block", &mut signature)?;
+                        set(&mut theme.code_block_border, "code_block_border", &mut signature)?;
+                        set(&mut theme.quote, "quote", &mut signature)?;
+                        set(&mut theme.quote_border, "quote_border", &mut signature)?;
+                        set(&mut theme.hr, "hr", &mut signature)?;
+                        set(&mut theme.list_bullet, "list_bullet", &mut signature)?;
+                        set(&mut theme.bold, "bold", &mut signature)?;
+                        set(&mut theme.italic, "italic", &mut signature)?;
+                        set(&mut theme.strikethrough, "strikethrough", &mut signature)?;
+                        set(&mut theme.underline, "underline", &mut signature)?;
                         if let Some(function) =
                             theme_table.get::<Option<mlua::Function>>("highlight_code")?
                         {
+                            mix_bytes(&mut signature, b"highlight_code");
+                            mix_u64(&mut signature, function.to_pointer() as u64);
                             let error = std::rc::Rc::clone(&error);
                             theme.highlight_code = Some(Box::new(
                                 move |code: &str, lang: Option<&str>| match function
@@ -3123,25 +3281,64 @@ pub(crate) fn build(
                         if let Some(indent) =
                             theme_table.get::<Option<String>>("code_block_indent")?
                         {
+                            mix_bytes(&mut signature, b"code_block_indent");
+                            mix_bytes(&mut signature, indent.as_bytes());
                             theme.code_block_indent = Some(indent);
                         }
                     }
-                    if let Some(function) = opts.get::<Option<mlua::Function>>("color")? {
-                        default_style.color = Some(style_fn(function));
-                    }
-                    if let Some(function) = opts.get::<Option<mlua::Function>>("bg_color")? {
-                        default_style.bg_color = Some(style_fn(function));
-                    }
-                    default_style.bold = opts.get::<Option<bool>>("bold")?.unwrap_or(false);
-                    default_style.italic = opts.get::<Option<bool>>("italic")?.unwrap_or(false);
-                    default_style.strikethrough =
+                    let mix_color_opt =
+                        |key: &str, slot: &mut Option<StyleFn<'static>>, sig: &mut u64| -> mlua::Result<()> {
+                            if let Some(function) = opts.get::<Option<mlua::Function>>(key)? {
+                                mix_bytes(sig, key.as_bytes());
+                                mix_u64(sig, function.to_pointer() as u64);
+                                *slot = Some(style_fn(function));
+                            }
+                            Ok(())
+                        };
+                    mix_color_opt("color", &mut default_style.color, &mut signature)?;
+                    mix_color_opt("bg_color", &mut default_style.bg_color, &mut signature)?;
+                    let bold = opts.get::<Option<bool>>("bold")?.unwrap_or(false);
+                    let italic = opts.get::<Option<bool>>("italic")?.unwrap_or(false);
+                    let strikethrough =
                         opts.get::<Option<bool>>("strikethrough")?.unwrap_or(false);
-                    default_style.underline =
-                        opts.get::<Option<bool>>("underline")?.unwrap_or(false);
+                    let underline = opts.get::<Option<bool>>("underline")?.unwrap_or(false);
+                    default_style.bold = bold;
+                    default_style.italic = italic;
+                    default_style.strikethrough = strikethrough;
+                    default_style.underline = underline;
+                    mix_u64(&mut signature, bold as u64);
+                    mix_u64(&mut signature, italic as u64);
+                    mix_u64(&mut signature, strikethrough as u64);
+                    mix_u64(&mut signature, underline as u64);
                     options.preserve_ordered_list_markers = opts
                         .get::<Option<bool>>("preserve_ordered_list_markers")?
                         .unwrap_or(false);
+                    mix_u64(&mut signature, options.preserve_ordered_list_markers as u64);
                 }
+
+                let padding_x = padding_x.unwrap_or(0);
+                let padding_y = padding_y.unwrap_or(0);
+
+                let cache = markdown_render_cache(lua)?;
+                let text_hash =
+                    MarkdownRenderCache::key_hash(width, padding_x, padding_y, signature, &text);
+                let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(cached) = cache_guard.lookup(
+                    text_hash,
+                    width,
+                    padding_x,
+                    padding_y,
+                    signature,
+                    &text,
+                ) {
+                    drop(cache_guard);
+                    let result = lua.create_table()?;
+                    for line in cached {
+                        result.push(line)?;
+                    }
+                    return Ok(result);
+                }
+
                 let has_default_style = default_style.color.is_some()
                     || default_style.bg_color.is_some()
                     || default_style.bold
@@ -3154,10 +3351,22 @@ pub(crate) fn build(
                     options,
                 );
                 let lines =
-                    renderer.render(&text, width, padding_x.unwrap_or(0), padding_y.unwrap_or(0));
+                    renderer.render(&text, width, padding_x, padding_y);
                 if let Some(failure) = error.borrow_mut().take() {
                     return Err(failure);
                 }
+                cache_guard.insert(
+                    MarkdownRenderKey {
+                        width,
+                        padding_x,
+                        padding_y,
+                        signature,
+                        text: text.clone(),
+                    },
+                    text_hash,
+                    lines.clone(),
+                );
+                drop(cache_guard);
                 let result = lua.create_table()?;
                 for line in lines {
                     result.push(line)?;
@@ -3960,4 +4169,150 @@ pub(crate) fn resolve_role(lua: &mlua::Lua, requested: &str) -> mlua::Result<Opt
         source,
         handler: declaration.get("handler")?,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+
+    #[test]
+    fn markdown_cache_hit_returns_same_lines_for_identical_key() {
+        let mut cache = MarkdownRenderCache::default();
+        let text = "# Hi\n\n- one\n- two".to_owned();
+        let (width, px, py, sig) = (40usize, 1usize, 0usize, 123u64);
+        let hash = MarkdownRenderCache::key_hash(width, px, py, sig, &text);
+        let lines = vec!["Hi".to_owned(), "- one".to_owned(), "- two".to_owned()];
+        cache.insert(
+            MarkdownRenderKey {
+                width,
+                padding_x: px,
+                padding_y: py,
+                signature: sig,
+                text: text.clone(),
+            },
+            hash,
+            lines.clone(),
+        );
+        let hit = cache
+            .lookup(hash, width, px, py, sig, &text)
+            .expect("identical key must hit");
+        assert_eq!(hit, lines);
+    }
+
+    #[test]
+    fn markdown_cache_misses_on_theme_signature_change() {
+        let mut cache = MarkdownRenderCache::default();
+        let text = "same text".to_owned();
+        let (width, px, py) = (20usize, 0usize, 0usize);
+        let hash_a = MarkdownRenderCache::key_hash(width, px, py, 1, &text);
+        cache.insert(
+            MarkdownRenderKey {
+                width,
+                padding_x: px,
+                padding_y: py,
+                signature: 1,
+                text: text.clone(),
+            },
+            hash_a,
+            vec!["a".to_owned()],
+        );
+        // Same text/layout but a different theme closure => different signature.
+        let hash_b = MarkdownRenderCache::key_hash(width, px, py, 2, &text);
+        assert!(
+            cache.lookup(hash_b, width, px, py, 2, &text).is_none(),
+            "changed theme signature must not hit"
+        );
+    }
+
+    #[test]
+    fn markdown_cache_misses_on_text_change() {
+        let mut cache = MarkdownRenderCache::default();
+        let text = "original".to_owned();
+        let (width, px, py, sig) = (20usize, 0usize, 0usize, 7u64);
+        let hash = MarkdownRenderCache::key_hash(width, px, py, sig, &text);
+        cache.insert(
+            MarkdownRenderKey {
+                width,
+                padding_x: px,
+                padding_y: py,
+                signature: sig,
+                text: text.clone(),
+            },
+            hash,
+            vec!["x".to_owned()],
+        );
+        // Changed text (even tiny) must not hit.
+        let changed = "originaL".to_owned();
+        assert!(
+            cache.lookup(hash, width, px, py, sig, &changed).is_none(),
+            "changed text must not hit"
+        );
+    }
+
+    #[test]
+    fn markdown_cache_fifo_evicts_oldest_entry() {
+        let mut cache = MarkdownRenderCache::default();
+        let (width, px, py, sig) = (10usize, 0usize, 0usize, 9u64);
+        for i in 0..MD_CACHE_MAX_ENTRIES + 5 {
+            let text = format!("body {i}");
+            let hash = MarkdownRenderCache::key_hash(width, px, py, sig, &text);
+            cache.insert(
+                MarkdownRenderKey {
+                    width,
+                    padding_x: px,
+                    padding_y: py,
+                    signature: sig,
+                    text: text.clone(),
+                },
+                hash,
+                vec![format!("line {i}")],
+            );
+        }
+        assert!(
+            cache.entries.len() <= MD_CACHE_MAX_ENTRIES,
+            "entry bound not enforced"
+        );
+        // Oldest entries (0..5) were evicted.
+        for i in 0..5 {
+            let text = format!("body {i}");
+            let hash = MarkdownRenderCache::key_hash(width, px, py, sig, &text);
+            assert!(
+                cache.lookup(hash, width, px, py, sig, &text).is_none(),
+                "oldest entry {i} should have been evicted"
+            );
+        }
+        // Newest survived.
+        for i in MD_CACHE_MAX_ENTRIES..MD_CACHE_MAX_ENTRIES + 4 {
+            let text = format!("body {i}");
+            let hash = MarkdownRenderCache::key_hash(width, px, py, sig, &text);
+            assert!(
+                cache.lookup(hash, width, px, py, sig, &text).is_some(),
+                "newest entry {i} must survive"
+            );
+        }
+    }
+
+    #[test]
+    fn markdown_cache_skips_oversized_single_entry() {
+        let mut cache = MarkdownRenderCache::default();
+        // Force the entry to exceed the byte bound with a huge number of lines.
+        let text = "t".to_owned();
+        let huge_lines: Vec<String> = vec!["x".repeat(MD_CACHE_MAX_BYTES + 1)];
+        let (width, px, py, sig) = (10usize, 0usize, 0usize, 3u64);
+        let hash = MarkdownRenderCache::key_hash(width, px, py, sig, &text);
+        cache.insert(
+            MarkdownRenderKey {
+                width,
+                padding_x: px,
+                padding_y: py,
+                signature: sig,
+                text,
+            },
+            hash,
+            huge_lines,
+        );
+        assert!(cache.entries.is_empty(), "oversized entry must be skipped");
+    }
 }
