@@ -79,6 +79,8 @@ pub const CODING_AGENT_PACK: EmbeddedPack = EmbeddedPack {
         "\n",
         include_str!("utils/agent-session.lua"),
         "\n",
+        include_str!("utils/bash-executor.lua"),
+        "\n",
         include_str!("coding-agent.lua"),
     ),
 };

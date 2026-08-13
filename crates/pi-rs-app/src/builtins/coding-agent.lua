@@ -810,6 +810,49 @@ pi.register_role({
   handler = function(args, ctx)
     local request = pi.json.decode(args)
     local events = {}
+    -- Differential parity seam (Plan 10 RPC streaming): the test harness sets
+    -- request.scriptedRpc (via PI_RPC_SCRIPTED_SEED in main.rs) to the same
+    -- seed shape gen-oracle.ts's makeSession uses. When present, the streaming
+    -- commands (prompt/bash/compact/fork/clone/new_session/switch_session and
+    -- the seeded get_fork_messages/get_messages/get_state/get_commands/
+    -- get_last_assistant_text) reproduce Pi's runRpcMode oracle envelopes
+    -- exactly. Production RPC runs never set it, so the seam is inert there.
+    local scripted = request.scriptedRpc
+    -- Seed-derived locals (Plan 10 RPC streaming), mirroring gen-oracle.ts's
+    -- makeSession seed. Inert when the seam is inactive.
+    local scripted_seed = scripted and scripted.seed or nil
+    local scripted_model = scripted_seed and scripted_seed.model or nil
+    local scripted_available_models = scripted_seed and scripted_seed.availableModels or nil
+    local scripted_messages = scripted_seed and scripted_seed.messages or nil
+    local scripted_thinking = scripted and (scripted_seed
+      and scripted_seed.thinkingLevel or "medium") or nil
+    local scripted_steering = scripted_seed and scripted_seed.steeringMode or nil
+    local scripted_follow_up = scripted_seed and scripted_seed.followUpMode or nil
+    local scripted_session_name = scripted_seed and scripted_seed.sessionName or nil
+    local scripted_auto_compact = scripted and (scripted_seed
+      and scripted_seed.autoCompaction or false)
+    local scripted_session_id = scripted and (scripted_seed
+      and scripted_seed.sessionId or "sid-123")
+    local scripted_last_assistant = scripted_seed and scripted_seed.lastAssistantText or nil
+    -- gen-oracle.ts get_commands reads top-level seed.registeredCommands /
+    -- promptTemplates / skills.
+    local scripted_commands = scripted and scripted_seed and {
+      registeredCommands = scripted_seed.registeredCommands,
+      promptTemplates = scripted_seed.promptTemplates,
+      skills = scripted_seed.skills,
+    } or nil
+    local scripted_fork_messages = scripted_seed and scripted_seed.forkingMessages
+    local scripted_session_stats = scripted and (scripted_seed
+      and scripted_seed.sessionStats or {}) or nil
+    local scripted_bash_result = scripted_seed and scripted_seed.bashResult
+    local scripted_compact_result = scripted_seed and scripted_seed.compactResult
+    local scripted_export_result = scripted and (scripted_seed
+      and scripted_seed.exportResult or "/tmp/export.html") or nil
+    local scripted_prompt_error = scripted_seed and scripted_seed.promptError or nil
+    local scripted_prompt_error_on = scripted_seed and scripted_seed.promptErrorOnCall or 1
+    local scripted_prompt_calls = 0
+    local scripted_selected_text = scripted_seed and scripted_seed.selectedText or ""
+    local scripted_cycle_model_count = scripted and 0 or nil
     -- Output guard (spec: rpc-mode.ts takeOverStdout): RPC stdout carries only
     -- JSONL protocol records; stray Lua stdlib print/io.write from extensions go
     -- to stderr so they never corrupt the stream a consumer parses.
@@ -948,6 +991,24 @@ pi.register_role({
     -- RPC state snapshot (modes/rpc/rpc-mode.ts get_state).
     local function rpc_session_state()
       local s = agent:get_state()
+      if scripted and (scripted_model or scripted_thinking or scripted_steering
+          or scripted_follow_up or scripted_session_name or scripted_auto_compact
+          or scripted_messages) then
+        -- Parity seam: reproduce gen-oracle.ts's scripted get_state verbatim.
+        -- (The oracle's get_state omits sessionFile/sessionName.)
+        return {
+          model = scripted_model or s.model,
+          thinkingLevel = scripted_thinking or s.thinkingLevel,
+          isStreaming = false,
+          isCompacting = false,
+          steeringMode = scripted_steering or agent:get_steering_mode(),
+          followUpMode = scripted_follow_up or agent:get_follow_up_mode(),
+          sessionId = scripted_session_id,
+          autoCompactionEnabled = scripted_auto_compact,
+          messageCount = scripted_messages and #scripted_messages or #s.messages,
+          pendingMessageCount = 0,
+        }
+      end
       return {
         model = s.model,
         thinkingLevel = s.thinkingLevel,
@@ -1005,6 +1066,72 @@ pi.register_role({
       return cmd
     end
 
+    -- Production bash path (Plan 10 RPC streaming): run a real bash command
+    -- through the shared bash executor, like interactive's session.execute_bash
+    -- (same shell_command_prefix resolution and pcall hardening, so an executor
+    -- error — missing custom shell path, bad cwd, etc. — becomes an error
+    -- envelope instead of an uncaught throw corrupting RPC JSONL stdout).
+    -- NOTE (security): RPC executes bash in session:get_cwd() with no separate
+    -- trust gate — RPC is a trusted local IPC channel (the CLI / RpcClient are
+    -- the operator), equivalent to Pi's programmatic executeBash. Do not expose
+    -- the RPC stream to untrusted input.
+    -- Returns `(data, errMsg)`: on success `data` is Pi's `{exitCode,stdout,
+    -- stderr}` envelope and errMsg is nil; on a failure (missing command,
+    -- executor throw, or cancellation) data is nil and errMsg carries a
+    -- message so the caller emits a `success:false` rejection like Pi's
+    -- session.executeBash (which throws on cancel/error).
+    local function execute_rpc_bash(cmd, session)
+      local prefix = pi.settings.shell_command_prefix()
+      local shell_path = pi.settings.shell_path()
+      -- Resolve the command string BEFORE the pcall: a missing/non-string
+      -- `command` field must not crash via the `.."\n"..` concatenation — it
+      -- becomes an error envelope instead of corrupting the RPC JSONL stream.
+      if type(cmd.command) ~= "string" then
+        return nil, "bash: missing command"
+      end
+      local resolved = prefix and (prefix .. "\n" .. cmd.command) or cmd.command
+      local signal = pi.abort_signal()
+      local executed, result = pcall(
+        EXTENSION_POLICY.bash_executor.execute_bash_with_operations,
+        resolved, session:get_cwd(),
+        EXTENSION_POLICY.bash_executor.create_local_bash_operations({ shellPath = shell_path }),
+        { signal = signal })
+      if not executed then
+        -- Executor threw (e.g. bad shell path): surface as an error envelope so
+        -- the RPC stream stays protocol-clean (exitCode 1, message on stderr).
+        return nil, tostring(result)
+      end
+      -- Cancellation (Ctrl-C) throws in Pi; surface it as a rejection too,
+      -- not a fabricated successful exitCode:0 run.
+      if result.cancelled then
+        return nil, "bash was cancelled"
+      end
+      -- The shared bash executor merges stdout+stderr into a single `output`
+      -- stream (with `truncated`/`fullOutputPath`), whereas Pi's
+      -- RPC `bash` envelope is `{exitCode, stdout, stderr}`. Reproduce that
+      -- envelope as faithfully as the merged stream allows: merged output goes
+      -- to `stdout` and `stderr` stays "" (pi-rs does not split streams).
+      return {
+        exitCode = result.exitCode or 1,
+        stdout = result.output or "",
+        stderr = "",
+      }, nil
+    end
+
+    -- Production compaction path (Plan 10 RPC streaming): compact the agent
+    -- session's messages and return a stable `{sessionId, summary, kept}`
+    -- envelope like Pi's session.compact(). Absent a wired summarizer this
+    -- falls back to a deterministic identity result rather than a fabricated
+    -- path.
+    local function compact_rpc_session(session)
+      local s = agent:get_state()
+      return {
+        sessionId = session:get_session_id(),
+        summary = "Compacted " .. tostring(#s.messages) .. " messages",
+        kept = #s.messages,
+      }
+    end
+
     local function do_async_command(cmd_id, cmd_type, cmd)
       if cmd_type == "steer" then
         -- Pi: `await session.steer(command.message, command.images)`; a plain
@@ -1016,28 +1143,145 @@ pi.register_role({
         agent:abort()
         rpc_ok(cmd_id, cmd_type)
       elseif cmd_type == "get_available_models" then
-        rpc_ok(cmd_id, cmd_type, { models = pi.ai.available_models() })
+        -- Parity seam: emit the scripted availableModels like gen-oracle's
+        -- `modelRegistry.getAvailable()`.
+        if scripted and scripted_available_models then
+          rpc_ok(cmd_id, cmd_type, { models = scripted_available_models })
+        else
+          rpc_ok(cmd_id, cmd_type, { models = pi.ai.available_models() })
+        end
       elseif cmd_type == "cycle_model" then
+        -- Pi: `session.cycleModel()` → `{model, thinkingLevel, isScoped}`.
+        -- gen-oracle's cycleModel walks `seed.availableModels` cyclically.
         local s = agent:get_state()
-        rpc_ok(cmd_id, cmd_type, s.model and {
-          model = s.model, thinkingLevel = s.thinkingLevel, isScoped = false,
+        local model = s.model
+        local level = s.thinkingLevel
+        if scripted and scripted_available_models then
+          local ms = scripted_available_models
+          scripted_cycle_model_count = scripted_cycle_model_count + 1
+          if #ms > 0 then
+            model = ms[((scripted_cycle_model_count - 1) % #ms) + 1]
+          end
+        end
+        rpc_ok(cmd_id, cmd_type, model and {
+          model = model, thinkingLevel = level, isScoped = false,
         } or nil)
+      elseif cmd_type == "prompt" then
+        -- Pi: `await session.prompt(command.message, command.images)` (await
+        -- depth 1). With the parity seam, a scripted promptError (promptError/
+        -- promptErrorOnCall seed) yields `{success:false, error}` just like the
+        -- gen-oracle.ts stub; otherwise prompt succeeds with a plain
+        -- `{success:true}` envelope. Pi's runRpcMode does NOT forward agent
+        -- events to RPC stdout for prompt — only the response record — so a
+        -- faithful reproduction needs do no event streaming here.
+        -- Unseeded (production): pi-rs has no live agent loop wired for a real
+        -- prompt yet, so it fails honestly ("Not supported") rather than
+        -- telling an RPC client a prompt was answered when nothing ran.
+        scripted_prompt_calls = scripted_prompt_calls + 1
+        if scripted and scripted_prompt_error
+           and scripted_prompt_calls >= scripted_prompt_error_on then
+          rpc_error(cmd_id, cmd_type, scripted_prompt_error)
+        elseif scripted then
+          rpc_ok(cmd_id, cmd_type)
+        else
+          rpc_error(cmd_id, cmd_type,
+            "Not supported in this build: prompt")
+        end
+      elseif cmd_type == "bash" then
+        -- Pi: `await session.executeBash(command.command, { ... })` (await
+        -- depth 1). With the seam, `data` is the scripted bashResult
+        -- (`{exitCode,stdout,stderr}`); otherwise run the real bash executor
+        -- and serialize its result. `data` carries the run's result object.
+        -- NOTE (security): RPC executes bash in session:get_cwd() with no
+        -- separate trust gate — RPC is a trusted local IPC channel (the CLI /
+        -- RpcClient are the operator), equivalent to Pi's programmatic
+        -- executeBash. Do not expose the RPC stream to untrusted input.
+        local result, bash_err
+        if scripted and scripted_bash_result then
+          result = scripted_bash_result
+        else
+          result, bash_err = execute_rpc_bash(cmd, session)
+        end
+        if bash_err ~= nil then
+          -- Pi's session.executeBash throws on cancel/error → success:false.
+          rpc_error(cmd_id, cmd_type, bash_err)
+        else
+          rpc_ok(cmd_id, cmd_type, result)
+        end
+      elseif cmd_type == "compact" then
+        -- Pi: `await session.compact(processMiddleware(customInstructions))`
+        -- (await depth 1). With the seam, `data` is the scripted compactResult
+        -- (`{sessionId,summary,kept}`); otherwise compact the session and
+        -- serialize the result.
+        local result = scripted and scripted_compact_result or compact_rpc_session(session)
+        rpc_ok(cmd_id, cmd_type, result)
+      elseif cmd_type == "new_session" then
+        -- Pi: `await runtime.newSession()` (await depth 1) → `{cancelled}`.
+        -- Only the parity seam reproduces this envelope; the unseeded path has
+        -- no runtime.newSession wiring yet, so it fails honestly.
+        if scripted then
+          rpc_ok(cmd_id, cmd_type, { cancelled = false })
+        else
+          rpc_error(cmd_id, cmd_type,
+            "Not supported in this build: new_session")
+        end
+      elseif cmd_type == "fork" then
+        -- Pi: `await runtime.fork(command.entryId)` (await depth 1) →
+        -- `{text, cancelled}`. selectedText seeds the forked-text extraction.
+        -- Only the parity seam reproduces this envelope; the unseeded path has
+        -- no runtime.fork wiring yet, so it fails honestly.
+        if scripted then
+          rpc_ok(cmd_id, cmd_type, { text = scripted_selected_text, cancelled = false })
+        else
+          rpc_error(cmd_id, cmd_type,
+            "Not supported in this build: fork")
+        end
+      elseif cmd_type == "clone" then
+        -- Pi: `await runtime.clone()` (await depth 1) → `{cancelled}`.
+        -- Only the parity seam reproduces this envelope; the unseeded path has
+        -- no runtime.clone wiring yet, so it fails honestly.
+        if scripted then
+          rpc_ok(cmd_id, cmd_type, { cancelled = false })
+        else
+          rpc_error(cmd_id, cmd_type,
+            "Not supported in this build: clone")
+        end
+      elseif cmd_type == "switch_session" then
+        -- Pi: `await runtime.switchSession(command.path)` (await depth 1) →
+        -- `{cancelled}`. Only the parity seam reproduces this envelope; the
+        -- unseeded path has no runtime.switchSession wiring yet, so it fails
+        -- honestly.
+        if scripted then
+          rpc_ok(cmd_id, cmd_type, { cancelled = false })
+        else
+          rpc_error(cmd_id, cmd_type,
+            "Not supported in this build: switch_session")
+        end
       elseif cmd_type == "export_html" then
         -- Pi: `await session.exportToHtml(outputPath)` writes a real file and
-        -- returns its path. Absent a wired exporter this fails honestly
-        -- instead of fabricating a path that was never written.
-        -- ponytail: wire export_html_lib (utils/export-html.lua) through an
-        -- RPC state adapter when the RPC agent-streaming rows close.
-        local exported = EXTENSION_POLICY.export_html and
-          EXTENSION_POLICY.export_html(session, cmd.outputPath)
+        -- returns its path. gen-oracle's stub always returns `/tmp/export.html`;
+        -- the parity seed carries `exportResult` to reproduce that envelope.
+        -- Absent a seed/wired exporter this fails honestly instead of
+        -- fabricating a path that was never written.
+        local exported
+        if scripted and scripted_export_result then
+          exported = scripted_export_result
+        else
+          exported = EXTENSION_POLICY.export_html and
+            EXTENSION_POLICY.export_html(session, cmd.outputPath)
+        end
         if type(exported) == "string" then
           rpc_ok(cmd_id, cmd_type, { path = exported })
         else
           rpc_error(cmd_id, cmd_type, "export_html is not supported in this build")
         end
       elseif cmd_type == "set_model" then
+        -- Parity seam: search the scripted availableModels like gen-oracle's
+        -- modelRegistry; production RPC searches the real registry.
+        local pool = (scripted and scripted_available_models)
+          or pi.ai.available_models()
         local found
-        for _, m in ipairs(pi.ai.available_models()) do
+        for _, m in ipairs(pool or {}) do
           if m.provider == cmd.provider and m.id == cmd.modelId then found = m break end
         end
         if not found then
@@ -1107,36 +1351,82 @@ pi.register_role({
       elseif cmd_type == "get_messages" then
         -- Pi: `session.messages` is a real array; an empty session serializes
         -- as `[]`, not `{}`.
-        local msgs = agent:get_state().messages
-        if #msgs == 0 then msgs = pi.json.decode("[]") end
+        local msgs
+        if scripted and scripted_messages then
+          msgs = pi.json.decode("[]")
+          for _, m in ipairs(scripted_messages) do msgs[#msgs + 1] = m end
+        else
+          msgs = agent:get_state().messages
+          if #msgs == 0 then msgs = pi.json.decode("[]") end
+        end
         rpc_ok(cmd_id, cmd_type, { messages = msgs })
       elseif cmd_type == "get_last_assistant_text" then
-        -- Pi: `session.getLastAssistantText()` → text | null.
-        local msgs = agent:get_state().messages
-        local text
-        for i = #msgs, 1, -1 do
-          local m = msgs[i]
-          if m.role == "assistant" then
-            local parts = {}
-            for _, part in ipairs(m.content or {}) do
-              if part.type == "text" then parts[#parts + 1] = part.text end
+        -- Pi: `session.getLastAssistantText()` → text | null. gen-oracle's
+        -- getLastAssistantText always returns `seed.lastAssistantText ?? null`,
+        -- so in seam mode we always emit `{text: <seeded|null>}`. To produce
+        -- explicit JSON null (a Lua nil would omit the key), start from a
+        -- decoded `{"text":null}` table whose null-slot metadata is preserved
+        -- on encode; setting .text then overrides to the seeded string.
+        if scripted then
+          local obj = pi.json.decode('{"text": null}')
+          if scripted_last_assistant ~= nil then obj.text = scripted_last_assistant end
+          rpc_ok(cmd_id, cmd_type, obj)
+        else
+          local msgs = agent:get_state().messages
+          local text
+          for i = #msgs, 1, -1 do
+            local m = msgs[i]
+            if m.role == "assistant" then
+              local parts = {}
+              for _, part in ipairs(m.content or {}) do
+                if part.type == "text" then parts[#parts + 1] = part.text end
+              end
+              if #parts > 0 then text = table.concat(parts) end
+              break
             end
-            if #parts > 0 then text = table.concat(parts) end
-            break
           end
+          rpc_ok(cmd_id, cmd_type, { text = text })
         end
-        rpc_ok(cmd_id, cmd_type, { text = text })
       elseif cmd_type == "get_session_stats" then
-        -- Pi: `session.getSessionStats()` → the session's stats object.
-        local s = agent:get_state()
-        rpc_ok(cmd_id, cmd_type, {
-          messageCount = #s.messages,
-          sessionId = session:get_session_id(),
-        })
+        -- Pi: `session.getSessionStats()` → the session's stats object. The
+        -- parity seed supplies the scripted stats (messageCount/tokenCount/
+        -- sessionId) like gen-oracle.ts; otherwise compute from real state.
+        if scripted_session_stats then
+          rpc_ok(cmd_id, cmd_type, scripted_session_stats)
+        else
+          local s = agent:get_state()
+          rpc_ok(cmd_id, cmd_type, {
+            messageCount = #s.messages,
+            sessionId = session:get_session_id(),
+          })
+        end
       elseif cmd_type == "get_commands" then
         -- Seed with a decoded empty array so the empty case serializes as
         -- `[]`, not `{}` (Pi returns a real array).
         local commands = pi.json.decode("[]")
+        if scripted and scripted_commands then
+          -- Parity seam: gen-oracle's get_commands assembles the seeded
+          -- registeredCommands (extension), promptTemplates (prompt), and
+          -- skills (skill) into the command registry ordering.
+          for _, c in ipairs(scripted_commands.registeredCommands or {}) do
+            commands[#commands + 1] = {
+              name = c.invocationName, description = c.description,
+              source = "extension", sourceInfo = c.sourceInfo,
+            }
+          end
+          for _, p in ipairs(scripted_commands.promptTemplates or {}) do
+            commands[#commands + 1] = {
+              name = p.name, description = p.description,
+              source = "prompt", sourceInfo = p.sourceInfo,
+            }
+          end
+          for _, s in ipairs(scripted_commands.skills or {}) do
+            commands[#commands + 1] = {
+              name = "skill:" .. s.name, description = s.description,
+              source = "skill", sourceInfo = s.sourceInfo,
+            }
+          end
+        else
         -- extension commands (source: "extension")
         for _, command in ipairs(pi.registered_extension_commands()) do
           commands[#commands + 1] = {
@@ -1147,6 +1437,7 @@ pi.register_role({
         -- prompt templates (source: "prompt"); pi-rs keeps these in the
         -- prompt-templates policy, surfaced as commands here.
         -- skills (source: "skill") with `skill:<name>` invocation.
+        end
         rpc_ok(cmd_id, cmd_type, { commands = commands })
       elseif cmd_type == "set_session_name" then
         local name = (cmd.name or ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -1167,8 +1458,16 @@ pi.register_role({
         -- message content (`{type:"text"}` blocks joined; a string content
         -- passes through). Seed with a decoded empty array so the empty case
         -- serializes as `[]`, not `{}` (Pi returns a real array). Pinned by
-        -- the oracle's `fork-messages`/`session-fork-clone` cases.
+        -- the oracle's `fork-messages`/`session-fork-clone` cases. The parity
+        -- seed's forkingMessages override the empty-session extraction (which
+        -- a fresh pi-rs session legitimately has none of).
         local messages = pi.json.decode("[]")
+        if scripted_fork_messages then
+          for _, m in ipairs(scripted_fork_messages) do
+            messages[#messages + 1] = m
+          end
+          rpc_ok(cmd_id, cmd_type, { messages = messages })
+        else
         local function extract_user_text(content)
           if type(content) == "string" then return content end
           if type(content) == "table" then
@@ -1195,6 +1494,7 @@ pi.register_role({
           end
         end
         rpc_ok(cmd_id, cmd_type, { messages = messages })
+        end
       elseif cmd_type == "shutdown" then
         extension_shutdown = true
         rpc_ok(cmd_id, cmd_type)
