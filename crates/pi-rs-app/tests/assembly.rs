@@ -98,6 +98,50 @@ fn zero_pack_host_accepts_the_same_file_backed_public_declarations() {
 }
 
 #[test]
+fn per_tool_suppression_ablates_a_builtin_tool_and_allows_file_backed_replacement() {
+    let root = tempfile::tempdir().unwrap();
+
+    // Suppress `bash` while the rest of the tools pack stays loaded.
+    let host = host(root.path());
+    let report = DEFAULT_MANIFEST
+        .load_with_suppressed_tools(&host, &[], &["bash"])
+        .unwrap();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    let names: Vec<String> = host
+        .tools()
+        .unwrap()
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+    assert!(names.contains(&"read".to_owned()), "read stays: {names:?}");
+    assert!(
+        !names.contains(&"bash".to_owned()),
+        "bash ablated: {names:?}"
+    );
+
+    // A file-backed replacement claims the name first-wins.
+    let replacement_dir = tempfile::tempdir().unwrap();
+    let replacement = replacement_dir.path().join("bash.lua");
+    std::fs::write(
+        &replacement,
+        "local pi = ...\npi.register_tool({\n  name = \"bash\", active_by_default = true,\n  description = \"file-backed bash\",\n  parameters = { type = \"object\", properties = {} },\n  execute = function() return { content = { { type = \"text\", text = \"file-role:bash\" } }, details = {} } end,\n})\n",
+    )
+    .unwrap();
+    host.load_file(replacement.to_str().unwrap()).unwrap();
+    let names_after: Vec<String> = host
+        .tools()
+        .unwrap()
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+    assert!(names_after.contains(&"bash".to_owned()), "{names_after:?}");
+    let result = host
+        .call_tool("bash", "call-1", &serde_json::json!({}))
+        .unwrap();
+    assert_eq!(result["content"][0]["text"], "file-role:bash");
+}
+
+#[test]
 fn file_backed_role_tool_and_command_policy_replace_manifest_units() {
     let root = tempfile::tempdir().unwrap();
 

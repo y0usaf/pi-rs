@@ -80,6 +80,13 @@ pub(crate) enum Msg {
     Providers {
         reply: SyncSender<Result<Vec<ProviderInfo>, HostError>>,
     },
+    /// First-party tool ablation (PLAN 9.10): remove a registered tool by
+    /// name from its owning extension so a default builtin can be disabled
+    /// and replaced from an ordinary file-backed package.
+    UnregisterTool {
+        name: String,
+        reply: SyncSender<Result<(), HostError>>,
+    },
     ExtensionConflicts {
         reply: SyncSender<Result<Vec<(String, String)>, HostError>>,
     },
@@ -182,6 +189,11 @@ fn vm_main(config: HostConfig, rx: Receiver<Msg>, init_tx: SyncSender<Result<(),
             }
             Msg::SetFlagValue { name, value, reply } => {
                 let result = api::set_flag_value(&lua, &name, &value)
+                    .map_err(|error| HostError::Lua(error.to_string()));
+                let _ = reply.send(result);
+            }
+            Msg::UnregisterTool { name, reply } => {
+                let result = api::unregister_tool(&lua, &name)
                     .map_err(|error| HostError::Lua(error.to_string()));
                 let _ = reply.send(result);
             }

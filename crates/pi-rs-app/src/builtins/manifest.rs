@@ -29,6 +29,8 @@ pub enum ManifestError {
     UnknownPackage(String),
     #[error("builtin package '{0}' was suppressed more than once")]
     DuplicateSuppression(String),
+    #[error("failed to suppress tool '{0}': {1}")]
+    ToolSuppression(String, String),
 }
 
 pub const PACKAGES: &[BuiltinPackage] = &[
@@ -62,6 +64,20 @@ impl BuiltinManifest {
     /// Selection is deterministic and fail-closed: unknown or duplicate IDs do
     /// not silently alter the shipped composition.
     pub fn load(&self, host: &Host, suppressed: &[&str]) -> Result<LoadReport, ManifestError> {
+        self.load_with_suppressed_tools(host, suppressed, &[])
+    }
+
+    /// Like [`Self::load`], but additionally unregister the named tools from
+    /// their owning (first-registering) extension after load. This is the
+    /// declarative per-tool ablation seam (PLAN 9.10): a default builtin tool
+    /// can be suppressed while the rest of its pack stays active, and an
+    /// ordinary file-backed package loaded afterwards claims the name.
+    pub fn load_with_suppressed_tools(
+        &self,
+        host: &Host,
+        suppressed: &[&str],
+        suppressed_tools: &[&str],
+    ) -> Result<LoadReport, ManifestError> {
         let known = self
             .packages
             .iter()
@@ -82,7 +98,13 @@ impl BuiltinManifest {
             .filter(|package| package.enabled_by_default && !disabled.contains(package.id))
             .map(|package| package.pack)
             .collect::<Vec<_>>();
-        Ok(host.load_embedded(&packs))
+        let report = host.load_embedded(&packs);
+        for tool in suppressed_tools {
+            host.unregister_tool(tool).map_err(|error| {
+                ManifestError::ToolSuppression((*tool).to_owned(), error.to_string())
+            })?;
+        }
+        Ok(report)
     }
 
     /// Load the substrate with zero first-party policy packs.
