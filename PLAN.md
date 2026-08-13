@@ -627,6 +627,67 @@ Complete these rungs before growing the extension surface further.
       precedence, and private globals. Do not force singular mechanisms into
       ceremonial registries.
 
+      **Closed (tools + shared-helper decomposition):** every builtin tool is now
+      independently ablatable and file-back replaceable. `pi.unregister_tool`
+      (Rust mechanism, DESIGN) + `Host::unregister_tool` + `BuiltinManifest::
+      load_with_suppressed_tools(&[], &["bash"])` disable one tool while the rest
+      of the pack stays loaded, and an ordinary file-backed package re-registers
+      the name first-wins (`per_tool_suppression_ablates_a_builtin_tool_and_allows_
+      file_backed_replacement`). The shared tool helpers the ports relied on are
+      now public exact-version modules instead of concat-order chunk-locals:
+      `pi.tools.prelude`, `pi.tools.path-utils`, `pi.tools.mime`, `pi.tools.diff`,
+      `pi.tools.edit-diff`, `pi.tools.output-accumulator`, `pi.tui.keybinding-hints`
+      (joining the already-public `pi.tools.{truncate,shell,render,file-mutation,
+      file-mutation-queue}` and `pi.tui.visual-truncate`). Construction-inventory
+      rows `tool.{read,bash,edit,write,grep,find,ls}` and the tool helper
+      `module.{prelude,path-utils,mime,output-accumulator,keybinding-hints,
+      diff-renderer,edit-diff}` went implemented with the referenced ablation and
+      reuse evidence; the inventory also gained coverage rows for the PLAN 9.7
+      resource/skill/prompt/package modules (`module.resources/skills/prompts/
+      packages`) and regenerated correctly (`construction-inventory --check`).
+
+      **Closed (wave 2 — file-backed shared-helper modules):** the remaining
+      tool shared-helper rows recorded their public exact-version modules and
+      gained file-backed exercisers: `module.{truncation,shell,tool-render-utils,
+      visual-truncate}` define `pi.tools.truncate@1`, `pi.tools.shell@1`,
+      `pi.tools.render@1`, `pi.tui.visual-truncate@1` (exercised by
+      `examples/extensions/module-demo.lua` /
+      `file_backed_extension_imports_builtin_tool_and_render_modules`), and
+      `module.export-html` defines `pi.interactive.export-html@1` (exercised by
+      `examples/extensions/export-html-consumer.lua` /
+      `file_backed_package_imports_the_same_export_html_module`).
+
+      **Closed (wave 3 — shared cross-pack agent-policy modules):** the
+      `module.{messages,branch-summary,compaction,system-prompt,agent-session,
+      bash-executor}` rows and the agent-policy half of the
+      `modules.chunk-local-helpers` concat tier are closed by a single-ownership
+      always-loaded substrate pack, `agent-core` (DESIGN "Shared-policy
+      substrate pack"). It defines one `pi.agent.*` exact-version module per
+      fragment — `pi.agent.messages@1`, `pi.agent.branch-summary@1`,
+      `pi.agent.compaction@1` (depends on branch-summary + messages),
+      `pi.agent.system-prompt@1`, `pi.agent.session-runtime@1`,
+      `pi.agent.bash-executor@1` (imports `pi.tools.truncate@1`) — and the
+      `interactive` and `coding-agent` packs de-duplicated their concats to
+      `require` + rebind the identical closures (mod.rs no longer
+      concatenates the shared fragments). `agent-core` is declared `core:
+      true` in the manifest: it cannot be suppressed (suppressing it would
+      break every dependent policy pack), per the 9.10 rule "do not force
+      singular mechanisms into ceremonial registries"; it still loads via the
+      same transactional `Host::load_embedded` path and a file-backed package
+      can define the same exact-version module name. Exercised from a
+      file-backed package by `examples/extensions/agent-core-module-demo.lua`
+      (`crates/pi-rs-app/tests/assembly.rs`
+      `file_backed_package_imports_the_shared_agent_core_modules`).
+
+      **Remaining (next waves):** the monolithic `interactive` frontend still
+      has open rows (per-feature ablation of the 12k-line frontend into
+      slot/render-middleware/event/session-runtime units), plus
+      `module.extension-composition`, agent-policy decomposition, command-
+      routing per-command suppression, theme/resource file-backed replacement,
+      the cross-pack shared `module.syntax-highlight` fragment, and the
+      `modules.chunk-local-helpers` concat tier that still underlies the
+      tools/extension/frontend packs.
+
       **Accept:** zero-pack boot; per-package ablation; ordinary file-backed
       replacements for application role, agent policy, each tool kind, compaction,
       command routing, every render/slot kind, theme, and resources; deleting the

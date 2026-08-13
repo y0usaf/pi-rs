@@ -208,6 +208,7 @@ pub(crate) fn install(lua: &Lua, pi: &mlua::Table) -> mlua::Result<()> {
 // differential oracle in `tests/package-transport-parity` (Pi-generated). Hosts
 // outside the embedded set that still matter can be added by extending the
 // recognizer + the oracle corpus (retain Pi as ground truth; never drift).
+
 /// A parsed git source (spec `GitSource`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitSource {

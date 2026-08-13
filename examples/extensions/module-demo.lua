@@ -9,15 +9,19 @@ local truncate = pi.module.require("pi.tools.truncate", "1")
 local render = pi.module.require("pi.tools.render", "1")
 local mutation_queue = pi.module.require("pi.tools.file-mutation-queue", "1")
 local shell = pi.module.require("pi.tools.shell", "1")
+local visual_truncate = pi.module.require("pi.tui.visual-truncate", "1")
 
 pi.register_command("module-demo", {
   description = "Exercise public builtin Lua modules",
   handler = function()
     local result = truncate.truncate_head("alpha\nbeta\ngamma", { maxLines = 2 })
+    local visual = visual_truncate.truncate_to_visual_lines("alpha\nbeta\ngamma", 2, 20, 0)
     return {
       content = result.content,
       path = render.shorten_path((pi.env.HOME or "") .. "/demo.txt"),
       truncated = result.truncated,
+      visualLines = #visual.visualLines,
+      visualSkipped = visual.skippedCount,
     }
   end,
 })

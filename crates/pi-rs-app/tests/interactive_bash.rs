@@ -16,7 +16,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use pi_rs_app::builtins::{CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
+use pi_rs_app::builtins::{AGENT_CORE_PACK, CODING_AGENT_PACK, INTERACTIVE_PACK, TOOLS_PACK};
 use pi_rs_host::{Host, HostConfig};
 
 fn read_request(stream: &mut TcpStream) -> serde_json::Value {
@@ -139,7 +139,7 @@ fn host(cwd: &str) -> Host {
         ..HostConfig::default()
     })
     .unwrap();
-    let report = host.load_embedded(&[
+    let report = host.load_embedded(&[AGENT_CORE_PACK,
         pi_rs_agent::PACK,
         TOOLS_PACK,
         CODING_AGENT_PACK,

@@ -912,7 +912,9 @@ fn file_backed_extension_imports_builtin_tool_and_render_modules() {
         json!({
             "content": "alpha\nbeta",
             "path": "~/demo.txt",
-            "truncated": true
+            "truncated": true,
+            "visualLines": 2,
+            "visualSkipped": 1
         })
     );
 

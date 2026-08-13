@@ -8,7 +8,20 @@
 --
 -- Shared fragment: included after utils/branch-summary.lua and messages.lua.
 -- Its export stays on the pack-local policy namespace.
-EXTENSION_POLICY.compaction = (function(pi, bs, convert_to_llm)
+-- Shared module: compaction policy exposed as the public exact-version
+-- module `pi.agent.compaction` (PLAN 9.7/9.10: module.compaction) so the
+-- builtin frontend/agent and file-backed replacements import the same
+-- closures instead of a concat-order chunk-local copy.
+pi.module.define({
+  name = "pi.agent.compaction",
+  version = "1",
+  dependencies = {
+    branch_summary = { name = "pi.agent.branch-summary", version = "1" },
+    messages = { name = "pi.agent.messages", version = "1" },
+  },
+  factory = function(deps)
+  local bs = deps.branch_summary
+  local convert_to_llm = deps.messages.convert_to_llm
   -- ---- DEFAULT_COMPACTION_SETTINGS ----
   local DEFAULT_COMPACTION_SETTINGS =
     { enabled = true, reserveTokens = 16384, keepRecentTokens = 20000 }
@@ -614,4 +627,5 @@ Be concise. Focus on what's needed to understand the kept suffix.]]
     is_context_overflow = is_context_overflow,
     get_message_from_entry = get_message_from_entry,
   }
-end)(pi, EXTENSION_POLICY.branch_summary, convert_to_llm)
+  end,
+})

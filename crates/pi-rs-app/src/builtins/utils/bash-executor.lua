@@ -5,9 +5,15 @@
 -- Output) and utils/ansi.ts stripAnsi. The truncateTail port is imported
 -- lazily from the tools package's exact-version public module.
 --
--- Shared fragment: included after extensions.lua. Its export is namespaced on
--- the pack-local policy table, not `_G`.
-EXTENSION_POLICY.bash_executor = (function(pi)
+-- Public exact-version module `pi.agent.bash-executor` (PLAN 9.7/9.10:
+-- module.bash-executor): builtin and file-backed command policy import the
+-- same closures instead of a concat-order chunk-local copy. No `_G` export
+-- or load-order-only global remains.
+pi.module.define({
+  name = "pi.agent.bash-executor",
+  version = "1",
+  dependencies = {},
+  factory = function(deps)
   local function strip_ansi(text)
     text = text:gsub("\27%][^\7\27]*\7", "")
     text = text:gsub("\27%][^\27]-\27\\", "")
@@ -174,5 +180,8 @@ EXTENSION_POLICY.bash_executor = (function(pi)
     get_shell_config = get_shell_config,
     create_local_bash_operations = create_local_bash_operations,
     execute_bash_with_operations = execute_bash_with_operations,
+    sanitize_binary_output = sanitize_binary_output,
+    strip_ansi = strip_ansi,
   }
-end)(pi)
+  end,
+})

@@ -829,11 +829,39 @@
       "id": "coding.public-assembly",
       "status": "open",
       "owner": "PLAN 9.10",
-      "rationale": "The coding-agent barrel still exposes policy implemented through monolithic/private composition; decomposition, ablation, and replacement must close before its public capability map can be accepted.",
+      "rationale": "Tools + shared-helper decomposition closed (every tool independently ablatable via pi.unregister_tool / Host::unregister_tool / BuiltinManifest::load_with_suppressed_tools with file-backed first-wins replacement, and the shared tool/render/export helpers are now public exact-version modules exercised from file-backed packages: pi.tools.{prelude,path-utils,mime,diff,edit-diff,output-accumulator,truncate,shell,render,file-mutation}, pi.tui.{keybinding-hints,visual-truncate}, pi.interactive.export-html). Wave 3 closed the shared cross-pack agent-policy rows via an always-loaded agent-core substrate pack exposing pi.agent.{messages,branch-summary,compaction,system-prompt,session-runtime,bash-executor} exact-version modules that the interactive/coding-agent packs require + rebind (de-duplicating the concats), closing module.{messages,branch-summary,compaction,system-prompt,agent-session,bash-executor} + the agent-policy half of modules.chunk-local-helpers. The coding-agent barrel still exposes monolithic interactive-frontend per-feature ablation, module.extension-composition, agent-policy decomposition, command-routing per-command suppression, theme/resource file-backed replacement, module.syntax-highlight, and the remaining chunk-local-helpers concat tier.",
       "evidence": [
         {
           "path": "PLAN.md",
           "contains": "Close first-party decomposition"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/assembly.rs",
+          "contains": "per_tool_suppression_ablates_a_builtin_tool_and_allows_file_backed_replacement"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/assembly.rs",
+          "contains": "file_backed_package_imports_the_shared_agent_core_modules"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/tools.rs",
+          "contains": "file_backed_extension_imports_builtin_tool_and_render_modules"
+        },
+        {
+          "path": "crates/pi-rs-app/tests/export_html_parity.rs",
+          "contains": "file_backed_package_imports_the_same_export_html_module"
+        },
+        {
+          "path": "examples/extensions/module-demo.lua",
+          "contains": "pi.module.require"
+        },
+        {
+          "path": "examples/extensions/export-html-consumer.lua",
+          "contains": "pi.module.require"
+        },
+        {
+          "path": "examples/extensions/agent-core-module-demo.lua",
+          "contains": "pi.module.require"
         }
       ],
       "refs": [
