@@ -36,6 +36,7 @@ unicode-normalization = "0.1"
 
 pi-rs-ai = { path = "crates/pi-rs-ai" }
 pi-rs-ai-auth = { path = "crates/pi-rs-ai-auth" }
+pi-rs-kernel = { path = "crates/pi-rs-kernel" }
 pi-rs-ai-types = { path = "crates/pi-rs-ai-types" }
 pi-rs-agent = { path = "crates/pi-rs-agent" }
 pi-rs-host = { path = "crates/pi-rs-host" }
