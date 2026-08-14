@@ -13,6 +13,7 @@ pub mod editor;
 pub mod fuzzy;
 pub mod input;
 pub mod kill_ring;
+pub mod lifecycle;
 pub mod loader;
 pub mod markdown;
 pub mod native_modifiers;
