@@ -880,7 +880,13 @@ async fn run(mut args: Args) -> ExitCode {
         "mode": args.mode.to_string(),
         "projectTrusted": project_trusted,
     });
-    let role = if interactive { "interactive" } else { "print" };
+    // The frontend is a declared unit (axiom 05): role selection goes through
+    // the app-decl registry rather than a hardcoded launcher branch. The
+    // interactive/headless choice selects a *declared* app; the launched role
+    // is that app's generic role on the public host registry.
+    let mut decl_registry = pi_rs_app::decl::Registry::new();
+    decl_registry.declare_shipped();
+    let role = decl_registry.select_frontend(interactive);
     match host.call_role(role, &request.to_string()) {
         Ok(Some(result)) => {
             if interactive {
