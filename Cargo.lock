@@ -1124,6 +1124,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pi-rs-kernel"
+version = "0.1.0"
+
+[[package]]
 name = "pi-rs-session"
 version = "0.1.0"
 dependencies = [
