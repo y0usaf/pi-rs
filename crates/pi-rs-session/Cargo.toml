@@ -8,6 +8,7 @@ description = "Session manager: append-only JSONL session trees (port of core/se
 [dependencies]
 getrandom.workspace = true
 indexmap.workspace = true
+pi-rs-kernel.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
