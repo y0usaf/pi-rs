@@ -18,6 +18,7 @@
 //! recorded divergences (sorted JSON keys, explicit config-dir
 //! parameters, synchronous listing).
 
+pub mod composable;
 pub mod messages;
 pub mod paths;
 pub mod session_manager;
