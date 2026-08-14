@@ -54,30 +54,22 @@ pub(crate) fn xxhash64(data: &[u8], seed: u64) -> u64 {
 }
 
 /// Version-4 random UUID string (`crypto.randomUUID()`).
-pub(crate) fn random_uuid() -> String {
+pub(crate) fn random_uuid() -> mlua::Result<String> {
     let mut bytes = [0_u8; 16];
-    if getrandom::fill(&mut bytes).is_err() {
-        // Fall back to a time-seeded degenerate value so the binding never
-        // panics; callers needing cryptographic uniqueness run on platforms
-        // where getrandom succeeds.
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
-        bytes[..8].copy_from_slice(&now.to_le_bytes());
-    }
+    getrandom::fill(&mut bytes)
+        .map_err(|e| mlua::Error::runtime(format!("crypto.random_uuid: getrandom failed: {e}")))?;
     // Set version 4 and the RFC 4122 variant bits.
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     let hex = hex(&bytes);
-    format!(
+    Ok(format!(
         "{}-{}-{}-{}-{}",
         &hex[0..8],
         &hex[8..12],
         &hex[12..16],
         &hex[16..20],
         &hex[20..32]
-    )
+    ))
 }
 
 /// Install `pi.crypto` and `pi.buffer` on the API table.
@@ -114,7 +106,7 @@ pub(crate) fn install(lua: &mlua::Lua, pi: &mlua::Table) -> mlua::Result<()> {
     )?;
     crypto.set(
         "random_uuid",
-        lua.create_function(|_, ()| Ok(random_uuid()))?,
+        lua.create_function(|_, ()| random_uuid())?,
     )?;
     pi.set("crypto", crypto)?;
 
