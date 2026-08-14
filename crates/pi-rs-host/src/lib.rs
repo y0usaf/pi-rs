@@ -33,6 +33,7 @@ pub mod hljs;
 mod http;
 pub mod image;
 mod jsdiff;
+pub mod lifecycle;
 pub mod model_registry;
 mod os;
 mod paths;
@@ -42,8 +43,8 @@ mod schema;
 mod session;
 mod settings;
 pub mod settings_manager;
-pub mod trust;
 mod tcp;
+pub mod trust;
 mod vm;
 
 pub use error::HostError;
@@ -201,6 +202,20 @@ impl Host {
     pub fn new(config: HostConfig) -> Result<Self, HostError> {
         let tx = vm::spawn(config)?;
         Ok(Self { tx })
+    }
+
+    /// Gracefully stop the VM thread: its host lifecycle is drained (reverse
+    /// topological effect scope), then the Lua state, tokio runtime, and any
+    /// dispatch-scoped background work are dropped. After this returns every
+    /// [`Host`] clone of this VM reports [`HostError::VmUnavailable`], and no
+    /// host-owned resource (Lua VM, subprocess, session handle, watcher, timer)
+    /// survives. Idempotent.
+    pub fn stop(&self) -> Result<(), HostError> {
+        let (reply, rx) = sync_channel(1);
+        self.tx
+            .send(vm::Msg::Stop { reply })
+            .map_err(|_| HostError::VmUnavailable)?;
+        rx.recv().map_err(|_| HostError::VmUnavailable)?
     }
 
     /// Load an extension chunk. `source_key` attributes registrations and
