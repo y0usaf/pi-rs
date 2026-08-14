@@ -212,6 +212,48 @@ pub fn get_capabilities() -> TerminalCapabilities {
     }
 }
 
+/// Snapshot the current module-wide allocation state for inverse replay.
+#[doc(hidden)]
+pub fn snapshot_image_state() -> ImageState {
+    ImageState {
+        cell_dimensions: get_cell_dimensions(),
+        cached_capabilities: CAPABILITIES.lock().ok().and_then(|cached| *cached),
+        fallback_image_id: IMAGE_ID_FALLBACK.load(Ordering::Relaxed),
+    }
+}
+
+/// Module-wide terminal-image allocation state that a scoped effect may
+/// restore so unmount leaves no residue.
+#[doc(hidden)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ImageState {
+    cell_dimensions: CellDimensions,
+    /// The cached capabilities if any were present (restored verbatim), or
+    /// `None` when the cache held nothing (restored by resetting it).
+    cached_capabilities: Option<TerminalCapabilities>,
+    /// Value of the deterministic fallback image-id counter.
+    fallback_image_id: u32,
+}
+
+impl ImageState {
+    /// Cell dimensions currently committed module-wide.
+    #[doc(hidden)]
+    pub fn cell_dimensions(&self) -> CellDimensions {
+        self.cell_dimensions
+    }
+}
+
+/// Restore the module to a previously snapshotted allocation state.
+#[doc(hidden)]
+pub fn restore_image_state(state: ImageState) {
+    set_cell_dimensions(state.cell_dimensions);
+    match state.cached_capabilities {
+        Some(capabilities) => set_capabilities(capabilities),
+        None => reset_capabilities_cache(),
+    }
+    IMAGE_ID_FALLBACK.store(state.fallback_image_id, Ordering::Relaxed);
+}
+
 pub fn reset_capabilities_cache() {
     if let Ok(mut cached) = CAPABILITIES.lock() {
         *cached = None;
