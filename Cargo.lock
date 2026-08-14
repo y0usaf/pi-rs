@@ -1108,6 +1108,7 @@ dependencies = [
  "pi-rs-ai",
  "pi-rs-ai-auth",
  "pi-rs-ai-types",
+ "pi-rs-kernel",
  "pi-rs-session",
  "pi-rs-tui",
  "reqwest",
