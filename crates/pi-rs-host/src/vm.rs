@@ -35,6 +35,12 @@ use crate::{
 const NTH_INSTRUCTION: u32 = 1000;
 
 pub(crate) enum Msg {
+    /// Stop the VM thread and drain its tracked host resources (reverse
+    /// topological effect scope). After handling, the VM thread exits and
+    /// drops its Lua state, tokio runtime, and any dispatch-scoped work.
+    Stop {
+        reply: SyncSender<Result<(), HostError>>,
+    },
     /// Execute an extension chunk (registrations happen as side effects).
     /// The chunk runs on the coroutine path too, so top-level awaits work.
     Load {
@@ -159,6 +165,10 @@ fn vm_main(config: HostConfig, rx: Receiver<Msg>, init_tx: SyncSender<Result<(),
 
     while let Ok(msg) = rx.recv() {
         match msg {
+            Msg::Stop { reply } => {
+                let _ = reply.send(Ok(()));
+                break;
+            }
             Msg::Load {
                 source_key,
                 source,
