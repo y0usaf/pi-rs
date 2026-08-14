@@ -1082,7 +1082,11 @@ impl<'a> MarkdownRenderer<'a> {
         if text.trim().is_empty() {
             return Vec::new();
         }
-        let normalized = text.replace('\t', "   ");
+        let normalized = if text.contains('\t') {
+            text.replace('\t', "   ")
+        } else {
+            text.to_owned()
+        };
         let tokens = lex_blocks(&normalized);
 
         let mut rendered_lines: Vec<String> = Vec::new();
@@ -1322,6 +1326,9 @@ impl<'a> MarkdownRenderer<'a> {
             }
         };
         let apply_with_newlines = |text: &str| -> String {
+            if !text.contains('\n') {
+                return (context.apply_text)(text);
+            }
             text.split('\n')
                 .map(|segment| (context.apply_text)(segment))
                 .collect::<Vec<_>>()

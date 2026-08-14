@@ -135,12 +135,9 @@ pub(crate) fn install(lua: &Lua, pi: &Table) -> mlua::Result<()> {
                 }
                 let client = reqwest::Client::new();
                 let request = build_request(&client, &url, options.as_ref())?;
-                let response = request.send().await.map_err(mlua::Error::external)?;
-                let status = response.status();
-                let headers = response.headers().clone();
-                let mut stream = response.bytes_stream();
 
-                // Abort the stream when the signal fires (mid-stream).
+                // Abort the request when the signal fires — before headers or
+                // mid-stream — and bound the whole exchange with the timeout.
                 let abort_fut = async {
                     match &signal {
                         Some(signal) => signal.aborted().await,
@@ -156,6 +153,15 @@ pub(crate) fn install(lua: &Lua, pi: &Table) -> mlua::Result<()> {
                     }
                 };
                 tokio::pin!(timeout_fut);
+
+                let response = tokio::select! {
+                    result = request.send() => result.map_err(mlua::Error::external)?,
+                    _ = &mut abort_fut => return Err(mlua::Error::runtime("http.stream aborted")),
+                    _ = &mut timeout_fut => return Err(mlua::Error::runtime("http.stream timed out")),
+                };
+                let status = response.status();
+                let headers = response.headers().clone();
+                let mut stream = response.bytes_stream();
 
                 'outer: loop {
                     tokio::select! {

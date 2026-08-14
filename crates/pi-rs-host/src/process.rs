@@ -85,6 +85,7 @@ impl Drop for LuaProcess {
     /// waitpid-loops on the tree so no zombie is left for a long-lived host.
     fn drop(&mut self) {
         self.kill_tree(libc::SIGKILL);
+        self.inner.borrow_mut().exited = true;
         if let Some(pid) = self.inner.borrow().pid
             && let Ok(pid) = i32::try_from(pid)
         {
@@ -100,17 +101,30 @@ fn reap_background(pid: i32) {
     let _ = std::thread::Builder::new()
         .name("pi-process-reap".to_owned())
         .spawn(move || {
+            // Reap every member of the killed process group, not just the
+            // first: SIGKILL can leave several children/grandchildren dead
+            // at once, and waitpid(WNOHANG) returns them one at a time.
+            // Idle-wait is bounded (2.5s) so a stuck D-state child can't
+            // leak this thread forever.
+            let deadline =
+                std::time::Instant::now() + std::time::Duration::from_millis(2500);
             unsafe {
-                for _ in 0..50 {
+                loop {
                     let status = libc::waitpid(-pid, std::ptr::null_mut(), libc::WNOHANG);
                     if status == -1 {
+                        if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                            continue;
+                        }
                         // ECHILD / ESRCH: no child left to reap.
                         return;
                     }
-                    if status != 0 {
-                        return; // reaped one member
+                    if status == 0 {
+                        if std::time::Instant::now() >= deadline {
+                            return;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    // status > 0: reaped one member; keep looping for the rest.
                 }
             }
         });
@@ -306,12 +320,13 @@ pub(crate) fn install(lua: &Lua, pi: &mlua::Table) -> mlua::Result<()> {
                 }));
 
                 // Optional signal/timeout: kill the tree when the signal
-                // aborts or the timeout elapses. The task captures only the
-                // pid (not the inner Rc) so it never holds the handle alive
-                // after the Lua side drops it — disposal still reaps the tree.
+                // aborts or the timeout elapses. The task holds a handle
+                // clone: the Rc keeps `child` alive (an unreaped child is a
+                // zombie pinning its pid), so a timeout firing after the
+                // tree died can never hit a recycled pid. `exited` (set by
+                // drop/wait/dispose on this same thread) skips the kill.
                 if signal.is_some() || timeout_ms.is_some_and(|ms| ms > 0) {
-                    #[cfg(unix)]
-                    let pid = pid.and_then(|p| i32::try_from(p).ok());
+                    let inner = Rc::clone(&inner);
                     tokio::task::spawn_local(async move {
                         let abort = async {
                             match &signal {
@@ -331,6 +346,11 @@ pub(crate) fn install(lua: &Lua, pi: &mlua::Table) -> mlua::Result<()> {
                             () = abort => {}
                             () = timeout => {}
                         }
+                        if inner.borrow().exited {
+                            return;
+                        }
+                        #[cfg(unix)]
+                        let pid = inner.borrow().pid.and_then(|p| i32::try_from(p).ok());
                         #[cfg(unix)]
                         if let Some(pid) = pid {
                             // SAFETY: kill(2) on the pid we spawned; the child
