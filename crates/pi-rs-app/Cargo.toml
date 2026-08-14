@@ -12,6 +12,7 @@ name = "pi"
 path = "src/main.rs"
 
 [dependencies]
+pi-rs-kernel = { workspace = true }
 pi-rs-ai = { workspace = true }
 pi-rs-ai-auth = { workspace = true }
 pi-rs-ai-types = { workspace = true }
