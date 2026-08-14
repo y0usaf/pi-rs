@@ -3,7 +3,6 @@
 
 use serde::{Deserialize, Serialize};
 
-pub mod agent_scope;
 
 /// Open event envelope at the Rust/Lua seam. Event names remain strings.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

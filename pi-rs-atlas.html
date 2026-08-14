@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pi-rs — codebase atlas</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>">
+<style>
+  :root {
+    --bg:#16141f; --panel:#1e1b2a; --panel2:#242031; --ink:#e8e4f0; --dim:#9a92b0;
+    --accent:#ffb454; --accent2:#7bd88f; --line:#3a3450; --rail:#191625;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body {
+    background:var(--bg); color:var(--ink);
+    font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    display:grid; grid-template-columns:220px 1fr 320px; grid-template-rows:56px 1fr;
+    height:100vh; overflow:hidden;
+  }
+  #topbar {
+    grid-column:1/4; display:flex; align-items:center; gap:18px;
+    padding:0 16px; background:var(--rail); border-bottom:1px solid var(--line);
+    font-size:12px; white-space:nowrap;
+  }
+  #topbar h1 { font-size:15px; margin:0 8px 0 0; letter-spacing:.5px; }
+  #topbar h1 span { color:var(--accent); }
+  .stat { display:flex; flex-direction:column; }
+  .stat b { font-size:16px; color:var(--accent2); font-weight:600; }
+  .stat i { font-style:normal; color:var(--dim); font-size:10px; text-transform:uppercase; letter-spacing:1px; }
+  #topbar .sep { width:1px; height:30px; background:var(--line); }
+
+  #rail {
+    grid-row:2; background:var(--rail); border-right:1px solid var(--line);
+    overflow-y:auto; padding:12px 10px;
+  }
+  #rail h2 { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:2px; margin:4px 6px 10px; }
+  .grp { margin-bottom:14px; }
+  .grp > b { display:block; font-size:10px; color:var(--dim); text-transform:uppercase; letter-spacing:1.5px; margin:0 4px 5px; }
+  .grp .item {
+    display:flex; align-items:center; gap:7px; padding:4px 6px; border-radius:5px;
+    cursor:pointer; font-size:12.5px; color:var(--ink);
+  }
+  .grp .item:hover { background:var(--panel2); }
+  .grp .item.active { background:var(--panel2); outline:1px solid var(--accent); }
+  .swatch { width:9px; height:9px; border-radius:2px; flex:none; }
+  .item .code { color:var(--dim); font-size:10px; margin-left:auto; }
+  .item .loc { color:var(--dim); font-size:10px; }
+
+  #stage { grid-row:2; position:relative; background:radial-gradient(1200px 700px at 50% 40%, #1c1929 0%, var(--bg) 70%); }
+  #stage svg { width:100%; height:100%; display:block; }
+  #hud {
+    position:absolute; bottom:12px; left:14px; right:14px; display:flex; gap:10px;
+    pointer-events:none; align-items:flex-end;
+  }
+  #tracebox {
+    pointer-events:auto; background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    padding:10px 12px; max-width:420px; box-shadow:0 8px 24px rgba(0,0,0,.4);
+  }
+  #tracebox h3 { margin:0 0 6px; font-size:11px; color:var(--accent); text-transform:uppercase; letter-spacing:1.5px; }
+  #tracebox .step { display:flex; gap:8px; padding:3px 0; font-size:12px; align-items:baseline; }
+  #tracebox .step b { color:var(--accent2); min-width:20px; }
+  #tracebox .step.hl { color:#fff; }
+  #tracebox .step .tag { color:var(--accent); font-size:10px; }
+  #legend {
+    pointer-events:auto; margin-left:auto; background:var(--panel); border:1px solid var(--line);
+    border-radius:8px; padding:8px 10px; font-size:11px; color:var(--dim);
+    display:flex; gap:14px;
+  }
+  #legend .dot { width:7px; height:7px; border-radius:50%; background:var(--accent); display:inline-block; margin-right:5px; animation:none; }
+  #legend .l2 { border-bottom:1px dashed var(--dim); width:14px; display:inline-block; margin-right:5px; vertical-align:middle; }
+
+  #side {
+    grid-row:2; grid-column:3; background:var(--panel); border-left:1px solid var(--line);
+    overflow-y:auto; padding:16px 18px;
+  }
+  #side h2 { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:2px; margin:0 0 8px; }
+  #side .essay { font-size:13px; color:var(--ink); line-height:1.6; }
+  #side .essay p { margin:0 0 10px; }
+  #side .essay em { color:var(--accent2); font-style:normal; }
+  #detail { margin-top:20px; border-top:1px solid var(--line); padding-top:14px; }
+  #detail h3 { margin:0 0 4px; font-size:14px; color:var(--accent); }
+  #detail .what { font-size:13px; margin:0 0 10px; }
+  #detail .how { font-size:12.5px; color:var(--dim); }
+  #detail .how b { color:var(--ink); }
+  #detail .children { margin-top:10px; }
+  #detail .child { padding:6px 0; border-top:1px solid var(--line); font-size:12px; }
+  #detail .child b { color:var(--accent2); }
+  #detail .child span { color:var(--dim); }
+  #hint { color:var(--dim); font-size:11px; margin-top:16px; }
+  .muted { color:var(--dim); }
+
+  g.block { cursor:pointer; }
+  g.block .top { stroke:rgba(0,0,0,.35); stroke-width:1; }
+  g.block .side { stroke:rgba(0,0,0,.3); stroke-width:1; }
+  g.block .lab { fill:#fff; font-size:10.5px; font-weight:600; pointer-events:none; text-anchor:middle; letter-spacing:.5px; }
+  g.block .lab2 { fill:rgba(255,255,255,.6); font-size:8.5px; pointer-events:none; text-anchor:middle; }
+  g.block.hover .top { stroke:var(--accent); stroke-width:1.6; }
+  g.block.focus .top { stroke:var(--accent2); stroke-width:2; }
+  g.block.dim { opacity:.25; }
+  .edge { stroke:var(--line); stroke-width:1.4; fill:none; }
+  .edge.dashed { stroke-dasharray:5 5; stroke:var(--dim); stroke-width:1; }
+  .edge.flow { stroke:#6a5f8a; stroke-width:1.6; }
+  .dot { fill:var(--accent); }
+  .ext { font-size:10.5px; fill:var(--dim); }
+  .ext line { stroke:var(--dim); stroke-dasharray:4 4; stroke-width:1; }
+  .ext circle { fill:var(--accent2); }
+  .stepbadge { fill:var(--accent); font-size:11px; font-weight:700; text-anchor:middle; }
+</style>
+</head>
+<body>
+
+<header id="topbar">
+  <h1>pi-<span>rs</span></h1>
+  <span class="muted">Pi's coding agent, ported to Rust</span>
+  <span class="sep"></span>
+  <div class="stat"><b>111.6k</b><i>LOC (88.7k Rust + 22.9k Lua)</i></div>
+  <div class="stat"><b>10</b><i>crates</i></div>
+  <div class="stat"><b>275</b><i>Rust files</i></div>
+  <div class="stat"><b>37</b><i>Lua builtin pkgs</i></div>
+  <div class="stat"><b>821</b><i>tests · 41 parity suites</i></div>
+</header>
+
+<nav id="rail">
+  <h2>Structure</h2>
+  <div id="groups"></div>
+</nav>
+
+<div id="stage">
+  <svg id="svg"></svg>
+  <div id="hud">
+    <div id="tracebox" style="display:none"></div>
+    <div id="legend">
+      <span><span class="dot"></span>data flow</span>
+      <span><span class="l2"></span>dependency</span>
+    </div>
+  </div>
+</div>
+
+<aside id="side">
+  <h2>What it does</h2>
+  <div class="essay" id="essay-what"></div>
+  <h2 style="margin-top:18px">How it's built</h2>
+  <div class="essay" id="essay-how"></div>
+  <div id="detail"></div>
+  <div id="hint">Click a block to inspect. <code>#inside=&lt;id&gt;</code> and <code>#trace=N</code> work in the URL. Hover an edge dot for what travels.</div>
+</aside>
+
+<script>
+/* ================= DATA ================= */
+const S = [
+  {id:"tui",  code:"TU", name:"pi-rs-tui",  group:"Frontend",    loc:"11.8k", gx:4,  gy:0,  w:5,d:4, h:9,
+   what:"The terminal frontend: full-screen editor, markdown renderer, diff view, autocomplete, image display, process pane.",
+   how:"Custom VT100/crossterm renderer draws components to a cell grid and diffs against the previous frame; an undo stack, kill ring and fuzzy matcher back the editor.",
+   talks:["app"],
+   children:[
+     {code:"ed", name:"editor",        h:4, what:"keystroke-to-cell rendering, cursor, undo"},
+     {code:"md", name:"markdown",      h:3, what:"streaming markdown to styled cells"},
+     {code:"im", name:"terminal_image",h:2, what:"iTerm2/Kitty inline image protocols"},
+     {code:"pr", name:"process",       h:3, what:"PTY process pane with raw-mode guard"},
+     {code:"ac", name:"autocomplete",  h:2, what:"slash commands + fuzzy suggestions"},
+     {code:"sl", name:"select_list",   h:2, what:"scrollable pickers (models, sessions)"}
+   ]},
+  {id:"app",  code:"AP", name:"pi-rs-app",  group:"Orchestrator", loc:"17.9k", gx:5,  gy:4,  w:5,d:4, h:14,
+   what:"The `pi` binary and product assembly: CLI parsing, login flow, model resolution, and the builtin Lua packages that define product behavior.",
+   how:"Thin Rust shell — every replaceable feature (tools, agent policy, themes, prompt templates, compaction) is an embedded Lua package registered through the same public API user extensions use.",
+   talks:["tui","host","agent","session","ai","ai_auth"],
+   children:[
+     {code:"cl", name:"cli",      h:4, what:"args, login, model list, session select"},
+     {code:"co", name:"core",     h:3, what:"http dispatcher, model resolver, defaults"},
+     {code:"bu", name:"builtins", h:5, what:"Lua packages: tools, themes, skills, prompts"},
+     {code:"cf", name:"config",   h:2, what:"Lua config evaluation"}
+   ]},
+  {id:"host", code:"HO", name:"pi-rs-host", group:"Core domain", loc:"26.9k", gx:5,  gy:8,  w:6,d:5, h:20,
+   what:"The Lua extension host: runs every policy and builtin unit as a Lua coroutine, bridges them to OS, terminal, AI and persistence.",
+   how:"mlua 5.4 with a coroutine-async seam (yield across awaits), an event bus, a watchdog that kills runaway dispatches, and a spatiotemporal context kernel underneath.",
+   talks:["ai","ai_auth","tui","session","kernel"],
+   children:[
+     {code:"vm", name:"vm",             h:5, what:"coroutine scheduler, watchdog, event bus"},
+     {code:"api",name:"api",            h:5, what:"Lua bindings: editor, terminal, process, input"},
+     {code:"ex", name:"exec",           h:3, what:"tool command execution"},
+     {code:"as", name:"auth_storage",   h:3, what:"credential persistence + file lock"},
+     {code:"sm", name:"settings_manager",h:3, what:"scoped settings with managed config block"},
+     {code:"tr", name:"trust",          h:2, what:"project trust store"},
+     {code:"hl", name:"hljs",           h:4, what:"syntax highlighting grammar engine"}
+   ]},
+  {id:"ai",   code:"AI", name:"pi-rs-ai",   group:"AI & auth",   loc:"17.9k", gx:0,  gy:8,  w:5,d:4, h:14,
+   what:"Provider transport layer: speaks the wire protocol of every supported LLM backend, streams tokens back, retries, and normalizes to one event vocabulary.",
+   how:"Per-provider protocol modules (Anthropic, OpenAI responses/completions/Codex, Google, Vertex, Bedrock, Mistral, Azure, Cloudflare) over a shared HTTP/SSE/retry transport; a registry maps models to backends.",
+   talks:["host","ai_types"],
+   children:[
+     {code:"tp", name:"transport",  h:5, what:"HTTP, SSE decoder, retry policy, cancellation"},
+     {code:"pr", name:"protocols",  h:6, what:"one request/stream builder per provider"},
+     {code:"rg", name:"registry",   h:3, what:"model catalog + API registry"},
+     {code:"ut", name:"util",       h:2, what:"header/JSON parsing, sanitize"}
+   ]},
+  {id:"ai_auth", code:"AU", name:"pi-rs-ai-auth", group:"AI & auth", loc:"3.1k", gx:0, gy:3, w:4,d:3, h:3,
+   what:"OAuth device flow for AI providers: opens a browser, runs PKCE, polls for a token, stores the credential.",
+   how:"Flows are data tables, not code branches — a PKCE engine drives provider plugins (GitHub Copilot, OpenAI Codex) with a local callback server.",
+   talks:["ai_types"],
+   children:[
+     {code:"en", name:"engine",         h:3, what:"PKCE flow state machine"},
+     {code:"pk", name:"pkce",           h:2, what:"verifier/challenge crypto"},
+     {code:"dc", name:"device_code",    h:2, what:"device-code polling"},
+     {code:"cb", name:"callback_server",h:2, what:"local loopback OAuth receiver"},
+     {code:"rg", name:"registry",       h:2, what:"provider plugin table"}
+   ]},
+  {id:"ai_types", code:"AT", name:"pi-rs-ai-types", group:"AI & auth", loc:"1.4k", gx:11, gy:12, w:3,d:3, h:3,
+   what:"The shared type vocabulary: messages, content blocks, tool calls, usage, model descriptors, stream events.",
+   how:"Plain serde structs/enums with preserve_order JSON — the single schema every other crate imports instead of re-defining.",
+   talks:[],
+   children:[
+     {code:"ty", name:"types",      h:3, what:"Message, Content, ToolCall, Usage, StreamEvent"},
+     {code:"mo", name:"models",     h:2, what:"Model, cost tiers, thinking levels"},
+     {code:"di", name:"diagnostics",h:1, what:"assistant-message diagnostic codes"}
+   ]},
+  {id:"agent", code:"AG", name:"pi-rs-agent", group:"Agent policy", loc:"1.3k", gx:11, gy:8, w:4,d:3, h:3,
+   what:"The coding-agent policy pack: decides the message/tool loop, steering, follow-ups, and cancellation — written in Lua, not Rust.",
+   how:"A thin Rust scope exposes the agent event stream; the actual policy lives in a Lua module the host runs, so it is replaceable like any user extension.",
+   talks:["host"],
+   children:[
+     {code:"as", name:"agent_scope", h:2, what:"Rust event-surface for the Lua policy"},
+     {code:"lu", name:"lua",         h:3, what:"the agent policy, authored in Lua"}
+   ]},
+  {id:"session", code:"SE", name:"pi-rs-session", group:"Storage", loc:"4.9k", gx:4, gy:13, w:6,d:5, h:3, slab:true,
+   what:"Session manager: append-only JSONL trees that record every exchange; survives the viewer.",
+   how:"Port of Pi's session-manager — session trees, time/uuid helpers, and a spatiotemporal context for mounted consumers.",
+   talks:["kernel"],
+   children:[
+     {code:"sm", name:"session_manager", h:3, what:"JSONL tree read/append/list"},
+     {code:"ms", name:"messages",       h:2, what:"message path resolution"},
+     {code:"pa", name:"paths",          h:2, what:"session file paths"},
+     {code:"uu", name:"uuid",           h:1, what:"session id generation"}
+   ]},
+  {id:"tools", code:"TO", name:"pi-rs-tools", group:"Tooling", loc:"3.2k", gx:0, gy:13, w:4,d:3, h:3,
+   what:"Repo hygiene tooling: a source-language gate that rejects new foreign-language first-party files, plus inventory and self-test runners.",
+   how:"Standalone binary used by CI — gate walks the tree, classifies files, fails the build on drift.",
+   talks:[],
+   children:[
+     {code:"ga", name:"gate",                  h:3, what:"language gate + flags"},
+     {code:"ci", name:"construction_inventory",h:2, what:"tree inventory"},
+     {code:"st", name:"selftest",              h:2, what:"self-check runner"}
+   ]},
+  {id:"kernel", code:"KE", name:"pi-rs-kernel", group:"Storage", loc:"0.3k", gx:11, gy:4, w:2,d:2, h:1, slab:true,
+   what:"Spatiotemporal composability kernel: mount a component, its effects record inverses; unmount replays them so nothing leaks.",
+   how:"Zero-dependency leaf — a flat map of mounted components, a single write path, and declared read-keys that notify exactly their readers.",
+   talks:[],
+   children:[]}
+];
+
+const E = [
+  // main data-flow path (animated)
+  {f:"tui",  t:"app",     flow:1, pay:"input events"},
+  {f:"app",  t:"host",    flow:1, pay:"command dispatch"},
+  {f:"host", t:"ai",      flow:1, pay:"provider request"},
+  {f:"ai",   t:"host",    flow:1, pay:"stream events"},
+  {f:"host", t:"tui",     flow:1, pay:"render frames"},
+  {f:"host", t:"session", flow:1, pay:"message append"},
+  {f:"app",  t:"session", flow:1, pay:"session select"},
+  {f:"agent",t:"host",    flow:1, pay:"tool/role registration"},
+  {f:"app",  t:"agent",   flow:1, pay:"load policy"},
+  // advisory / dependency (dashed)
+  {f:"ai",   t:"ai_types", dashed:1, pay:"type vocabulary"},
+  {f:"ai_auth", t:"ai_types", dashed:1, pay:"type vocabulary"},
+  {f:"app",  t:"ai_auth", dashed:1, pay:"CLI login"},
+  {f:"host", t:"ai_auth", dashed:1, pay:"OAuth login"},
+  {f:"session", t:"kernel", dashed:1, pay:"mount/unmount"},
+  {f:"host", t:"kernel",  dashed:1, pay:"context mounts"},
+  {f:"app",  t:"kernel",  dashed:1, pay:"kernel init"},
+  {f:"host", t:"ai_types", dashed:1, pay:"type vocabulary"}
+];
+
+const EXT = [
+  {to:"ai",      label:"LLM providers", sub:"Anthropic · OpenAI · Google · Bedrock · Mistral · Azure · Cloudflare"},
+  {to:"ai_auth", label:"OAuth identity", sub:"GitHub Copilot · OpenAI Codex device flow"},
+  {to:"tui",     label:"User terminal", sub:"keyboard · ANSI · PTY"},
+  {to:"session", label:"Local store", sub:"append-only session files"}
+];
+
+const TRACE = [
+  ["tui",  "User types a prompt in the terminal editor"],
+  ["tui",  "Editor renders keystrokes; autocomplete and slash commands respond"],
+  ["app",  "App accepts the turn and hands it to the agent loop"],
+  ["agent","Lua agent policy decides tools, follow-ups and steering"],
+  ["host", "Host runs the policy as a Lua coroutine and exposes tools"],
+  ["ai",   "Transport builds a streaming request for the selected provider"],
+  ["ai",   "HTTP/SSE streams tokens back; retry and cancellation guard the wire"],
+  ["host", "Host folds stream events into the assistant message"],
+  ["tui",  "TUI renders markdown, diffs and tool output frame by frame"],
+  ["session","Session manager appends the exchange to the JSONL tree"],
+  ["session","The append-only tree persists for the next session"]
+];
+
+const GROUPS = ["Frontend","Orchestrator","Core domain","AI & auth","Agent policy","Storage","Tooling"];
+const COLORS = {
+  "Frontend":"#5b8cff", "Orchestrator":"#ff9d4d", "Core domain":"#c77dff",
+  "AI & auth":"#4fd18b", "Agent policy":"#ffd166", "Storage":"#8b86a3", "Tooling":"#3ddad7"
+};
+
+const OVERVIEW_WHAT = `pi-rs is a <em>faithful Rust port</em> of Pi's coding agent — the terminal program that turns a
+prompt into code changes through an interactive editor, an agent loop, and a tool belt (shell, file edits,
+grep, diff). The contract is <em>strict parity</em>: same terminal, credentials, model and input must be
+indistinguishable from upstream Pi v0.79.0, outside a small closed exception list. The one big exception:
+everything replaceable — tools, agent policy, commands, themes, rendering — is a <em>Lua package on the same
+public API</em> a user extension uses, never a Rust shortcut.`;
+
+const OVERVIEW_HOW = `Ten crates form a layered city. The <em>core domain</em> is the Lua extension host (pi-rs-host),
+the tallest block: it runs every policy unit as a coroutine over a spatiotemporal kernel that mounts effects
+and replays their inverses on unmount. Above it, the <em>orchestrator</em> (pi-rs-app) assembles the product
+from embedded Lua builtins. The <em>AI layer</em> (pi-rs-ai) speaks each provider's wire protocol and
+normalizes to one event vocabulary defined by pi-rs-ai-types. The <em>frontend</em> (pi-rs-tui) renders cells
+and diffs frames. <em>Storage</em> (pi-rs-session) is an append-only JSONL tree; the <em>tooling</em> block
+(pi-rs-tools) is a CI gate that keeps first-party code in its declared languages.`;
+
+/* ================= ENGINE ================= */
+const AX = 26, AY = 14.3, HSCALE = 16;
+const byId = Object.fromEntries(S.map(s=>[s.id,s]));
+function topFace(s){
+  const x=(s.gx-s.gy)*AX, y=(s.gx+s.gy)*AY - s.h*HSCALE;
+  const A=[s.w*AX, s.w*AY], B=[-s.d*AX, s.d*AY];
+  return { x, y, A, B,
+    O:[x,y], P:[x+A[0], y+A[1]], Q:[x+B[0], y+B[1]], R:[x+A[0]+B[0], y+A[1]+B[1]] };
+}
+
+function centerTop(s){ const t=topFace(s); return [t.x+(t.A[0]+t.B[0])/2, t.y+(t.A[1]+t.B[1])/2]; }
+
+const svg = document.getElementById('svg');
+const NS = 'http://www.w3.org/2000/svg';
+function el(n,a){ const e=document.createElementNS(NS,n); for(const k in a) e.setAttribute(k,a[k]); return e; }
+
+// order far → near
+const order = [...S].sort((a,b)=>(a.gx+a.gy)-(b.gx+b.gy));
+
+const world = { minX:1e9, minY:1e9, maxX:-1e9, maxY:-1e9 };
+function grow(x,y,m=0){ world.minX=Math.min(world.minX,x-m); world.minY=Math.min(world.minY,y-m); world.maxX=Math.max(world.maxX,x+m); world.maxY=Math.max(world.maxY,y+m); }
+
+let gBlocks = el('g',{}), gEdges = el('g',{}), gExt = el('g',{}), gDots = el('g',{}), gBadges = el('g',{});
+svg.append(gEdges,gBlocks,gDots,gExt,gBadges);
+
+/* edges first (under blocks) */
+for(const e of E){
+  const a=centerTop(byId[e.f]), b=centerTop(byId[e.t]);
+  const mx=(a[0]+b[0])/2;
+  const d = e.dashed ? `M${a[0]},${a[1]} L${mx},${a[1]} L${mx},${b[1]} L${b[0]},${b[1]}`
+                     : `M${a[0]},${a[1]} L${mx},${a[1]} L${mx},${b[1]} L${b[0]},${b[1]}`;
+  const p = el('path',{d, class:'edge'+(e.dashed?' dashed':(e.flow?' flow':'')), 'data-pay':e.pay||'', 'data-f':e.f,'data-t':e.t});
+  p.style.pointerEvents = e.flow ? 'stroke' : 'none';
+  p.style.cursor = e.flow ? 'pointer' : 'default';
+  gEdges.append(p);
+}
+
+/* blocks */
+const blockG = {};
+for(const s of order){
+  const t=topFace(s);
+  const g=el('g',{class:'block', 'data-id':s.id});
+  const down = s.h*HSCALE;
+  const col = COLORS[s.group]||'#888';
+
+  // left face (gy side)
+  g.append(el('polygon',{class:'side', points:`${t.O[0]},${t.O[1]} ${t.Q[0]},${t.Q[1]} ${t.Q[0]},${t.Q[1]+down} ${t.O[0]},${t.O[1]+down}`, fill:col, opacity:.55}));
+  // right face (gx side)
+  g.append(el('polygon',{class:'side', points:`${t.O[0]},${t.O[1]} ${t.P[0]},${t.P[1]} ${t.P[0]},${t.P[1]+down} ${t.O[0]},${t.O[1]+down}`, fill:col, opacity:.75}));
+  // top face
+  g.append(el('polygon',{class:'top', points:`${t.O[0]},${t.O[1]} ${t.P[0]},${t.P[1]} ${t.R[0]},${t.R[1]} ${t.Q[0]},${t.Q[1]}`, fill:col, opacity:.95}));
+  // label on top face
+  const c=centerTop(s);
+  const lab = el('text',{class:'lab', x:c[0], y:c[1]-2}); lab.textContent=s.name.replace('pi-rs-',''); g.append(lab);
+  const lab2 = el('text',{class:'lab2', x:c[0], y:c[1]+9}); lab2.textContent=s.loc+' LOC'; g.append(lab2);
+  gBlocks.append(g); blockG[s.id]=g;
+  grow(t.O[0]-s.d*AX,t.O[1],s.w*AX);
+  grow(t.R[0]+s.w*AX,t.R[1],s.w*AX);
+  grow(t.O[0],t.O[1]+down,40);
+}
+
+/* externals */
+const extPos = { ai:[t=>[t.x-160, t.y-40]], ai_auth:[t=>[t.x-150, t.y+30]], tui:[t=>[t.x+40, t.y-90]], session:[t=>[t.x+40, t.y+70]] };
+for(const x of EXT){
+  const s=byId[x.to], t=topFace(s);
+  const [px,py] = extPos[x.to] ? extPos[x.to][0](t) : [t.x-140, t.y];
+  const g=el('g',{class:'ext'});
+  g.append(el('line',{x1:px,y1:py,x2:t.x+t.A[0]/2,y2:t.y+t.A[1]/2}));
+  g.append(el('circle',{cx:px,cy:py,r:3}));
+  const lbl=el('text',{x:px+8,y:py+3,class:'ext'}); lbl.textContent=x.label;
+  const sub=el('text',{x:px+8,y:py+16,class:'ext', opacity:.65}); sub.textContent=x.sub;
+  g.append(lbl,sub); gExt.append(g);
+  grow(px-160,py-40,220); grow(px,py,40);
+}
+
+/* fit */
+const W = Math.max(world.maxX-world.minX, 600), H = Math.max(world.maxY-world.minY, 400);
+svg.setAttribute('viewBox', `${world.minX-60} ${world.minY-60} ${W+120} ${H+120}`);
+
+/* rail */
+const rail=document.getElementById('groups');
+for(const grp of GROUPS){
+  const g=el('div',{class:'grp'}), b=el('b',{}); b.textContent=grp; g.append(b);
+  for(const s of S.filter(s=>s.group===grp)){
+    const it=el('div',{class:'item','data-id':s.id});
+    const sw=el('span',{class:'swatch'}); sw.style.background=COLORS[grp];
+    const nm=el('span',{}); nm.textContent=s.name.replace('pi-rs-','');
+    const co=el('span',{class:'code'}); co.textContent=s.code;
+    const lo=el('span',{class:'loc'}); lo.textContent=s.loc;
+    it.append(sw,nm,co,lo);
+    it.onclick=()=>{ focusBlock(s.id); };
+    g.append(it);
+  }
+  rail.append(g);
+}
+
+/* side essays */
+document.getElementById('essay-what').innerHTML = OVERVIEW_WHAT.replace(/\n/g,'<br>');
+document.getElementById('essay-how').innerHTML = OVERVIEW_HOW.replace(/\n/g,'<br>');
+
+/* ================= INTERACTION ================= */
+const detail=document.getElementById('detail');
+let focusId=null;
+function focusBlock(id){
+  focusId=id; const s=byId[id];
+  for(const k in blockG) blockG[k].classList.toggle('focus', k===id);
+  for(const it of rail.querySelectorAll('.item')) it.classList.toggle('active', it.dataset.id===id);
+  detail.innerHTML='';
+  const h=el('h3',{}); h.textContent=s.name;
+  const w=el('p',{class:'what'}); w.textContent=s.what;
+  const how=el('p',{class:'how'}); how.innerHTML='<b>How:</b> '+s.how;
+  detail.append(h,w,how);
+  if(s.children && s.children.length){
+    const cb=el('div',{class:'children'});
+    const ch=el('p',{class:'how', style:'margin-top:4px'}); ch.innerHTML='<b>Go inside:</b>';
+    cb.append(ch);
+    for(const c of s.children){
+      const d=el('div',{class:'child'});
+      const n=el('b',{}); n.textContent=c.name;
+      const sp=el('span',{}); sp.textContent=' — '+c.what;
+      d.append(n,sp); cb.append(d);
+    }
+    detail.append(cb);
+  }
+}
+function clearFocus(){
+  focusId=null;
+  for(const k in blockG) blockG[k].classList.remove('focus');
+  for(const it of rail.querySelectorAll('.item')) it.classList.remove('active');
+  detail.innerHTML='';
+}
+
+for(const id in blockG){
+  const g=blockG[id];
+  g.addEventListener('mouseenter',()=>{
+    if(!focusId) g.classList.add('hover');
+    const s=byId[id];
+    const tip=document.createElement('div');
+  });
+  g.addEventListener('mouseleave',()=>{ g.classList.remove('hover'); });
+  g.addEventListener('click',()=>{ focusId===id ? clearFocus() : focusBlock(id); });
+}
+
+/* edge dot hover tooltip (title attr on path) */
+for(const p of gEdges.querySelectorAll('path.flow')){ if(p.dataset.pay){ p.querySelectorAll; const t=document.createElement('title'); t.textContent=p.dataset.pay; p.append(t);} }
+
+/* ================= ANIMATED DOTS ================= */
+const dots=[];
+for(const e of E.filter(e=>e.flow)){
+  const a=centerTop(byId[e.f]), b=centerTop(byId[e.t]);
+  const mx=(a[0]+b[0])/2;
+  const segs = [[a,[mx,a[1]]], [[mx,a[1]],[mx,b[1]]], [[mx,b[1]],b]];
+  const total = segs.reduce((n,s)=>n+Math.hypot(s[1][0]-s[0][0],s[1][1]-s[0][1]),0);
+  for(let k=0;k<2;k++){
+    const d=el('circle',{class:'dot', r:2.6});
+    const tt=el('title'); tt.textContent=e.pay||''; d.append(tt);
+    gDots.append(d);
+    dots.push({d, segs, total, t:(k*0.5+Math.random()*0.3)%1, sp:0.0009+Math.random()*0.0004});
+  }
+}
+function posAt(segs,total,tt){
+  let rem=tt*total;
+  for(const [p,q] of segs){
+    const L=Math.hypot(q[0]-p[0],q[1]-p[1]);
+    if(rem<=L){ const r=rem/L; return [p[0]+(q[0]-p[0])*r, p[1]+(q[1]-p[1])*r]; }
+    rem-=L;
+  }
+  return segs[segs.length-1][1];
+}
+function tick(){
+  for(const dot of dots){
+    dot.t=(dot.t+dot.sp)%1;
+    const [x,y]=posAt(dot.segs,dot.total,dot.t);
+    dot.d.setAttribute('cx',x); dot.d.setAttribute('cy',y);
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+/* ================= TRACE WALKTHROUGH ================= */
+function showTrace(){
+  const m=location.hash.match(/#trace=(\d+)/);
+  const box=document.getElementById('tracebox');
+  if(!m){ box.style.display='none'; gBadges.innerHTML=''; for(const k in blockG) blockG[k].classList.remove('dim','focus'); return; }
+  const n=Math.max(0,Math.min(parseInt(m[1])-1, TRACE.length-1));
+  box.style.display='block';
+  box.innerHTML='<h3>Request trace</h3>';
+  TRACE.forEach(([id,sent],i)=>{
+    const d=el('div',{class:'step'+(i<=n?' hl':'')});
+    const b=el('b',{}); b.textContent=String(i+1).padStart(2,'0');
+    const tag=el('span',{class:'tag'}); tag.textContent=byId[id].code;
+    d.append(b,tag,' '+sent);
+    box.append(d);
+  });
+  // badges on blocks
+  gBadges.innerHTML='';
+  const seen={};
+  TRACE.forEach(([id],i)=>{
+    if(i<=n && !seen[id]){
+      seen[id]=1;
+      const c=centerTop(byId[id]);
+      const b=el('text',{class:'stepbadge', x:c[0], y:c[1]-12});
+      b.textContent='●';
+      gBadges.append(b);
+    }
+  });
+  // highlight current
+  for(const k in blockG) blockG[k].classList.toggle('dim', n>=0 && k!==TRACE[n][0]);
+  const cur=TRACE[n][0];
+  if(cur) blockG[cur].classList.add('focus');
+}
+window.addEventListener('hashchange',showTrace);
+
+/* ================= INSIDE VIEW ================= */
+function showInside(){
+  const m=location.hash.match(/#inside=(\w+)/);
+  const traceOn = /#trace=/.test(location.hash);
+  if(!m){ if(!traceOn) clearFocus(); return; }
+  const s=byId[m[1]]; if(s) focusBlock(s.id);
+}
+
+window.addEventListener('hashchange',()=>{ showTrace(); showInside(); });
+showTrace();
+showInside();
+</script>
+</body>
+</html>
