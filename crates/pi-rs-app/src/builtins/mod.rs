@@ -92,6 +92,7 @@ pub const AGENT_CORE_PACK: EmbeddedPack = EmbeddedPack {
         "\n",
         include_str!("utils/bash-executor.lua"),
         "\n",
+        include_str!("utils/kernel-host.lua"),
     ),
 };
 
