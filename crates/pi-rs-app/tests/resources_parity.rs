@@ -120,8 +120,8 @@ fn precedence_project_settings_over_user_auto_and_package() {
     // User-auto theme and a project settings-sourced theme, each declaring the
     // same name. Precedence decides ordering + attribution; the same file added
     // through two paths is de-duplicated by canonical path.
-    write(&agent_dir.join("themes/user-theme.json"), &THEME_JSON);
-    write(&cwd.join(".pi/settings-theme.json"), &THEME_JSON);
+    write(&agent_dir.join("themes/user-theme.json"), THEME_JSON);
+    write(&cwd.join(".pi/settings-theme.json"), THEME_JSON);
     write(
         &cwd.join(".pi/config.lua"),
         "local pi = ...\npi.config.settings({ themes = { './settings-theme.json' } })\n",
@@ -254,8 +254,8 @@ fn conflict_precedence_user_settings_beats_user_auto() {
     let agent_dir = root.path().join("agent");
     // A user-auto theme via the convention dir, plus a user-settings-sourced
     // theme outside `themes/` (so it is only reachable through settings).
-    write(&agent_dir.join("themes/x.json"), &THEME_JSON);
-    write(&agent_dir.join("custom-theme.json"), &THEME_JSON);
+    write(&agent_dir.join("themes/x.json"), THEME_JSON);
+    write(&agent_dir.join("custom-theme.json"), THEME_JSON);
     write(
         &agent_dir.join("config.lua"),
         "local pi = ...\npi.config.settings({ themes = { './custom-theme.json' } })\n",
@@ -341,7 +341,7 @@ fn theme_discovery_registers_and_loads_disk_json_themes() {
     let agent_dir = root.path().join("agent");
     // A custom theme on disk (auto-discovered from the themes convention dir)
     // and another reachable only through a resolved theme path.
-    write(&agent_dir.join("themes/custom.json"), &THEME_JSON);
+    write(&agent_dir.join("themes/custom.json"), THEME_JSON);
 
     let host = hermetic_host(&cwd, &agent_dir);
     host.load(
@@ -599,4 +599,69 @@ fn offline_cache_skips_uninstalled_packages() {
             rows
         );
     }
+}
+
+/// PLAN 9.9/9.10 theme-factory + resource.*: the interactive pack's embedded
+/// changelog, export templates, and built-in theme payloads are *declared*
+/// package resources through the public `pi.resources` module (not private
+/// floating globals). An ordinary file-backed package enumerates them by kind
+/// through the same mechanism reserved for embedded consumers.
+#[test]
+fn embedded_pack_resources_are_declared_package_resources() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("cwd");
+    let agent_dir = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    let host = hermetic_host(&cwd, &agent_dir);
+
+    let source = r#"local pi = ...
+local m = pi.module.require("pi.resources", "1")
+pi.register_command("embedded-resource-demo", {
+  handler = function()
+    return m.declared_resources()
+  end,
+})
+"#;
+    host.load("file/embedded-resource-demo.lua", source)
+        .expect("embedded resource demo loads");
+    let result = host
+        .call_command("embedded-resource-demo", "")
+        .expect("runs")
+        .expect("result");
+    let rows = result.as_array().unwrap();
+
+    // Changelog declared.
+    assert!(
+        rows.iter().any(|r| r["kind"] == "changelog"
+            && r["name"] == "changelog"
+            && !r["content"].as_str().unwrap().is_empty()),
+        "embedded changelog must be declared: {:?}",
+        rows
+    );
+    // Export templates + vendored browser bundles declared.
+    for tmpl in ["export-html", "export-css", "export-js", "export-marked", "export-highlight"] {
+        assert!(
+            rows.iter().any(|r| r["kind"] == "export" && r["name"] == tmpl),
+            "embedded template {tmpl} must be declared: {:?}",
+            rows
+        );
+    }
+    // Easter-egg image assets declared (non-empty payloads so they are
+    // replaceable through the same declared-resource mechanism).
+    for asset in ["daxnuts", "clankolas"] {
+        assert!(
+            rows.iter().any(|r| r["kind"] == "asset"
+                && r["name"] == asset
+                && !r["content"].as_str().unwrap().is_empty()),
+            "embedded asset {asset} must be declared: {:?}",
+            rows
+        );
+    }
+    // Built-in theme payloads declared (dark always present).
+    assert!(
+        rows.iter().any(|r| r["kind"] == "theme" && r["name"] == "dark"),
+        "embedded dark theme must be declared: {:?}",
+        rows
+    );
 }

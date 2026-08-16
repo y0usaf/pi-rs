@@ -114,11 +114,11 @@
   <h1>pi-<span>rs</span></h1>
   <span class="muted">Pi's coding agent, ported to Rust</span>
   <span class="sep"></span>
-  <div class="stat"><b>111.6k</b><i>LOC (88.7k Rust + 22.9k Lua)</i></div>
+  <div class="stat"><b>110.6k</b><i>LOC (88.2k Rust + 22.4k Lua)</i></div>
   <div class="stat"><b>10</b><i>crates</i></div>
-  <div class="stat"><b>275</b><i>Rust files</i></div>
-  <div class="stat"><b>37</b><i>Lua builtin pkgs</i></div>
-  <div class="stat"><b>821</b><i>tests · 41 parity suites</i></div>
+  <div class="stat"><b>274</b><i>Rust files</i></div>
+  <div class="stat"><b>36</b><i>Lua builtin modules</i></div>
+  <div class="stat"><b>817</b><i>tests · 41 parity suites</i></div>
 </header>
 
 <nav id="rail">
@@ -214,7 +214,7 @@ const S = [
      {code:"mo", name:"models",     h:2, what:"Model, cost tiers, thinking levels"},
      {code:"di", name:"diagnostics",h:1, what:"assistant-message diagnostic codes"}
    ]},
-  {id:"agent", code:"AG", name:"pi-rs-agent", group:"Agent policy", loc:"1.3k", gx:11, gy:8, w:4,d:3, h:3,
+  {id:"agent", code:"AG", name:"pi-rs-agent", group:"Agent policy", loc:"0.9k", gx:11, gy:8, w:4,d:3, h:3,
    what:"The coding-agent policy pack: decides the message/tool loop, steering, follow-ups, and cancellation — written in Lua, not Rust.",
    how:"A thin Rust scope exposes the agent event stream; the actual policy lives in a Lua module the host runs, so it is replaceable like any user extension.",
    talks:["host"],

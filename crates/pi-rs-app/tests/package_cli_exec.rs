@@ -207,6 +207,162 @@ fn local_remove_nonexistent_errors() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Network-modulated update/self-update legs (PLAN 9.7). run_pi sets
+// PI_OFFLINE=1, so the extensions updateConfiguredSources leg short-circuits
+// with no network (deterministic offline-skip); the self leg is deterministic
+// for the native pi-rs install (no package reinstall command -> Pi's
+// cannot-self-update error, DESIGN platform boundary). npm/git *install* and
+// *update* themselves route through the public pi.exec/pi.fs mechanisms (the
+// network-modulated half is exercised in package_lifecycle with a stubbed
+// exec through the shared pi.packages module, never evaluating package JS).
+// ---------------------------------------------------------------------------
+
+/// `pi update --extensions` with no configured packages offline-skip: Pi's
+/// updateConfiguredSources returns when sources are empty, so stdout still
+/// reports "Updated packages" with exit 0 and no network.
+#[test]
+fn update_extensions_offline_skip_empty() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("cwd");
+    let agent = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent).unwrap();
+
+    let (code, stdout, stderr) = run_pi(&["update", "--extensions"], &cwd, &agent);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stdout, "Updated packages\n");
+}
+
+/// `pi update --extensions` with a configured (even uninstalled) package
+/// offline-skip: updateConfiguredSources returns when offline so a genuinely
+/// uninstalled package is not installed/updated and no network runs.
+#[test]
+fn update_extensions_offline_skip_configured_uninstalled() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("cwd");
+    let agent = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent).unwrap();
+    write(
+        &agent.join("config.lua"),
+        "local pi = ...\npi.config.settings({ packages = { 'npm:pkg-offline' } })\n",
+    );
+    // No install exists — the package is uninstalled but offline must be skipped.
+
+    let (code, stdout, stderr) = run_pi(&["update", "--extensions"], &cwd, &agent);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stdout, "Updated packages\n");
+    // Nothing was installed (no network, no filesystem writes).
+    assert!(!agent.join("npm").exists(), "offline must not create npm root");
+}
+
+/// `pi update <configured-source>` offline-skip still reports "Updated" with
+/// exit 0 for the extensions leg.
+#[test]
+fn update_source_offline_skip_configured() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("cwd");
+    let agent = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent).unwrap();
+    write(
+        &agent.join("config.lua"),
+        "local pi = ...\npi.config.settings({ packages = { 'git:github.com/acme/widgets' } })\n",
+    );
+
+    let (code, stdout, stderr) = run_pi(&["update", "git:github.com/acme/widgets"], &cwd, &agent);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stdout, "Updated git:github.com/acme/widgets\n");
+}
+
+/// `pi update <unconfigured-source>` errors with Pi's no-matching-package
+/// message even when offline (spec update() throws before the offline
+/// updateConfiguredSources short-circuit).
+#[test]
+fn update_unconfigured_source_errors_offline() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("cwd");
+    let agent = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent).unwrap();
+
+    let (code, stdout, stderr) = run_pi(&["update", "npm:not-configured"], &cwd, &agent);
+    assert_eq!(code, 1);
+    assert!(stdout.is_empty());
+    assert!(
+        stderr.contains("No matching package found for npm:not-configured"),
+        "stderr: {stderr}"
+    );
+}
+
+/// `pi update self` (and the self half of `pi update`) prints Pi's
+/// cannot-self-update error for the native pi-rs install and exits nonzero
+/// (DESIGN platform boundary).
+#[test]
+fn update_self_unavailable_for_native_install() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("cwd");
+    let agent = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent).unwrap();
+
+    let (code, stdout, stderr) = run_pi(&["update", "self"], &cwd, &agent);
+    assert_eq!(code, 1);
+    assert!(stdout.is_empty());
+    assert!(
+        stderr.contains("pi cannot self-update this installation"),
+        "stderr: {stderr}"
+    );
+}
+
+/// `pi update` (default all): extensions leg offline-skips, then the self leg
+/// reports cannot-self-update, so the process exits 1 with "Updated packages"
+/// on stdout and the unavailable note on stderr (faithful Pi ordering).
+#[test]
+fn update_all_offline_skip_then_self_unavailable() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("cwd");
+    let agent = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent).unwrap();
+
+    let (code, stdout, stderr) = run_pi(&["update"], &cwd, &agent);
+    assert_eq!(code, 1);
+    assert_eq!(stdout, "Updated packages\n");
+    assert!(
+        stderr.contains("pi cannot self-update this installation"),
+        "stderr: {stderr}"
+    );
+}
+
+/// `pi config` (TUI config command) routes to the `config-exec` Lua role and
+/// emits the resolved resource listing deterministically (headless CLI path),
+/// exiting 0. Mirrors package-manager-cli.ts handleConfigCommand.
+#[test]
+fn config_command_runs_resource_preamble() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("cwd");
+    let agent = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent).unwrap();
+    write(
+        &agent.join("config.lua"),
+        "local pi = ...\npi.config.settings({ packages = { 'npm:pkg-config' } })\n",
+    );
+
+    let (code, stdout, stderr) = run_pi(&["config"], &cwd, &agent);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert!(
+        stdout.contains("Configured resources for"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("npm:pkg-config"),
+        "resolved packages should be listed: {stdout}"
+    );
+}
+
 /// A "--approve" local remove/install requires trust; without it, the project
 /// write is refused. (Trust default with no project-trust inputs is true, so
 /// this exercises the trusted side; the untrusted refusal is covered by the

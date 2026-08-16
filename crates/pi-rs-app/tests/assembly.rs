@@ -238,3 +238,215 @@ fn file_backed_package_imports_the_shared_agent_core_modules() {
     // bash-executor.get_shell_config resolves a shell path.
     assert!(result["shell"].is_string());
 }
+
+#[test]
+fn file_backed_package_imports_the_public_syntax_highlight_module() {
+    let root = tempfile::tempdir().unwrap();
+    let host = host(root.path());
+    let report = DEFAULT_MANIFEST.load(&host, &[]).unwrap();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+
+    // An ordinary file-backed package (loaded through the same `Host::load`
+    // path as user code) resolves the exact-version public `pi.highlight`
+    // module that the builtin tools and interactive packs define, and
+    // re-uses its closures — no private chunk-local tier. PLAN 9.7
+    // module.syntax-highlight / modules.chunk-local-helpers. Theme arguments
+    // flow in as tables, so the closures only need `pi` to resolve; the
+    // exercise asserts the same closures resolve through the public module.
+    let source = r#"local pi = ...
+local h = pi.module.require("pi.highlight", "1")
+local listed = {}
+for _, entry in ipairs(pi.module.list()) do
+  listed[entry.name .. "@" .. entry.version] = true
+end
+pi.register_command("highlight-module-demo", {
+  description = "file-backed pi.highlight consumer",
+  handler = function()
+    return {
+      hasThemeHighlight = type(h.theme_highlight_code) == "function",
+      hasMarkdownHighlight = type(h.markdown_highlight_code) == "function",
+      listed = listed["pi.highlight@1"] or false,
+      differentClosures = h.theme_highlight_code ~= h.markdown_highlight_code,
+    }
+  end,
+})
+"#;
+    host.load("file/highlight-module-demo.lua", source).expect("file-backed highlight consumer loads");
+    let result = host
+        .call_command("highlight-module-demo", "")
+        .expect("highlight-module-demo runs")
+        .expect("highlight-module-demo result");
+    assert_eq!(result["listed"], true, "pi.highlight@1 is a public module");
+    assert_eq!(result["hasThemeHighlight"], true);
+    assert_eq!(result["hasMarkdownHighlight"], true);
+    assert_eq!(result["differentClosures"], true);
+}
+
+/// PLAN 9.10 module.extension-composition: an ordinary file-backed package
+/// imports the same public exact-version `pi.extension.composition@1` module
+/// the builtin coding-agent/interactive packs define — the active-tool,
+/// tool-call-fold, and extension-command policy table shared via the VM-wide
+/// module registry. There is no pack-private chunk-local composition tier a
+/// file-backed application cannot reach.
+#[test]
+fn file_backed_package_imports_the_public_extension_composition_module() {
+    let root = tempfile::tempdir().unwrap();
+    let host = host(root.path());
+    let report = DEFAULT_MANIFEST.load(&host, &[]).unwrap();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+
+    host.load_file(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/extensions/extension-composition-demo.lua"
+    ))
+    .expect("extension-composition-demo loads");
+    let result = host
+        .call_command("extension-composition-demo", "")
+        .expect("extension-composition-demo runs")
+        .expect("extension-composition-demo result");
+
+    // pi.extension.composition@1 is a real registered public module.
+    assert_eq!(result["registered"], true);
+    // The full composition surface resolves from the file-backed consumer.
+    assert_eq!(result["hasActiveTools"], true);
+    assert_eq!(result["hasEmitToolCall"], true);
+    assert_eq!(result["hasEmitToolResult"], true);
+    assert_eq!(result["hasEmitGeneric"], true);
+    assert_eq!(result["hasExecuteCommand"], true);
+    assert_eq!(result["hasTryExecute"], true);
+    assert_eq!(result["hasBindPiActions"], true);
+    // active_tools reflects the builtin/tool-pack registered tools through
+    // the shared table (the product and file-backed apps reuse one registry).
+    assert!(
+        result["toolCount"].as_u64().unwrap() > 0,
+        "active_tools returned none: {result}"
+    );
+    assert_eq!(result["hasBashTool"], true);
+    // emit_generic over an open channel with no listeners is a no-op fold.
+    assert_eq!(result["noEventHandlers"], true);
+    // emit_message_end with no handlers returns nil (no replacement).
+    assert_eq!(result["replacedNil"], true);
+}
+
+/// PLAN 9.10 command-routing per-command suppression + first-wins replacement:
+/// an ordinary file-backed package suppresses ONLY the builtin `/model` route
+/// (via the public `pi.commands` registry) and registers a replacement, which
+/// the real forward-facing dispatch resolves. The rest of the frontend stays
+/// active: `/settings` and `/export` still route to their builtin actions.
+#[test]
+fn command_routing_suppresses_and_replaces_one_builtin_command() {
+    let root = tempfile::tempdir().unwrap();
+    let host = host(root.path());
+    let report = DEFAULT_MANIFEST.load(&host, &[]).unwrap();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+
+    host.load_file(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/extensions/command-routing-demo.lua"
+    ))
+    .expect("command-routing-demo loads");
+
+    // The demo suppressed the builtin `/model` and registered a replacement.
+    let demo = host
+        .call_command(
+            "command-routing-demo",
+            &serde_json::json!({"texts":["/model", "/settings", "/model openai"]}).to_string(),
+        )
+        .expect("demo runs")
+        .expect("demo result");
+    assert_eq!(demo["disabled"], serde_json::json!(true));
+    assert_eq!(demo["modelReplaced"], serde_json::json!(true));
+
+    // The file-backed replacement handles /model with its replacement arg.
+    let trace = demo["trace"].as_array().unwrap();
+    let model_actions: Vec<&str> = trace
+        .iter()
+        .filter(|e| e["action"] == "model_command")
+        .map(|e| e["value"].as_str().unwrap())
+        .collect();
+    assert_eq!(model_actions, vec!["replacement-default", "replacement:openai"]);
+
+    // The builtin /settings route is untouched and still dispatches.
+    let settings_handled = trace.iter().any(|e| e["action"] == "set_text" && e["value"] == "");
+    assert!(settings_handled, "builtin /settings still routes: {trace:?}");
+
+    // Real handle_submit path: a replacement command does not leak into prompt.
+    let route = host
+        .call_command(
+            "interactive-submit-route",
+            &serde_json::json!({ "texts": ["/model"], "cwd": root.path() }).to_string(),
+        )
+        .unwrap()
+        .unwrap();
+    let route_trace = route["trace"].as_array().unwrap();
+    assert!(
+        route_trace.iter().any(|e| e["action"] == "model_command"),
+        "interactive-submit-route should route /model through replacement: {route_trace:?}"
+    );
+    assert!(
+        !route_trace.iter().any(|e| e["action"] == "prompt"),
+        "replaced /model must not fall through to prompt: {route_trace:?}"
+    );
+}
+
+/// PLAN 9.10 bash-tool factory: an ordinary file-backed package resolves the
+/// public `pi.tools.bash` exact-version module (the Pi `createBashTool`
+/// equivalent) and builds a bash tool definition with a spawnHook + custom
+/// operations — the same surface Pi exposes as `createBashTool(cwd, options)`.
+/// This is the additive app-side policy export (no new host mechanism); the
+/// default bash tool is built through the identical factory, so the shipped
+/// default and file-backed replacements share one definition.
+#[test]
+fn file_backed_package_uses_the_public_bash_tool_factory() {
+    let root = tempfile::tempdir().unwrap();
+    let host = host(root.path());
+    let report = DEFAULT_MANIFEST.load(&host, &[]).unwrap();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+
+    // A file-backed package requires `pi.tools.bash`, builds a bash tool with
+    // a spawnHook, and registers a command that reflects the factory shape.
+    let source = r#"local pi = ...
+local bash_mod = pi.module.require("pi.tools.bash", "1")
+local listed = {}
+for _, entry in ipairs(pi.module.list()) do
+  listed[entry.name .. "@" .. entry.version] = true
+end
+
+-- createBashTool(cwd, { spawnHook }): the hook prepends a marker to the
+-- command; the returned definition is a registerable bash tool. We keep the
+-- ops from the public createLocalBashOperations re-export.
+local tool = bash_mod.create_bash_tool(pi.cwd(), {
+  spawnHook = function(ctx)
+    return { command = "echo pfx; " .. ctx.command, cwd = ctx.cwd }
+  end,
+})
+local ops = bash_mod.create_local_bash_operations({ shellPath = "" })
+
+pi.register_command("bash-factory-demo", {
+  handler = function()
+    return {
+      listed = listed["pi.tools.bash@1"] or false,
+      name = tool.name,
+      hasExecute = type(tool.execute) == "function",
+      hasRenderCall = type(tool.renderCall) == "function",
+      hasRenderResult = type(tool.renderResult) == "function",
+      paramsCommand = tool.parameters.required[1] == "command",
+      opsExec = type(ops.exec) == "function",
+    }
+  end,
+})
+"#;
+    host.load("file/bash-factory-demo.lua", source)
+        .expect("file-backed bash factory consumer loads");
+    let result = host
+        .call_command("bash-factory-demo", "")
+        .expect("bash-factory-demo runs")
+        .expect("bash-factory-demo result");
+    assert_eq!(result["listed"], true, "pi.tools.bash@1 is a public module");
+    assert_eq!(result["name"], "bash");
+    assert_eq!(result["hasExecute"], true);
+    assert_eq!(result["hasRenderCall"], true);
+    assert_eq!(result["hasRenderResult"], true);
+    assert_eq!(result["paramsCommand"], true);
+    assert_eq!(result["opsExec"], true);
+}

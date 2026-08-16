@@ -15,6 +15,13 @@
 pub mod acquire;
 pub mod construction_inventory;
 pub mod construction_inventory_selftest;
+pub mod dogfood_oracle;
+pub mod dogfood_selftest;
+pub mod extension_inventory;
+pub mod extension_inventory_selftest;
+pub mod external_extension_inventory;
+pub mod external_extension_inventory_selftest;
+pub mod final_parity_audit;
 pub mod gate;
 pub mod jsvalue;
 pub mod manifest;

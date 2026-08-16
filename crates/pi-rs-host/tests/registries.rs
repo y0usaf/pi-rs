@@ -978,6 +978,52 @@ fn module_failures_are_attributed_cycle_safe_and_transactional() {
 }
 
 #[test]
+fn unregister_tool_leaves_a_consistent_registry() {
+    // Regression: `tool_order` is a 1-indexed dense Lua array read with a
+    // `next`-driven walk (`sequence_values`); leaving a `nil` at the removed
+    // index would truncate the walk at the gap. Two consecutive unregisters
+    // used to leave the first hole so a subsequent `unregister_tool`/registry
+    // read could not see later tools. Register three tools, unregister two in
+    // sequence, and assert the survivor stays visible and coherent.
+    let host = host();
+    host.load(
+        "test://unreg",
+        r#"
+            local pi = ...
+            for _, name in ipairs({ "alpha", "beta", "gamma" }) do
+                pi.register_tool({ name = name, execute = function() return { name = name } end })
+            end
+        "#,
+    )
+    .expect("load");
+
+    let names = |host: &Host| -> Vec<String> {
+        host.tools()
+            .expect("tools mirror")
+            .into_iter()
+            .map(|t| t.name)
+            .collect()
+    };
+
+    assert_eq!(names(&host), vec!["alpha", "beta", "gamma"]);
+
+    host.unregister_tool("alpha").expect("unregister alpha");
+    // Beta must still be reachable after the first unregister leaves a hole.
+    assert_eq!(names(&host), vec!["beta", "gamma"]);
+
+    // The second consecutive unregister must still work (no stale nil hole
+    // hiding beta/gamma) and must not error on read-back.
+    host.unregister_tool("beta").expect("unregister beta");
+    assert_eq!(names(&host), vec!["gamma"]);
+
+    // The surviving tool still executes.
+    let result = host
+        .call_tool("gamma", "call-1", &serde_json::json!({}))
+        .expect("remaining tool runs");
+    assert_eq!(result, serde_json::json!({ "name": "gamma" }));
+}
+
+#[test]
 fn duplicate_module_versions_fail_without_replacing_the_owner() {
     let host = host();
     host.load(

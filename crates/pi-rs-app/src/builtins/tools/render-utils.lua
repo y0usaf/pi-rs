@@ -143,7 +143,11 @@ local function get_language_from_path(file_path)
 end
 
 -- theme.ts highlightCode over the pi.hljs engine; the port lives in the
--- shared utils/syntax-highlight.lua fragment.
+-- public `pi.highlight` module (PLAN 9.7 module.syntax-highlight), imported
+-- here from the embedded definition. `pi` is the chunk-local bound by the
+-- tools pack prelude; the module factory captures only its declared
+-- dependencies, so a file-backed tool renderer resolves the same closures.
+local theme_highlight_code = pi.module.require("pi.highlight", "1").theme_highlight_code
 local function highlight_code(code, lang, theme)
   return theme_highlight_code(code, lang, theme)
 end

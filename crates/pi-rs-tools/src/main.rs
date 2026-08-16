@@ -31,6 +31,14 @@ top-level:
                               first-party construction inventory owner (A.3)
   construction-inventory selftest [--root DIR]
                               offline negative-control self-test (A.3)
+  dogfood-oracle {check,selftest,generate} [--source PATH] [--root DIR]
+                              pinned pi-flake dogfood fixture contract (A.3)
+  final-parity-audit {check,selftest,generate} [--root DIR]
+                              closed Pi v0.79.0 final surface audit (A.3)
+  extension-inventory {check,generate,print-extracted,selftest} [--root DIR]
+                              closed Pi v0.79.0 extension-surface inventory (A.3)
+  external-extension-inventory {check,generate,print-extracted,selftest} [--root DIR]
+                              pinned pi-flake external-extension inventory (A.3)
 ";
 
 fn repo_root() -> Result<PathBuf, String> {
@@ -58,6 +66,39 @@ enum Command {
         print_extracted: bool,
     },
     ConstructionInventorySelftest { root: PathBuf },
+    DogfoodOracle {
+        root: PathBuf,
+        action: DogfoodAction,
+        source: Option<PathBuf>,
+    },
+    FinalParityAudit {
+        root: PathBuf,
+        action: AuditAction,
+    },
+    ExtensionInventory {
+        root: PathBuf,
+        check: bool,
+        print_extracted: bool,
+    },
+    ExtensionInventorySelftest { root: PathBuf },
+    ExternalExtensionInventory {
+        root: PathBuf,
+        check: bool,
+        print_extracted: bool,
+    },
+    ExternalExtensionInventorySelftest { root: PathBuf },
+}
+
+enum AuditAction {
+    Check,
+    Generate,
+    Selftest,
+}
+
+enum DogfoodAction {
+    Check,
+    Generate,
+    Selftest,
 }
 
 fn parse_args() -> Result<Command, String> {
@@ -73,6 +114,22 @@ fn parse_args() -> Result<Command, String> {
     if top == "construction-inventory" {
         let rest: Vec<String> = args.map(|a| a.to_string_lossy().into_owned()).collect();
         return parse_construction_inventory(rest);
+    }
+    if top == "dogfood-oracle" {
+        let rest: Vec<String> = args.map(|a| a.to_string_lossy().into_owned()).collect();
+        return parse_dogfood_oracle(rest);
+    }
+    if top == "final-parity-audit" {
+        let rest: Vec<String> = args.map(|a| a.to_string_lossy().into_owned()).collect();
+        return parse_final_parity_audit(rest);
+    }
+    if top == "extension-inventory" {
+        let rest: Vec<String> = args.map(|a| a.to_string_lossy().into_owned()).collect();
+        return parse_extension_inventory(rest);
+    }
+    if top == "external-extension-inventory" {
+        let rest: Vec<String> = args.map(|a| a.to_string_lossy().into_owned()).collect();
+        return parse_external_extension_inventory(rest);
     }
     if top != "gate" {
         return Err(format!("unknown top-level subcommand {top:?}\n{USAGE}"));
@@ -137,6 +194,135 @@ fn parse_construction_inventory(rest: Vec<String>) -> Result<Command, String> {
     })
 }
 
+fn parse_external_extension_inventory(rest: Vec<String>) -> Result<Command, String> {
+    let mut check = false;
+    let mut print_extracted = false;
+    let mut selftest = false;
+    let mut root: Option<PathBuf> = None;
+    let mut it = rest.into_iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "check" => check = true,
+            "generate" => check = false,
+            "print-extracted" => print_extracted = true,
+            "selftest" => selftest = true,
+            "--root" => {
+                if let Some(p) = it.next() {
+                    root = Some(PathBuf::from(p));
+                } else {
+                    return Err("external-extension-inventory --root requires a path".to_owned());
+                }
+            }
+            other => return Err(format!("unexpected argument {other:?} for external-extension-inventory")),
+        }
+    }
+    if selftest {
+        return Ok(Command::ExternalExtensionInventorySelftest {
+            root: root.unwrap_or_else(default_root),
+        });
+    }
+    Ok(Command::ExternalExtensionInventory {
+        root: root.unwrap_or_else(default_root),
+        check,
+        print_extracted,
+    })
+}
+
+fn parse_extension_inventory(rest: Vec<String>) -> Result<Command, String> {
+    let mut check = false;
+    let mut print_extracted = false;
+    let mut selftest = false;
+    let mut root: Option<PathBuf> = None;
+    let mut it = rest.into_iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "check" => check = true,
+            "generate" => check = false,
+            "print-extracted" => print_extracted = true,
+            "selftest" => selftest = true,
+            "--root" => {
+                if let Some(p) = it.next() {
+                    root = Some(PathBuf::from(p));
+                } else {
+                    return Err("extension-inventory --root requires a path".to_owned());
+                }
+            }
+            other => return Err(format!("unexpected argument {other:?} for extension-inventory")),
+        }
+    }
+    if selftest {
+        return Ok(Command::ExtensionInventorySelftest {
+            root: root.unwrap_or_else(default_root),
+        });
+    }
+    Ok(Command::ExtensionInventory {
+        root: root.unwrap_or_else(default_root),
+        check,
+        print_extracted,
+    })
+}
+
+fn parse_final_parity_audit(rest: Vec<String>) -> Result<Command, String> {
+    let mut action: Option<AuditAction> = None;
+    let mut root: Option<PathBuf> = None;
+    let mut it = rest.into_iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "check" => action = Some(AuditAction::Check),
+            "generate" => action = Some(AuditAction::Generate),
+            "selftest" => action = Some(AuditAction::Selftest),
+            "--root" => {
+                if let Some(p) = it.next() {
+                    root = Some(PathBuf::from(p));
+                } else {
+                    return Err("final-parity-audit --root requires a path".to_owned());
+                }
+            }
+            other => return Err(format!("unexpected argument {other:?} for final-parity-audit")),
+        }
+    }
+    let action = action.ok_or("final-parity-audit requires one of check|generate|selftest")?;
+    Ok(Command::FinalParityAudit {
+        root: root.unwrap_or_else(default_root),
+        action,
+    })
+}
+
+fn parse_dogfood_oracle(rest: Vec<String>) -> Result<Command, String> {
+    let mut action: Option<DogfoodAction> = None;
+    let mut root: Option<PathBuf> = None;
+    let mut source: Option<PathBuf> = None;
+    let mut it = rest.into_iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "check" => action = Some(DogfoodAction::Check),
+            "generate" => action = Some(DogfoodAction::Generate),
+            "selftest" => action = Some(DogfoodAction::Selftest),
+            "--root" => {
+                if let Some(p) = it.next() {
+                    root = Some(PathBuf::from(p));
+                } else {
+                    return Err("dogfood-oracle --root requires a path".to_owned());
+                }
+            }
+            "--source" => {
+                if let Some(p) = it.next() {
+                    source = Some(PathBuf::from(p));
+                } else {
+                    return Err("dogfood-oracle --source requires a path".to_owned());
+                }
+            }
+            other => return Err(format!("unexpected argument {other:?} for dogfood-oracle")),
+        }
+    }
+    let action = action.ok_or("dogfood-oracle requires one of check|generate|selftest")?;
+    Ok(Command::DogfoodOracle {
+        root: root.unwrap_or_else(default_root),
+        action,
+        source,
+    })
+}
+
 fn default_root() -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     p.pop();
@@ -174,9 +360,52 @@ fn run(command: Command) -> Result<ExitCode, Box<dyn std::error::Error>> {
         println!("construction-inventory selftest passed");
         return Ok(ExitCode::SUCCESS);
     }
+    if let Command::DogfoodOracle { root, action, source } = &command {
+        let opts = pi_rs_tools::dogfood_oracle::Options {
+            root,
+            check: matches!(action, DogfoodAction::Check | DogfoodAction::Selftest),
+            source: source.as_deref(),
+            self_test: matches!(action, DogfoodAction::Selftest),
+        };
+        pi_rs_tools::dogfood_oracle::run(&opts)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    if let Command::FinalParityAudit { root, action } = &command {
+        let check = matches!(action, AuditAction::Check | AuditAction::Selftest);
+        let self_test = matches!(action, AuditAction::Selftest);
+        pi_rs_tools::final_parity_audit::run(root, check, self_test)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    if let Command::ExtensionInventory { root, check, print_extracted } = &command {
+        pi_rs_tools::extension_inventory::run(root, *check, *print_extracted)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    if let Command::ExtensionInventorySelftest { root } = &command {
+        pi_rs_tools::extension_inventory_selftest::run_root(root)?;
+        println!("extension inventory fail-closed self-tests passed");
+        return Ok(ExitCode::SUCCESS);
+    }
+    if let Command::ExternalExtensionInventory { root, check, print_extracted } = &command {
+        let base = root.join("tests/external-extension-inventory");
+        pi_rs_tools::external_extension_inventory::run(root, &base, *check, *print_extracted)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    if let Command::ExternalExtensionInventorySelftest { root } = &command {
+        pi_rs_tools::external_extension_inventory_selftest::run_root(root)?;
+        println!("external extension inventory fail-closed self-tests passed");
+        return Ok(ExitCode::SUCCESS);
+    }
     let root = match &command {
         Command::Scan(root) | Command::UpdateManifests(root) | Command::Check(root) => root.clone(),
-        Command::ModelCatalog(_) | Command::ConstructionInventory { .. } | Command::ConstructionInventorySelftest { .. } => unreachable!(),
+        Command::ModelCatalog(_)
+        | Command::ConstructionInventory { .. }
+        | Command::ConstructionInventorySelftest { .. }
+        | Command::DogfoodOracle { .. }
+        | Command::FinalParityAudit { .. }
+        | Command::ExtensionInventory { .. }
+        | Command::ExtensionInventorySelftest { .. }
+        | Command::ExternalExtensionInventory { .. }
+        | Command::ExternalExtensionInventorySelftest { .. } => unreachable!(),
     };
     let files = manifest::tracked_files(&root)?;
     // Build the list of (rel, first_line) so the gate can sniff shebangs.
@@ -225,7 +454,15 @@ fn run(command: Command) -> Result<ExitCode, Box<dyn std::error::Error>> {
                 Ok(ExitCode::FAILURE)
             }
         }
-        Command::ModelCatalog(_) | Command::ConstructionInventory { .. } | Command::ConstructionInventorySelftest { .. } => unreachable!(),
+        Command::ModelCatalog(_)
+        | Command::ConstructionInventory { .. }
+        | Command::ConstructionInventorySelftest { .. }
+        | Command::DogfoodOracle { .. }
+        | Command::FinalParityAudit { .. }
+        | Command::ExtensionInventory { .. }
+        | Command::ExtensionInventorySelftest { .. }
+        | Command::ExternalExtensionInventory { .. }
+        | Command::ExternalExtensionInventorySelftest { .. } => unreachable!(),
     }
 }
 

@@ -3,6 +3,14 @@
 -- owning frontend/context mechanisms. Abort: the tool signal reaches
 -- pi.exec (spec: createLocalBashOperations' killProcessTree-on-abort)
 -- and surfaces as "Command aborted" after the partial output.
+--
+-- PLAN 9.10 (bash-tool factory): `create_bash_tool(cwd, options)` is the
+-- public port of Pi's `createBashTool(cwd, { operations, commandPrefix,
+-- shellPath, spawnHook })`, resolved by embedded and file-backed producers
+-- through the public `pi.tools.bash` exact-version module. The default tool
+-- `pi.register_tool` below is built through the same factory, so the default
+-- behavior is unchanged while file-backed extensions get the requested
+-- createBashTool equivalent on the public pi.* surface.
 local BASH_PREVIEW_LINES = 5
 
 local function format_duration(ms)
@@ -109,23 +117,106 @@ local function bash_result_component(result, options, theme, context, started_at
   end
 end
 
-pi.register_tool({
-  name = "bash",
-  active_by_default = true,
-  label = "bash",
-  description = "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
-  promptSnippet = "Execute bash commands (ls, grep, find, etc.)",
-  parameters = {
-    type = "object",
-    properties = {
-      command = { type = "string", description = "Bash command to execute" },
-      timeout = { type = "number", description = "Timeout in seconds (optional, no default timeout)" },
-    },
-    required = { "command" },
-  },
-  execute = function(tool_call_id, params, signal, on_update)
-    if not pi.fs.exists(cwd) then
-      error("Working directory does not exist: " .. cwd .. "\nCannot execute bash commands.")
+-- build_execute(cwd, options): the execute closure for a bash tool built by
+-- create_bash_tool. Honors the Pi createBashTool options (commandPrefix /
+-- spawnHook / shellPath / operations). When no custom `operations` are given
+-- the execute path is byte-for-byte the default local-shell body, so the
+-- pinned bash tool output is unchanged.
+local function build_execute(tool_cwd, options)
+  options = options or {}
+  local command_prefix = options.commandPrefix
+  local spawn_hook = options.spawnHook
+  local shell_path = options.shellPath
+  local custom_operations = options.operations
+  return function(tool_call_id, params, signal, on_update)
+    local command = params.command or ""
+    command = command_prefix and (command_prefix .. "\n" .. command) or command
+    local run_cwd = tool_cwd
+    if spawn_hook then
+      local context = spawn_hook({ command = command, cwd = run_cwd })
+      if type(context) == "table" then
+        command = context.command or command
+        run_cwd = context.cwd or run_cwd
+      end
+    end
+    if custom_operations then
+      -- Custom operations path (Pi createBashTool `operations`): delegate to
+      -- the injected ops.exec, mapping "aborted" / "timeout:" and the exit
+      -- code onto the same status strings the local path raises.
+      local output = new_output_accumulator()
+      local last_update_ms, dirty = -math.huge, false
+      local function update(force)
+        if not on_update or not dirty then return end
+        local now = pi.monotonic_ms()
+        if not force and now - last_update_ms < 100 then return end
+        local snapshot = output.snapshot()
+        on_update({
+          content = { { type = "text", text = snapshot.content or "" } },
+          details = snapshot.truncation.truncated and {
+            truncation = snapshot.truncation,
+            fullOutputPath = snapshot.fullOutputPath,
+          } or nil,
+        })
+        dirty, last_update_ms = false, now
+      end
+      if on_update then on_update({ content = {} }) end
+      local executed, exec_err = pcall(function()
+        return custom_operations.exec(command, run_cwd, {
+          onData = function(data)
+            output.append(data)
+            dirty = true
+            update(false)
+          end,
+          signal = signal,
+          timeout = type(params.timeout) == "number" and params.timeout > 0 and params.timeout or nil,
+        })
+      end)
+      output.finish()
+      update(true)
+      local snapshot = output.snapshot()
+      local truncation = snapshot.truncation
+      local text = snapshot.content ~= "" and snapshot.content or "(no output)"
+      local details
+      if truncation.truncated then
+        details = { truncation = truncation, fullOutputPath = snapshot.fullOutputPath }
+        local first = truncation.totalLines - truncation.outputLines + 1
+        local last = truncation.totalLines
+        if truncation.lastLinePartial then
+          text = text .. "\n\n[Showing last " .. format_size(truncation.outputBytes) .. " of line " .. last
+            .. " (line is " .. format_size(output.last_line_bytes()) .. "). Full output: " .. snapshot.fullOutputPath .. "]"
+        elseif truncation.truncatedBy == "lines" then
+          text = text .. "\n\n[Showing lines " .. first .. "-" .. last .. " of " .. truncation.totalLines
+            .. ". Full output: " .. snapshot.fullOutputPath .. "]"
+        else
+          text = text .. "\n\n[Showing lines " .. first .. "-" .. last .. " of " .. truncation.totalLines
+            .. " (" .. format_size(DEFAULT_MAX_BYTES) .. " limit). Full output: " .. snapshot.fullOutputPath .. "]"
+        end
+      end
+      local function fail(base, status)
+        local prefix = base ~= "" and (base .. "\n\n") or ""
+        error(prefix .. status)
+      end
+      local error_text = snapshot.content ~= "" and text or ""
+      if not executed then
+        local message = tostring(exec_err)
+        if message:find("aborted", 1, true) then
+          fail(error_text, "Command aborted")
+        elseif message:find("timeout:", 1, true) then
+          local secs = message:match("timeout:([0-9%.]+)")
+          fail(error_text, "Command timed out after " .. (secs or params.timeout or "?")
+            .. " seconds")
+        end
+        error(exec_err, 0)
+      end
+      local exit_code = exec_err.exitCode
+      if exit_code ~= nil and exit_code ~= 0 then
+        fail(text, "Command exited with code " .. exit_code)
+      end
+      return { content = { { type = "text", text = text } }, details = details }
+    end
+    -- Default local-shell path (unchanged behavior).
+    if not pi.fs.exists(run_cwd) then
+      error("Working directory does not exist: " .. run_cwd .. "\nCannot execute bash commands.")
     end
     local safe = tostring(tool_call_id):gsub("[^%w_.-]", "-")
     local full_path = pi.fs.create_temp_file("pi-bash-" .. safe .. "-", "")
@@ -149,8 +240,14 @@ pi.register_tool({
     -- Public exact-version dependency on the shell module (spec: bash.ts
     -- resolves the shell via utils/shell.ts shellConfig).
     local shell_module = pi.module.require("pi.tools.shell", "1")
-    local shell, args = shell_module.shell_config()
-    args[#args + 1] = params.command
+    local shell, args
+    if shell_path and shell_path ~= "" then
+      local bexec = pi.module.require("pi.agent.bash-executor", "1")
+      shell, args = bexec.get_shell_config(shell_path)
+    else
+      shell, args = shell_module.shell_config()
+    end
+    args[#args + 1] = command
     local timeout = type(params.timeout) == "number" and params.timeout > 0
       and params.timeout * 1000 or nil
     local result
@@ -158,7 +255,7 @@ pi.register_tool({
     -- without spawning; mid-run aborts kill the process tree.
     if not (signal and signal:is_aborted()) then
       result = pi.exec(shell, args, {
-        cwd = cwd,
+        cwd = run_cwd,
         timeout = timeout,
         signal = signal,
         onData = function(data)
@@ -204,22 +301,88 @@ pi.register_tool({
     if result.killed then fail(error_text, "Command timed out after " .. fmt_num(params.timeout) .. " seconds") end
     if result.code ~= 0 then fail(text, "Command exited with code " .. result.code) end
     return { content = { { type = "text", text = text } }, details = details }
+  end
+end
+
+-- create_bash_tool(cwd, options): public Pi `createBashTool` equivalent (PLAN
+-- 9.10 bash-tool factory). Returns a tool definition; a file-backed extension
+-- may register it or delegate to it after rewrapping execute, exactly as Pi
+-- builds the tool via createBashTool. The default registration below is the
+-- same literal schema (the construction inventory requires a literal tool
+-- registration), sharing the identical build_execute/render closures so the
+-- default and factory cannot diverge.
+local function create_bash_tool(cwd, options)
+  options = options or {}
+  return {
+    name = "bash",
+    active_by_default = true,
+    label = "bash",
+    description = "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+    promptSnippet = "Execute bash commands (ls, grep, find, etc.)",
+    parameters = {
+      type = "object",
+      properties = {
+        command = { type = "string", description = "Bash command to execute" },
+        timeout = { type = "number", description = "Timeout in seconds (optional, no default timeout)" },
+      },
+      required = { "command" },
+    },
+    execute = build_execute(cwd, options),
+    renderCall = function(args, theme, context)
+      local state = context.state
+      if context.executionStarted and state.startedAt == nil then
+        state.startedAt = context.now_ms()
+        state.endedAt = nil
+      end
+      return text_component(format_bash_call(args, theme), 0, 0)
+    end,
+    renderResult = function(result, options, theme, context)
+      local state = context.state
+      -- The spec's per-second invalidate interval is unnecessary: the
+      -- frontend re-renders streaming frames on tick.
+      if not options.isPartial or context.isError then
+        if state.endedAt == nil then state.endedAt = context.now_ms() end
+      end
+      return bash_result_component(result, options, theme, context, state.startedAt, state.endedAt)
+    end,
+  }
+end
+
+-- Public exact-version module `pi.tools.bash` (PLAN 9.10 bash-tool factory):
+-- exposes the createBashTool-equivalent factory (+ create_local_bash_operations
+-- re-exported from the agent-core bash-executor module) on the public surface.
+pi.module.define({
+  name = "pi.tools.bash",
+  version = "1",
+  dependencies = {},
+  factory = function()
+    return {
+      create_bash_tool = create_bash_tool,
+      create_local_bash_operations = pi.module.require("pi.agent.bash-executor", "1").create_local_bash_operations,
+    }
   end,
-  renderCall = function(args, theme, context)
-    local state = context.state
-    if context.executionStarted and state.startedAt == nil then
-      state.startedAt = context.now_ms()
-      state.endedAt = nil
-    end
-    return text_component(format_bash_call(args, theme), 0, 0)
-  end,
-  renderResult = function(result, options, theme, context)
-    local state = context.state
-    -- The spec's per-second invalidate interval is unnecessary: the
-    -- frontend re-renders streaming frames on tick.
-    if not options.isPartial or context.isError then
-      if state.endedAt == nil then state.endedAt = context.now_ms() end
-    end
-    return bash_result_component(result, options, theme, context, state.startedAt, state.endedAt)
-  end,
+})
+
+-- Register the default bash tool. This literal registration is the one the
+-- construction inventory extracts as `tool:bash`; it delegates execute to the
+-- same build_execute(cwd, {}) the public factory returns, so the shipped
+-- default and a file-backed factory build share one createBashTool-equivalent
+-- definition (the tool schema itself is the literal above).
+pi.register_tool({
+  name = "bash",
+  active_by_default = true,
+  label = "bash",
+  description = "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+  promptSnippet = "Execute bash commands (ls, grep, find, etc.)",
+  parameters = {
+    type = "object",
+    properties = {
+      command = { type = "string", description = "Bash command to execute" },
+      timeout = { type = "number", description = "Timeout in seconds (optional, no default timeout)" },
+    },
+    required = { "command" },
+  },
+  execute = create_bash_tool(cwd, {}).execute,
+  renderCall = create_bash_tool(cwd, {}).renderCall,
+  renderResult = create_bash_tool(cwd, {}).renderResult,
 })

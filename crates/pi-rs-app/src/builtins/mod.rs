@@ -21,8 +21,9 @@ use pi_rs_host::EmbeddedPack;
 /// they are defined once as public exact-version modules by the always-loaded
 /// `agent-core` pack (`pi.agent.*`), and this frontend requires + rebinds them
 /// at the top of `interactive.lua`. syntax-highlight stays a shared chunk-local
-/// included by both the tools and interactive packs (legacy cross-pack
-/// fragment, tracked separately).
+/// included by both the tools and interactive packs; the first to load defines
+/// the public `pi.highlight` module (PLAN 9.7 module.syntax-highlight) and the
+/// other requires the same closures.
 pub const INTERACTIVE_PACK: EmbeddedPack = EmbeddedPack {
     name: "interactive",
     source: concat!(
@@ -36,16 +37,16 @@ pub const INTERACTIVE_PACK: EmbeddedPack = EmbeddedPack {
         include_str!("interactive/assets/clankolas.base64"),
         "]==]\nCHANGELOG_MD = [=====[",
         include_str!("interactive/changelog.md"),
+        "]=====]\nlocal EXPORT_MARKED_JS = [=====[",
+        include_str!("interactive/export-html/vendor/marked.min.js"),
+        "]=====]\nlocal EXPORT_HIGHLIGHT_JS = [=====[",
+        include_str!("interactive/export-html/vendor/highlight.min.js"),
         "]=====]\ndo\nlocal EXPORT_TEMPLATE_HTML = [=====[",
         include_str!("interactive/export-html/template.html"),
         "]=====]\nlocal EXPORT_TEMPLATE_CSS = [=====[",
         include_str!("interactive/export-html/template.css"),
         "]=====]\nlocal EXPORT_TEMPLATE_JS = [=====[",
         include_str!("interactive/export-html/template.js"),
-        "]=====]\nlocal EXPORT_MARKED_JS = [=====[",
-        include_str!("interactive/export-html/vendor/marked.min.js"),
-        "]=====]\nlocal EXPORT_HIGHLIGHT_JS = [=====[",
-        include_str!("interactive/export-html/vendor/highlight.min.js"),
         "]=====]\n",
         include_str!("utils/export-html.lua"),
         "\nend\n",

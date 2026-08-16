@@ -8,8 +8,20 @@
 
 use std::io::Write as _;
 use std::os::unix::fs::PermissionsExt as _;
+use std::sync::{Mutex, MutexGuard};
 
 use pi_rs_host::{Host, HostConfig};
+
+// Serializes the tests that prepend a stub directory to the process-global
+// `PATH`. Cargo runs the tests in this binary on parallel threads; without a
+// shared lock, two tests writing `PATH` race and one can clobber the other's
+// stub directory mid-probe, so `read_image` falls through to a nonexistent
+// tool and records a spurious null. Holding the guard for the whole body keeps
+// `PATH` stable for the duration of each test.
+fn path_lock() -> MutexGuard<'static, ()> {
+    static PATH_LOCK: Mutex<()> = Mutex::new(());
+    PATH_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 const RUNNER: &str = r#"
 local pi = ...
@@ -50,6 +62,7 @@ fn call(host: &Host, env: serde_json::Value) -> serde_json::Value {
 
 #[test]
 fn read_image_probes_tools_with_pi_policy() {
+    let _guard = path_lock();
     let stub_dir = tempfile::tempdir().unwrap();
     let control = tempfile::tempdir().unwrap();
     let control_path = control.path().to_string_lossy().into_owned();
@@ -187,6 +200,7 @@ fn read_image_probes_tools_with_pi_policy() {
 /// to record whether it ran.
 #[test]
 fn native_copy_remote_skips_platform_tools() {
+    let _guard = path_lock();
     let stub_dir = tempfile::tempdir().unwrap();
     let control = tempfile::tempdir().unwrap();
     let control_path = control.path().to_string_lossy().into_owned();

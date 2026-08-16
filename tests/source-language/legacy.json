@@ -30,10 +30,6 @@
       "language": "shell",
       "shebang": "#!/usr/bin/env bash"
     },
-    "scripts/dogfood-oracle": {
-      "language": "Python",
-      "shebang": "#!/usr/bin/env python3"
-    },
     "scripts/export-html-oracle": {
       "language": "shell",
       "shebang": "#!/usr/bin/env bash"
@@ -46,10 +42,6 @@
       "language": "shell",
       "shebang": "#!/usr/bin/env bash"
     },
-    "scripts/extension-inventory": {
-      "language": "Python",
-      "shebang": "#!/usr/bin/env python3"
-    },
     "scripts/extension-runtime-oracle": {
       "language": "shell",
       "shebang": "#!/usr/bin/env bash"
@@ -58,17 +50,9 @@
       "language": "shell",
       "shebang": "#!/usr/bin/env bash"
     },
-    "scripts/external-extension-inventory": {
-      "language": "Python",
-      "shebang": "#!/usr/bin/env python3"
-    },
     "scripts/file-processor-oracle": {
       "language": "shell",
       "shebang": "#!/usr/bin/env bash"
-    },
-    "scripts/final-parity-audit": {
-      "language": "Python",
-      "shebang": "#!/usr/bin/env python3"
     },
     "scripts/frontmatter-oracle": {
       "language": "shell",
@@ -143,10 +127,6 @@
       "shebang": "#!/usr/bin/env bash"
     },
     "scripts/system-prompt-oracle": {
-      "language": "shell",
-      "shebang": "#!/usr/bin/env bash"
-    },
-    "scripts/test-external-extension-inventory": {
       "language": "shell",
       "shebang": "#!/usr/bin/env bash"
     },
@@ -669,6 +649,68 @@
       "language": "TypeScript"
     },
     "tests/ui-parity/pi-trust-turn.ts": {
+      "language": "TypeScript"
+    },
+    "scripts/footer-git-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/package-cli-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/package-transport-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/platform-clipboard-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/platform-modifiers-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/prompt-loader-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/prompt-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "scripts/skills-oracle": {
+      "language": "shell",
+      "shebang": "#!/usr/bin/env bash"
+    },
+    "tests/extension-event-parity/gen-seams-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/footer-git-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/package-cli-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/package-transport-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/platform-clipboard-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/platform-clipboard-parity/probe-clipboard.ts": {
+      "language": "TypeScript"
+    },
+    "tests/platform-modifiers-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/prompt-loader-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/prompt-parity/gen-oracle.ts": {
+      "language": "TypeScript"
+    },
+    "tests/skills-parity/gen-oracle.ts": {
       "language": "TypeScript"
     }
   }

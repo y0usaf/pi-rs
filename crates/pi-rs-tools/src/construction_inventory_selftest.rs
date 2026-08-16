@@ -235,7 +235,11 @@ fn run_selftest(root: &Path) -> Result<()> {
         let temp = Temp::new()?;
         populate(root, &temp.dir)?;
         let mut main = std::fs::read_to_string(temp.dir.join("crates/pi-rs-app/src/main.rs"))?;
-        main = main.replacen("let role = if interactive", "let selected_role = if interactive", 1);
+        main = main.replacen(
+            "let role = decl_registry.select_frontend(interactive)",
+            "let selected_role = decl_registry.select_frontend(interactive)",
+            1,
+        );
         std::fs::write(temp.dir.join("crates/pi-rs-app/src/main.rs"), main)?;
         assert_rejected(&temp.dir, "stale anchor")?;
     }
@@ -259,7 +263,7 @@ fn run_selftest(root: &Path) -> Result<()> {
             .get_mut("rows")
             .and_then(|r| r.as_array_mut())
             .ok_or_else(|| SelftestError::Message("no rows".into()))?;
-        rows.retain(|r| r.get("id").and_then(|v| v.as_str()) != Some("dogfood.pi-compact-renderer-patching"));
+        rows.retain(|r| r.get("id").and_then(|v| v.as_str()) != Some("modules.chunk-local-helpers"));
         write_manifest(&temp.dir, &manifest)?;
         assert_rejected(&temp.dir, "missing named open rows")?;
     }

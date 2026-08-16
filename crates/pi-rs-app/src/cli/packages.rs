@@ -341,9 +341,24 @@ pub fn handle_package_command_hermetic(args: &[String]) -> Option<(i32, String, 
     Some((i32::MIN, String::new(), String::new()))
 }
 
+/// The `updateTarget` carried to the `pkg-exec` Lua role as a JSON tag. Mirrors
+/// the spec `UpdateTarget` union (`{ type: "all" | "self" | "extensions" }`
+/// plus an optional per-extension source).
+pub fn update_target_tag(target: &UpdateTarget) -> &'static str {
+    match target {
+        UpdateTarget::All => "all",
+        UpdateTarget::UpdateSelf => "self",
+        UpdateTarget::Extensions { source: _ } => "extensions",
+    }
+}
+
 /// Build the `pkg-exec` role request from parsed package command options. The
-/// Lua role (`pi.packages`) runs the deterministic execution legs through the
-/// shared module mechanism and returns Pi-matching stdout/stderr/exitCode.
+/// Lua role (`pi.packages`) runs the execution legs through the shared module
+/// mechanism and returns Pi-matching stdout/stderr/exitCode. The network-
+/// modulated update/self-update legs are plainly wired through the same role:
+/// `updateConfiguredSources` short-circuits offline (deterministic skip), and
+/// the self leg prints Pi's cannot-self-update error for the native pi-rs
+/// install (DESIGN platform boundary).
 pub fn package_exec_request(
     options: &PackageCommandOptions,
     cwd: String,
@@ -353,6 +368,8 @@ pub fn package_exec_request(
         "command": options.command.as_str(),
         "source": options.source,
         "local_scope": options.local,
+        "force": options.force,
+        "update_target": options.update_target.as_ref().map(update_target_tag),
         "cwd": cwd,
         "agentDir": agent_dir,
     })
@@ -372,7 +389,7 @@ mod tests {
     fn non_command_returns_none() {
         assert!(parse_package_command(&["echo".into(), "hi".into()]).is_none());
         assert!(parse_package_command(&["bogus".into()]).is_none());
-        assert!(parse_package_command(&[].to_vec()).is_none());
+        assert!(parse_package_command(&Vec::<String>::new()).is_none());
     }
 
     #[test]

@@ -180,11 +180,13 @@ fn captured_lines(dump: &Value) -> Vec<String> {
 fn print_text_mode_output_matches_pi_byte_for_byte() {
     let oracle = fixture();
     // Byte-exact text-mode cases pi-rs can reproduce with a single prompt.
-    // (text-no-text-content — a bare toolCall assistant final — is excluded:
-    // that oracle case scripts Pi's *observed state* directly, but pi-rs's real
-    // agent legitimately continues the tool loop on stopReason toolUse and
-    // would never settle on a bare toolCall. It is not a faithful terminal
-    // print outcome and is documented in PLAN 10.)
+    // (text-no-text-content — a bare toolCall assistant final — is excluded.
+    // That oracle case scripts Pi's *observed state* through gen-oracle.ts's
+    // stub session, which returns a bare toolCall immediately. Neither Pi's
+    // `agent-loop.ts` nor pi-rs's port `agent.lua run_turn` ever settles on a
+    // bare toolCall: both execute the tool and re-prompt until a non-tool
+    // final message. The oracle case is an artifact, not a faithful terminal
+    // print outcome nor a pi-rs print-role bug — see the closed PLAN 10 row.)
     let single_text = [
         "text-single-block",
         "text-many-blocks",
@@ -340,4 +342,36 @@ fn print_follow_up_sequence_matches_pi_byte_for_byte() {
             "case {name}: stderr mismatch"
         );
     }
+}
+
+/// Faithful reproduction of the oracle's *no-text-content* intent over a
+/// message a real agent actually settles on. The oracle's `text-no-text-
+/// content` case scripts a *bare toolCall* (`stopReason:"toolUse"`) through a
+/// stub, but neither Pi (`agent-loop.ts`) nor pi-rs (`agent.lua run_turn`)
+/// ever settles on a bare toolCall — they execute the tool and continue the
+/// loop (PLAN 10 closed row). The real Pi `runPrintMode` derivation for a
+/// *settled* final message with no `text` blocks is: iterate content, print
+/// nothing, keep `exitCode = 0`. This test pins that faithful outcome through
+/// pi-rs's print role with a settled `stopReason:"stop"` message whose content
+/// carries only a non-text block.
+#[test]
+fn print_text_mode_no_text_content_settled_prints_nothing_exit_zero() {
+    let temp = tempfile::tempdir().unwrap();
+    let host = capture_host(&temp);
+    // A settled assistant final with only a non-text (thinking) content block
+    // and a non-error stop reason — nothing to write to stdout, exit 0.
+    let last = json!([{
+        "role":"assistant",
+        "content":[{"type":"thinking","thinking":"planning..."}],
+        "stopReason":"stop"
+    }]);
+    host.load(
+        "<no-text-provider>",
+        &provider_lua("text", "api-no-text", "p-no-text", &last, &json!([])),
+    )
+    .expect("provider loads");
+    let (result, dump) = run_print(&host, &temp, "text", "go", &[], "api-no-text", "p-no-text");
+    // Matches Pi's runPrintMode on a settled no-text final: empty stdout, exit 0.
+    assert_eq!(captured_lines(&dump).concat(), "");
+    assert_eq!(result["exitCode"].as_u64(), Some(0));
 }

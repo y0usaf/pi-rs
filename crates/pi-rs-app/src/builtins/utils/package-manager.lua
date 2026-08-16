@@ -347,6 +347,232 @@ local function remove_and_persist(source, options)
   return remove_source_from_settings(source, options)
 end
 
+-- isOfflineModeEnabled (spec core/package-manager.ts): off-by-default flag;
+-- when set, every network-modulated leg short-circuits with no pi.exec and no
+-- registry contact. The deterministic offline-skip behavior for (un)installed
+-- packages is exactly this: sources are collected but no network runs.
+local function is_offline_mode_enabled()
+  local value = pi.env.PI_OFFLINE
+  if value == nil or value == "" then return false end
+  local flag = tostring(value):lower()
+  return flag == "1" or flag == "true" or flag == "yes" or flag == "on"
+end
+
+-- npmUpdate: reinstall `name@latest` into the managed root via pi.exec over the
+-- configured npm command. Package JavaScript stays inert (npm is a lifecycle
+-- archive tool; pi-rs never evaluates installed JS).
+local function npm_update(parsed, scope, cwd, agent_dir)
+  local base = (scope == "project") and pi.path.join(cwd, ".pi") or agent_dir
+  local root = pi.path.join(base, "npm")
+  pi.fs.mkdir(root)
+  if parsed.spec:sub(1, 1) == "-" or parsed.spec == "" then
+    error(("npm update refused for option-like spec: %s"):format(parsed.spec), 0)
+  end
+  if unsafe_npm_name(parsed.name) then
+    error(("npm update refused for unsafe package name: %s"):format(parsed.name), 0)
+  end
+  local ok_cmd, configured = pcall(pi.settings.npm_command)
+  local tokens = (ok_cmd and type(configured) == "table") and configured or {}
+  local first = (tokens[1] ~= nil and tokens[1] ~= "") and tokens[1] or "npm"
+  local argv = { "install", parsed.name .. "@latest", "--prefix", root, "--legacy-peer-deps" }
+  for i = #tokens, 2, -1 do
+    if tokens[i] ~= "" then table.insert(argv, 1, tokens[i]) end
+  end
+  local res = pi.exec(first, argv, { cwd = agent_dir })
+  if res.code ~= 0 then
+    error(("npm update failed (code %s): %s"):format(res.code, res.stderr or ""), 0)
+  end
+  return pi.path.join(root, "node_modules", parsed.name)
+end
+
+-- Forward upvalue: install_target is defined below (after git_update) but
+-- both git_update and npm install legs share its clone/checkout body.
+local install_target
+
+-- gitUpdate: pull/ref-reconcile an existing managed clone (mirrors spec
+-- updateGit/ensureGitRef) through pi.exec. A fresh clone (uninstalled
+-- package) falls back to the install leg so a missing install is not skipped
+-- when online.
+local function git_update(parsed, scope, cwd, agent_dir)
+  local base = (scope == "project") and pi.path.join(cwd, ".pi") or agent_dir
+  local target = pi.path.join(base, "git", parsed.host, parsed.path)
+  local ok, exists = pcall(pi.fs.exists, target)
+  if not (ok and exists) then return install_target(parsed, scope, cwd, agent_dir) end
+  if parsed.ref then
+    -- Reconcile a configured checkout ref; a leading `-` would be parsed as a
+    -- git option and escape the managed path, so reject option-like refs.
+    if parsed.ref:sub(1, 1) == "-" or parsed.ref == "" then
+      error(("git checkout refused for option-like ref: %s"):format(parsed.ref), 0)
+    end
+    local fetch = pi.exec("git", { "fetch", "origin", parsed.ref }, { cwd = target })
+    if fetch.code ~= 0 then
+      error(("git fetch failed (code %s)"):format(fetch.code), 0)
+    end
+    local commit = (parsed.host == "github.com" or parsed.host == "gitlab.com")
+      and "FETCH_HEAD" or "FETCH_HEAD"
+    _ = commit
+    local co = pi.exec("git", { "checkout", "FETCH_HEAD" }, { cwd = target })
+    if co.code ~= 0 then
+      error(("git checkout failed (code %s)"):format(co.code), 0)
+    end
+    return target
+  end
+  -- Default branch: fetch origin then hard-reset the checked-out branch head.
+  local fetch = pi.exec("git", { "fetch", "origin" }, { cwd = target })
+  if fetch.code ~= 0 then
+    error(("git fetch failed (code %s)"):format(fetch.code), 0)
+  end
+  local head = pi.exec("git", { "rev-parse", "HEAD" }, { cwd = target })
+  if head.code ~= 0 then
+    error(("git rev-parse failed (code %s)"):format(head.code), 0)
+  end
+  local orig = head.stdout:gsub("%s+$", "")
+  local upstream = pi.exec("git", { "rev-parse", "@{upstream}^{commit}" }, { cwd = target })
+  if upstream.code ~= 0 then
+    error(("git rev-parse @{upstream} failed (code %s)"):format(upstream.code), 0)
+  end
+  local target_commit = upstream.stdout:gsub("%s+$", "")
+  if orig ~= target_commit then
+    local reset = pi.exec("git", { "reset", "--hard", target_commit }, { cwd = target })
+    if reset.code ~= 0 then
+      error(("git reset failed (code %s)"):format(reset.code), 0)
+    end
+    local clean = pi.exec("git", { "clean", "-fdx" }, { cwd = target })
+    if clean.code ~= 0 then
+      error(("git clean failed (code %s)"):format(clean.code), 0)
+    end
+  end
+  return target
+end
+
+-- install_target: shared clone/checkout used by both `install` and the git
+-- update fresh-clone fallback (spec installGit / getGitInstallPath).
+install_target = function(parsed, scope, cwd, agent_dir)
+  local base = (scope == "project") and pi.path.join(cwd, ".pi") or agent_dir
+  local target = pi.path.join(base, "git", parsed.host, parsed.path)
+  local ok, exists = pcall(pi.fs.exists, target)
+  if ok and exists then return target end
+  pi.fs.mkdir(pi.path.dirname(target))
+  local res = pi.exec("git", { "clone", parsed.repo, target }, { cwd = cwd })
+  if res.code ~= 0 then
+    error(("git clone failed (code %s)"):format(res.code), 0)
+  end
+  if parsed.ref then
+    if parsed.ref:sub(1, 1) == "-" or parsed.ref == "" then
+      error(("git checkout refused for option-like ref: %s"):format(parsed.ref), 0)
+    end
+    local co = pi.exec("git", { "checkout", parsed.ref }, { cwd = target })
+    if co.code ~= 0 then
+      error(("git checkout failed (code %s)"):format(co.code), 0)
+    end
+  end
+  return target
+end
+
+-- updateConfiguredSources (spec core/package-manager.ts private resolver):
+-- collect every configured source (user then project) that matches an optional
+-- `source` identity and actually perform the npm/git update. In offline mode
+-- (or when nothing is configured) this returns immediately with no network —
+-- the deterministic offline-skip behavior. For an `extensions.updateSource`
+-- request the caller already filtered to one identity; here we mirror the
+-- CLI-path resolution where `update()` filters by identity and throws
+-- buildNoMatchingPackageMessage when a requested source has no match.
+local function collect_update_sources(cwd, agent_dir, identity)
+  local out = {}
+  local user_packages = CHANNELS.user.get()
+  for _, entry in ipairs(user_packages) do
+    local s = source_of(entry)
+    if s and (not identity or package_identity(s, "user") == identity) then
+      out[#out + 1] = { source = s, scope = "user" }
+    end
+  end
+  local project_packages = read_project_packages(cwd)
+  for _, entry in ipairs(project_packages) do
+    local s = source_of(entry)
+    if s and (not identity or package_identity(s, "project") == identity) then
+      out[#out + 1] = { source = s, scope = "project" }
+    end
+  end
+  return out
+end
+
+local function build_no_matching_package_message(source, configured)
+  local list_parts = {}
+  for _, s in ipairs(configured) do
+    if type(s) == "string" then list_parts[#list_parts + 1] = s
+    elseif s and s.source then list_parts[#list_parts + 1] = s.source end
+  end
+  return ("No matching package found for %s. Installed: %s"):format(
+    source, table.concat(list_parts, ", ")
+  )
+end
+
+-- update(source?, cwd, agent_dir): mirror spec update(). Returns `{ done,
+-- updated }` where `updated` is a list of source strings actually refreshed.
+-- Offline (or empty) sources short-circuit to `{ done = true }` with no exec,
+-- which is the deterministic offline-skip for uninstalled packages.
+local function update(source, cwd, agent_dir)
+  cwd = cwd or pi.cwd()
+  agent_dir = agent_dir or cwd
+  local identity = source and package_identity(source, "user") or nil
+  local matched = false
+  local configured = {}
+  for _, e in ipairs(CHANNELS.user.get()) do
+    local s = source_of(e)
+    if s then configured[#configured + 1] = s end
+  end
+  for _, e in ipairs(read_project_packages(cwd)) do
+    local s = source_of(e)
+    if s then configured[#configured + 1] = s end
+  end
+  if identity then
+    for _, existing in ipairs(configured) do
+      if package_identity(existing, "user") == identity then matched = true break end
+    end
+    if not matched then
+      error(build_no_matching_package_message(source, configured), 0)
+    end
+  end
+  local sources = collect_update_sources(cwd, agent_dir, identity)
+  if is_offline_mode_enabled() or #sources == 0 then
+    return { done = true, updated = {} }
+  end
+  local updated = {}
+  for _, entry in ipairs(sources) do
+    local parsed = parse_source(entry.source)
+    if parsed.type == "npm" then
+      if not parsed.pinned then
+        npm_update(parsed, entry.scope, cwd, agent_dir)
+        updated[#updated + 1] = { source = entry.source, scope = entry.scope }
+      end
+    elseif parsed.type == "git" then
+      git_update(parsed, entry.scope, cwd, agent_dir)
+      updated[#updated + 1] = { source = entry.source, scope = entry.scope }
+    end
+  end
+  return { done = true, updated = updated }
+end
+
+-- self_update_plan: for a native pi-rs install there is no npm/Bun package to
+-- reinstall, so the plan always stays "unavailable" — the self leg prints
+-- Pi's cannot-self-update error (DESIGN platform boundary, ref
+-- coding.platform-update); we do not fabricate a network release check.
+local function self_update_plan(force)
+  if force then return { packageName = "", shouldRun = true } end
+  return { packageName = "", shouldRun = true }
+end
+
+local function print_self_update_unavailable(npm_command)
+  local npm = table.concat(npm_command or {}, " ")
+  local parts = { "error: pi cannot self-update this installation." }
+  if npm ~= "" then
+    parts[#parts + 1] = "This pi was installed as a native (compiled) build. To update, run:\n  " .. npm .. ""
+  else
+    parts[#parts + 1] = "This pi was installed as a native (compiled) build without a package reinstall command; update it manually."
+  end
+  return table.concat(parts, "\n") .. "\n"
+end
+
 pi.module.define({
   name = "pi.packages",
   version = "1",
@@ -365,6 +591,13 @@ pi.module.define({
       install_and_persist = install_and_persist,
       remove_and_persist = remove_and_persist,
       read_project_packages = read_project_packages,
+      update = update,
+      collect_update_sources = collect_update_sources,
+      is_offline_mode_enabled = is_offline_mode_enabled,
+      npm_update = npm_update,
+      git_update = git_update,
+      self_update_plan = self_update_plan,
+      print_self_update_unavailable = print_self_update_unavailable,
     }
   end,
 })
@@ -454,11 +687,42 @@ pi.register_role({
         write_out("Removed " .. source .. "\n")
         return { done = true }
       end
-      -- update: the extensions leg is offline-skip with no network (spec
-      -- updateConfiguredSources returns when isOfflineModeEnabled), and the
-      -- self-update leg is unavailable for a compiled pi-rs. It is network /
-      -- install-method dependent, so it stays out of this role's deterministic
-      -- scope; Rust dispatch does not route `update` to this role.
+      if command == "update" then
+        -- Spec handlePackageCommand `update` case: run the extensions leg when
+        -- the target includes extensions, then the self leg when it includes
+        -- self. The offline extension leg short-circuits with no network
+        -- (updateConfiguredSources early-return); a requested source with no
+        -- match throws buildNoMatchingPackageMessage.
+        local target = request.update_target or "all"
+        local includes_ext = target == "all" or target == "extensions"
+        local includes_self = target == "all" or target == "self"
+        local force = request.force == true
+        if includes_ext then
+          -- update(source?) throws when a requested source has no configured
+          -- match; offline it still throws on a missing match, matching Pi's
+          -- update() ordering (identity check before updateConfiguredSources).
+          local upd = pm.update(source, cwd, agent_dir)
+          if source then
+            write_out("Updated " .. source .. "\n")
+          else
+            write_out("Updated packages\n")
+          end
+          _ = upd
+        end
+        if includes_self then
+          local plan = pm.self_update_plan(force)
+          if plan.shouldRun then
+            -- Native pi-rs cannot self-update (DESIGN platform boundary):
+            -- print Pi's cannot-self-update error and exit 1, exactly the
+            -- printSelfUpdateUnavailable path a non-npm install reaches.
+            local ok_cmd, cfg = pcall(pi.settings.npm_command)
+            local npm_cmd = (ok_cmd and type(cfg) == "table") and cfg or nil
+            write_err(pm.print_self_update_unavailable(npm_cmd))
+            return { exit = 1 }
+          end
+        end
+        return { done = true }
+      end
       return { out_of_scope = true }
     end)
 
@@ -468,6 +732,87 @@ pi.register_role({
     end
     local exit = result and result.exit or 0
     return { exitCode = exit, stdout = table.concat(out), stderr = table.concat(err) }
+  end,
+})
+
+-- ---------------------------------------------------------------------------
+-- package-manager-cli.ts handleConfigCommand — the `pi config` TUI command.
+--
+-- Rust dispatches `pi config` to this `config-exec` role after the project-trust
+-- / settings preamble. The full interactive resource/config selector is a TUI
+-- component owned by the interactive frontend; this role mirrors the
+-- deterministic preamble (project trust, settings errors, resource resolution)
+-- and, for the headless CLI path, emits the resolved resource paths so the
+-- command wiring is observable and file-backed. The selector UI itself lives in
+-- the interactive pack (settings selector); here we cover the command plumbing
+-- and the resolved-resource outcome.
+pi.register_role({
+  id = "coding-agent-config-cli",
+  role = "config-exec",
+  active = true,
+  priority = 0,
+  description = "Run the pi config command preamble + resource resolution",
+  handler = function(args)
+    local request = pi.json.decode(args)
+    local out, err = {}, {}
+    local function write_out(s) out[#out + 1] = s end
+    local function write_err(s) err[#err + 1] = s end
+    local cwd = request.cwd or pi.cwd()
+    local agent_dir = request.agentDir
+
+    -- Project-trust preamble (spec createCommandSettingsManager): report
+    -- non-fatal trust/settings warnings; the interactive selector then runs.
+    local trusted = pi.settings.is_project_trusted()
+    if request.projectTrustOverride ~= nil
+      and request.projectTrustOverride == false and not trusted
+    then
+      write_err("Project is not trusted. Use --approve to modify local package config.\n")
+    end
+
+    write_out("Configured resources for " .. cwd .. "\n")
+
+    -- Packages come from the shared pi.packages module (the config command's
+    -- resolvedPaths list configured package sources; spec packageManager.
+    -- resolve / listConfiguredPackages).
+    local ok_pm, pm = pcall(function()
+      return pi.module.require("pi.packages", "1")
+    end)
+    if ok_pm and pm and pm.list_configured_packages then
+      local configured = pm.list_configured_packages(cwd, agent_dir)
+      if #configured > 0 then
+        write_out("PACKAGES:\n")
+        for _, entry in ipairs(configured) do
+          write_out("  " .. tostring(entry.source) .. "\n")
+        end
+      end
+    end
+
+    -- Resolve configured skills/prompts/themes through the shared pi.resources
+    -- module so the config command reflects the same precedence/attribution
+    -- engine as the interactive frontend's /reload.
+    local ok_res, resources = pcall(function()
+      return pi.module.require("pi.resources", "1")
+    end)
+    if ok_res and resources and resources.resolve then
+      local resolved = resources.resolve({
+        cwd = cwd, agentDir = agent_dir, home = request.home,
+        projectTrusted = nil,
+      })
+      for _, kind in ipairs({ "extensions", "skills", "prompts", "themes" }) do
+        local entries = resolved[kind] or {}
+        if type(entries) == "table" and next(entries) then
+          write_out(string.upper(kind) .. ":\n")
+          for _, entry in ipairs(entries) do
+            if type(entry) == "table" then
+              write_out("  " .. tostring(entry.source or entry.path or "") .. "\n")
+            else
+              write_out("  " .. tostring(entry) .. "\n")
+            end
+          end
+        end
+      end
+    end
+    return { exitCode = 0, stdout = table.concat(out), stderr = table.concat(err) }
   end,
 })
 end

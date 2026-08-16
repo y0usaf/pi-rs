@@ -1,12 +1,37 @@
 -- Product-side extension composition. Rust exposes registration/handler
 -- snapshots; this Lua policy chooses active tools and the complete Pi event
 -- fold semantics. Every product seam dispatches through extension_handlers;
--- there is no embedded-only callback path. Each product pack gets an isolated
--- policy table while using the same public API. The chunk argument is bound
+-- there is no embedded-only callback path.
+--
+-- Public exact-version module (PLAN 9.7/9.10 module.extension-composition):
+-- the active-tool / tool-call-fold / extension-command policy table is a
+-- shared, single-owned public module `pi.extension.composition@1`, so the
+-- coding-agent and interactive packs resolve the SAME closures and an
+-- ordinary file-backed application can require + rebind/replace the composition
+-- policy instead of inheriting a pack-private chunk-local. The first pack to
+-- load defines the module; a later include (or a file-backed replacement)
+-- requires and receives the identical table. The chunk argument is bound
 -- locally here (this fragment no longer depends on a concat-ordered helper
 -- declaring `local pi` above it — see mod.rs): the pack chunk exposes `pi`.
 local pi = ...
-local EXTENSION_POLICY = { api = pi }
+if not (function()
+  for _, entry in ipairs(pi.module.list()) do
+    if entry.name == "pi.extension.composition" and entry.version == "1" then
+      return true
+    end
+  end
+  return false
+end)() then
+  pi.module.define({
+    name = "pi.extension.composition",
+    version = "1",
+    dependencies = {},
+    factory = function()
+      return { api = pi }
+    end,
+  })
+end
+local EXTENSION_POLICY = pi.module.require("pi.extension.composition", "1")
 
 function EXTENSION_POLICY.active_tools()
   local active, names = {}, {}
