@@ -24,6 +24,7 @@ mod clipboard;
 pub mod config;
 mod convert;
 mod crypto;
+pub mod daemon;
 pub mod discover;
 mod error;
 mod exec;
