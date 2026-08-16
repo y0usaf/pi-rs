@@ -42,7 +42,9 @@
 
 use mlua::{AnyUserData, UserData, UserDataMethods};
 use std::{
+    cell::RefCell,
     collections::{HashMap, HashSet},
+    rc::Rc,
     sync::{Arc, Mutex},
 };
 fn loader_indicator(
@@ -3785,7 +3787,231 @@ pub(crate) fn build(
         lua.create_function(|_, source: String| Ok(crate::git::is_local_path(&source)))?,
     )?;
 
+    // pi.kernel — the additive kernel-composition surface (Stage 0 of
+    // docs/pi-kernel-surface.md). One self-owned, VM-resident kernel Context
+    // (the daemon boundary is NOT yet folded; Stage 1 hands its mounts to this
+    // same substrate). The surface lets an ordinary file-backed extension mount
+    // a reversible kernel Component and read/write the same Context the kernel
+    // owns: mount runs declarative effects (each snapshotting the prior value so
+    // unmount replays its inverse), reads declare spatial dependencies whose
+    // committed changes fire the component's on_change on the VM thread.
+    //
+    // The kernel Context stores values as serde_json::Value (JSON is the
+    // boundary format); runtime Lua keys are interned to &'static str per first
+    // use because pi-rs-kernel's API is const-lifetime keyed. The kernel's
+    // on_change/Effect closures require `Send` while mlua values are `!Send`,
+    // so the component registered in the kernel only pushes (scope, key) onto a
+    // Send-safe mailbox; the Lua on_change is forwarded synchronously by the
+    // mutation handler on the same VM thread (the design's single-write path).
+    let kernel_ctx: Rc<RefCell<pi_rs_kernel::Context>> =
+        Rc::new(RefCell::new(pi_rs_kernel::Context::new()));
+    let kernel_keys: Rc<RefCell<HashMap<String, &'static str>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+    let kernel_notify: Arc<Mutex<Vec<(usize, &'static str)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+    let kernel_on_change: Rc<RefCell<HashMap<usize, mlua::Function>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+
+    let kernel_api = lua.create_table()?;
+
+    // mount{reads = {...}, effects = {{key=.., value=..}, ..}, on_change = fn}
+    // -> scope id. Effects are applied in order at mount; each returns an
+    // inverse so unmount replays them in reverse (residue-free).
+    {
+        let ctx = Rc::clone(&kernel_ctx);
+        let keys = Rc::clone(&kernel_keys);
+        let notify = Arc::clone(&kernel_notify);
+        let on_change = Rc::clone(&kernel_on_change);
+        kernel_api.set(
+            "mount",
+            lua.create_function(
+                move |lua, spec: mlua::Table| {
+                    let reads: Vec<&'static str> =
+                        match spec.get::<Option<mlua::Table>>("reads")? {
+                            Some(reads) => reads
+                                .sequence_values::<String>()
+                                .map(|read| {
+                                    let read = read?;
+                                    Ok(if let Some(&leaked) = keys.borrow().get(&read) {
+                                        leaked
+                                    } else {
+                                        let leaked: &'static str =
+                                            Box::leak(read.clone().into_boxed_str());
+                                        keys.borrow_mut().insert(read, leaked);
+                                        leaked
+                                    })
+                                })
+                                .collect::<mlua::Result<Vec<_>>>()?,
+                            None => Vec::new(),
+                        };
+                    let mut component = pi_rs_kernel::Component::new(reads);
+                    if let Some(effects) = spec.get::<Option<mlua::Table>>("effects")? {
+                        for effect in effects.sequence_values::<mlua::Table>() {
+                            let effect = effect?;
+                            let key: String = effect.get("key")?;
+                            let key_static: &'static str = intern_kernel_key(&keys, key);
+                            let value: mlua::Value = effect.get("value")?;
+                            let value = crate::convert::lua_to_json(value)?;
+                            let ks = key_static;
+                            component.effects.push(Box::new(
+                                move |ctx: &mut pi_rs_kernel::Context| {
+                                    let prior = ctx.get::<serde_json::Value>(ks).cloned();
+                                    ctx.set(ks, value.clone());
+                                    Box::new(move |ctx: &mut pi_rs_kernel::Context| match prior {
+                                        Some(prev) => ctx.set(ks, prev),
+                                        None => ctx.remove(ks),
+                                    })
+                                },
+                            ));
+                        }
+                    }
+                    let on_change_cb = match spec.get::<Option<mlua::Function>>("on_change")? {
+                        Some(cb) => {
+                            let marker = Arc::new(std::sync::atomic::AtomicUsize::new(usize::MAX));
+                            let guard = Arc::clone(&marker);
+                            let queue = Arc::clone(&notify);
+                            component.on_change = Some(Box::new(move |_ctx, key| {
+                                let id = guard.load(std::sync::atomic::Ordering::Relaxed);
+                                if id != usize::MAX
+                                    && let Ok(mut queue) = queue.lock()
+                                {
+                                    queue.push((id, key));
+                                }
+                            }));
+                            Some((marker, cb))
+                        }
+                        None => None,
+                    };
+                    let id = ctx.borrow_mut().mount(component);
+                    if let Some((marker, cb)) = on_change_cb {
+                        marker.store(id, std::sync::atomic::Ordering::Relaxed);
+                        on_change.borrow_mut().insert(id, cb);
+                    }
+                    // Effect sets committed at mount may have notified previously
+                    // mounted readers; flush any such Lua reactions now.
+                    relay_kernel_events(lua, &notify, &on_change)?;
+                    Ok(id as i64)
+                },
+            )?,
+        )?;
+
+        let unmount_ctx = Rc::clone(&kernel_ctx);
+        let unmount_on_change = Rc::clone(&kernel_on_change);
+        let unmount_notify = Arc::clone(&kernel_notify);
+        kernel_api.set(
+            "unmount",
+            lua.create_function(move |_, id: i64| {
+                let id = id as usize;
+                unmount_on_change.borrow_mut().remove(&id);
+                unmount_ctx.borrow_mut().unmount(id);
+                // Unmount is a teardown (inverse replay), not a user-visible
+                // change: drop any notifications the replays enqueued.
+                if let Ok(mut queue) = unmount_notify.lock() {
+                    queue.clear();
+                }
+                Ok(())
+            })?,
+        )?;
+    }
+
+    {
+        let get_ctx = Rc::clone(&kernel_ctx);
+        let get_keys = Rc::clone(&kernel_keys);
+        kernel_api.set(
+            "get",
+            lua.create_function(move |lua, key: String| {
+                let ks = intern_kernel_key(&get_keys, key);
+                match get_ctx.borrow().get::<serde_json::Value>(ks).cloned() {
+                    Some(value) => crate::convert::json_to_lua(lua, &value),
+                    None => Ok(mlua::Value::Nil),
+                }
+            })?,
+        )?;
+
+        let has_ctx = Rc::clone(&kernel_ctx);
+        let has_keys = Rc::clone(&kernel_keys);
+        kernel_api.set(
+            "has",
+            lua.create_function(move |_, key: String| {
+                Ok(has_ctx
+                    .borrow()
+                    .has(intern_kernel_key(&has_keys, key)))
+            })?,
+        )?;
+
+        let set_ctx = Rc::clone(&kernel_ctx);
+        let set_keys = Rc::clone(&kernel_keys);
+        let set_notify = Arc::clone(&kernel_notify);
+        let set_on_change = Rc::clone(&kernel_on_change);
+        kernel_api.set(
+            "set",
+            lua.create_function(move |lua, (key, value): (String, mlua::Value)| {
+                let ks = intern_kernel_key(&set_keys, key);
+                let value = crate::convert::lua_to_json(value)?;
+                set_ctx.borrow_mut().set(ks, value);
+                relay_kernel_events(lua, &set_notify, &set_on_change)
+            })?,
+        )?;
+
+        let remove_ctx = Rc::clone(&kernel_ctx);
+        let remove_keys = Rc::clone(&kernel_keys);
+        let remove_notify = Arc::clone(&kernel_notify);
+        let remove_on_change = Rc::clone(&kernel_on_change);
+        kernel_api.set(
+            "remove",
+            lua.create_function(move |lua, key: String| {
+                let ks = intern_kernel_key(&remove_keys, key);
+                remove_ctx.borrow_mut().remove(ks);
+                relay_kernel_events(lua, &remove_notify, &remove_on_change)
+            })?,
+        )?;
+    }
+    pi.set("kernel", kernel_api)?;
+
     Ok(pi)
+}
+
+/// Intern a runtime Lua key to the kernel's `&'static str` key space. Keys are
+/// remembered in a VM-local map so the same logical key maps to the same
+/// lifetime once; every distinct key is leaked for the VM's lifetime (the
+/// kernel's API is const-lifetime keyed and stage-0 keys are few).
+fn intern_kernel_key(
+    keys: &Rc<RefCell<HashMap<String, &'static str>>>,
+    key: String,
+) -> &'static str {
+    if let Some(&leaked) = keys.borrow().get(&key) {
+        return leaked;
+    }
+    let leaked: &'static str = Box::leak(key.clone().into_boxed_str());
+    keys.borrow_mut().insert(key, leaked);
+    leaked
+}
+
+/// Forward kernel on_change notifications recorded during a committed mutation
+/// to the corresponding Lua callbacks. Runs on the VM thread right after the
+/// mutation returns, so a Lua reaction is delivered in the same turn as the
+/// write that triggered it (the design's single-write path).
+fn relay_kernel_events(
+    lua: &mlua::Lua,
+    queue: &Arc<Mutex<Vec<(usize, &'static str)>>>,
+    callbacks: &Rc<RefCell<HashMap<usize, mlua::Function>>>,
+) -> mlua::Result<()> {
+    let pending: Vec<(usize, &'static str)> = {
+        let mut queue = queue
+            .lock()
+            .map_err(|_| mlua::Error::runtime("pi.kernel notify lock poisoned"))?;
+        std::mem::take(&mut *queue)
+    };
+    let callbacks = callbacks.try_borrow().map_err(|_| {
+        mlua::Error::runtime("pi.kernel on_change table already mutably borrowed")
+    })?;
+    for (id, key) in pending {
+        if let Some(callback) = callbacks.get(&id) {
+            let key = lua.create_string(key)?;
+            callback.call::<()>(key)?;
+        }
+    }
+    Ok(())
 }
 
 /// Snapshot the handler list for `event` before dispatching so a handler
