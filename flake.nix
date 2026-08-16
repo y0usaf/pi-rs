@@ -216,18 +216,40 @@
           dontInstall = true;
         };
 
-      # Closed, offline Pi extension surface + translation/API-doc freshness gate.
+      # Build the A.3 Rust tools binary (source-language gate + every migrated
+      # generator/inventory owner). `nix flake check` needs no repo-owned
+      # Node/Bun/Python/shell runtime.
+      mkPiRsTools =
+        system:
+        let
+          c = mkCraneLib system;
+        in
+        c.craneLib.buildPackage {
+          inherit (c) src cargoArtifacts;
+          pname = "pi-rs-tools";
+          version = "0.1.0";
+          nativeBuildInputs = c.commonEnv.nativeBuildInputs;
+          cargoExtraArgs = "-p pi-rs-tools";
+          doCheck = false;
+          meta.mainProgram = "pi-rs-tools";
+        };
+
+      # Closed, offline Pi extension surface + translation/API-doc freshness
+      # gate. Rust owner (`pi-rs-tools extension-inventory {check,selftest}`);
+      # no repo-owned Python runtime.
       mkExtensionParity =
         system:
         let
-          pkgs = mkPkgs system;
+          c = mkCraneLib system;
+          tools = mkPiRsTools system;
         in
-        pkgs.runCommand "extension-parity"
+        c.pkgs.runCommand "extension-parity"
           {
-            nativeBuildInputs = [ pkgs.python3 ];
+            nativeBuildInputs = [ tools ];
           }
           ''
-            python3 ${self}/scripts/extension-inventory --check
+            pi-rs-tools extension-inventory check --root ${self}
+            pi-rs-tools extension-inventory selftest --root ${self}
             touch $out
           '';
 
@@ -324,59 +346,100 @@
           '';
 
       # Offline, pinned-source capability inventory for the maintained external
-      # extension dogfood suite. Includes idempotency and fail-closed controls.
+      # extension dogfood suite. Rust owner (`pi-rs-tools
+      # external-extension-inventory {check,selftest}`); includes idempotency and
+      # fail-closed controls while needing no repo-owned Python/bash.
       mkExternalExtensionInventoryTest =
         system:
         let
-          pkgs = mkPkgs system;
+          c = mkCraneLib system;
+          tools = mkPiRsTools system;
         in
-        pkgs.runCommand "external-extension-inventory-test"
+        c.pkgs.runCommand "external-extension-inventory-test"
           {
-            nativeBuildInputs = [
-              pkgs.bash
-              pkgs.coreutils
-              pkgs.gnugrep
-              pkgs.python3
-            ];
+            nativeBuildInputs = [ tools ];
           }
           ''
-            bash ${self}/scripts/test-external-extension-inventory
+            pi-rs-tools external-extension-inventory check --root ${self}
+            pi-rs-tools external-extension-inventory selftest --root ${self}
             touch $out
           '';
 
-      # Offline maintained-extension fixture/provenance gate. The behavioral
-      # source revision is checked into the contract; no sibling pi-flake checkout
-      # is consulted by normal builds.
-      mkDogfoodFixtureTest =
+      # A.2 hash-lock oracle input: the pinned `pi-flake` revision that the
+      # committed external-extension fixtures are extracted from. This is a
+      # fixed-output `fetchgit`, so Nix fetches it only when a derivation
+      # depending on it is built (opt-in oracle regeneration / /
+      # re-verification). Normal `nix flake check` never builds it and stays
+      # fully offline against the committed fixtures + provenance.json.
+      mkPiFlakeOracle =
+        pkgs:
+        pkgs.fetchgit {
+          url = "https://github.com/y0usaf/pi-flake";
+          # Pin to the exact revision recorded in
+          # tests/external-extension-inventory/provenance.json.
+          rev = "94694da7321ce74aa7b82c13db7e60e28c0caba6";
+          sha256 = "sha256-PD3E5KPP50AuAddI0mFgdZqjKN6BTR+YAv3l7Y+Nv9A=";
+        };
+
+      # Opt-in: make the hash-locked pi-flake oracle available and expose the
+      # pinned revision, so provenance can be re-verified/regenerated against a
+      # byte-identical pinned tree without altering normal offline checks.
+      mkRefreshExternalExtensionFixtures =
         system:
         let
           pkgs = mkPkgs system;
+          oracle = mkPiFlakeOracle pkgs;
         in
-        pkgs.runCommand "dogfood-fixture-test"
+        pkgs.writeShellApplication {
+          name = "refresh-external-extension-fixtures";
+          runtimeInputs = [ pkgs.git ];
+          text = ''
+            echo "hash-locked pi-flake oracle (A.2):"
+            echo "  oracle = ${oracle}"
+            echo "  revision = 94694da7321ce74aa7b82c13db7e60e28c0caba6"
+            echo "  extensions tree = c4a04dfe88314b5e48ebb200ccfd546645c3af9e"
+            echo "Regenerate tests/external-extension-inventory/provenance.json from"
+            echo "this pinned tree; the committed fixtures are not touched by default."
+          '';
+        };
+
+      # Offline maintained-extension fixture/provenance gate. Rust owner
+      # (`pi-rs-tools dogfood-oracle {check,selftest}`); the behavioral source
+      # revision is checked into the contract and no sibling pi-flake checkout is
+      # consulted by normal builds.
+      mkDogfoodFixtureTest =
+        system:
+        let
+          c = mkCraneLib system;
+          tools = mkPiRsTools system;
+        in
+        c.pkgs.runCommand "dogfood-fixture-test"
           {
-            nativeBuildInputs = [ pkgs.python3 ];
+            nativeBuildInputs = [ tools ];
           }
           ''
-            python3 ${self}/tests/dogfood-suite/test_contract.py
-            python3 ${self}/scripts/dogfood-oracle --check
+            pi-rs-tools dogfood-oracle check --root ${self}
+            pi-rs-tools dogfood-oracle selftest --root ${self}
             touch $out
           '';
 
       # Closed, offline source/public-surface audit against the pinned Pi
-      # extraction. Reference regeneration is explicit and never reads an
-      # ambient sibling checkout during normal checks.
+      # extraction. Rust owner (`pi-rs-tools final-parity-audit {check,selftest}`).
+      # Reference regeneration is explicit and never reads an ambient sibling
+      # checkout during normal checks.
       mkFinalParityAudit =
         system:
         let
-          pkgs = mkPkgs system;
+          c = mkCraneLib system;
+          tools = mkPiRsTools system;
         in
-        pkgs.runCommand "final-parity-audit"
+        c.pkgs.runCommand "final-parity-audit"
           {
-            nativeBuildInputs = [ pkgs.python3 ];
+            nativeBuildInputs = [ tools ];
           }
           ''
-            python3 ${self}/scripts/final-parity-audit --check
-            python3 ${self}/scripts/final-parity-audit --self-test
+            pi-rs-tools final-parity-audit check --root ${self}
+            pi-rs-tools final-parity-audit selftest --root ${self}
             touch $out
           '';
 
@@ -455,6 +518,8 @@
       packages = forAllSystems (system: rec {
         pi-rs = mkPiRs system;
         update-model-catalog = mkModelCatalogUpdater system;
+        # A.2 hash-locked oracle input for the external-extension fixtures.
+        pi-flake-oracle = mkPiFlakeOracle (mkPkgs system);
         default = pi-rs;
       });
 
@@ -466,6 +531,10 @@
         update-model-catalog = {
           type = "app";
           program = "${mkModelCatalogUpdater system}/bin/update-model-catalog";
+        };
+        refresh-external-extension-fixtures = {
+          type = "app";
+          program = "${mkRefreshExternalExtensionFixtures system}/bin/refresh-external-extension-fixtures";
         };
       });
 

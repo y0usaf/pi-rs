@@ -37,6 +37,20 @@ fn git(args: &[&str], cwd: &Path) {
     assert!(status.success(), "git {args:?} failed");
 }
 
+/// True when the `git` binary is actually usable on PATH. The Nix test
+/// sandbox does not provide git, so the parity test that builds real repos
+/// with it skips there rather than panicking on `Command::new("git")`.
+fn git_available() -> bool {
+    std::process::Command::new("git")
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
 fn write(dir: &Path, name: &str, contents: &str) {
     let path = dir.join(name);
     let mut f = std::fs::File::create(path).unwrap();
@@ -47,6 +61,11 @@ fn write(dir: &Path, name: &str, contents: &str) {
 /// mechanism. Returns `(case_name, expected_branch)` from the oracle.
 #[test]
 fn pi_live_git_branch_matches_vendored_oracle() {
+    if !git_available() {
+        // Git is not on PATH in the Nix test sandbox; skip rather than fail.
+        eprintln!("skipping: git binary not available on PATH");
+        return;
+    }
     let oracle = fixture("oracle.json");
     let cases = oracle["cases"].as_array().expect("cases");
 

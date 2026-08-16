@@ -261,3 +261,32 @@ local function markdown_highlight_code(code, lang, theme)
   if lines == nil or lines == false then return md_code_block_lines(code, theme) end
   return lines
 end
+
+-- Public exact-version module (PLAN 9.7 module.syntax-highlight). The tools
+-- and interactive packs both embed this file and the first one loaded defines
+-- the module; a later include (or an ordinary file-backed package) requires
+-- and receives the identical closures, so there is no private chunk-local
+-- tier left. The factories capture only their declared dependencies, so the
+-- returned closures are source-neutral once the definition resolves.
+if not (function()
+  local found = false
+  for _, entry in ipairs(pi.module.list()) do
+    if entry.name == "pi.highlight" and entry.version == "1" then
+      found = true
+      break
+    end
+  end
+  return found
+end)() then
+  pi.module.define({
+    name = "pi.highlight",
+    version = "1",
+    dependencies = {},
+    factory = function()
+      return {
+        theme_highlight_code = theme_highlight_code,
+        markdown_highlight_code = markdown_highlight_code,
+      }
+    end,
+  })
+end

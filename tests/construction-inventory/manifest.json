@@ -486,15 +486,21 @@
     "tools",
     "interactive"
    ],
-   "public_declaration": "none; duplicated into concatenated pack scopes",
-   "disable_path": "none independently; remove from both pack concats",
-   "replacement_evidence": "target: one public module imported by embedded and file-backed renderers",
-   "status": "open",
+   "public_declaration": "pi.module.define pi.highlight@1 (theme_highlight_code / markdown_highlight_code); the first pack to load defines it, the other requires the same closures",
+   "disable_path": "omitting both packs removes the builtin definition; a file-backed package may define pi.highlight@1",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/syntax-highlight.lua defines pi.highlight@1; tools/render-utils.lua imports it over the embedded definition; assembly.rs file_backed_package_imports_the_public_syntax_highlight_module + examples/extensions/module-demo.lua",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/syntax-highlight.lua"
    ],
-   "anchors": [],
+   "anchors": [
+    {
+     "path": "crates/pi-rs-app/src/builtins/utils/syntax-highlight.lua",
+     "text": "name = \"pi.highlight\"",
+     "count": 1
+    }
+   ],
    "declarations": [],
    "rust_entrypoints": []
   },
@@ -525,15 +531,21 @@
     "coding-agent",
     "interactive"
    ],
-   "public_declaration": "none; global EXTENSION_POLICY table shared only inside pack chunks",
-   "disable_path": "none independently; remove from both pack concats",
-   "replacement_evidence": "target: public composition module imported by file-backed applications",
-   "status": "open",
+   "public_declaration": "pi.module.define pi.extension.composition@1 (active_tools / emit_tool_call / emit_tool_result / emit_generic / execute_command / try_execute_extension_command / bind_pi_actions); the coding-agent and interactive packs define+require the same shared table and a file-backed package may define/import pi.extension.composition@1",
+   "disable_path": "omitting/customizing via the public pi.extension.composition@1 module; a file-backed package defines the same exact-version module to replace the composition policy",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/extensions.lua defines the public exact-version module (guard-defines then requires the shared table); builtin coding-agent/interactive packs resolve the same closures; crates/pi-rs-app/tests/assembly.rs file_backed_package_imports_the_public_extension_composition_module drives examples/extensions/extension-composition-demo.lua from a file-backed package",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/utils/extensions.lua"
    ],
-   "anchors": [],
+   "anchors": [
+    {
+     "path": "crates/pi-rs-app/src/builtins/utils/extensions.lua",
+     "text": "pi.module.define({",
+     "count": 1
+    }
+   ],
    "declarations": [],
    "rust_entrypoints": []
   },
@@ -725,7 +737,8 @@
    ],
    "anchors": [],
    "declarations": [
-    "role:pkg-exec"
+    "role:pkg-exec",
+    "role:config-exec"
    ],
    "rust_entrypoints": []
   },
@@ -736,10 +749,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; include_str data decoded by the interactive chunk",
-   "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: file-backed theme declaration replaces the default",
-   "status": "open",
+   "public_declaration": "declared package resource via pi.resources (theme \"dark\" payload); replaced by file-backed themes",
+   "disable_path": "enumerated/replaced through the public pi.resources mechanism by file-backed consumers",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/resources.lua embedded_resources/declared_resources expose the embedded changelog, theme payloads, and export templates as declared package resources; resources_parity.rs embedded_pack_resources_are_declared_package_resources",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/theme/dark.lua"
@@ -755,10 +768,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; include_str data decoded by the interactive chunk",
-   "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: file-backed theme declaration replaces the default",
-   "status": "open",
+   "public_declaration": "declared package resource via pi.resources (theme \"light\" payload); replaced by file-backed themes",
+   "disable_path": "enumerated/replaced through the public pi.resources mechanism by file-backed consumers",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/resources.lua embedded_resources/declared_resources expose the embedded changelog, theme payloads, and export templates as declared package resources; resources_parity.rs embedded_pack_resources_are_declared_package_resources",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/theme/light.lua"
@@ -774,10 +787,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; include_str global consumed by transcript policy",
-   "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: declared package resource replacement",
-   "status": "open",
+   "public_declaration": "declared package resource via pi.resources (asset kind); replaced by file-backed resources through the public pi.resources mechanism",
+   "disable_path": "enumerated/replaced through the public pi.resources mechanism by file-backed consumers",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/resources.lua embedded_resources/declared_resources expose the daxnuts easter-egg image as a declared package asset; resources_parity.rs embedded_pack_resources_are_declared_package_resources asserts the daxnuts asset is enumerated with non-empty payload",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/assets/daxnuts.hex"
@@ -793,10 +806,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; include_str global consumed by transcript policy",
-   "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: declared package resource replacement",
-   "status": "open",
+   "public_declaration": "declared package resource via pi.resources (asset kind); replaced by file-backed resources through the public pi.resources mechanism",
+   "disable_path": "enumerated/replaced through the public pi.resources mechanism by file-backed consumers",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/resources.lua embedded_resources/declared_resources expose the clankolas easter-egg image as a declared package asset; resources_parity.rs embedded_pack_resources_are_declared_package_resources asserts the clankolas asset is enumerated with non-empty payload",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/assets/clankolas.base64"
@@ -812,10 +825,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; include_str global consumed by command/startup policy",
-   "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: declared package resource replacement",
-   "status": "open",
+   "public_declaration": "declared package resource via pi.resources (changelog kind); consumed by command/startup policy",
+   "disable_path": "enumerated/replaced through the public pi.resources mechanism by file-backed consumers",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/resources.lua embedded_resources/declared_resources expose the embedded changelog, theme payloads, and export templates as declared package resources; resources_parity.rs embedded_pack_resources_are_declared_package_resources",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/changelog.md"
@@ -831,10 +844,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; include_str local consumed by export module",
-   "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: public package resource imported by file-backed exporter",
-   "status": "open",
+   "public_declaration": "declared package resource via pi.resources (export \"export-html\" template)",
+   "disable_path": "enumerated/replaced through the public pi.resources mechanism by file-backed consumers",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/resources.lua embedded_resources/declared_resources expose the embedded changelog, theme payloads, and export templates as declared package resources; resources_parity.rs embedded_pack_resources_are_declared_package_resources",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/export-html/template.html"
@@ -850,10 +863,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; include_str local consumed by export module",
-   "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: public package resource imported by file-backed exporter",
-   "status": "open",
+   "public_declaration": "declared package resource via pi.resources (export \"export-css\" template)",
+   "disable_path": "enumerated/replaced through the public pi.resources mechanism by file-backed consumers",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/resources.lua embedded_resources/declared_resources expose the embedded changelog, theme payloads, and export templates as declared package resources; resources_parity.rs embedded_pack_resources_are_declared_package_resources",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/export-html/template.css"
@@ -869,10 +882,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; include_str local consumed by export module",
-   "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: public package resource imported by file-backed exporter",
-   "status": "open",
+   "public_declaration": "declared package resource via pi.resources (export \"export-js\" template)",
+   "disable_path": "enumerated/replaced through the public pi.resources mechanism by file-backed consumers",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/resources.lua embedded_resources/declared_resources expose the embedded changelog, theme payloads, and export templates as declared package resources; resources_parity.rs embedded_pack_resources_are_declared_package_resources",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/export-html/template.js"
@@ -888,10 +901,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; include_str local consumed by export module",
-   "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: versioned package dependency/resource declaration",
-   "status": "open",
+   "public_declaration": "declared package resource via pi.resources (export kind, name export-marked); replaced by file-backed resources through the public pi.resources mechanism",
+   "disable_path": "enumerated/replaced through the public pi.resources mechanism by file-backed consumers",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/resources.lua embedded_resources/declared_resources expose the vendored marked bundle as a declared export resource; resources_parity.rs embedded_pack_resources_are_declared_package_resources asserts the export-marked template is enumerated",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/export-html/vendor/marked.min.js"
@@ -907,10 +920,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; include_str local consumed by export module",
-   "disable_path": "none independently; remove from interactive pack concat",
-   "replacement_evidence": "target: versioned package dependency/resource declaration",
-   "status": "open",
+   "public_declaration": "declared package resource via pi.resources (export kind, name export-highlight); replaced by file-backed resources through the public pi.resources mechanism",
+   "disable_path": "enumerated/replaced through the public pi.resources mechanism by file-backed consumers",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/resources.lua embedded_resources/declared_resources expose the vendored highlight bundle as a declared export resource; resources_parity.rs embedded_pack_resources_are_declared_package_resources asserts the export-highlight template is enumerated",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [
     "crates/pi-rs-app/src/builtins/interactive/export-html/vendor/highlight.min.js"
@@ -1051,16 +1064,21 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; BUILTIN_SLASH_COMMANDS and handle_submit are local tables/functions",
-   "disable_path": "none per command; only omit the whole interactive pack",
-   "replacement_evidence": "target: file-backed command router and per-command replacement fixtures",
-   "status": "open",
+   "public_declaration": "pi.module.define pi.commands@1 (register / disable / dispatch / routes); register_builtin_commands registers each builtin slash command as a suppressible route; handle_submit dispatches through the pi.commands registry",
+   "disable_path": "pi.commands.disable(name) ablates one builtin command; a file-backed package re-registers the name first-wins (mirrors per-tool suppression)",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/interactive.lua defines pi.commands@1 + register_builtin_commands; interactive routes dispatch through it; assembly.rs command_routing_suppresses_and_replaces_one_builtin_command drives examples/extensions/command-routing-demo.lua to suppress only /model and replace it first-wins while /settings still routes",
+   "status": "implemented",
    "rung": "9.10",
    "coverage": [],
    "anchors": [
     {
      "path": "crates/pi-rs-app/src/builtins/interactive.lua",
-     "text": "local BUILTIN_SLASH_COMMANDS = {",
+     "text": "local function define_command_routing_module()",
+     "count": 1
+    },
+    {
+     "path": "crates/pi-rs-app/src/builtins/interactive.lua",
+     "text": "local function register_builtin_commands()",
      "count": 1
     },
     {
@@ -1125,31 +1143,21 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; transcript_lines directly switches on row.kind",
-   "disable_path": "none per row kind; only omit the whole interactive pack",
-   "replacement_evidence": "target: file-backed middleware replaces every transcript row kind",
-   "status": "open",
+   "public_declaration": "pi.register_render_middleware is registered for every kind in DEFAULT_TRANSCRIPT_KINDS; render_transcript_row dispatches each row.kind through the ordered public middleware (default falls back to the builtin row renderer)",
+   "disable_path": "register a file-backed middleware for any row kind; pi.register_message_renderer handles per-customType rows",
+   "replacement_evidence": "crates/pi-rs-host/src/api.rs register_render_middleware + interactive.lua DEFAULT_TRANSCRIPT_KINDS loop + render_transcript_row; extension_loading.rs file_backed_message_renderers_drive_custom_transcript_rows; registries.rs ordering; examples/extensions/pi-compact.lua user/assistant/tool/custom rows",
+   "status": "implemented",
    "rung": "9.5",
    "coverage": [],
    "anchors": [
     {
      "path": "crates/pi-rs-app/src/builtins/interactive.lua",
-     "text": "local function transcript_lines(state, width)",
+     "text": "DEFAULT_TRANSCRIPT_KINDS = {",
      "count": 1
     },
     {
      "path": "crates/pi-rs-app/src/builtins/interactive.lua",
-     "text": "local function user_message_lines(text, width, theme, md_theme)",
-     "count": 1
-    },
-    {
-     "path": "crates/pi-rs-app/src/builtins/interactive.lua",
-     "text": "local function assistant_message_lines(message, width, theme, md_theme, options)",
-     "count": 1
-    },
-    {
-     "path": "crates/pi-rs-app/src/builtins/interactive.lua",
-     "text": "function bash_execution_lines(row, width, theme)",
+     "text": "function render_transcript_row(state, item, width, has_prior)",
      "count": 1
     }
    ],
@@ -1163,10 +1171,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "tool definitions expose renderCall/renderResult, but frontend dispatch is local",
-   "disable_path": "none independently; only omit the whole interactive pack",
-   "replacement_evidence": "target: ordered file-backed tool-row rendering middleware",
-   "status": "open",
+   "public_declaration": "tool rows (kind \"tool\") dispatch call/result through the ordered public render middleware; tool_execution_lines resolves renderCall/renderResult from the registered tool definition",
+   "disable_path": "register a file-backed middleware for the tool row kind; custom tool renderCall/renderResult via pi.register_tool",
+   "replacement_evidence": "interactive.lua registered_render_middlewares('tool') dispatch inside DEFAULT_TRANSCRIPT_KINDS; crates/pi-rs-host/src/api.rs register_render_middleware order/error-fallthrough; examples/extensions/pi-compact.lua register_render_middleware('tool') + extension_loading.rs",
+   "status": "implemented",
    "rung": "9.5",
    "coverage": [],
    "anchors": [
@@ -1311,10 +1319,10 @@
    "packages": [
     "interactive"
    ],
-   "public_declaration": "none; local create_theme over embedded JSON",
-   "disable_path": "none independently; only omit the whole interactive pack",
-   "replacement_evidence": "target: file-backed theme declaration and live replacement",
-   "status": "open",
+   "public_declaration": "pi.resources declares the embedded dark/light theme payloads and register_theme/load_theme_from_path; create_theme validates/resolves component theme factories; custom themes use the same declaration shape",
+   "disable_path": "file-backed theme (pi.resources.register_theme or themes/ dir) replaces the default; /reload applies it live",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/utils/resources.lua embedded_resources/declared_resources/register_theme + interactive.lua create_theme; interactive_reload.rs reload_applies_custom_disk_theme_after_reload + resources_parity.rs theme_discovery_registers_and_loads_disk_json_themes",
+   "status": "implemented",
    "rung": "9.7",
    "coverage": [],
    "anchors": [
@@ -1520,7 +1528,7 @@
    "anchors": [
     {
      "path": "crates/pi-rs-app/src/main.rs",
-     "text": "let role = if interactive",
+     "text": "let role = decl_registry.select_frontend(interactive)",
      "count": 1
     }
    ],
@@ -1544,7 +1552,7 @@
     {
      "path": "crates/pi-rs-app/src/main.rs",
      "text": "host.call_role(\"",
-     "count": 5
+     "count": 6
     }
    ],
    "declarations": [],
@@ -1567,7 +1575,7 @@
     {
      "path": "crates/pi-rs-app/src/main.rs",
      "text": "let request = serde_json::json!({",
-     "count": 5
+     "count": 6
     }
    ],
    "declarations": [],
@@ -1597,10 +1605,10 @@
    "packages": [
     "external-dogfood"
    ],
-   "public_declaration": "none; ordered public transcript middleware does not exist yet",
-   "disable_path": "external package disable only; no first-party renderer unit can be swapped",
-   "replacement_evidence": "target: file-backed compact-rendering extension without private class patching",
-   "status": "open",
+   "public_declaration": "ordered public transcript middleware via pi.register_render_middleware; pi-compact reproduces compact rendering file-backed through the public surface without private class patching",
+   "disable_path": "external package disable only; first-party renderer middleware units are individually registerable/orderable through the public registry",
+   "replacement_evidence": "examples/extensions/pi-compact.lua reproduces compact rendering via public register_render_middleware (PLAN 9.5/9.11 evidence); extension_loading.rs file_backed_* renderers and registries.rs ordered middleware pin the public row-rendering pipeline",
+   "status": "implemented",
    "rung": "9.5",
    "coverage": [],
    "anchors": [
@@ -1620,10 +1628,10 @@
    "packages": [
     "external-dogfood"
    ],
-   "public_declaration": "pi.process.spawn + handle:dispose (process-tree kill), pi.tcp.connect + handle:close, pi.fs.mkdtemp + pi.fs.remove_dir_all (rmSync); handles own external resources and kill/close on disposal (Drop)",
-   "disable_path": "external package disable only; cleanup contract implemented via handle disposal",
-   "replacement_evidence": "target: Gecko cancellation/reload/shutdown leak fixture (9.11); mechanism surface exercised by process-demo.lua + tcp-demo.lua + mechanism_lifecycle.rs",
-   "status": "open",
+   "public_declaration": "pi.process.spawn + handle:dispose (process-tree kill), pi.tcp.connect + handle:close (Marionette socket), pi.fs.mkdtemp + pi.fs.remove_dir_all (rmSync); BrowserManager.shutdown on session_shutdown owns/kills every browser sidecar and removes temp profiles",
+   "disable_path": "external package disable only; cleanup contract implemented via handle disposal plus the dogfood pi-gecko-websearch translation",
+   "replacement_evidence": "examples/extensions/dogfood/pi-gecko-websearch.lua owns each Marionette socket (close/dispose), gecko process tree (kill/dispose) and temp profile (remove_dir_all) on session_shutdown (PLAN 9.11); tests/dogfood-parity/manifest.json = public-surface + cleanup contract",
+   "status": "implemented",
    "rung": "9.9",
    "coverage": [],
    "anchors": [
@@ -1643,10 +1651,10 @@
    "packages": [
     "external-dogfood"
    ],
-   "public_declaration": "pi.process.spawn + handle:dispose (SIGTERM/SIGKILL tree kill), handle:write_stdin/read_stdout for REPL; pi.set_timeout/clear_timeout for sidecar tasks",
-   "disable_path": "external package disable only; cleanup contract implemented via handle disposal",
-   "replacement_evidence": "target: RLM cancellation/reload/shutdown leak fixture (9.11); mechanism surface exercised by process-demo.lua + timers-demo.lua + mechanism_lifecycle.rs",
-   "status": "open",
+   "public_declaration": "pi.process.spawn python3 worker (read_stdout/write_stdin/kill/dispose pipes), pi.set_timeout/clear_timeout for sidecar tasks; python worker killed/disposed on session_shutdown and on tool reset; session-context store removed with the session",
+   "disable_path": "external package disable only; cleanup contract implemented via handle disposal plus the dogfood pi-rlm translation",
+   "replacement_evidence": "examples/extensions/dogfood/pi-rlm.lua disposes the python worker subprocess on session_shutdown/reset (PLAN 9.11); tests/dogfood-parity/manifest.json = public-surface + cleanup contract",
+   "status": "implemented",
    "rung": "9.9",
    "coverage": [],
    "anchors": [
@@ -1666,16 +1674,39 @@
    "packages": [
     "external-dogfood"
    ],
-   "public_declaration": "pi.set_interval/clear_interval (dispatch-scoped timers), pi.fs.watch_file + handle:close (pollable file watcher with disposal)",
-   "disable_path": "external package disable only; cleanup contract implemented via clear_interval/watch close",
-   "replacement_evidence": "target: Pomodoro cancellation/reload/shutdown timer fixture (9.11); mechanism surface exercised by timers-demo.lua + fs-advanced.lua + mechanism_lifecycle.rs",
-   "status": "open",
+   "public_declaration": "pi.set_interval/clear_interval (dispatch-scoped timers), pi.fs.watch_file + handle:close (pollable file watcher with disposal); pending interval + watcher handle closed on session_shutdown and stale ctxRef dropped",
+   "disable_path": "external package disable only; cleanup contract implemented via clear_interval / watch close plus the dogfood pi-pomodoro translation",
+   "replacement_evidence": "examples/extensions/dogfood/pi-pomodoro.lua closes its file watcher handle and clears its 1s interval on session_shutdown (PLAN 9.11); tests/dogfood-parity/manifest.json = public-surface + cleanup contract",
+   "status": "implemented",
    "rung": "9.9",
    "coverage": [],
    "anchors": [
     {
      "path": "PLAN.md",
      "text": "resources clean up; stateful packages survive branch/compact/reload/session",
+     "count": 1
+    }
+   ],
+   "declarations": [],
+   "rust_entrypoints": []
+  },
+  {
+   "id": "module.command-routing",
+   "kind": "helper module",
+   "title": "Public slash-command registry (routes, dispatch, per-source first-wins)",
+   "packages": [
+    "interactive"
+   ],
+   "public_declaration": "pi.module.define pi.commands@1 (register / disable / dispatch / routes); builtin commands route through it and a file-backed package suppresses + replaces one first-wins",
+   "disable_path": "omitting the interactive pack removes the builtin definition; a file-backed package may define pi.commands@1",
+   "replacement_evidence": "crates/pi-rs-app/src/builtins/interactive.lua define_command_routing_module; assembly.rs command_routing_suppresses_and_replaces_one_builtin_command drives examples/extensions/command-routing-demo.lua",
+   "status": "implemented",
+   "rung": "9.10",
+   "coverage": [],
+   "anchors": [
+    {
+     "path": "crates/pi-rs-app/src/builtins/interactive.lua",
+     "text": "name = \"pi.commands\",",
      "count": 1
     }
    ],

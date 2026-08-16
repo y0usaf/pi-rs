@@ -898,11 +898,33 @@ Complete these rungs before growing the extension surface further.
       latent before — the RPC role redirected only through the seeded seam). This
       required wiring `utils/bash-executor.lua` into the coding-agent pack
       (`crates/pi-rs-app/src/builtins/mod.rs`) so `EXTENSION_POLICY.bash_executor`
-      is present for the rpc/print roles. The
-      toolCall-only `text-no-text-content` oracle
-      case scripts Pi's *observed state* directly and pi-rs's real agent would
-      continue its tool loop on stopReason `toolUse`, so it is not a faithful
-      terminal print outcome and remains a PLAN 10 open row.
+      is present for the rpc/print roles.
+
+      **Closed (toolCall-only `text-no-text-content` — documented oracle
+      artifact, not a parity difference).** The oracle case in
+      `tests/print-mode-parity/oracle.json` scripts a *bare toolCall assistant
+      final message* (`[toolCall bash "x"]`, `stopReason:"toolUse"`) through
+      `gen-oracle.ts`'s stub session, which returns it immediately and records
+      the terminal print outcome Pi's `runPrintMode` derives from that observed
+      state (empty stdout, exit 0). This is **not** a state either real
+      implementation ever settles on: both Pi's agent-loop (`ref/pi/…/agent-loop.ts`,
+      `while (hasMoreToolCalls …) { if (toolCalls.length > 0) { … hasMoreToolCalls =
+      !executedToolBatch.terminate; } }`) and pi-rs's port (`agent.lua` `run_turn`,
+      `if #calls > 0 then tool_results, terminate = execute_tool_calls(…);
+      has_more_tools = not terminate`) **continue the tool loop** when a response
+      carries a `toolCall`, executing the tool and re-prompting the model until a
+      non-tool final message settles. So Pi's real `runPrintMode` would no more
+      terminate on a bare toolCall than pi-rs's real print role would. The
+      differential therefore cannot be closed by reproducing the oracle's empty
+      output through the real agent — pi-rs's agent (matching Pi's) executes the
+      `bash "x"` tool and continues. This is an oracle-scripting artifact, not a
+      print-role bug; the print role already matches Pi for every *settled*
+      terminal final message (text blocks to stdout, `error`/`aborted` →
+      exit 1 with stderr), pinned byte-for-byte by the remaining oracle cases
+      in `print_text_mode_output_matches_pi_byte_for_byte` and
+      `print_follow_up_sequence_matches_pi_byte_for_byte`. The row is closed as a
+      documented artifact; the harness comment in
+      `crates/pi-rs-app/tests/print_mode_parity.rs` carries the same rationale.
 
 - [ ] **11. Final parity and ablation audit.** Diff the complete reachable
       coding-agent surface and required AI/agent/TUI behavior. Resolve every
@@ -933,6 +955,24 @@ Complete these rungs before growing the extension surface further.
       DESIGN platform boundary in `DESIGN.md` (native Rust binary ships no
       self-update, bundled native addons, or Bun empty-env failure). The final
       live side-by-side gate and `coding.assembly` remain with s14.
+
+      **Status (side-by-side differential).** The automated differential is
+      green: `cargo test -p pi-rs-app` exits 0 (50 test groups; all `parity`
+      rows and the ui-parity scenario drivers pass), and the pinned non-
+      interactive oracles regenerate byte-identically from `ref/pi @
+      c5582102` (`scripts/print-mode-oracle`, `scripts/args-oracle`,
+      `scripts/rpc-oracle` all diff clean against the checked `oracle.json`).
+      Known harness gap (recorded, out of scope for this stream): the
+      standalone frame-diff binary `crates/pi-rs-app/src/bin/ui-diff.rs`
+      (driven by `scripts/ui-diff`) loads `INTERACTIVE_PACK` without the
+      always-loaded `AGENT_CORE_PACK`, so `interactive.lua`'s
+      `require("pi.agent.*")` fails with ``module "pi.agent.messages"
+      version "1" is not defined`` and the 26-scenario `.pci.json` frame
+      comparison cannot run through that binary. The frame-exact scenario
+      drivers that *do* run in the cargo suite load `AGENT_CORE_PACK` and pass;
+      the `ui-diff.rs` load list needs `AGENT_CORE_PACK` added (an s14/assembly
+      owner fix, not an observable product difference). `coding.assembly`
+      (cli.ts/main.ts/bun/cli.ts) remains the open gate with s14.
 
 ## Post-parity maintenance
 

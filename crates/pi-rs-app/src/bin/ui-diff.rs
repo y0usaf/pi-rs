@@ -417,6 +417,7 @@ fn run() -> Result<ExitCode, HarnessError> {
     })?;
     let report = host.load_embedded(&[
         pi_rs_agent::PACK,
+        pi_rs_app::builtins::AGENT_CORE_PACK,
         pi_rs_app::builtins::TOOLS_PACK,
         pi_rs_app::builtins::INTERACTIVE_PACK,
     ]);

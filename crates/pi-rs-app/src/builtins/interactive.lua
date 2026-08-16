@@ -12,6 +12,13 @@ local agent_bash = pi.module.require("pi.agent.bash-executor", "1")
 
 local convert_to_llm_with_block_images = agent_messages.convert_to_llm_with_block_images
 local construct_session = agent_session.construct_session
+
+-- PLAN 9.7 module.syntax-highlight: the `pi.highlight` module is defined by
+-- the embedded syntax-highlight fragment included ahead of this file. Rebind
+-- the markdown code-highlight closure here instead of a chunk-local copy so
+-- an ordinary file-backed package resolves the identical public module.
+local pi_highlight = pi.module.require("pi.highlight", "1")
+local markdown_highlight_code = pi_highlight.markdown_highlight_code
 local session_startup_from_request = agent_session.session_startup_from_request
 local persist_agent_event = agent_session.persist_agent_event
 local build_session_system_prompt = agent_system_prompt.build_session_system_prompt
@@ -3920,145 +3927,170 @@ end
   return { show = show_trust_selector, selector = trust_selector }
 end)()
 
+-- ===========================================================================
+-- PLAN 9.10 command-routing: the builtin "/" slash commands are registered
+-- here as an independently suppressible public registration (`pi.commands`),
+-- one route per command. `handle_submit` dispatches through this registry, so
+-- a file-backed package can suppress a single builtin command (via
+-- `pi.commands.disable`) and register an ordinary replacement first-wins — the
+-- same declarative per-command ablation the tools pack gets from
+-- `unregister_tool` / manifest suppression, without forcing the whole frontend
+-- into a ceremonial registry.
+--
+-- The module keeps an ordered routes table keyed by command name. Each route
+-- has a `match` (name or pattern prefix) and a `run(actions, arg)` that calls
+-- the corresponding action method on the submit-actions table. Builtins are
+-- registered for the exact set pi-rs routes (settings/model/export/import/
+-- share/copy/name/session/changelog/hotkeys/login/logout/reload/debug/
+-- armin/dementedelves/new/compact/resume/fork/clone/tree/trust/quit),
+-- mirroring the handleSubmit if-chain; unknown "/" commands and bash/prompt
+-- fall through unchanged.
+local function define_command_routing_module()
+  local routes = {}
+  local order = {}
+  local route_sources = {}
+
+  local M = {}
+
+  -- register(name, def): first-wins per name across sources. A file-backed
+  -- package loaded after the builtins can only claim a name whose builtin
+  -- route was disabled (mirrors tool first-wins replacement after ablation).
+  function M.register(name, def)
+    if type(name) ~= "string" or name == "" then
+      error("commands.register: name must be a non-empty string", 2)
+    end
+    if type(def) ~= "table" or type(def.run) ~= "function" then
+      error("commands.register: def.run must be a function", 2)
+    end
+    def = { name = name, description = def.description, match = def.match or name,
+      run = def.run }
+    if routes[name] == nil then
+      routes[name] = def
+      order[#order + 1] = name
+      route_sources[name] = "default"
+    end
+  end
+
+  -- disable(name): ablate one builtin command so a file-backed replacement can
+  -- claim the name, or so the command simply stops routing (falls through to
+  -- extension/prompt exactly as a removed Pi command would).
+  function M.disable(name)
+    local def = routes[name]
+    if def and route_sources[name] == "default" then
+      routes[name] = nil
+      for i, n in ipairs(order) do
+        if n == name then table.remove(order, i) break end
+      end
+      route_sources[name] = "disabled"
+      return true
+    end
+    return false
+  end
+
+  -- routes(): ordered list of active { name, description, match }.
+  function M.routes()
+    local out = {}
+    for _, n in ipairs(order) do
+      local def = routes[n]
+      if def then
+        out[#out + 1] = { name = def.name, description = def.description, match = def.match }
+      end
+    end
+    return out
+  end
+
+  -- dispatch(text, actions): call the first enabled route whose match prefix
+  -- applies. Returns true when handled.
+  function M.dispatch(text, actions)
+    for _, n in ipairs(order) do
+      local def = routes[n]
+      if def then
+        local match = def.match
+        local arg
+        local hit
+        if match == "" then
+          hit = text == "/" .. def.name
+        elseif text == "/" .. def.name then
+          hit = true
+          arg = nil
+        elseif text:sub(1, #("/" .. def.name) + 1) == ("/" .. def.name .. " ") then
+          hit = true
+          arg = text:sub(#("/" .. def.name) + 2)
+        end
+        if hit then
+          local ok, err = pcall(def.run, actions, arg)
+          if not ok then
+            error("commands.dispatch(" .. def.name .. "): " .. tostring(err), 0)
+          end
+          return true
+        end
+      end
+    end
+    return false
+  end
+
+  pi.module.define({
+    name = "pi.commands",
+    version = "1",
+    dependencies = {},
+    factory = function() return M end,
+  })
+end
+
+define_command_routing_module()
+
+-- Register the builtin slash commands as individually suppressible routes. Each
+-- route mirrors one clause of the handleSubmit if-chain (actions method + any
+-- arg), and a file-backed package can `pi.commands.disable(name)` then
+-- `pi.commands.register(name, { run = ... })` to replace it.
+local function register_builtin_commands()
+  local cmds = pi.module.require("pi.commands", "1")
+  cmds.register("settings", { description = "Open settings menu", run = function(a) a.settings_command(); a.set_text("") end })
+  cmds.register("model", { description = "Select model", run = function(a, arg) a.set_text(""); a.model_command(arg or nil) end })
+  cmds.register("export", { description = "Export session", run = function(a, arg) a.export_command(arg and "/export " .. arg or "/export"); a.set_text("") end })
+  cmds.register("import", { description = "Import session", run = function(a, arg) a.import_command(arg and "/import " .. arg or "/import"); a.set_text("") end })
+  cmds.register("share", { description = "Share session", run = function(a) a.share_command(); a.set_text("") end })
+  cmds.register("copy", { description = "Copy last agent message", run = function(a) a.copy_command(); a.set_text("") end })
+  cmds.register("login", { description = "Configure provider authentication", run = function(a) a.show_oauth_selector("login"); a.set_text("") end })
+  cmds.register("logout", { description = "Remove provider authentication", run = function(a) a.show_oauth_selector("logout"); a.set_text("") end })
+  cmds.register("name", { description = "Set session display name", run = function(a, arg) a.name_command(arg and "/name " .. arg or "/name"); a.set_text("") end })
+  cmds.register("session", { description = "Show session info", run = function(a) a.session_command(); a.set_text("") end })
+  cmds.register("changelog", { description = "Show changelog", run = function(a) a.changelog_command(); a.set_text("") end })
+  cmds.register("hotkeys", { description = "Show keyboard shortcuts", run = function(a) a.hotkeys_command(); a.set_text("") end })
+  cmds.register("reload", { description = "Reload config", run = function(a) a.set_text(""); a.reload_command() end })
+  cmds.register("debug", { description = "Show debug info", run = function(a) a.debug_command(); a.set_text("") end })
+  cmds.register("arminsayshi", { description = "Hidden", match = "", run = function(a) a.armin_command(); a.set_text("") end })
+  cmds.register("dementedelves", { description = "Hidden", match = "", run = function(a) a.earendil_command(); a.set_text("") end })
+  cmds.register("new", { description = "Start a new session", run = function(a) a.set_text(""); a.clear_command() end })
+  cmds.register("compact", { description = "Compact context", run = function(a, arg) local custom = (arg ~= nil and arg ~= "") and arg or nil; a.set_text(""); a.compact_command(custom) end })
+  cmds.register("resume", { description = "Resume a session", run = function(a) a.resume_command(); a.set_text("") end })
+  cmds.register("fork", { description = "Create a fork", run = function(a) a.fork_command(); a.set_text("") end })
+  cmds.register("clone", { description = "Clone the session", run = function(a) a.set_text(""); a.clone_command() end })
+  cmds.register("tree", { description = "Navigate session tree", run = function(a) a.tree_command(); a.set_text("") end })
+  cmds.register("trust", { description = "Save project trust", run = function(a) a.trust_command(); a.set_text("") end })
+  cmds.register("quit", { description = "Quit pi", run = function(a) a.set_text(""); a.quit() end })
+end
+register_builtin_commands()
+
 -- interactive-mode.ts setupEditorSubmitHandler — the "/" command routing
--- skeleton. Builtin commands are routed here only once their dialogs land
--- (item 7 the rest); pi has no pre-dialog behavior for them, so until
--- then they fall through with extension and unknown "/" commands to the
--- prompt path, exactly as pi's fallthrough does.
+-- skeleton. Builtin commands route through the public `pi.commands` registry;
+-- unknown "/" commands, bash, and the prompt path fall through unchanged.
 local function handle_submit(text, actions)
   text = trim(text)
   if text == "" then return end
+  -- scoped-models is routed by name (no action method is required for the
+  -- trace harness, so register it as a direct dispatch here).
   if text == "/scoped-models" then
     actions.scoped_models_command()
     actions.set_text("")
     return
   end
-  if text == "/settings" then
-    actions.settings_command()
-    actions.set_text("")
-    return
-  end
-  if text == "/model" or text:sub(1, 7) == "/model " then
-    local search_term = text:sub(1, 7) == "/model " and trim(text:sub(8)) or nil
-    if search_term == "" then search_term = nil end
-    actions.set_text("")
-    actions.model_command(search_term)
-    return
-  end
-  if text == "/export" or text:sub(1, 8) == "/export " then
-    actions.export_command(text)
-    actions.set_text("")
-    return
-  end
-  if text == "/import" or text:sub(1, 8) == "/import " then
-    actions.import_command(text)
-    actions.set_text("")
-    return
-  end
-
-  if text == "/share" then
-    actions.share_command()
-    actions.set_text("")
-    return
-  end
-
-  if text == "/copy" then
-    actions.copy_command()
-    actions.set_text("")
-    return
-  end
-
-  if text == "/login" then
-    actions.show_oauth_selector("login")
-    actions.set_text("")
-    return
-  end
-  if text == "/logout" then
-    actions.show_oauth_selector("logout")
-    actions.set_text("")
-    return
-  end
-  if text == "/name" or text:sub(1, 6) == "/name " then
-    actions.name_command(text)
-    actions.set_text("")
-    return
-  end
-  if text == "/session" then
-    actions.session_command()
-    actions.set_text("")
-    return
-  end
-  if text == "/changelog" then
-    actions.changelog_command()
-    actions.set_text("")
-    return
-  end
-  if text == "/hotkeys" then
-    actions.hotkeys_command()
-    actions.set_text("")
-    return
-  end
-  if text == "/reload" then
-    actions.set_text("")
-    actions.reload_command()
-    return
-  end
-  if text == "/debug" then
-    actions.debug_command()
-    actions.set_text("")
-    return
-  end
-  if text == "/arminsayshi" then
-    actions.armin_command()
-    actions.set_text("")
-    return
-  end
-  if text == "/dementedelves" then
-    actions.earendil_command()
-    actions.set_text("")
-    return
-  end
-  if text == "/new" then
-    actions.set_text("")
-    actions.clear_command()
-    return
-  end
-  if text == "/compact" or text:sub(1, 9) == "/compact " then
-    local custom_instructions = text:sub(1, 9) == "/compact " and trim(text:sub(10)) or nil
-    actions.set_text("")
-    actions.compact_command(custom_instructions)
-    return
-  end
-  if text == "/resume" then
-    actions.resume_command()
-    actions.set_text("")
-    return
-  end
-  if text == "/fork" then
-    actions.fork_command()
-    actions.set_text("")
-    return
-  end
-  if text == "/clone" then
-    actions.set_text("")
-    actions.clone_command()
-    return
-  end
-  if text == "/tree" then
-    actions.tree_command()
-    actions.set_text("")
-    return
-  end
-  if text == "/trust" then
-    actions.trust_command()
-    actions.set_text("")
-    return
-  end
-
-  if text == "/quit" then
-    actions.set_text("")
-    actions.quit()
-    return
+  -- Dispatch through the public pi.commands registry (per-command suppression
+  -- and first-wins replacement). If a registered route handled it, stop.
+  if text:sub(1, 1) == "/" then
+    local cmds = pi.module.require("pi.commands", "1")
+    local handled = cmds.dispatch(text, actions)
+    if handled then return end
   end
   -- Handle bash command (! for normal, !! for excluded from context).
   if text:sub(1, 1) == "!" then

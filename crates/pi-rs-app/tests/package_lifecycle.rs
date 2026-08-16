@@ -73,8 +73,17 @@ pi.register_command("pm-run", {
       if not ok then return { error = tostring(err) } end
       return { installedPath = err.installedPath, sourceParsed = m.parse_source(c.source) }
     end
+    if op == "update" then
+      local ok, err = pcall(m.update, c.source, c.cwd or pi.cwd(), c.agentDir)
+      if not ok then return { error = tostring(err) } end
+      -- Empty Lua list serializes as {} (object), so also surface a count.
+      return { updatedCount = #(err.updated or {}), updated = err.updated }
+    end
     if op == "parseSource" then
       return { parsed = m.parse_source(c.source), identity = m.package_identity(c.source) }
+    end
+    if op == "isOffline" then
+      return { offline = m.is_offline_mode_enabled() }
     end
     return {}
   end,
@@ -352,4 +361,93 @@ fn list_configured_packages_user_scope() {
     assert!(sources.iter().any(|s| *s == "npm:pkg-a"));
     assert!(sources.iter().any(|s| *s == "npm:pkg-b"));
     assert!(packages.iter().all(|p| p["scope"] == "user"));
+}
+
+/// `pi.packages.update` without PI_OFFLINE and with nothing configured returns
+/// done with an empty `updated` list (no sources to update) — the update leg
+/// (npm/git install/reinstall) routes through the public pi.exec/pi.fs
+/// mechanisms; here no source matches so no network is touched.
+#[test]
+fn update_empty_configured_no_network() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let cwd = root.path().join("cwd");
+    let agent_dir = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    let host = host_with(&cwd.to_string_lossy(), &agent_dir.to_string_lossy());
+    host.load("pm-runner", RUNNER).expect("runner loads");
+
+    let r = call(
+        &host,
+        serde_json::json!({"op":"update","source":null,"cwd":cwd.to_string_lossy(),"agentDir":agent_dir.to_string_lossy()}),
+    );
+    assert_eq!(
+        r["updatedCount"].as_u64(),
+        Some(0),
+        "unexpected result: {:?}",
+        r
+    );
+}
+
+/// `pi.packages.update` with a requested source that has no configured match
+/// throws Pi's buildNoMatchingPackageMessage before any update work.
+#[test]
+fn update_requested_source_without_match_throws() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let cwd = root.path().join("cwd");
+    let agent_dir = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    let host = host_with(&cwd.to_string_lossy(), &agent_dir.to_string_lossy());
+    host.load("pm-runner", RUNNER).expect("runner loads");
+
+    let r = call(
+        &host,
+        serde_json::json!({"op":"update","source":"npm:never-configured","cwd":cwd.to_string_lossy(),"agentDir":agent_dir.to_string_lossy()}),
+    );
+    assert!(
+        r.get("error").is_some()
+            && r["error"].as_str().unwrap().contains("No matching package found"),
+        "expected no-match error: {:?}",
+        r
+    );
+}
+
+/// `pi.packages.is_offline_mode_enabled`: off by default, and true when
+/// PI_OFFLINE is set to a truthy value. The update extensions leg short-circuits
+/// on this flag (deterministic offline-skip for uninstalled packages).
+#[test]
+fn offline_flag_mirrors_env() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let cwd = root.path().join("cwd");
+    let agent_dir = root.path().join("agent");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    let _guard = agent_setup_mutex().lock().unwrap();
+
+    unsafe { std::env::remove_var("PI_OFFLINE") };
+    let host = Host::new(HostConfig {
+        cwd: Some(cwd.to_string_lossy().into_owned()),
+        ..HostConfig::default()
+    })
+    .expect("host");
+    let report = host.load_embedded(&[AGENT_CORE_PACK, INTERACTIVE_PACK]);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    host.load("pm-runner", RUNNER).expect("runner loads");
+    let off = call(&host, serde_json::json!({"op":"isOffline"}));
+    assert_eq!(off["offline"], serde_json::json!(false));
+
+    unsafe { std::env::set_var("PI_OFFLINE", "1") };
+    let host2 = Host::new(HostConfig {
+        cwd: Some(cwd.to_string_lossy().into_owned()),
+        ..HostConfig::default()
+    })
+    .expect("host");
+    let report2 = host2.load_embedded(&[AGENT_CORE_PACK, INTERACTIVE_PACK]);
+    assert!(report2.errors.is_empty(), "{:?}", report2.errors);
+    host2.load("pm-runner", RUNNER).expect("runner loads");
+    let on = call(&host2, serde_json::json!({"op":"isOffline"}));
+    assert_eq!(on["offline"], serde_json::json!(true));
+
+    unsafe { std::env::remove_var("PI_OFFLINE") };
 }

@@ -573,7 +573,7 @@ fn autocomplete_items_from_table(
 
 impl UserData for LuaAutocompleteProvider {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method(
+        methods.add_async_method(
             "get_suggestions",
             |lua,
              this,
@@ -582,40 +582,43 @@ impl UserData for LuaAutocompleteProvider {
                 usize,
                 usize,
                 Option<mlua::Table>,
-            )| {
+            )| async move {
                 let lines: Vec<String> = lines.sequence_values().collect::<mlua::Result<_>>()?;
                 let force = opts
                     .map(|t| t.get::<Option<bool>>("force"))
                     .transpose()?
                     .flatten()
                     .unwrap_or(false);
-                let mut callback_error: Option<mlua::Error> = None;
-                let suggestions = this.provider.get_suggestions(
-                    &lines,
-                    cursor_line,
-                    cursor_col,
-                    force,
-                    &mut |name, prefix| {
-                        let func = this.argument_completions.get(name)?;
-                        match func.call::<mlua::Value>(prefix.to_owned()) {
-                            Ok(mlua::Value::Table(items)) => {
-                                match autocomplete_items_from_table(items) {
-                                    Ok(items) => Some(items),
-                                    Err(error) => {
-                                        callback_error = Some(error);
-                                        None
+                let callback_error: std::rc::Rc<std::cell::RefCell<Option<mlua::Error>>> =
+                    std::rc::Rc::new(std::cell::RefCell::new(None));
+                let completions = this.argument_completions.clone();
+                let suggestions = this
+                    .provider
+                    .get_suggestions(&lines, cursor_line, cursor_col, force, |name, prefix| {
+                        let completions = completions.clone();
+                        let callback_error = callback_error.clone();
+                        async move {
+                            let func = completions.get(&name)?.clone();
+                            match func.call_async::<mlua::Value>(prefix.to_owned()).await {
+                                Ok(mlua::Value::Table(items)) => {
+                                    match autocomplete_items_from_table(items) {
+                                        Ok(items) => Some(items),
+                                        Err(error) => {
+                                            *callback_error.borrow_mut() = Some(error);
+                                            None
+                                        }
                                     }
                                 }
-                            }
-                            Ok(_) => None,
-                            Err(error) => {
-                                callback_error = Some(error);
-                                None
+                                Ok(_) => None,
+                                Err(error) => {
+                                    *callback_error.borrow_mut() = Some(error);
+                                    None
+                                }
                             }
                         }
-                    },
-                );
-                if let Some(error) = callback_error {
+                    })
+                    .await;
+                if let Some(error) = callback_error.take() {
                     return Err(error);
                 }
                 let Some(suggestions) = suggestions else {
@@ -623,7 +626,7 @@ impl UserData for LuaAutocompleteProvider {
                 };
                 let result = lua.create_table()?;
                 result.set("prefix", suggestions.prefix)?;
-                result.set("items", autocomplete_items_table(lua, &suggestions.items)?)?;
+                result.set("items", autocomplete_items_table(&lua, &suggestions.items)?)?;
                 Ok(mlua::Value::Table(result))
             },
         );
@@ -1233,6 +1236,10 @@ fn ext_entry(lua: &mlua::Lua, source: &str) -> mlua::Result<mlua::Table> {
     entry.set("render_middleware_order", lua.create_table()?)?;
     entry.set("ui_slots", lua.create_table()?)?;
     entry.set("ui_slot_order", lua.create_table()?)?;
+    entry.set("extension_status", lua.create_table()?)?;
+    entry.set("extension_status_order", lua.create_table()?)?;
+    entry.set("setting_items", lua.create_table()?)?;
+    entry.set("setting_item_order", lua.create_table()?)?;
     exts.set(source, &entry)?;
     let ext_order: mlua::Table = registry.get("ext_order")?;
     ext_order.push(source)?;
@@ -1759,12 +1766,17 @@ pub(crate) fn build(
                     let source = command.source.clone();
                     entry.set(
                         "get_argument_completions",
-                        lua.create_function(move |lua, prefix: String| {
-                            let previous = current_source(lua);
-                            set_current_source(lua, &source);
-                            let outcome: mlua::Result<mlua::Value> = completions.call(prefix);
-                            set_current_source(lua, &previous);
-                            outcome
+                        lua.create_async_function(move |lua, prefix: String| {
+                            let source = source.clone();
+                            let completions = completions.clone();
+                            async move {
+                                let previous = current_source(&lua);
+                                set_current_source(&lua, &source);
+                                let outcome: mlua::Result<mlua::Value> =
+                                    completions.call_async(prefix).await;
+                                set_current_source(&lua, &previous);
+                                outcome
+                            }
                         })?,
                     )?;
                 }
@@ -2446,12 +2458,20 @@ pub(crate) fn build(
             let renderer = entry.get::<mlua::Function>("renderer")?;
             value.set(
                 "renderer",
-                lua.create_function(move |lua, args: mlua::MultiValue| {
-                    let previous = current_source(lua);
-                    set_current_source(lua, &source);
-                    let outcome = renderer.call::<mlua::Value>(args);
-                    set_current_source(lua, &previous);
-                    outcome
+                lua.create_async_function(move |lua, args: mlua::MultiValue| {
+                    let source = source.clone();
+                    let renderer = renderer.clone();
+                    async move {
+                        let previous = current_source(&lua);
+                        set_current_source(&lua, &source);
+                        // Await async renderers; an error falls through to the
+                        // default custom-message box (spec `getMessageRenderer` /
+                        // `renderCustomMessage`).
+                        let outcome: mlua::Result<mlua::Value> =
+                            renderer.call_async(args).await.or(Ok(mlua::Value::Nil));
+                        set_current_source(&lua, &previous);
+                        outcome
+                    }
                 })?,
             )?;
             // First registration per customType wins (Pi getMessageRenderer).
@@ -2550,12 +2570,19 @@ pub(crate) fn build(
                 let render = entry.get::<mlua::Function>("render")?;
                 value.set(
                     "render",
-                    lua.create_function(move |lua, args: mlua::MultiValue| {
-                        let previous = current_source(lua);
-                        set_current_source(lua, &source);
-                        let outcome = render.call::<mlua::Value>(args);
-                        set_current_source(lua, &previous);
-                        outcome
+                    lua.create_async_function(move |lua, args: mlua::MultiValue| {
+                        let source = source.clone();
+                        let render = render.clone();
+                        async move {
+                            let previous = current_source(&lua);
+                            set_current_source(&lua, &source);
+                            // Await async render middleware; the product's fold
+                            // pcall falls through to the previous entry/default.
+                            let outcome: mlua::Result<mlua::Value> =
+                                render.call_async(args).await;
+                            set_current_source(&lua, &previous);
+                            outcome
+                        }
                     })?,
                 )?;
                 result.push(value)?;
@@ -2629,12 +2656,19 @@ pub(crate) fn build(
                 let render = entry.get::<mlua::Function>("render")?;
                 value.set(
                     "render",
-                    lua.create_function(move |lua, args: mlua::MultiValue| {
-                        let previous = current_source(lua);
-                        set_current_source(lua, &source);
-                        let outcome = render.call::<mlua::Value>(args);
-                        set_current_source(lua, &previous);
-                        outcome
+                    lua.create_async_function(move |lua, args: mlua::MultiValue| {
+                        let source = source.clone();
+                        let render = render.clone();
+                        async move {
+                            let previous = current_source(&lua);
+                            set_current_source(&lua, &source);
+                            // Await async UI slot renderers; the product's fold
+                            // pcall falls through to the previous/default slot.
+                            let outcome: mlua::Result<mlua::Value> =
+                                render.call_async(args).await;
+                            set_current_source(&lua, &previous);
+                            outcome
+                        }
                     })?,
                 )?;
                 result.push(value)?;
@@ -2694,6 +2728,55 @@ pub(crate) fn build(
             }
             let values: mlua::Table = registry_table(lua)?.get("flag_values")?;
             values.get(name.as_str())
+        })?,
+    )?;
+
+    // Push-model settings list: `pi.register_setting_item(def)` /
+    // `pi.registered_setting_items()` — extensions (tool-management) declare
+    // extra rows for the `/settings` dialog (e.g. an active-tools filter).
+    // Definition tables carry `id`, `label`, `type` ("toggle"/"select"/
+    // "text"/"submenu"), an optional `settings_key` to persist through the
+    // existing settings manager, and optional `default`/`values`/`options`.
+    // First registration per id wins across extensions; the read side returns
+    // one entry per id in insertion order, exactly like `render` middleware.
+    let register_setting_item = lua.create_function(|lua, def: mlua::Table| {
+        let id = def
+            .get::<Option<String>>("id")?
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| {
+                mlua::Error::runtime("register_setting_item: item.id must be a non-empty string")
+            })?;
+        if def.get::<Option<String>>("label")?.filter(|s| !s.trim().is_empty()).is_none() {
+            return Err(mlua::Error::runtime(
+                "register_setting_item: item.label must be a non-empty string",
+            ));
+        }
+        let source = current_source(lua);
+        let ext = ext_entry(lua, &source)?;
+        let items: mlua::Table = ext.get("setting_items")?;
+        if items.get::<Option<mlua::Value>>(id.as_str())?.is_none() {
+            let order: mlua::Table = ext.get("setting_item_order")?;
+            order.push(id.as_str())?;
+        }
+        items.set(id.as_str(), &def)?;
+        Ok(())
+    })?;
+    pi.set("register_setting_item", register_setting_item)?;
+    // Resolved first-registration-wins view: one entry per id across all
+    // extensions, in insertion order (tool-management's settings overlay
+    // reads this to render and persist its custom rows).
+    pi.set(
+        "registered_setting_items",
+        lua.create_function(|lua, ()| {
+            let mut seen = std::collections::HashSet::new();
+            let result = lua.create_table()?;
+            for (_, _, entry) in registrations(lua, "setting_items", "setting_item_order")? {
+                let id: String = entry.get("id")?;
+                if seen.insert(id) {
+                    result.push(entry)?;
+                }
+            }
+            Ok(result)
         })?,
     )?;
 
@@ -3654,6 +3737,7 @@ pub(crate) fn build(
     crate::session::install(lua, &pi, cwd)?;
     crate::trust::install(lua, &pi)?;
     crate::clipboard::install(lua, &pi)?;
+    crate::api::install_footer(lua, &pi)?;
 
     // Spec: parse_frontmatter(content) -- parse YAML frontmatter from markdown.
     let parse_frontmatter = lua.create_function(|lua, content: String| {
@@ -3857,15 +3941,20 @@ pub(crate) fn unregister_tool(lua: &mlua::Lua, name: &str) -> mlua::Result<()> {
         let tools: mlua::Table = ext.get("tools")?;
         if tools.get::<Option<mlua::Value>>(name)?.is_some() {
             tools.set(name, mlua::Nil)?;
+            // Remove the name from the order array without leaving a nil
+            // hole. `tool_order` is a 1-indexed dense Lua array consumed by
+            // `sequence_values` (Lua's `next`), which stops at the first gap;
+            // a `nil` left in place would hide every tool registered after it
+            // and break a subsequent `unregister_tool`. Rebuild densely instead.
             let order: mlua::Table = ext.get("tool_order")?;
-            let len = order.raw_len();
-            for i in 1..=len {
-                let existing: String = order.raw_get(i)?;
-                if existing == name {
-                    order.raw_set(i, mlua::Nil)?;
-                    break;
+            let new_order = lua.create_table()?;
+            for entry in order.sequence_values::<String>() {
+                let entry = entry?;
+                if entry != name {
+                    new_order.push(entry)?;
                 }
             }
+            ext.set("tool_order", new_order)?;
             return Ok(());
         }
     }
@@ -4141,4 +4230,167 @@ pub(crate) fn resolve_role(lua: &mlua::Lua, requested: &str) -> mlua::Result<Opt
         source,
         handler: declaration.get("handler")?,
     }))
+}
+
+/// `pi.footer` — the footer data-provider facade dogfood UI extensions
+/// (minimal-editor, aspect-of-the-sixties) read for live status. It composes
+/// the existing `pi.git.current_branch` (branch), `pi.ai.available_models`
+/// (provider count), a per-extension status registry (`pi.extension_status`),
+/// and a branch-change subscription (`on_branch_change`). The app's footer
+/// data provider (`FooterDataProvider`) is policy; this is the mechanism.
+pub(crate) fn install_footer(lua: &mlua::Lua, pi: &mlua::Table) -> mlua::Result<()> {
+    let footer = lua.create_table()?;
+    let pi_ref = pi.clone();
+
+    // getGitBranch(cwd) — delegates to `pi.git.current_branch`.
+    let pi_git = pi_ref.clone();
+    footer.set(
+        "get_git_branch",
+        lua.create_function(move |_lua, cwd: String| -> mlua::Result<mlua::Value> {
+            let git: mlua::Table = pi_git.get("git")?;
+            let current_branch: mlua::Function = git.get("current_branch")?;
+            current_branch.call(cwd)
+        })?,
+    )?;
+
+    // getAvailableProviderCount() — number of models with configured auth.
+    let pi_ai = pi_ref.clone();
+    footer.set(
+        "available_provider_count",
+        lua.create_async_function(move |_lua, ()| {
+            let pi_ai = pi_ai.clone();
+            async move {
+                let ai: mlua::Table = pi_ai.get("ai")?;
+                let available: mlua::Function = ai.get("available_models")?;
+                let models: mlua::Table = available.call_async(()).await?;
+                Ok(models.raw_len())
+            }
+        })?,
+    )?;
+
+    // set_extension_status(key, value) / clear_extension_status(key): a
+    // per-extension, ordered status map (the app reads it via
+    // `extension_statuses()` to render the footer's status segment). Last
+    // write per key wins; first registration keeps the ordering slot.
+    footer.set(
+        "set_extension_status",
+        lua.create_function(|lua, (key, value): (String, mlua::Value)| {
+            if key.trim().is_empty() {
+                return Err(mlua::Error::runtime(
+                    "set_extension_status: key must be a non-empty string",
+                ));
+            }
+            let source = current_source(lua);
+            let entry = ext_entry(lua, &source)?;
+            let status: mlua::Table = entry.get("extension_status")?;
+            if status.get::<Option<mlua::Value>>(key.as_str())?.is_none() {
+                let order: mlua::Table = entry.get("extension_status_order")?;
+                order.push(key.as_str())?;
+            }
+            status.set(key.as_str(), value)?;
+            Ok(())
+        })?,
+    )?;
+    footer.set(
+        "clear_extension_status",
+        lua.create_function(|lua, key: String| {
+            let source = current_source(lua);
+            let entry = ext_entry(lua, &source)?;
+            let status: mlua::Table = entry.get("extension_status")?;
+            let order: mlua::Table = entry.get("extension_status_order")?;
+            let before = status.get::<Option<mlua::Value>>(key.as_str())?;
+            if before.is_some() {
+                status.set(key.as_str(), mlua::Value::Nil)?;
+                let kept: Vec<String> = order
+                    .sequence_values::<String>()
+                    .collect::<mlua::Result<Vec<_>>>()?;
+                let cleared: mlua::Table = lua.create_table()?;
+                for k in kept {
+                    if k != key {
+                        cleared.push(k)?;
+                    }
+                }
+                entry.set("extension_status_order", cleared)?;
+            }
+            Ok(())
+        })?,
+    )?;
+    // getExtensionStatuses() — ordered status values across extensions (load
+    // order, then per-extension key order). Status values are arbitrary Lua
+    // values (usually strings) keyed by name, so the per-extension order array
+    // drives iteration rather than the value table's hash order.
+    footer.set(
+        "extension_statuses",
+        lua.create_function(|lua, ()| {
+            let result = lua.create_table()?;
+            let registry = registry_table(lua)?;
+            let exts: mlua::Table = registry.get("exts")?;
+            let ext_order: mlua::Table = registry.get("ext_order")?;
+            for source in ext_order.sequence_values::<String>() {
+                let source = source?;
+                let Some(ext) = exts.get::<Option<mlua::Table>>(source.as_str())? else {
+                    continue;
+                };
+                let status: mlua::Table = ext.get("extension_status")?;
+                let order: mlua::Table = ext.get("extension_status_order")?;
+                for key in order.sequence_values::<String>() {
+                    let key = key?;
+                    if let Some(value) = status.get::<Option<mlua::Value>>(key.as_str())? {
+                        result.push(value)?;
+                    }
+                }
+            }
+            Ok(result)
+        })?,
+    )?;
+
+    // Branch-change pub/sub. `on_branch_change(cb)` registers a callback
+    // scoped to the current dispatch and returns a dispose function; the
+    // branch listener (shell process, `notify_branch_change`) fires it. Data
+    // flows one way: subscribers never mutate host state.
+    const SUBSCRIBER_LIST_KEY: &str = "\u{0}footer_branch_subscribers";
+    footer.set(
+        "on_branch_change",
+        lua.create_function(|lua, callback: mlua::Function| {
+            let registry = registry_table(lua)?;
+            let list: mlua::Table =
+                if let Some(existing) = registry.get::<Option<mlua::Table>>(SUBSCRIBER_LIST_KEY)? {
+                    existing
+                } else {
+                    let fresh = lua.create_table()?;
+                    registry.set(SUBSCRIBER_LIST_KEY, &fresh)?;
+                    fresh
+                };
+            let index = list.raw_len() + 1;
+            list.set(index as i64, callback)?;
+            let unlock = lua.create_function(move |lua, ()| {
+                let registry = registry_table(lua)?;
+                let list: mlua::Table = registry.get(SUBSCRIBER_LIST_KEY)?;
+                list.set(index as i64, mlua::Value::Nil)?;
+                Ok(())
+            })?;
+            Ok(unlock)
+        })?,
+    )?;
+    footer.set(
+        "notify_branch_change",
+        lua.create_async_function(move |lua, branch: String| async move {
+            if let Ok(registry) = registry_table(&lua)
+                && let Some(list) = registry.get::<Option<mlua::Table>>(SUBSCRIBER_LIST_KEY)?
+            {
+                let callbacks: Vec<mlua::Function> = list
+                    .sequence_values::<mlua::Function>()
+                    .collect::<mlua::Result<_>>()?;
+                for callback in callbacks {
+                    // Caller errors are isolated so one bad subscriber doesn't
+                    // block the rest (error isolation parity).
+                    let _ = callback.call_async::<mlua::Value>(branch.clone()).await;
+                }
+            }
+            Ok(())
+        })?,
+    )?;
+
+    pi.set("footer", footer)?;
+    Ok(())
 }

@@ -20,7 +20,22 @@ use pi_rs_app::core::auth_storage::AuthStorage;
 use pi_rs_app::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
 use pi_rs_app::core::model_resolver::{find_initial_model, resolve_cli_model};
 use pi_rs_app::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions};
+use pi_rs_host::daemon::DaemonBoundary;
 use pi_rs_host::trust::{ProjectTrustStore, has_project_trust_inputs, project_trust_options};
+
+/// RAII drain guard for the daemon boundary. The daemon owns the
+/// [`DaemonBoundary`] (host VM, session, client mounts); dropping this guard
+/// on any exit path replays every mount's inverse in reverse order, so no
+/// host-owned state residue survives the run.
+struct DaemonGuard {
+    daemon: DaemonBoundary,
+}
+
+impl Drop for DaemonGuard {
+    fn drop(&mut self) {
+        self.daemon.drain();
+    }
+}
 
 /// Lua chunk that enables the stdout output guard on the host's `pi` API
 /// (spec: output-guard.ts `takeOverStdout`). After this runs, stray Lua stdlib
@@ -97,11 +112,12 @@ fn load_host(cwd: &str) -> Result<pi_rs_host::Host, String> {
 /// to the `pkg-exec` Lua role, and mirrors Pi's console.log (stdout) /
 /// console.error (stderr) ordering and exit code. It runs on a "*would
 /// execute*" package command (the `i32::MIN` sentinel from the hermetic
-/// handler). The deterministic legs are `list` and local-path `install`/
-/// `remove`; network-modulated `update`/self-update and npm/git install are
-/// routed back as out-of-scope (here, a clear error) — they are documented in
-/// PLAN 9.7 as open-by-design and cannot be faithfully pinned without a live
-/// registry/git remote.
+/// handler). The deterministic legs are `list`, local-path `install`/`remove`,
+/// and the offline `update` extensions leg; the network-modulated npm/git
+/// install/update and self-update legs are wired through the same role via the
+/// public `pi.exec`/`pi.fs` mechanisms (npm/git package JS stays inert). The
+/// self-update leg prints Pi's cannot-self-update error for the native pi-rs
+/// install (DESIGN platform boundary).
 fn run_package_command_exec(raw_args: &[String]) -> ExitCode {
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let cwd_string = cwd.to_string_lossy().into_owned();
@@ -115,13 +131,9 @@ fn run_package_command_exec(raw_args: &[String]) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    // Network-modulated / out-of-scope commands are not routed to the
-    // deterministic exec legs in this build.
-    if options.command == pi_rs_app::cli::packages::PackageCommand::Update {
-        error_line("Error: pi update is not available in this build");
-        return ExitCode::FAILURE;
-    }
-
+    // Network-modulated npm/git install/update and the update/self-update
+    // legs route through the public `pi.packages` module exactly like the
+    // deterministic legs; only a genuinely unresolvable command is fatal.
     let host = match load_host(&cwd_string) {
         Ok(host) => host,
         Err(message) => {
@@ -149,6 +161,54 @@ fn run_package_command_exec(raw_args: &[String]) -> ExitCode {
         error_line("Error: this package command is out of scope in this build");
         return ExitCode::FAILURE;
     }
+    if let Some(stdout) = result.get("stdout").and_then(serde_json::Value::as_str) {
+        print!("{stdout}");
+    }
+    if let Some(stderr) = result.get("stderr").and_then(serde_json::Value::as_str) {
+        eprint!("{stderr}");
+    }
+    let exit = result
+        .get("exitCode")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    if exit == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+/// Run the `pi config` TUI command's deterministic preamble (project trust,
+/// resource resolution) through the public `config-exec` Lua role, mirroring
+/// package-manager-cli.ts `handleConfigCommand`. The full interactive
+/// resource/config selector is a TUI component owned by the interactive
+/// frontend; this leg wires the command plumbing and the resolved-resource
+/// outcome, returning the role's stdout/stderr/exitCode.
+fn run_config_command(_raw_args: &[String]) -> ExitCode {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let cwd_string = cwd.to_string_lossy().into_owned();
+    let agent_dir = pi_rs_app::config::get_agent_dir()
+        .to_string_lossy()
+        .into_owned();
+    let host = match load_host(&cwd_string) {
+        Ok(host) => host,
+        Err(message) => {
+            error_line(&message);
+            return ExitCode::FAILURE;
+        }
+    };
+    let request = serde_json::json!({ "cwd": cwd_string, "agentDir": agent_dir });
+    let result = match host.call_role("config-exec", &request.to_string()) {
+        Ok(Some(result)) => result,
+        Ok(None) => {
+            error_line("Error: config command produced no result");
+            return ExitCode::FAILURE;
+        }
+        Err(error) => {
+            error_line(&format!("Error: {error}"));
+            return ExitCode::FAILURE;
+        }
+    };
     if let Some(stdout) = result.get("stdout").and_then(serde_json::Value::as_str) {
         print!("{stdout}");
     }
@@ -298,10 +358,10 @@ fn main() -> ExitCode {
     // before `parseArgs`. The pi-rs port handles the hermetic parse/help/
     // early-error surface (cases that return before settings/trust/network)
     // byte-for-byte (`package_cli_parity.rs`). Commands that would proceed to
-    // install/remove/list execution are dispatched through the `pkg-exec` Lua
-    // role (the deterministic legs: `list`, and local-path `install`/`remove`);
-    // network-modulated `update`/self-update and npm/git install remain out of
-    // the deterministic fixture scope.
+    // execution are dispatched through the `pkg-exec` Lua role: the
+    // deterministic legs (`list`, local-path `install`/`remove`, offline
+    // update-extensions skip) and the network-modulated npm/git install/update
+    // + self-update legs, all through the public `pi.packages` module.
     if let Some((code, stdout, stderr)) = handle_package_command_hermetic(&raw_args) {
         if code == i32::MIN {
             // Would-execute: run the deterministic execution legs through the
@@ -321,6 +381,14 @@ fn main() -> ExitCode {
         } else {
             ExitCode::FAILURE
         };
+    }
+
+    // Spec (`main.ts`): `handleConfigCommand(args)` runs on the RAW argv
+    // before `parseArgs` when the leading token is `config` (package-manager-
+    // cli.ts), after the package command. It wires the deterministic trust /
+    // resource-resolution preamble through the public `config-exec` Lua role.
+    if raw_args.first().map(String::as_str) == Some("config") {
+        return run_config_command(&raw_args);
     }
 
     let args = parse_args(raw_args);
@@ -398,18 +466,29 @@ async fn run(mut args: Args) -> ExitCode {
         && std::io::stdout().is_terminal()
         && !args.print
         && args.mode == pi_rs_app::cli::args::Mode::Text;
-    if args.messages.is_empty() && !interactive {
-        // Preserve the existing headless/no-stdin behavior. Interactive mode
-        // is selected only when both sides of the terminal are live.
-        // Spec (main.ts): plain `--mode json` or `--mode rpc` without a
-        // message should invoke the mode with no initial prompt (stdin-only
-        // is read below; an empty prompt is handled by the mode itself).
-        if args.mode != pi_rs_app::cli::args::Mode::Json
-            && args.mode != pi_rs_app::cli::args::Mode::Rpc
-        {
-            print!("{}", help_text());
-            return ExitCode::SUCCESS;
-        }
+    // Spec (main.ts): `--api-key` requires a model selected via `--model`. The
+    // misuse error is reported before any empty/no-model short-circuit so Pi's
+    // exact error takes precedence (pi-rs's default model catalog is empty, but
+    // the misuse error must still fire before a would-be no-models outcome).
+    if args.api_key.is_some() && args.model.is_none() && args.unknown_flags.is_empty() {
+        error_line(
+            "Error: --api-key requires a model to be specified via --model, --provider/--model, or --models",
+        );
+        return ExitCode::FAILURE;
+    }
+    // Spec (main.ts runPrintMode): an empty print invocation (no messages,
+    // non-interactive, text mode) prompts nothing, writes nothing, and exits 0.
+    // pi-rs's default model catalog is empty, so Pi's default model resolution
+    // has no pi-rs equivalent here; the observable empty-print behavior (exit
+    // 0 with no output) replaces the old headless help-print divergence. When
+    // an unknown `--flag` is present it must still be validated below (before
+    // model resolution), so only error-free empty runs short-circuit here.
+    if args.messages.is_empty()
+        && !interactive
+        && args.unknown_flags.is_empty()
+        && args.mode == pi_rs_app::cli::args::Mode::Text
+    {
+        return ExitCode::SUCCESS;
     }
 
     // Spec (main.ts): RPC mode uses stdin for the JSON-RPC protocol, not
@@ -687,6 +766,114 @@ async fn run(mut args: Args) -> ExitCode {
         );
     }
 
+    // Spec (`createAgentSessionServices.applyExtensionFlagValues` + main.ts):
+    // load product extensions, then validate the parsed unknown `--` flags
+    // against the extension-registered flag set. Registered flags are accepted
+    // and forwarded to the runtime's flag store; unregistered flags are fatal
+    // with Pi's exact `Unknown option(s): --<name>` error. This runs before
+    // model resolution so an unregistered flag is rejected before any
+    // would-be no-models short-circuit (pi-rs's default catalog has no
+    // models). The host is reused for the actual run below.
+    let host = match load_host_with_trust(&cwd_string, project_trusted) {
+        Ok(host) => host,
+        Err(message) => {
+            error_line(&message);
+            return ExitCode::FAILURE;
+        }
+    };
+    // Spatiotemporal composability boundary (DESIGN locked decision
+    // "Spatiotemporal composability"): the *daemon* owns a kernel `Context`
+    // into which the real product paths — the host VM lifecycle, the session
+    // manager, and the client viewer — are mounted as kernel components. A
+    // RAII guard drains every mount (inverse replay, reverse order) on any
+    // exit path, so mount/unmount leaves no residue even when an early return
+    // (extension load failure, call_role failure) short-circuits the run.
+    let mut daemon = DaemonBoundary::new();
+    let _ = daemon.mount_host(&host);
+    let _daemon_guard = DaemonGuard { daemon };
+    // Non-interactive modes (print/text/json) keep stdout protocol-clean:
+    // enable the output guard before extension loading (spec: output-guard.ts
+    // takeOverStdout). Interactive mode leaves it off (TUI owns the terminal).
+    if !interactive
+        && let Err(message) = host.load("stdout-guard", ENABLE_STDOUT_GUARD)
+    {
+        error_line(&message.to_string());
+        return ExitCode::FAILURE;
+    }
+    // Resource-loader extension precedence: explicit CLI sources first, then
+    // trusted project, global, and configured sources. `--no-extensions` keeps
+    // CLI sources. Every file loads in isolation through the same VM/API as
+    // the embedded packs; report all diagnostics only after the full batch.
+    let extension_report = load_product_extensions(
+        &host,
+        &settings_manager.get_extension_paths(),
+        &args.extensions,
+        &cwd_string,
+        &agent_dir,
+        project_trusted,
+        args.no_extensions,
+    );
+    if !extension_report.errors.is_empty() {
+        for diagnostic in extension_report.errors {
+            error_line(&format!(
+                "Error: Failed to load extension \"{}\": {}",
+                diagnostic.path, diagnostic.error
+            ));
+        }
+        return ExitCode::FAILURE;
+    }
+    // Spec (`applyExtensionFlagValues`): reject unregistered `--` flags now,
+    // before model resolution (registered ones are accepted and forwarded).
+    if !args.unknown_flags.is_empty() {
+        let registered = match host.flags() {
+            Ok(flags) => flags,
+            Err(error) => {
+                error_line(&format!("Error: {error}"));
+                return ExitCode::FAILURE;
+            }
+        };
+        let registered: std::collections::HashSet<&str> =
+            registered.iter().map(|flag| flag.name.as_str()).collect();
+        let mut unknown_names: Vec<&str> = Vec::new();
+        for (name, value) in &args.unknown_flags {
+            if !registered.contains(name.as_str()) {
+                unknown_names.push(name.as_str());
+            } else if let Some(value) = value {
+                let _ = host.set_flag_value(name, serde_json::Value::String(value.clone()));
+            } else {
+                let _ = host.set_flag_value(name, serde_json::Value::Bool(true));
+            }
+        }
+        if !unknown_names.is_empty() {
+            // Pi (`applyExtensionFlagValues`): `Unknown option${n===1?"":"s"}:
+            // ${names.map(name => `--${name}`).join(", ")}`.
+            let message = if unknown_names.len() == 1 {
+                format!("Unknown option: --{}", unknown_names[0])
+            } else {
+                let joined = unknown_names
+                    .iter()
+                    .map(|name| format!("--{name}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("Unknown options: {joined}")
+            };
+            error_line(&format!("Error: {message}"));
+            return ExitCode::FAILURE;
+        }
+    }
+
+    // Spec (main.ts runPrintMode): an empty print invocation whose flags were
+    // all *accepted* extension-registered flags prompts nothing, writes
+    // nothing, and exits 0. The plain empty short-circuit above ran before
+    // extensions loaded (a registered flag made this run skip it); re-evaluate
+    // now that the flag set is known, before model resolution.
+    if args.messages.is_empty()
+        && !interactive
+        && args.mode == pi_rs_app::cli::args::Mode::Text
+    {
+        return ExitCode::SUCCESS;
+    }
+
     // Spec (`buildSessionOptions` / `findInitialModel`): CLI model wins
     // (a `:<thinking>` suffix applies unless --thinking is explicit),
     // else the settings default, else the first available model
@@ -721,14 +908,9 @@ async fn run(mut args: Args) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    // Spec: `--api-key` requires a model selected via --model.
+    // Spec: `--api-key` routes into the runtime auth storage for the model's
+    // provider (the model-requires check ran earlier, before model resolution).
     if let Some(api_key) = &args.api_key {
-        if args.model.is_none() {
-            error_line(
-                "Error: --api-key requires a model to be specified via --model, --provider/--model, or --models",
-            );
-            return ExitCode::FAILURE;
-        }
         auth_storage.set_runtime_api_key(&model.provider, api_key);
     }
 
@@ -804,42 +986,9 @@ async fn run(mut args: Args) -> ExitCode {
     let follow_up_messages = args.messages.clone();
     // The CLI is a thin consumer of public Lua packs. Rust resolves startup
     // resources and supplies mechanism values; frontend/loop policy is Lua.
-    let host = match load_host_with_trust(&cwd_string, project_trusted) {
-        Ok(host) => host,
-        Err(message) => {
-            error_line(&message);
-            return ExitCode::FAILURE;
-        }
-    };
-    // Resource-loader extension precedence: explicit CLI sources first, then
-    // trusted project, global, and configured sources. --no-extensions keeps
-    // CLI sources. Every file loads in isolation through the same VM/API as
-    // the embedded packs; report all diagnostics only after the full batch.
-    // Non-interactive modes (print/text/json) keep stdout protocol-clean:
-    // enable the output guard before extension loading (spec: output-guard.ts
-    // takeOverStdout). Interactive mode leaves it off (TUI owns the terminal).
-    if !interactive && let Err(message) = host.load("stdout-guard", ENABLE_STDOUT_GUARD) {
-        error_line(&message.to_string());
-        return ExitCode::FAILURE;
-    }
-    let extension_report = load_product_extensions(
-        &host,
-        &settings_manager.get_extension_paths(),
-        &args.extensions,
-        &cwd_string,
-        &agent_dir,
-        project_trusted,
-        args.no_extensions,
-    );
-    if !extension_report.errors.is_empty() {
-        for diagnostic in extension_report.errors {
-            error_line(&format!(
-                "Error: Failed to load extension \"{}\": {}",
-                diagnostic.path, diagnostic.error
-            ));
-        }
-        return ExitCode::FAILURE;
-    }
+    // (`host`/`daemon` were created and mounted after extension loading above,
+    // before model resolution, and are reused here so the same VM drives the
+    // actual run that validated CLI unknown flags against its extensions.)
     let request = serde_json::json!({
 
         "model": model, "apiKey": api_key, "prompt": prompt,

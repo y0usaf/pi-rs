@@ -95,6 +95,12 @@ pub struct Args {
     pub messages: Vec<String>,
     /// `@file` arguments (spec `Args.fileArgs`), the `@` prefix stripped.
     pub file_args: Vec<String>,
+    /// Unknown `--long` flags in CLI order (name + optional value). Pi hands
+    /// these to extensions (`Args.unknownFlags` / `applyExtensionFlagValues`);
+    /// `main` validates them against the extension-registered flag set and
+    /// rejects the unregistered ones with `Unknown option(s): ...`. The bare
+    /// default has no extension flags, so any unknown flag is an error.
+    pub unknown_flags: Vec<(String, Option<String>)>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -270,18 +276,28 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Args {
             result.file_args.push(stripped.to_owned());
         } else if let Some(stripped) = arg.strip_prefix("--") {
             // Unknown `--long` flags: Pi collects them for extensions (never an
-            // error) and consumes a following non-flag, non-@file token as its
-            // value. The bare core has no extension flags to route them to, so
-            // they are dropped after this (Pi's parser parity retained).
+            // error at parse; `applyExtensionFlagValues` rejects unregistered
+            // ones at runtime). A `--name=value` carries its value inline; a
+            // bare `--name` consumes a following non-flag, non-@file token as
+            // its value when present, else is treated as a boolean flag.
             match stripped.split_once('=') {
-                Some(_) => {}
+                Some((name, value)) => {
+                    result
+                        .unknown_flags
+                        .push((name.to_owned(), Some(value.to_owned())));
+                }
                 None => {
                     let next = args.get(i + 1);
                     if let Some(next) = next
                         && !next.starts_with('-')
                         && !next.starts_with('@')
                     {
+                        result
+                            .unknown_flags
+                            .push((stripped.to_owned(), Some(next.clone())));
                         i += 1;
+                    } else {
+                        result.unknown_flags.push((stripped.to_owned(), None));
                     }
                 }
             }
@@ -538,6 +554,33 @@ mod tests {
         assert_eq!(parse(&["--no-approve"]).project_trust_override, Some(false));
         assert_eq!(parse(&["-na"]).project_trust_override, Some(false));
     }
+    #[test]
+    fn unknown_long_flags_are_collected() {
+        // Bare unknown flag (boolean).
+        let args = parse(&["--frobnicate"]);
+        assert_eq!(args.unknown_flags, vec![("frobnicate".to_owned(), None)]);
+        assert!(args.messages.is_empty());
+        // Unknown flag consuming a value token.
+        let args = parse(&["--frobnicate", "value"]);
+        assert_eq!(
+            args.unknown_flags,
+            vec![("frobnicate".to_owned(), Some("value".to_owned()))]
+        );
+        assert!(args.messages.is_empty());
+        // Inline `--name=value`.
+        let args = parse(&["--foo=bar"]);
+        assert_eq!(args.unknown_flags, vec![("foo".to_owned(), Some("bar".to_owned()))]);
+        // Trailing `--model` (no value) is collected as an unknown boolean flag
+        // (Pi's parse treats it as unknownFlags["model"] = true).
+        let args = parse(&["--model"]);
+        assert_eq!(args.unknown_flags, vec![("model".to_owned(), None)]);
+        assert!(args.model.is_none());
+        // A following flag is not consumed as a value.
+        let args = parse(&["--frobnicate", "--version"]);
+        assert_eq!(args.unknown_flags, vec![("frobnicate".to_owned(), None)]);
+        assert!(args.version);
+    }
+
     #[test]
     fn unknown_single_dash_flag_is_error() {
         let args = parse(&["-zz"]);

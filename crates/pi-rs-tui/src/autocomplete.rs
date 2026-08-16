@@ -9,6 +9,7 @@
 
 use std::cmp::Ordering;
 use std::fs;
+use std::future::Future;
 use std::process::Command;
 
 use crate::fuzzy::fuzzy_filter;
@@ -273,15 +274,22 @@ pub struct CombinedProvider {
 impl CombinedProvider {
     /// Spec: `getSuggestions`. `argument_completions` bridges
     /// `SlashCommand.getArgumentCompletions(argumentPrefix)`; it is only
-    /// consulted for commands flagged `has_argument_completions`.
-    pub fn get_suggestions(
+    /// consulted for commands flagged `has_argument_completions`. Like Pi's
+    /// `getSuggestions` (which `await`s the Awaitable
+    /// `getArgumentCompletions`), this is async so an extension's
+    /// Promise-returning completion resolves.
+    pub async fn get_suggestions<F, Fut>(
         &self,
         lines: &[String],
         cursor_line: usize,
         cursor_col: usize,
         force: bool,
-        argument_completions: &mut dyn FnMut(&str, &str) -> Option<Vec<AutocompleteItem>>,
-    ) -> Option<Suggestions> {
+        mut argument_completions: F,
+    ) -> Option<Suggestions>
+    where
+        F: FnMut(String, String) -> Fut,
+        Fut: Future<Output = Option<Vec<AutocompleteItem>>>,
+    {
         let current_line = lines.get(cursor_line).map_or("", String::as_str);
         let cursor_col = clamp_boundary(current_line, cursor_col);
         let text_before_cursor = &current_line[..cursor_col];
@@ -347,7 +355,8 @@ impl CombinedProvider {
                     if !command.has_argument_completions {
                         return None;
                     }
-                    let items = argument_completions(command_name, argument_text)?;
+                    let items = argument_completions(command_name.to_owned(), argument_text.to_owned())
+                        .await?;
                     if items.is_empty() {
                         return None;
                     }
@@ -779,8 +788,34 @@ pub fn apply_completion(
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
-    use super::*;
+    use std::future::Future;
     use std::path::{Path, PathBuf};
+    use std::pin::pin;
+    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+
+    use super::*;
+
+    /// Minimal block_on for the immediately-ready futures produced by the
+    /// argument-completion closures; the tests need no timer executor.
+    fn block_on<F: Future>(future: F) -> F::Output {
+        fn noop_raw_waker() -> RawWaker {
+            fn clone(_: *const ()) -> RawWaker {
+                noop_raw_waker()
+            }
+            fn noop(_: *const ()) {}
+            RawWaker::new(std::ptr::null(), &RawWakerVTable::new(clone, noop, noop, noop))
+        }
+        let waker = unsafe { Waker::from_raw(noop_raw_waker()) };
+        let mut cx = Context::from_waker(&waker);
+        let mut future = pin!(future);
+        // The argument-completion closures are immediately-ready futures, so a
+        // single poll suffices; a Pending would mean the future actually yields
+        // (not expected here — these tests check pure mechanisms).
+        match future.as_mut().poll(&mut cx) {
+            Poll::Ready(output) => output,
+            Poll::Pending => panic!("unexpected Pending in block_on"),
+        }
+    }
 
     fn temp_tree(structure: &[&str]) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -817,7 +852,13 @@ mod tests {
         cursor_col: usize,
         force: bool,
     ) -> Option<Suggestions> {
-        provider.get_suggestions(&[line.to_owned()], 0, cursor_col, force, &mut |_, _| None)
+        block_on(provider.get_suggestions(
+            &[line.to_owned()],
+            0,
+            cursor_col,
+            force,
+            |_, _| async { None },
+        ))
     }
 
     #[test]
@@ -880,20 +921,22 @@ mod tests {
             fd_path: None,
         };
         let mut called = Vec::new();
-        let result = combined.get_suggestions(
+        let result = block_on(combined.get_suggestions(
             &["/model gp".to_owned()],
             0,
             9,
             false,
-            &mut |name, prefix| {
-                called.push((name.to_owned(), prefix.to_owned()));
-                Some(vec![AutocompleteItem {
-                    value: "openai/gpt-5.4".into(),
-                    label: "gpt-5.4".into(),
-                    description: Some("openai".into()),
-                }])
+            |name, prefix| {
+                called.push((name, prefix));
+                async {
+                    Some(vec![AutocompleteItem {
+                        value: "openai/gpt-5.4".into(),
+                        label: "gpt-5.4".into(),
+                        description: Some("openai".into()),
+                    }])
+                }
             },
-        );
+        ));
         assert_eq!(called, vec![("model".to_owned(), "gp".to_owned())]);
         let result = result.unwrap();
         assert_eq!(result.prefix, "gp");

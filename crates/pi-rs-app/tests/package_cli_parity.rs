@@ -44,7 +44,7 @@ fn package_cli_hermetic_surface_matches_pi_oracle() {
                 assert!(expected_handled, "{name}: pi-rs handled but pi did not");
                 // i32::MIN sentinel marks an out-of-scope (would-execute) case;
                 // none are in this hermetic oracle.
-                assert_ne!(code, std::i32::MIN, "{name}: unexpected execute case");
+                assert_ne!(code, i32::MIN, "{name}: unexpected execute case");
                 assert_eq!(
                     i64::from(code),
                     expected_exit.unwrap_or(-1),

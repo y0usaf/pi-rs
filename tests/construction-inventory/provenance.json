@@ -52,7 +52,7 @@
     {
       "path": "crates/pi-rs-app/src/main.rs",
       "operation": "call_role",
-      "count": 6,
+      "count": 7,
       "row": "rust.hardcoded-application-dispatch"
     },
     {
@@ -106,7 +106,7 @@
       "id": "mode-role-branch",
       "row": "rust.hardcoded-application-dispatch",
       "path": "crates/pi-rs-app/src/main.rs",
-      "text": "let role = if interactive",
+      "text": "let role = decl_registry.select_frontend(interactive)",
       "count": 1
     },
     {
@@ -121,7 +121,7 @@
       "row": "rust.pre-runtime-product-dispatch",
       "path": "crates/pi-rs-app/src/main.rs",
       "text": "host.call_role(\"",
-      "count": 5
+      "count": 6
     },
     {
       "id": "synthetic-key-format",
@@ -140,10 +140,6 @@
   ],
   "required_open_rows": [
 
-    "modules.chunk-local-helpers",
-    "dogfood.pi-compact-renderer-patching",
-    "dogfood.gecko-long-lived-resource",
-    "dogfood.rlm-long-lived-resource",
-    "dogfood.pomodoro-long-lived-resource"
+    "modules.chunk-local-helpers"
   ]
 }

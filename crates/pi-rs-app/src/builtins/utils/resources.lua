@@ -838,6 +838,82 @@ local function sync_themes(resolved_paths)
 end
 
 -- ---------------------------------------------------------------------------
+-- Declared package resources (PLAN 9.9/9.10 theme-factory + resource.*). The
+-- interactive pack embeds its changelog, theme palettes, export templates, the
+-- vendored marked/highlight browser bundles, and the daxnuts/clankolas
+-- easter-egg images as packaged Lua resource tables; they are declared through
+-- the same public pi.resources mechanism (not free-floating private globals) so
+-- embedded and file-backed consumers enumerate them by kind. The referenced
+-- locals/globals (CHANGELOG_MD, DARK_THEME, LIGHT_THEME, EXPORT_TEMPLATE_*,
+-- EXPORT_MARKED_JS, EXPORT_HIGHLIGHT_JS, DAX_HEX, CLANKOLAS_BASE64) are the
+-- pack's own embedded payloads, already in chunk scope before this module
+-- loads.
+local function embedded_resources()
+  local changelog = (type(CHANGELOG_MD) == "string") and CHANGELOG_MD or ""
+  local templates = {
+    { name = "export-html", kind = "export", path = "interactive/export-html/template.html",
+      content = (type(EXPORT_TEMPLATE_HTML) == "string") and EXPORT_TEMPLATE_HTML or "" },
+    { name = "export-css", kind = "export", path = "interactive/export-html/template.css",
+      content = (type(EXPORT_TEMPLATE_CSS) == "string") and EXPORT_TEMPLATE_CSS or "" },
+    { name = "export-js", kind = "export", path = "interactive/export-html/template.js",
+      content = (type(EXPORT_TEMPLATE_JS) == "string") and EXPORT_TEMPLATE_JS or "" },
+    { name = "export-marked", kind = "export", path = "interactive/export-html/vendor/marked.min.js",
+      content = (type(EXPORT_MARKED_JS) == "string") and EXPORT_MARKED_JS or "" },
+    { name = "export-highlight", kind = "export", path = "interactive/export-html/vendor/highlight.min.js",
+      content = (type(EXPORT_HIGHLIGHT_JS) == "string") and EXPORT_HIGHLIGHT_JS or "" },
+  }
+  -- Easter-egg image payloads kept out of chunk-local scope so the interactive
+  -- transcript policy still consumes the same chunk globals (DAX_HEX /
+  -- CLANKOLAS_BASE64) while they are also enumerated as declared package
+  -- assets for file-backed consumers.
+  local assets = {
+    { name = "daxnuts", kind = "asset", path = "interactive/assets/daxnuts.hex",
+      content = (type(DAX_HEX) == "string") and DAX_HEX or "" },
+    { name = "clankolas", kind = "asset", path = "interactive/assets/clankolas.base64",
+      content = (type(CLANKOLAS_BASE64) == "string") and CLANKOLAS_BASE64 or "" },
+  }
+  local themes = {}
+  if type(DARK_THEME) == "table" then themes[#themes + 1] = { name = "dark", payload = DARK_THEME } end
+  if type(LIGHT_THEME) == "table" then themes[#themes + 1] = { name = "light", payload = LIGHT_THEME } end
+  return {
+    changelog = { kind = "changelog", name = "changelog", content = changelog },
+    templates = templates,
+    assets = assets,
+    themes = themes,
+  }
+end
+
+-- Collect the declared embedded resources matching a kind ("changelog" |
+-- "theme" | "export").
+local function declared_resources(kind)
+  local embedded = embedded_resources()
+  local out = {}
+  if kind == nil or kind == "changelog" then
+    if embedded.changelog.content ~= "" then
+      out[#out + 1] = { kind = "changelog", name = embedded.changelog.name, content = embedded.changelog.content }
+    end
+  end
+  if kind == nil or kind == "export" then
+    for _, t in ipairs(embedded.templates) do
+      out[#out + 1] = { kind = "export", name = t.name, path = t.path }
+    end
+  end
+  if kind == nil or kind == "asset" then
+    for _, a in ipairs(embedded.assets) do
+      if a.content ~= "" then
+        out[#out + 1] = { kind = "asset", name = a.name, path = a.path, content = a.content }
+      end
+    end
+  end
+  if kind == nil or kind == "theme" then
+    for _, t in ipairs(embedded.themes) do
+      out[#out + 1] = { kind = "theme", name = t.name, colors = t.payload.colors or {} }
+    end
+  end
+  return out
+end
+
+-- ---------------------------------------------------------------------------
 -- Module
 -- ---------------------------------------------------------------------------
 pi.module.define({
@@ -862,6 +938,8 @@ pi.module.define({
       has_theme = has_theme,
       load_theme_from_path = load_theme_from_path,
       sync_themes = sync_themes,
+      embedded_resources = embedded_resources,
+      declared_resources = declared_resources,
     }
   end,
 })

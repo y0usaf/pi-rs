@@ -369,18 +369,13 @@ fn parse_generic_git_url(repo_without_ref: &str, r#ref: Option<String>) -> Optio
         host = hostname.to_owned();
         path = pathname.trim_start_matches('/').to_owned();
     } else {
-        let slash = repo_without_ref.find('/');
-        match slash {
-            None => return None,
-            Some(slash) => {
-                host = repo_without_ref[..slash].to_owned();
-                path = repo_without_ref[slash + 1..].to_owned();
-                if !host.contains('.') && host != "localhost" {
-                    return None;
-                }
-                repo = format!("https://{repo_without_ref}");
-            }
+        let slash = repo_without_ref.find('/')?;
+        host = repo_without_ref[..slash].to_owned();
+        path = repo_without_ref[slash + 1..].to_owned();
+        if !host.contains('.') && host != "localhost" {
+            return None;
         }
+        repo = format!("https://{repo_without_ref}");
     }
 
     build_git_source(&repo, &host, &path, r#ref)

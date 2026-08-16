@@ -180,6 +180,153 @@ pub(crate) fn install(lua: &Lua, pi: &Table, storage: SharedStorage) -> mlua::Re
             },
         )?,
     )?;
+    // `pi.ai.complete(model, request, options) -> AssistantMessage` — the
+    // streaming-LLM convenience helper dogfood extensions (context-janitor,
+    // RLM) reach for through `@earendil-works/pi-ai#completeSimple`. It takes
+    // the same `(model, context, options, on_event)` shape as `stream_simple`
+    // but also accepts a `completeSimple`-style request table
+    // `{ systemPrompt, messages, tools }` and forwards streaming text deltas
+    // to `options.onChunk(partialMessage)` while returning the final message.
+    // Custom stream providers dispatch ahead of Rust providers exactly like
+    // `stream_simple`.
+    ai.set(
+        "complete",
+        lua.create_async_function(
+            |lua,
+             (model_val, request, options, on_event): (Value, Value, Option<Table>, Option<Function>)| async move {
+                let model: Model = from_lua_json(model_val, "model")?;
+                let on_event = match on_event {
+                    Some(consumer) => consumer,
+                    // A no-op event consumer for callers that only read the
+                    // returned final message.
+                    None => lua.create_function(|_, _: Value| Ok(()))?,
+                };
+                let on_chunk = options
+                    .as_ref()
+                    .map(|t| t.get::<Option<Function>>("onChunk"))
+                    .transpose()?
+                    .flatten();
+                // A wrapped event consumer that forwards `onChunk(partial)`
+                // for custom stream providers (which drive `on_event` directly).
+                let wrapped_event = {
+                    let event_cb = on_event.clone();
+                    let chunk_cb = on_chunk.clone();
+                    lua.create_function(move |lua, event: Value| {
+                        if let Some(chunk_cb) = &chunk_cb
+                            && let Ok(json) = crate::convert::lua_to_json(event.clone())
+                            && let Some(partial) = json.get("partial")
+                            && !partial.is_null()
+                            && let Ok(partial_value) =
+                                crate::convert::json_to_lua(lua, partial)
+                        {
+                            let _ = chunk_cb.call::<Value>(partial_value)?;
+                        }
+                        event_cb.call::<()>(event)
+                    })?
+                };
+                // Custom stream provider dispatch (PLAN 9.4) ahead of Rust.
+                if let Ok(registry) = crate::api::registry_table(&lua)
+                    && let Ok(Some(custom_table)) = registry.get::<Option<mlua::Table>>("custom_stream")
+                    && let Ok(Some(entry)) =
+                        custom_table.get::<Option<mlua::Table>>(model.api.as_str())
+                    && let Ok(Some(stream_fn)) = entry.get::<Option<mlua::Function>>("streamSimple")
+                {
+                    let model_lua = model_to_lua(&lua, &model)?;
+                    let result: mlua::Value = stream_fn
+                        .call_async((model_lua, request, options, wrapped_event))
+                        .await?;
+                    return Ok(result);
+                }
+                // Build the provider context: a `completeSimple` request table
+                // ({ systemPrompt, messages, tools }) or a raw Context.
+                let context = complete_context_from_lua(&lua, &request)?;
+                let (hook_tx, mut hook_rx) = mpsc::unbounded_channel();
+                let (options, hooks) = stream_options(options, hook_tx)?;
+                let signal = options.base.signal.clone();
+                let stream = match pi_rs_ai::registry::stream_simple(
+                    &model,
+                    &context,
+                    Some(options),
+                ) {
+                    Ok(stream) => stream,
+                    Err(error) => {
+                        let message = failure_message(
+                            &model,
+                            if signal.as_ref().is_some_and(AbortSignal::is_aborted) {
+                                StopReason::Aborted
+                            } else {
+                                StopReason::Error
+                            },
+                            error.to_string(),
+                        );
+                        call_event(&lua, &on_event, &AssistantMessageEvent::Error {
+                            reason: message.stop_reason,
+                            error: message.clone(),
+                        })
+                        .await?;
+                        return to_lua_json(&lua, &message);
+                    }
+                };
+
+                let mut hooks_open = true;
+                loop {
+                    tokio::select! {
+                        biased;
+                        request = hook_rx.recv(), if hooks_open => {
+                            let Some(request) = request else {
+                                hooks_open = false;
+                                continue;
+                            };
+                            match request {
+                                ProviderHookRequest::Payload { payload, model, reply } => {
+                                    let value = if let Some(callback) = &hooks.payload {
+                                        let payload = crate::convert::json_to_lua(&lua, &payload)?;
+                                        let model = model_to_lua(&lua, &model)?;
+                                        let value: Value = callback.call_async((payload, model)).await?;
+                                        if matches!(value, Value::Nil) { None } else {
+                                            Some(crate::convert::lua_to_json(value)?)
+                                        }
+                                    } else {
+                                        None
+                                    };
+                                    let _ = reply.send(value);
+                                }
+                                ProviderHookRequest::Response { response, model, reply } => {
+                                    if let Some(callback) = &hooks.response {
+                                        let response = to_lua_json(&lua, &response)?;
+                                        let model = model_to_lua(&lua, &model)?;
+                                        callback.call_async::<()>((response, model)).await?;
+                                    }
+                                    let _ = reply.send(());
+                                }
+                            }
+                        }
+                        event = stream.next() => {
+                            let Some(event) = event else { break };
+                            if let Some(on_chunk) = &on_chunk
+                                && let Some(partial) = event_partial(&event)
+                            {
+                                let value = to_lua_json(&lua, partial)?;
+                                on_chunk.call_async::<()>(value).await?;
+                            }
+                            call_event(&lua, &on_event, &event).await?;
+                        }
+                    }
+                }
+                match stream.result().await {
+                    Some(message) => to_lua_json(&lua, &message),
+                    None => {
+                        let message = failure_message(
+                            &model,
+                            StopReason::Error,
+                            "event stream completed without a result".to_owned(),
+                        );
+                        to_lua_json(&lua, &message)
+                    }
+                }
+            },
+        )?,
+    )?;
     // -----------------------------------------------------------------
     // Model-registry bridge (spec: `core/model-registry.ts` consumed by
     // the interactive frontend). Presentation and selection policy stay
@@ -443,6 +590,78 @@ fn context_from_lua(value: Value) -> mlua::Result<Context> {
     }
     serde_json::from_value(json)
         .map_err(|error| mlua::Error::runtime(format!("invalid context: {error}")))
+}
+
+/// The streaming partial carried by an event, if it has one (spec event
+/// vocabulary: every delta/start/end carries the rolling `partial` message).
+/// Used by `pi.ai.complete` to forward `onChunk(partialMessage)` deltas.
+fn event_partial(event: &AssistantMessageEvent) -> Option<&AssistantMessage> {
+    use AssistantMessageEvent as E;
+    match event {
+        E::Start { partial } => Some(partial),
+        E::TextStart { partial, .. } => Some(partial),
+        E::TextDelta { partial, .. } => Some(partial),
+        E::TextEnd { partial, .. } => Some(partial),
+        E::ThinkingStart { partial, .. } => Some(partial),
+        E::ThinkingDelta { partial, .. } => Some(partial),
+        E::ThinkingEnd { partial, .. } => Some(partial),
+        E::ToolCallStart { partial, .. } => Some(partial),
+        E::ToolCallDelta { partial, .. } => Some(partial),
+        E::ToolCallEnd { partial, .. } => Some(partial),
+        _ => None,
+    }
+}
+
+/// Build a provider [`Context`] for `pi.ai.complete`. Accepts either a raw
+/// `Context` table (`{ system_prompt, messages, tools }`) or a
+/// `completeSimple`-style request table (`{ systemPrompt, messages, tools }`);
+/// in the latter case `systemPrompt` becomes the context system prompt.
+fn complete_context_from_lua(_lua: &Lua, request: &Value) -> mlua::Result<Context> {
+    match request {
+        Value::Nil => Ok(Context::default()),
+        Value::Table(table) => {
+            if let Some(system_prompt) = table.get::<Option<String>>("systemPrompt")? {
+                let mut json =
+                    lua_to_json(Value::Table(table.clone())).map_err(|e| {
+                        mlua::Error::runtime(format!("invalid complete request: {e}"))
+                    })?;
+                if let Some(object) = json.as_object_mut() {
+                    object.insert("system_prompt".to_owned(),
+                        serde_json::Value::String(system_prompt));
+                    object.remove("systemPrompt");
+                }
+                normalize_context_json(&mut json);
+                serde_json::from_value(json).map_err(|error| {
+                    mlua::Error::runtime(format!("invalid complete request: {error}"))
+                })
+            } else {
+                let mut json = lua_to_json(request.clone())
+                    .map_err(|error| mlua::Error::runtime(error.to_string()))?;
+                normalize_context_json(&mut json);
+                serde_json::from_value(json)
+                    .map_err(|error| mlua::Error::runtime(format!("invalid context: {error}")))
+            }
+        }
+        _ => context_from_lua(request.clone()).map_err(|e| {
+            mlua::Error::runtime(format!("invalid complete request: {e}"))
+        }),
+    }
+}
+
+/// Normalize empty-table `messages`/`tools` maps to empty arrays (Lua has one
+/// empty table for `{}` and `[]`; these fields are arrays by contract).
+fn normalize_context_json(json: &mut serde_json::Value) {
+    if let Some(object) = json.as_object_mut() {
+        // Lua has one empty table for `{}` and `[]`; these fields are arrays by
+        // contract, so normalize an empty map to an empty array.
+        for key in ["messages", "tools"] {
+            if let Some(value) = object.get_mut(key)
+                && value.as_object().is_some_and(|map| map.is_empty())
+            {
+                *value = serde_json::Value::Array(Vec::new());
+            }
+        }
+    }
 }
 
 fn from_lua_json<T: serde::de::DeserializeOwned>(value: Value, label: &str) -> mlua::Result<T> {

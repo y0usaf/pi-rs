@@ -1,0 +1,171 @@
+{
+  "oracle": "pi-flake 94694da7321ce74aa7b82c13db7e60e28c0caba6 (Pi 0.80.6 extension-behavior oracle, not product spec)",
+  "description": "PLAN 9.11: translations of the pinned external dogfood packages to ordinary file-backed Lua extensions on the public pi.* surface.",
+  "load_verification": "cargo build -p pi-rs-app && ./target/debug/pi --mode rpc --extension examples/extensions/dogfood/<pkg>.lua < /dev/null ; echo $?  # 0 = loaded and registered cleanly; session_start/session_shutdown lifecycle ran",
+  "source_location": "examples/extensions/dogfood/*.lua",
+  "translated": {
+    "pi-pomodoro": {
+      "source": "tests/external-extension-inventory/fixtures/pi-pomodoro/src/index.ts",
+      "public_surface": [
+        "pi.on(session_start)",
+        "pi.on(session_shutdown)",
+        "pi.register_command",
+        "ctx.ui.setStatus",
+        "ctx.ui.notify",
+        "ctx.ui.theme.fg",
+        "pi.fs.watch_file",
+        "pi.fs.read_file",
+        "pi.fs.write_file_atomic",
+        "pi.fs.exists",
+        "pi.fs.mkdir",
+        "pi.fs.tmpdir",
+        "pi.path.join",
+        "pi.path.dirname",
+        "pi.env.HOME/USERPROFILE/USER/XDG_RUNTIME_DIR",
+        "pi.set_interval",
+        "pi.clear_interval",
+        "pi.json.decode",
+        "pi.json.encode"
+      ],
+      "cleanup": "file watcher handle:close() and 1s interval clear_interval on session_shutdown; watcher thread also stops on handle close and on Drop; stale ctxRef cleared on shutdown"
+    },
+    "pi-codex-fast": {
+      "source": "tests/external-extension-inventory/fixtures/pi-codex-fast/src/index.ts",
+      "public_surface": [
+        "pi.on(session_start/model_select/before_provider_request)",
+        "pi.register_command",
+        "ctx.ui.setStatus",
+        "ctx.ui.notify",
+        "ctx.ui.theme.fg",
+        "pi.fs.exists",
+        "pi.fs.read_file",
+        "pi.path.join",
+        "pi.env.HOME/USERPROFILE",
+        "pi.json.decode"
+      ],
+      "cleanup": "stateless: no long-lived resources"
+    },
+    "pi-working-indicator": {
+      "source": "tests/external-extension-inventory/fixtures/pi-working-indicator/extensions/index.ts",
+      "public_surface": [
+        "pi.on(session_start/session_shutdown/before_agent_start/model_select)",
+        "ctx.ui.setWorkingMessage",
+        "ctx.ui.setWorkingIndicator",
+        "ctx.ui.theme.fg",
+        "pi.getThinkingLevel",
+        "pi.now_ms",
+        "pi.set_timeout",
+        "pi.clear_timeout"
+      ],
+      "cleanup": "single startup-switch setTimeout cleared via clear_timeout (generation-guarded) on every apply and on session_shutdown"
+    },
+    "pi-webfetch": {
+      "source": "tests/external-extension-inventory/fixtures/pi-webfetch/src/index.ts",
+      "public_surface": [
+        "pi.register_tool",
+        "pi.module.require(pi.tools.truncate@1): truncate_head/format_size/DEFAULT_MAX_LINES/DEFAULT_MAX_BYTES",
+        "pi.http.fetch (headers + timeout_ms contract)",
+        "pi.buffer.byte_length",
+        "pi.now_ms",
+        "theme.fg/theme.bold in renderCall",
+        "pure-Lua HTML-to-markdown stand-in replacing non-public turndown"
+      ],
+      "cleanup": "stateless besides a bounded 50-entry / 15-min LRU cache table (no host resources)"
+    },
+    "pi-tool-management": {
+      "source": "tests/external-extension-inventory/fixtures/pi-tool-management/src/index.ts",
+      "public_surface": [
+        "pi.register_command(/tools, /tools-status)",
+        "pi.register_setting_item / pi.registered_setting_items (push-model settings list; activeToolsFilter row)",
+        "pi.getActiveTools / pi.getAllTools / pi.setActiveTools / pi.unregister_tool-free enforcement",
+        "ctx.ui.custom settings overlay via pi.tui.settings_list:render/:input",
+        "ctx.ui.notify / ctx.ui.theme.fg/bold",
+        "pi.fs.{exists,read_file,mkdir,write_file_atomic} + pi.path.join + pi.env (tool-settings.json)",
+        "pi.on(session_start/session_tree/before_agent_start/before_provider_request) enforcement"
+      ],
+      "cleanup": "stateless besides a row of Set state and file-backed tool-settings.json; no host process/socket/timer"
+    },
+    "pi-minimal-editor": {
+      "source": "tests/external-extension-inventory/fixtures/pi-minimal-editor/src/index.ts",
+      "public_surface": [
+        "pi.footer data-provider facade (get_git_branch/extension_statuses/available_provider_count/on_branch_change) in ctx.ui.setFooter factory",
+        "ctx.ui.setEditorComponent + pi.tui.editor mechanism as the CustomEditor substrate",
+        "ctx.sessionManager.{get_entries,getCwd,getSessionName} + ctx.getContextUsage + ctx.model + ctx.modelRegistry.isUsingOAuth",
+        "pi.getThinkingLevel + pi.tui.text_render + pi.env.HOME/USERPROFILE",
+        "pi.now_ms + pi.path.join"
+      ],
+      "cleanup": "footer subscription disposed + setEditorComponent(undefined)/setFooter(undefined) on session_shutdown"
+    },
+    "pi-context-janitor": {
+      "source": "tests/external-extension-inventory/fixtures/pi-context-janitor/src/index.ts",
+      "public_surface": [
+        "pi.ai.complete (completeSimple decider via ctx.modelRegistry.{find,getAvailable,getApiKeyForProvider})",
+        "pi.appendEntry / pi.sendMessage + pi.register_message_renderer (summary/notice custom types)",
+        "pi.register_command(/janitor on/off/undo) + ctx.ui.custom undo picker + ctx.ui.notify/setStatus",
+        "pi.crypto.sha256 (decider hash) + pi.json.{decode,encode}",
+        "pi.fs.{exists,read_file,mkdir,write_file_atomic} + settings dir/path + pi.path.join",
+        "pi.set_timeout/clear_timeout + pi.set_interval/clear_interval (debounce + status spinner)",
+        "pi.on(session_start/session_tree/model_select/turn_end/agent_end/context/session_shutdown)",
+        "ctx.sessionManager.getBranch + ctx.hasUI + capture/decider/index-store/restore pipeline"
+      ],
+      "cleanup": "pending debounce timer cleared (abort_background), spinner interval cleared, status cleared on session_shutdown / session replacement"
+    },
+    "pi-gecko-websearch": {
+      "source": "tests/external-extension-inventory/fixtures/pi-gecko-websearch/src/*.ts",
+      "public_surface": [
+        "pi.tcp.connect (Marionette length-prefixed JSON client: write/read/close/dispose)",
+        "pi.process.spawn gecko binary (--marionette --headless --profile) + kill/dispose (SIGTERM)",
+        "pi.fs.{mkdtemp,remove_dir_all,exists,read_file,write_file_atomic,copy_file,read_dir,tmpdir} temp profile + cookie copy",
+        "pi.path.{join,dirname,basename} + pi.env.{PI_GECKO_BINARY,PI_GECKO_PROFILE,PI_GECKO_PROFILE_ROOT,PI_GECKO_MAX_BROWSERS}",
+        "pi.exec (which) + pi.module.require(pi.tools.truncate@1) + pi.json.decode",
+        "pi.register_tool(web_search/web_browse with parameters + execute + renderCall)",
+        "pure-Lua search-result HTML parser replacing regex engine lookup"
+      ],
+      "cleanup": "BrowserManager.shutdown on session_shutdown: close each Marionette socket (handle close/dispose) + kill each gecko process tree + remove_dir_all temp profiles; every handle owned/dropped"
+    },
+    "pi-rlm": {
+      "source": "tests/external-extension-inventory/fixtures/pi-rlm/src/*.ts",
+      "public_surface": [
+        "pi.process.spawn python3 -u -c (verbatim upstream RLM Python worker) with read_stdout/write_stdin/kill/dispose pipes",
+        "pi.ai.complete (llm_query bridge; batched/recursive degrade to sequential llm_query)",
+        "pi.register_tool(repl) + pi.setActiveTools(root-tools enforcement) + pi.register_message_renderer(rlm_final)",
+        "pi.register_command-free; pi.on(session_start/session_tree/session_shutdown/context/input/before_agent_start/before_provider_request)",
+        "pi.fs.{exists,read_file,mkdir,write_file_atomic,tmpdir} session-context store + externalize-large-input",
+        "pi.path.{join,dirname,basename} + pi.env.PI_RLM_PYTHON + pi.json.{decode,encode} + pi.sleep",
+        "ctx.sessionManager.{getSessionDir,getSessionId,getSessionFile} + ctx.modelRegistry.getApiKeyAndHeaders + ctx.cwd"
+      ],
+      "cleanup": "python worker subprocess killed/disposed on session_shutdown and on tool reset; session-context store dir removed with the session"
+    },
+    "sting8k_pi-vcc": {
+      "source": "tests/external-extension-inventory/fixtures/sting8k_pi-vcc/**",
+      "public_surface": [
+        "pi.register_command(/pi-vcc, /pi-vcc-recall) + pi.register_tool(vcc_recall)",
+        "pi.on(session_before_compact/session_compact) own-cut + compile/summarize + before-compact return {cancel}/{compaction}",
+        "ctx.compact({customInstructions,onComplete,onError}) + ctx.sessionManager.{getSessionFile,getBranch,getEntries} + ctx.ui.notify",
+        "pi.module.require(pi.agent.messages@1).convert_to_llm for the compaction messages",
+        "pi.sendMessage(customType=vcc-recall) + pi.json.{decode,encode} + pi.set_timeout (session_compact toast)",
+        "pi.fs.{exists,read_file,mkdir,write_file_atomic} + pi.path.{join,dirname} + pi.env.{HOME,USERPROFILE,PI_VCC_CONFIG_PATH}",
+        "pure-Lua normalize/render/search(bm25-lite)/brief/goals/files/preferences/commits pipeline"
+      ],
+      "cleanup": "stateless besides file-backed pi-vcc-config.json and a module-local lastStats scalar pair; the one session_compact setTimeout is dispatch-scoped"
+    },
+    "earendil_pi-review": {
+      "source": "tests/external-extension-inventory/fixtures/earendil_pi-review/review.ts",
+      "public_surface": [
+        "pi.register_command(/review, /end-review) + pi.on(session_start/session_tree)",
+        "pi.exec (git/gh) + pi.json.decode for PR metadata + pi.fs.{stat,read_file} + pi.path.{resolve,join,dirname}",
+        "ctx.sessionManager.{get_branch,get_entries,get_leaf_id} + ctx.navigateTree (summarize/customInstructions/replaceInstructions) + ctx.cwd",
+        "ctx.ui.{notify,select,editor,setWidget,getEditorText,setEditorText} as the public composable-UI equivalent of the private pi-tui picker tree",
+        "pi.appendEntry + pi.sendUserMessage (deliverAs followUp)",
+        "persisted review-session/review-anchor/review-settings custom entries + full REVIEW_RUBRIC + loadProjectReviewGuidelines (REVIEW_GUIDELINES.md)"
+      ],
+      "cleanup": "stateless besides a module-local reviewOriginId scalar and persisted custom entries; no host process/socket/timer. The upstream private TUI picker components (Container/DynamicBorder/Input/SelectList/Spacer/fuzzyFilter/BorderedLoader) are not public primitives, so ctx.ui.select/editor replace them behaviourally"
+    }
+  },
+  "untranslated_blockers": {
+    "pi-rtk": "public createBashTool/createLocalBashOperations factories remain absent, but a public-surface delegation translation already exists at tests/dogfood-translations/rtk.lua (finds the registered bash via pi.registered_tools() and re-registers 'bash' delegating to it, rewriting the command through pi.exec rtk rewrite + the user_bash event); no dedicated examples/extensions/dogfood copy produced this wave",
+    "pi-morph": "provider/routing over multiple files + fetch; not yet translated (remaining work)",
+    "pi-hashline": "snapshot/diff edit+read tools over 10 files; not yet translated (remaining work)",
+    "pi-compact": "already translated as examples/extensions/pi-compact.lua using public register_render_middleware (PLAN 9.5 evidence)"
+  }
+}

@@ -13,7 +13,6 @@ Internal (workspace-local) dependencies only. `A --> B` means A depends on B.
 
 ```mermaid
 graph TD
-  pi_rs_agent["pi-rs-agent"] --> pi_rs_ai_types["pi-rs-ai-types"]
   pi_rs_agent["pi-rs-agent"] --> pi_rs_host["pi-rs-host"]
   pi_rs_ai["pi-rs-ai"] --> pi_rs_ai_types["pi-rs-ai-types"]
   pi_rs_ai_auth["pi-rs-ai-auth"] --> pi_rs_ai_types["pi-rs-ai-types"]
@@ -22,13 +21,17 @@ graph TD
   pi_rs_app["pi-rs-app"] --> pi_rs_ai_auth["pi-rs-ai-auth"]
   pi_rs_app["pi-rs-app"] --> pi_rs_ai_types["pi-rs-ai-types"]
   pi_rs_app["pi-rs-app"] --> pi_rs_host["pi-rs-host"]
+  pi_rs_app["pi-rs-app"] --> pi_rs_kernel["pi-rs-kernel"]
   pi_rs_app["pi-rs-app"] --> pi_rs_session["pi-rs-session"]
   pi_rs_app["pi-rs-app"] --> pi_rs_tui["pi-rs-tui"]
   pi_rs_host["pi-rs-host"] --> pi_rs_ai["pi-rs-ai"]
   pi_rs_host["pi-rs-host"] --> pi_rs_ai_auth["pi-rs-ai-auth"]
   pi_rs_host["pi-rs-host"] --> pi_rs_ai_types["pi-rs-ai-types"]
+  pi_rs_host["pi-rs-host"] --> pi_rs_kernel["pi-rs-kernel"]
   pi_rs_host["pi-rs-host"] --> pi_rs_session["pi-rs-session"]
   pi_rs_host["pi-rs-host"] --> pi_rs_tui["pi-rs-tui"]
+  pi_rs_session["pi-rs-session"] --> pi_rs_kernel["pi-rs-kernel"]
+  pi_rs_tui["pi-rs-tui"] --> pi_rs_kernel["pi-rs-kernel"]
 ```
 
 ## Crates
@@ -41,6 +44,7 @@ graph TD
 | `pi-rs-ai-types` | packages/ai type vocabulary: models, messages, content, usage, stream events |
 | `pi-rs-app` | _no description in Cargo.toml_ |
 | `pi-rs-host` | Lua extension host: coroutine async seam, event bus, watchdog |
+| `pi-rs-kernel` | spatiotemporal composability kernel leaf crate |
 | `pi-rs-session` | Session manager: append-only JSONL session trees (port of core/session-manager.ts) |
 | `pi-rs-tools` | A.3 source-language gate (reject new foreign-language first-party files) |
 | `pi-rs-tui` | _no description in Cargo.toml_ |
@@ -300,18 +304,35 @@ crate pi_rs_app
 │   │   └── struct Row: pub(self)
 │   ├── mod login: pub
 │   │   └── struct StdioLoginCallbacks: pub
+│   ├── mod packages: pub
+│   │   ├── enum PackageCommand: pub
+│   │   ├── struct PackageCommandOptions: pub
+│   │   └── enum UpdateTarget: pub
 │   └── mod session_select: pub
 │       ├── enum ResolvedSession: pub
 │       └── enum SessionChoice: pub
 ├── mod config: pub
-└── mod core: pub
-    ├── mod auth_guidance: pub
-    ├── mod defaults: pub
-    ├── mod http_dispatcher: pub
-    └── mod model_resolver: pub
-        ├── struct InitialModelResult: pub
-        ├── struct ParsedModelResult: pub
-        └── struct ResolveCliModelResult: pub
+├── mod core: pub
+│   ├── mod auth_guidance: pub
+│   ├── mod defaults: pub
+│   ├── mod http_dispatcher: pub
+│   └── mod model_resolver: pub
+│       ├── struct InitialModelResult: pub
+│       ├── struct ParsedModelResult: pub
+│       └── struct ResolveCliModelResult: pub
+└── mod decl: pub
+    ├── type Builder: pub(self)
+    ├── enum DeclError: pub
+    ├── struct Definition: pub
+    ├── type Effect: pub(self)
+    ├── struct Epoch: pub
+    ├── enum Kind: pub
+    ├── struct Lease: pub
+    ├── enum Phase: pub
+    ├── struct Provider: pub
+    ├── struct Registry: pub
+    ├── type Shared: pub(self)
+    └── struct UnitState: pub(self)
 ```
 
 ### `pi-rs-host`
@@ -351,6 +372,7 @@ crate pi_rs_host
 │   ├── struct LuaStdinBuffer: pub(self)
 │   ├── struct LuaTerminal: pub(self)
 │   ├── struct LuaText: pub(self)
+│   ├── struct LuaTimerHandle: pub(self)
 │   ├── struct LuaTruncatedText: pub(self)
 │   ├── struct LuaTui: pub(self)
 │   ├── struct ResolvedCommand: pub(crate)
@@ -370,11 +392,16 @@ crate pi_rs_host
 │   └── struct FileLock: pub(self)
 ├── mod clipboard: pub(crate)
 │   ├── struct ClipboardImage: pub(crate)
-│   └── type Env: pub(self)
+│   ├── type Env: pub(self)
+│   ├── struct LuaNativeClipboard: pub(self)
+│   └── struct NativeClipboard: pub(crate)
 ├── mod config: pub
 │   ├── struct ConfigSnapshot: pub
 │   └── struct ResourceSelector: pub
 ├── mod convert: pub(crate)
+├── mod crypto: pub(crate)
+├── mod daemon: pub
+│   └── struct DaemonBoundary: pub
 ├── mod discover: pub
 ├── mod error: pub(crate)
 │   └── enum HostError: pub
@@ -382,6 +409,10 @@ crate pi_rs_host
 │   └── struct ExecResult: pub(crate)
 ├── mod frontmatter: pub(crate)
 │   └── struct FrontmatterDocument: pub(crate)
+├── mod git: pub
+│   ├── struct GitPaths: pub(crate)
+│   ├── struct GitSource: pub
+│   └── struct HostedInfo: pub(self)
 ├── mod hljs: pub
 │   ├── struct Highlighted: pub
 │   ├── enum HljsError: pub
@@ -422,11 +453,24 @@ crate pi_rs_host
 │   ├── enum JsDiffError: pub
 │   ├── struct Node: pub(self)
 │   └── struct Path: pub(self)
+├── mod lifecycle: pub
+│   ├── type Dispose: pub
+│   ├── struct Epoch: pub
+│   ├── struct Generation: pub
+│   ├── struct HostLifecycle: pub
+│   ├── type OnChange: pub
+│   ├── struct Scope: pub
+│   └── type ScopeId: pub
 ├── mod model_registry: pub
 │   ├── struct ModelRegistry: pub
 │   └── enum ResolvedRequestAuth: pub
 ├── mod os: pub(crate)
+│   ├── struct LuaWatcher: pub(crate)
+│   └── struct WatchInner: pub(self)
 ├── mod paths: pub(crate)
+├── mod process: pub(crate)
+│   ├── struct LuaProcess: pub(crate)
+│   └── struct ProcessInner: pub(self)
 ├── mod resolve_config_value: pub
 │   ├── enum ConfigValueError: pub
 │   ├── enum ConfigValueReference: pub(self)
@@ -450,6 +494,9 @@ crate pi_rs_host
 │   ├── enum SettingsManagerError: pub
 │   ├── enum SettingsScope: pub
 │   └── enum SettingsStorage: pub
+├── mod tcp: pub(crate)
+│   ├── struct LuaTcp: pub(crate)
+│   └── struct TcpInner: pub(self)
 ├── mod trust: pub
 │   ├── struct ProjectTrustStore: pub
 │   ├── struct ResolveProjectTrust: pub
@@ -468,11 +515,30 @@ crate pi_rs_host
     └── struct Watched: pub(self)
 ```
 
+### `pi-rs-kernel`
+
+```
+
+crate pi_rs_kernel
+├── struct Component: pub
+├── struct Context: pub
+├── type Effect: pub
+├── type Inverse: pub
+├── type OnChange: pub
+└── struct ScopeInner: pub(crate)
+```
+
 ### `pi-rs-session`
 
 ```
 
 crate pi_rs_session
+├── mod composable: pub
+│   ├── struct DrainOutcome: pub
+│   ├── enum ReloadError: pub
+│   ├── type SessionManagerHandle: pub
+│   ├── struct SessionReloader: pub
+│   └── struct SessionScope: pub
 ├── mod messages: pub
 ├── mod paths: pub
 │   └── struct PathInputOptions: pub
@@ -509,6 +575,30 @@ crate pi_rs_tools
 │   ├── type Result: pub(self)
 │   ├── enum SelftestError: pub
 │   └── struct Temp: pub(self)
+├── mod dogfood_oracle: pub
+│   ├── enum DogfoodError: pub
+│   ├── struct Options: pub
+│   └── type Result: pub(self)
+├── mod dogfood_selftest: pub
+│   ├── type Result: pub(self)
+│   └── enum SelftestError: pub
+├── mod extension_inventory: pub
+│   ├── enum ExtInvError: pub
+│   └── type Result: pub(self)
+├── mod extension_inventory_selftest: pub
+│   ├── type Result: pub(self)
+│   └── enum SelftestError: pub
+├── mod external_extension_inventory: pub
+│   ├── enum ExtExtError: pub
+│   ├── type Result: pub(self)
+│   └── type RowMap: pub
+├── mod external_extension_inventory_selftest: pub
+│   ├── type Result: pub(self)
+│   ├── enum SelftestError: pub
+│   └── struct Temp: pub(self)
+├── mod final_parity_audit: pub
+│   ├── enum AuditError: pub
+│   └── type Result: pub(self)
 ├── mod gate: pub
 │   ├── struct Flag: pub
 │   ├── struct Gate: pub
@@ -573,6 +663,10 @@ crate pi_rs_tui
 │   └── struct InputState: pub(self)
 ├── mod kill_ring: pub
 │   └── struct KillRing: pub
+├── mod lifecycle: pub
+│   ├── struct Epoch: pub
+│   ├── struct ScopedComponent: pub
+│   └── struct TuiHost: pub
 ├── mod loader: pub
 │   ├── struct CancellableLoader: pub
 │   ├── struct Indicator: pub
@@ -591,6 +685,7 @@ crate pi_rs_tui
 │   ├── struct MarkdownRenderer: pub
 │   ├── struct MarkdownTheme: pub
 │   └── type StyleFn: pub
+├── mod native_modifiers: pub
 ├── mod process: pub
 │   ├── struct ContinueSignal: pub(self) #[cfg(unix)]
 │   ├── struct IgnoredSignal: pub(self) #[cfg(unix)]
@@ -635,6 +730,7 @@ crate pi_rs_tui
 │   ├── enum ImageProtocol: pub
 │   ├── struct ImageRenderOptions: pub
 │   ├── struct ImageRenderResult: pub
+│   ├── struct ImageState: pub
 │   ├── struct KittyOptions: pub
 │   └── struct TerminalCapabilities: pub
 ├── mod truncated_text: pub
