@@ -51,6 +51,49 @@ use crate::Host;
 /// Context key under which the host VM's liveness is committed. Mounting the
 /// host sets it; unmounting (its inverse) removes it.
 pub const KEY_HOST_VM: &str = "daemon:host:vm";
+/// The real authoritative handles the product daemon folds onto the single
+/// VM-resident kernel `Context` (docs/pi-kernel-surface.md, Stage 1). The
+/// kernel surface stores `serde_json::Value`, so the live `Host` and
+/// `SessionManagerHandle` — which cannot be serialized — are handed to the VM
+/// as a [`KernelBridge`]; the always-loaded `agent-core` pack's Lua fragment
+/// then composes `daemon:host:vm` / `session:active` as plain reversible
+/// `pi.kernel.mount` Components on that one context. The mount's effect
+/// commits a liveness/session marker; the *real* resource teardown
+/// (`Host::stop`/session detach) is marshalled host-side, the only thread on
+/// which a blocking `Host::stop` is legal.
+///
+/// Three truthful losses of the fold (the kernel cannot byte-carry them):
+///   1. The kernel `Context` stores `serde_json::Value`; it cannot hold the
+///      live `Host`/`SessionManagerHandle`, so the bridge keeps them host-side
+///      and the context commits only a liveness / active-session marker.
+///   2. `Host::stop` is a blocking `Msg::Stop` round-trip; called on the VM
+///      thread while a `pi.kernel` dispatch is live it would deadlock on its
+///      own `rx.recv()`. The Lua mount's inverse therefore only removes the
+///      context key; the real stop runs on the host (daemon) after the Lua
+///      turn returns (cross-thread marshal, design §D.3).
+///   3. `mount_session` historically stored the live `SessionManager` handle on
+///      its own private context; under the fold the kernel commits only a
+///      marker and the handle stays in the bridge for the session scope to
+///      publish onto the same context.
+#[derive(Default)]
+pub struct KernelBridge {
+    /// The live product VM, folded under [`KEY_HOST_VM`] by the Lua fragment.
+    pub host: Option<Host>,
+    /// The real active-session manager handle, published under [`KEY_SESSION`].
+    pub session: Option<SessionManagerHandle>,
+}
+
+// `HostConfig` (and the Handle mirror) derive `Debug`; the live `Host`/session
+// handle can't be printed (mlua `Sender`, session `Arc<Mutex<..>>`), so we
+// render the bridge as presence flags only.
+impl std::fmt::Debug for KernelBridge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KernelBridge")
+            .field("host", &self.host.is_some())
+            .field("session", &self.session.is_some())
+            .finish()
+    }
+}
 /// Context key a client/viewer may read to observe the active session handle
 /// (re-exported from the session scope module for a single naming surface).
 pub const KEY_SESSION: &str = KEY_ACTIVE;
@@ -65,6 +108,12 @@ pub struct DaemonBoundary {
     /// reverse. The kernel tracks its own readers/values; this list only orders
     /// the drain (and lets `drain` be idempotent).
     scopes: Vec<usize>,
+    /// The real host VM the daemon parks for host-side teardown when the host
+    /// lifecycle is composed from Lua instead of a Rust `mount_host` (Stage 1
+    /// fold). The Lua fragment mounts `daemon:host:vm` on the VM kernel; its
+    /// inverse cannot call the blocking `Host::stop` on the VM thread, so the
+    /// daemon — the only thread where a blocking stop is legal — stops it here.
+    host_for_teardown: Option<Host>,
 }
 
 impl DaemonBoundary {
@@ -95,6 +144,16 @@ impl DaemonBoundary {
                     })
                 })
         )
+    }
+
+    /// Park the real host VM for host-side teardown when the host lifecycle is
+    /// *composed from Lua* (Stage 1 fold: the `agent-core` pack mounts
+    /// `daemon:host:vm` via `pi.kernel`, replacing `mount_host`). The host's
+    /// liveness lives on the single VM kernel context; `drain` performs the
+    /// actual `Host::stop` off the VM thread. Deterministic because `drain`
+    /// runs on the host (daemon) side, never inside a `pi.kernel` dispatch.
+    pub fn retain_host(&mut self, host: &Host) {
+        self.host_for_teardown = Some(host.clone());
     }
 
     /// Mount the real session manager handle as a kernel component. The session
@@ -140,10 +199,21 @@ impl DaemonBoundary {
 
     /// Drain every mounted scope in reverse registration order. After this
     /// returns the context holds only pre-mount values — no host VM, no session
-    /// handle, no mounted client scope survives. Idempotent.
+    /// handle, no mounted client scope survives. When the daemon parked a host
+    /// for the Stage 1 Lua fold ([`Self::retain_host`]), this also performs the
+    /// real `Host::stop` on the host thread (the cross-thread teardown of the
+    /// Lua-composed host mount). Idempotent.
     pub fn drain(&mut self) {
         while let Some(id) = self.scopes.pop() {
             self.ctx.unmount(id);
+        }
+        // Stage 1 fold teardown: the real VM is stopped from the host (daemon)
+        // side — never on the VM thread, where a blocking Host::stop on its own
+        // rx would deadlock. `retain_host` parks the host; a plain ceremony
+        // boundary that mounted via `mount_host` in-Rust already stopped it via
+        // its inverse, so `host_for_teardown` is None here.
+        if let Some(host) = self.host_for_teardown.take() {
+            let _ = host.stop();
         }
     }
 
@@ -282,5 +352,25 @@ mod tests {
 
         let _ = s1;
         let _ = s2;
+    }
+
+    /// Stage 1 fold teardown: a host parked via `retain_host` is stopped by
+    /// `drain` on the host thread (the cross-thread marshal of the Lua-composed
+    /// host mount), so a subsequent call reports VmUnavailable.
+    #[test]
+    fn retain_host_drain_stops_the_real_vm() {
+        let mut b = DaemonBoundary::new();
+        let host = Host::new(crate::HostConfig::default()).unwrap();
+        b.retain_host(&host);
+
+        // No Rust mount_host here — the host lifecycle is folded onto the VM
+        // kernel from Lua. Drain performs the real host teardown.
+        b.drain();
+        assert!(b.is_empty());
+
+        assert!(matches!(
+            host.load("daemon-test://ping", "local pi = ..."),
+            Err(HostError::VmUnavailable)
+        ));
     }
 }

@@ -782,14 +782,28 @@ async fn run(mut args: Args) -> ExitCode {
         }
     };
     // Spatiotemporal composability boundary (DESIGN locked decision
-    // "Spatiotemporal composability"): the *daemon* owns a kernel `Context`
-    // into which the real product paths — the host VM lifecycle, the session
-    // manager, and the client viewer — are mounted as kernel components. A
-    // RAII guard drains every mount (inverse replay, reverse order) on any
-    // exit path, so mount/unmount leaves no residue even when an early return
-    // (extension load failure, call_role failure) short-circuits the run.
+    // "Spatiotemporal composability", Stage 1 of docs/pi-kernel-surface.md):
+    // the *daemon* is the host-side holder of the kernel fold. The host VM
+    // lifecycle and the active-session handle are now composed *from Lua* — the
+    // always-loaded `agent-core` pack's `pi.agent.kernel-host` fragment calls
+    // `pi.kernel.mount` to install `daemon:host:vm` + `session:active` on the
+    // ONE VM-resident kernel Context, replacing the Rust-only
+    // `daemon.mount_host(&host)`. We invoke that composition now that the
+    // daemon is ready. The daemon parks the real host only to perform the
+    // actual tear-down (`Host::stop`) off the VM thread, where a blocking stop
+    // would deadlock; the RAII guard drains every mount (inverse replay,
+    // reverse order) and stops the parked host on any exit path, so no
+    // host-owned state residue survives the run even when an early return
+    // (extension load failure, call_role failure) short-circuits it.
+    let fold_driver = "local pi = ... "
+        .to_owned() + "local kernel_host = pi.module.require('pi.agent.kernel-host', '1') "
+        + "kernel_host.mount_host_lifecycle()";
+    if let Err(message) = host.load("product://kernel-host-fold", &fold_driver) {
+        error_line(&message.to_string());
+        return ExitCode::FAILURE;
+    }
     let mut daemon = DaemonBoundary::new();
-    let _ = daemon.mount_host(&host);
+    daemon.retain_host(&host);
     let _daemon_guard = DaemonGuard { daemon };
     // Non-interactive modes (print/text/json) keep stdout protocol-clean:
     // enable the output guard before extension loading (spec: output-guard.ts
