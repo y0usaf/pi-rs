@@ -1,7 +1,7 @@
+pub use pi_chord as chord;
 pub use pi_rt::{cancel, turn};
 
 pub mod ai;
-pub mod chord;
 pub mod documents;
 pub mod entries;
 pub mod env;
