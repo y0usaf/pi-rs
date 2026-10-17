@@ -17,7 +17,7 @@ Do not mistake it for finished. Read [Where it differs](#where-it-differs-from-t
 It is not on crates.io yet (`repository` is unset in `Cargo.toml`), so depend on it by path or git:
 
 ```toml
-pi-durable = { path = "../pi-durable-rs", features = ["providers"] }
+pi-durable = { path = "../pi-rs/crates/durable", features = ["providers"] }
 serde_json = "1"
 ```
 
@@ -126,7 +126,7 @@ Other runnable examples: `examples/faux_agent.rs` (scripted provider plus one to
 | `openai` | OpenAI Chat Completions and Responses, and the OpenAI catalog |
 | `providers` | all of the above |
 
-`Providers::builtin()` only exists when at least one of `anthropic`, `openai`, `vercel-gateway` is on (`src/ai/registry.rs:42`). SQLite is `rusqlite` with its bundled C source, so a C compiler is needed.
+`Providers::builtin()` only exists when at least one of `anthropic`, `openai`, `vercel-gateway` is on (`../ai/src/registry.rs:42`). SQLite is `rusqlite` with its bundled C source, so a C compiler is needed.
 
 ### Providers and credentials
 
@@ -138,7 +138,7 @@ Keys come from, in order: `SimpleStreamOptions::api_key`, the resolver you set w
 
 ### Cancellation
 
-Cancelling a `CancelToken` shuts down the socket of any in-flight provider request (`src/ai/http.rs:402`), and the stream ends with stop reason `aborted` ("Request was aborted"). `provider_e2e` asserts an abort in the middle of a stream finishes in under a second against a loopback server (it reports `cancel ok in 490µs`). The compaction summary call passes the harness signal (`src/harness/compaction.rs:349`).
+Cancelling a `CancelToken` shuts down the socket of any in-flight provider request (`../ai/src/http.rs:402`), and the stream ends with stop reason `aborted` ("Request was aborted"). `provider_e2e` asserts an abort in the middle of a stream finishes in under a second against a loopback server (it reports `cancel ok in 490µs`). The compaction summary call passes the harness signal (`src/harness/compaction.rs:349`).
 
 If you write your own `Api`, honouring `options.signal` is your job. Nothing stops a provider from ignoring it, and then `Models::complete_simple` blocks until the provider returns.
 
@@ -165,13 +165,13 @@ Everything below was read from the code and docs in this repository, from the pi
 
 | Topic | TypeScript | Rust | Where |
 | --- | --- | --- | --- |
-| Concurrency | `async` functions, one event loop | blocking calls; the scheduler runs tasks on pooled worker threads; handlers take turns under a FIFO lock so they interleave like JS tasks do between `await`s | `src/workers.rs`, `src/turn.rs` |
-| Cancellation | `Context` / `AbortSignal` | `&CancelToken` on every call; cancelling gives `Error::Aborted` ("aborted") | `src/cancel.rs`, `src/errors.rs` |
+| Concurrency | `async` functions, one event loop | blocking calls; the scheduler runs tasks on pooled worker threads; handlers take turns under a FIFO lock so they interleave like JS tasks do between `await`s | `src/workers.rs`, `../rt/src/turn.rs` |
+| Cancellation | `Context` / `AbortSignal` | `&CancelToken` on every call; cancelling gives `Error::Aborted` ("aborted") | `../rt/src/cancel.rs`, `src/errors.rs` |
 | Errors | classes `ReadAfterWrite`, `StorageRejected`, `ConversationBusy` plus plain `Error` | one `enum Error` (those three, `Aborted`, `Invalid(String)`, `Json`); it is not `Clone`, so a failure replayed to a later caller keeps its text but becomes `Invalid` | `errors.ts`, `src/errors.rs` |
-| Messages | plain objects | typed enums; `Message::User / Assistant / ToolResult` hold an `Arc`, so cloning a transcript copies pointers; faux responses hold a `Box`. JSON shape is the same (camelCase) | `src/ai/types.rs:406`, `src/ai/providers/faux.rs:81` |
-| Absent values | `undefined` | `Option::None`, skipped when serialised; an explicit JSON `null` in `details` / `data` stays `Some(null)` | `src/ai/types.rs` (`present`) |
+| Messages | plain objects | typed enums; `Message::User / Assistant / ToolResult` hold an `Arc`, so cloning a transcript copies pointers; faux responses hold a `Box`. JSON shape is the same (camelCase) | `../ai/src/types.rs:406`, `../ai/src/providers/faux.rs:81` |
+| Absent values | `undefined` | `Option::None`, skipped when serialised; an explicit JSON `null` in `details` / `data` stays `Some(null)` | `../ai/src/types.rs` (`present`) |
 | Registry | `createRegistry()` has built-ins; `Harness` throws without them | `Registry::default()` has none until an install; no check (see Try it) | `registry.ts`, `src/harness/registry.rs` |
-| Extensions and tools | `defineExtension`, `defineTool`, typebox schemas | struct literals (`Extension`, `ToolRegistration`); schemas are hand-built JSON; argument validation follows typebox 1.3.27 for the subset tools use and errors on other keywords | `src/harness/define.rs`, `src/ai/utils/validation.rs` |
+| Extensions and tools | `defineExtension`, `defineTool`, typebox schemas | struct literals (`Extension`, `ToolRegistration`); schemas are hand-built JSON; argument validation follows typebox 1.3.27 for the subset tools use and errors on other keywords | `src/harness/define.rs`, `../ai/src/utils/validation.rs` |
 | Hooks | handlers get a `HookApi` (memo, models, conversation) | generation and compaction hooks get a `HookApi` with `conversation_id` only; no memo or models | `src/harness/types.rs` |
 | Documents | positional `args`, checked in overloads | explicit owner and key, ids and versions are `u64`, scope checked at run time on `DocToken<T>` | `src/documents.rs` |
 | Transaction | async callback; unawaited `Tx` calls are an error | methods return values directly, so that error cannot happen | `session/transaction.ts:679` |
@@ -183,7 +183,7 @@ The crate is 0.1.0 and its API is still moving.
 
 ### Behaviour gaps
 
-- **Tool-call order.** Parallel tool calls run on separate threads under the turn lock, so their start and settle order matches TypeScript's in the parity scenario `f2-tool-parallel`. Storage commits do not yield the turn (`src/turn.rs`), so interleaving at commit level can differ; no check looks for it.
+- **Tool-call order.** Parallel tool calls run on separate threads under the turn lock, so their start and settle order matches TypeScript's in the parity scenario `f2-tool-parallel`. Storage commits do not yield the turn (`../rt/src/turn.rs`), so interleaving at commit level can differ; no check looks for it.
 - **File watching** polls every 2000 ms (`WatchOptions::poll_interval`), never TypeScript's native mode, with no debounce and no `overflow` change.
 - **Tracker op sequences** differ (Rust diffs base against draft; arrays diff element by element). Applying either sequence gives the same value, but tool-output events may carry a different, equivalent op.
 - **Bash output windows.** `ToolExecutionApi::outputWindow` does not exist; `skipped` is always `None` and chunk boundaries differ on large output. The retained tail matches.
@@ -196,11 +196,11 @@ The crate is 0.1.0 and its API is still moving.
 
 ### Providers
 
-TypeScript's `packages/ai/src/providers` has about 40 provider modules and `auth/oauth` has nine logins. Rust has three wire formats (Anthropic Messages, OpenAI Chat Completions, OpenAI Responses), one catalog (every chat model in the published `@earendil-works/pi-ai`, `src/ai/catalog/models.json`; to update, change `VERSION` and `INTEGRITY` in `scripts/gen-catalog.py` and run `scripts/gen-catalog.py > src/ai/catalog/models.json`), and one login (Anthropic).
+TypeScript's `packages/ai/src/providers` has about 40 provider modules and `auth/oauth` has nine logins. Rust has three wire formats (Anthropic Messages, OpenAI Chat Completions, OpenAI Responses), one catalog (every chat model in the published `@earendil-works/pi-ai`, `../ai/src/catalog/models.json`; to update, change `VERSION` and `INTEGRITY` in `../ai/scripts/gen-catalog.py` and run `../ai/scripts/gen-catalog.py > ../ai/src/catalog/models.json`), and one login (Anthropic).
 
 Not ported: `onPayload` / `onResponse` hooks, custom fetch, proxies, redirects, WebSocket and the Codex, Azure, Bedrock, Google, Mistral transports, Copilot headers, constrained sampling and grammar tools, Anthropic workload-identity federation and `ANTHROPIC_AUTH_TOKEN` (set it as a header from `set_auth`), OpenRouter `reasoning_details` replay, `PI_CACHE_RETENTION`. Chat Completions rejects unknown `compat` keys with an error instead of ignoring them.
 
-The HTTP client is hand-written HTTP/1.1 over `rustls` (`src/ai/http.rs`). One connection per request, no redirects, no proxy. It exists because cancelling a streaming response has to close the socket, and `ureq` and `reqwest` do not expose it on a stable API.
+The HTTP client is hand-written HTTP/1.1 over `rustls` (`../ai/src/http.rs`). One connection per request, no redirects, no proxy. It exists because cancelling a streaming response has to close the socket, and `ureq` and `reqwest` do not expose it on a stable API.
 
 ### What is proven and what is not
 

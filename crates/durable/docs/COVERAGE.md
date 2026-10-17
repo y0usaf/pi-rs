@@ -1,6 +1,6 @@
 # boar-rs coverage of pi-durable
 
-What Boar (Go, on PiG) calls, and whether pi-durable (Rust) covers it. Source of the call list: `internal/daemon`, `optchat`, `codemode` in the Boar repo, grepped for `harness.`, `durable.`, `ai.`, `coding.`, `mcpext.`, `sandbox.`, `nodeenv.`, `sqlitenode.`. Rust paths are under `src/`.
+What Boar (Go, on PiG) calls, and whether pi-durable (Rust) covers it. Source of the call list: `internal/daemon`, `optchat`, `codemode` in the Boar repo, grepped for `harness.`, `durable.`, `ai.`, `coding.`, `mcpext.`, `sandbox.`, `nodeenv.`, `sqlitenode.`. Rust paths are under `src/`, except `ai/`, `chord/` and `env/`, which are the pi-ai, pi-chord and pi-env crates (`../ai/src/` and so on), and `cancel.rs` and `turn.rs`, which are in `../rt/src/`.
 
 Status: **covered** = the Rust API exists and is used by the same shape; **divergent** = exists, different shape or semantics (see README); **missing** = no Rust counterpart.
 
