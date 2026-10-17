@@ -1,6 +1,6 @@
 [package]
 name = "pi-chord"
-description = "Pi's chord: JSON state that changes only through delta ops, with a tracker that records them and replicas that apply them in order."
+description = "The replicated state of Pi's chord: JSON that changes only through delta ops, with a tracker that records them and replicas that apply them in order."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
