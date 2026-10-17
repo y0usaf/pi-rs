@@ -9,7 +9,19 @@ keywords = ["llm", "agent", "durable", "sqlite", "anthropic"]
 categories = ["database", "api-bindings"]
 exclude = ["/flake.nix", "/flake.lock", "/result*", "/parity"]
 
+[workspace]
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+pi-rt = { path = "crates/rt" }
+
 [dependencies]
+pi-rt.workspace = true
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"

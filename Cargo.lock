@@ -166,6 +166,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 name = "pi-durable"
 version = "0.1.0"
 dependencies = [
+ "pi-rt",
  "regex",
  "ring",
  "rusqlite",
@@ -175,6 +176,10 @@ dependencies = [
  "unicode-normalization",
  "webpki-roots",
 ]
+
+[[package]]
+name = "pi-rt"
+version = "0.1.0"
 
 [[package]]
 name = "pkg-config"
