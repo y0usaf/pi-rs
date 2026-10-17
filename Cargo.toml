@@ -1,22 +1,3 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-
-[workspace.package]
-version = "0.1.0"
-edition = "2024"
-license = "MIT"
-
-[workspace.dependencies]
-pi-rt = { path = "crates/rt" }
-pi-chord = { path = "crates/chord" }
-pi-env = { path = "crates/env" }
-pi-ai = { path = "crates/ai" }
-serde = { version = "1", features = ["derive", "rc"] }
-serde_json = { version = "1", features = ["preserve_order"] }
-regex = "1"
-unicode-normalization = "0.1"
-rusqlite = { version = "0.40", features = ["bundled", "fallible_uint"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-webpki-roots = "1"
-ring = "0.17"

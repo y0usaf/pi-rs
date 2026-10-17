@@ -1,11 +1,11 @@
 [package]
 name = "pi-chord"
 description = "The replicated state of Pi's chord: JSON that changes only through delta ops, with a tracker that records them and replicas that apply them in order."
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
 
 [dependencies]
-pi-rt.workspace = true
-serde.workspace = true
-serde_json.workspace = true
+pi-rt = { path = "../rt" }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }

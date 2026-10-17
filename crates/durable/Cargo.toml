@@ -1,23 +1,23 @@
 [package]
 name = "pi-durable"
 description = "Durable conversations, tasks and documents over a transactional store, with a synchronous agent harness: a Rust reproduction of Pi's pi-durable."
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
 readme = "README.md"
 keywords = ["llm", "agent", "durable", "sqlite", "anthropic"]
 categories = ["database", "api-bindings"]
 exclude = ["/parity"]
 
 [dependencies]
-pi-rt.workspace = true
-pi-chord.workspace = true
-pi-env.workspace = true
-pi-ai.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-unicode-normalization.workspace = true
-rusqlite.workspace = true
+pi-rt = { path = "../rt" }
+pi-chord = { path = "../chord" }
+pi-env = { path = "../env" }
+pi-ai = { path = "../ai" }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+unicode-normalization = "0.1"
+rusqlite = { version = "0.40", features = ["bundled", "fallible_uint"] }
 
 [features]
 default = []

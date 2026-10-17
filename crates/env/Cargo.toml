@@ -1,9 +1,9 @@
 [package]
 name = "pi-env"
 description = "Pi's execution environment: one trait for files, directories, watches and processes, with a local implementation that behaves like Pi's Node one."
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
 
 [dependencies]
-pi-rt.workspace = true
+pi-rt = { path = "../rt" }
