@@ -1,7 +1,7 @@
 use super::delta::{Op, Prepared, Tracker, apply, track};
 use super::error::Error;
 use super::json::JsonValue;
-use crate::cancel::CancelToken;
+use pi_rt::cancel::CancelToken;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {

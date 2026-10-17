@@ -1,5 +1,5 @@
-use crate::chord::error::Error;
-use crate::chord::json::JsonValue;
+use crate::error::Error;
+use crate::json::JsonValue;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 

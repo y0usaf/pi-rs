@@ -1,7 +1,7 @@
 use super::op::{Op, Path, Seg, check};
 use super::overlap::overlap;
-use crate::chord::error::Error;
-use crate::chord::json::JsonValue;
+use crate::error::Error;
+use crate::json::JsonValue;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);

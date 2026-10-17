@@ -1,6 +1,6 @@
 use super::op::{Op, Path, Seg, check};
-use crate::chord::error::Error;
-use crate::chord::json::JsonValue;
+use crate::error::Error;
+use crate::json::JsonValue;
 
 pub fn apply(target: Option<JsonValue>, ops: &[Op]) -> Result<JsonValue, Error> {
     let mut root = target;
