@@ -5,8 +5,8 @@ use super::{
     Command, ExecOptions, ExecResult, ExecutionEnv, ExecutionError, ExecutionErrorCode,
     OutputCallback, OutputStream, SpillOptions,
 };
-use crate::cancel::CancelToken;
-use crate::turn::pause;
+use pi_rt::cancel::CancelToken;
+use pi_rt::turn::pause;
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 use std::os::unix::process::{CommandExt, ExitStatusExt};

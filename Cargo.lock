@@ -176,6 +176,7 @@ name = "pi-durable"
 version = "0.1.0"
 dependencies = [
  "pi-chord",
+ "pi-env",
  "pi-rt",
  "regex",
  "ring",
@@ -185,6 +186,13 @@ dependencies = [
  "serde_json",
  "unicode-normalization",
  "webpki-roots",
+]
+
+[[package]]
+name = "pi-env"
+version = "0.1.0"
+dependencies = [
+ "pi-rt",
 ]
 
 [[package]]

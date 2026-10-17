@@ -1,10 +1,10 @@
 pub use pi_chord as chord;
+pub use pi_env as env;
 pub use pi_rt::{cancel, turn};
 
 pub mod ai;
 pub mod documents;
 pub mod entries;
-pub mod env;
 pub mod errors;
 pub mod harness;
 pub mod ids;

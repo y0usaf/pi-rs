@@ -1,0 +1,9 @@
+[package]
+name = "pi-env"
+description = "Pi's execution environment: one trait for files, directories, watches and processes, with a local implementation that behaves like Pi's Node one."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+pi-rt.workspace = true

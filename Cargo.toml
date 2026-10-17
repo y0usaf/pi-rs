@@ -20,12 +20,14 @@ license = "MIT"
 [workspace.dependencies]
 pi-rt = { path = "crates/rt" }
 pi-chord = { path = "crates/chord" }
+pi-env = { path = "crates/env" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 
 [dependencies]
 pi-rt.workspace = true
 pi-chord.workspace = true
+pi-env.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 regex = "1"
