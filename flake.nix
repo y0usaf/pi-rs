@@ -22,7 +22,12 @@
       manifest = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package;
       src = nixpkgs.lib.cleanSourceWith {
         src = nixpkgs.lib.cleanSource ./.;
-        filter = path: _: !(nixpkgs.lib.hasPrefix (toString ./parity-ai) path);
+        filter =
+          path: _:
+          let
+            dir = toString ./crates/ai/parity;
+          in
+          !(path == dir || nixpkgs.lib.hasPrefix (dir + "/") path);
       };
       build =
         pkgs: features:
@@ -34,7 +39,7 @@
           doCheck = false;
           buildPhase = ''
             runHook preBuild
-            cargo build --release --lib --frozen --examples --features "${features}"
+            cargo build --release --workspace --lib --frozen --examples --features "${features}"
             runHook postBuild
           '';
           installPhase = ''
@@ -99,15 +104,15 @@
             echo '{}' > $out/packages/ai/src/providers/$f
           done
           ${unpackDeps pkgs}
-          cp ${./parity-ai/driver-ai.ts} $out/parity-ai/driver-ai.ts
-          cp ${./parity-ai/register.mjs} $out/parity-ai/register.mjs
-          cp ${./parity-ai/loader.mjs} $out/parity-ai/loader.mjs
-          cp -r ${./parity-ai/stubs} $out/parity-ai/stubs
+          cp ${./crates/ai/parity/driver-ai.ts} $out/parity-ai/driver-ai.ts
+          cp ${./crates/ai/parity/register.mjs} $out/parity-ai/register.mjs
+          cp ${./crates/ai/parity/loader.mjs} $out/parity-ai/loader.mjs
+          cp -r ${./crates/ai/parity/stubs} $out/parity-ai/stubs
         '';
     in
     {
       packages = forAll (pkgs: {
-        default = build pkgs "providers";
+        default = build pkgs "pi-durable/providers";
         storage-only = build pkgs "";
       });
 
@@ -122,7 +127,7 @@
           clippy = self.packages.${system}.default.overrideAttrs (old: {
             pname = "${manifest.name}-clippy";
             nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.clippy ];
-            buildPhase = "cargo clippy --all-targets --frozen --features providers -- -D warnings";
+            buildPhase = "cargo clippy --workspace --all-targets --frozen --features pi-durable/providers -- -D warnings";
             installPhase = "touch $out";
           });
           oauth-flow = pkgs.runCommand "${manifest.name}-oauth-flow" { } ''
@@ -167,7 +172,7 @@
                 passthru.oracle = oracleAi pkgs;
               }
               ''
-                bash ${./parity-ai}/run.sh
+                bash ${./crates/ai/parity}/run.sh
                 touch $out
               '';
           fmt = pkgs.runCommand "${manifest.name}-fmt" {
