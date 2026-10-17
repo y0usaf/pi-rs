@@ -1,15 +1,5 @@
-[package]
-name = "pi-durable"
-version = "0.1.0"
-edition = "2024"
-description = "Durable conversations, tasks and documents over a transactional store, with a synchronous agent harness and pi-ai style providers. A Rust reproduction of Pi's pi-durable."
-license = "MIT"
-readme = "README.md"
-keywords = ["llm", "agent", "durable", "sqlite", "anthropic"]
-categories = ["database", "api-bindings"]
-exclude = ["/flake.nix", "/flake.lock", "/result*", "/parity"]
-
 [workspace]
+resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
@@ -30,37 +20,3 @@ rusqlite = { version = "0.40", features = ["bundled", "fallible_uint"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
 ring = "0.17"
-
-[dependencies]
-pi-rt.workspace = true
-pi-chord.workspace = true
-pi-env.workspace = true
-pi-ai.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-unicode-normalization.workspace = true
-rusqlite.workspace = true
-
-[features]
-default = []
-http = ["pi-ai/http"]
-anthropic = ["http", "pi-ai/anthropic"]
-openai = ["http", "pi-ai/openai"]
-vercel-gateway = ["anthropic", "pi-ai/vercel-gateway"]
-providers = ["anthropic", "openai", "vercel-gateway", "pi-ai/providers"]
-
-[[example]]
-name = "agent"
-required-features = ["providers"]
-
-[[example]]
-name = "provider_e2e"
-required-features = ["anthropic"]
-
-[[example]]
-name = "openai_responses_e2e"
-required-features = ["openai"]
-
-[[example]]
-name = "openai_completions_e2e"
-required-features = ["openai"]
