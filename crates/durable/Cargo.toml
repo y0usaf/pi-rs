@@ -1,0 +1,44 @@
+[package]
+name = "pi-durable"
+description = "Durable conversations, tasks and documents over a transactional store, with a synchronous agent harness: a Rust reproduction of Pi's pi-durable."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+readme = "README.md"
+keywords = ["llm", "agent", "durable", "sqlite", "anthropic"]
+categories = ["database", "api-bindings"]
+exclude = ["/parity"]
+
+[dependencies]
+pi-rt.workspace = true
+pi-chord.workspace = true
+pi-env.workspace = true
+pi-ai.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+unicode-normalization.workspace = true
+rusqlite.workspace = true
+
+[features]
+default = []
+http = ["pi-ai/http"]
+anthropic = ["http", "pi-ai/anthropic"]
+openai = ["http", "pi-ai/openai"]
+vercel-gateway = ["anthropic", "pi-ai/vercel-gateway"]
+providers = ["anthropic", "openai", "vercel-gateway", "pi-ai/providers"]
+
+[[example]]
+name = "agent"
+required-features = ["providers"]
+
+[[example]]
+name = "provider_e2e"
+required-features = ["anthropic"]
+
+[[example]]
+name = "openai_responses_e2e"
+required-features = ["openai"]
+
+[[example]]
+name = "openai_completions_e2e"
+required-features = ["openai"]

@@ -1,5 +1,5 @@
 {
-  description = "pi-durable: durable conversations, tasks and documents over a transactional store, in Rust";
+  description = "pi-rs: Pi's packages in Rust, one crate each";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   inputs.pi = {
@@ -19,22 +19,21 @@
         "aarch64-linux"
       ];
       forAll = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
-      manifest = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package;
+      pname = "pi-rs";
+      inherit ((builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package) version;
+      parityDirs = map toString [
+        ./crates/ai/parity
+        ./crates/durable/parity
+      ];
       src = nixpkgs.lib.cleanSourceWith {
         src = nixpkgs.lib.cleanSource ./.;
         filter =
-          path: _:
-          let
-            dir = toString ./crates/ai/parity;
-          in
-          !(path == dir || nixpkgs.lib.hasPrefix (dir + "/") path);
+          path: _: !(builtins.any (dir: path == dir || nixpkgs.lib.hasPrefix (dir + "/") path) parityDirs);
       };
       build =
         pkgs: features:
         pkgs.rustPlatform.buildRustPackage {
-          pname = manifest.name;
-          inherit (manifest) version;
-          inherit src;
+          inherit pname version src;
           cargoLock.lockFile = ./Cargo.lock;
           doCheck = false;
           buildPhase = ''
@@ -89,7 +88,7 @@
             echo '{}' > $out/packages/ai/src/providers/$f
           done
           ${unpackDeps pkgs}
-          cp ${./parity}/{driver.ts,register.mjs,loader.mjs} $out/parity/
+          cp ${./crates/durable/parity}/{driver.ts,register.mjs,loader.mjs} $out/parity/
         '';
       oracleAi =
         pkgs:
@@ -125,29 +124,29 @@
           build = self.packages.${system}.default;
           storage-only = self.packages.${system}.storage-only;
           clippy = self.packages.${system}.default.overrideAttrs (old: {
-            pname = "${manifest.name}-clippy";
+            pname = "${pname}-clippy";
             nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.clippy ];
             buildPhase = "cargo clippy --workspace --all-targets --frozen --features pi-durable/providers -- -D warnings";
             installPhase = "touch $out";
           });
-          oauth-flow = pkgs.runCommand "${manifest.name}-oauth-flow" { } ''
+          oauth-flow = pkgs.runCommand "${pname}-oauth-flow" { } ''
             ${self.packages.${system}.default}/bin/oauth_flow
             touch $out
           '';
-          provider-e2e = pkgs.runCommand "${manifest.name}-provider-e2e" { } ''
+          provider-e2e = pkgs.runCommand "${pname}-provider-e2e" { } ''
             ${self.packages.${system}.default}/bin/provider_e2e
             touch $out
           '';
-          openai-responses-e2e = pkgs.runCommand "${manifest.name}-openai-responses-e2e" { } ''
+          openai-responses-e2e = pkgs.runCommand "${pname}-openai-responses-e2e" { } ''
             ${self.packages.${system}.default}/bin/openai_responses_e2e
             touch $out
           '';
-          openai-completions-e2e = pkgs.runCommand "${manifest.name}-openai-completions-e2e" { } ''
+          openai-completions-e2e = pkgs.runCommand "${pname}-openai-completions-e2e" { } ''
             ${self.packages.${system}.default}/bin/openai_completions_e2e
             touch $out
           '';
           parity =
-            pkgs.runCommand "${manifest.name}-parity"
+            pkgs.runCommand "${pname}-parity"
               {
                 nativeBuildInputs = [
                   pkgs.nodejs_24
@@ -157,11 +156,11 @@
                 PARITY_RS = "${self.packages.${system}.default}/bin/parity";
               }
               ''
-                bash ${./parity}/run.sh
+                bash ${./crates/durable/parity}/run.sh
                 touch $out
               '';
           parity-ai =
-            pkgs.runCommand "${manifest.name}-parity-ai"
+            pkgs.runCommand "${pname}-parity-ai"
               {
                 nativeBuildInputs = [
                   pkgs.nodejs_24
@@ -175,7 +174,7 @@
                 bash ${./crates/ai/parity}/run.sh
                 touch $out
               '';
-          fmt = pkgs.runCommand "${manifest.name}-fmt" {
+          fmt = pkgs.runCommand "${pname}-fmt" {
             nativeBuildInputs = [
               pkgs.cargo
               pkgs.rustfmt
