@@ -21,29 +21,33 @@ license = "MIT"
 pi-rt = { path = "crates/rt" }
 pi-chord = { path = "crates/chord" }
 pi-env = { path = "crates/env" }
+pi-ai = { path = "crates/ai" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+regex = "1"
+unicode-normalization = "0.1"
+rusqlite = { version = "0.40", features = ["bundled", "fallible_uint"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
+ring = "0.17"
 
 [dependencies]
 pi-rt.workspace = true
 pi-chord.workspace = true
 pi-env.workspace = true
+pi-ai.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-regex = "1"
-unicode-normalization = "0.1"
-rusqlite = { version = "0.40", features = ["bundled", "fallible_uint"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
-webpki-roots = { version = "1", optional = true }
-ring = { version = "0.17", optional = true }
+unicode-normalization.workspace = true
+rusqlite.workspace = true
 
 [features]
 default = []
-http = ["dep:rustls", "dep:webpki-roots", "dep:ring"]
-anthropic = ["http"]
-openai = ["http"]
-vercel-gateway = ["anthropic"]
-providers = ["anthropic", "openai", "vercel-gateway"]
+http = ["pi-ai/http"]
+anthropic = ["http", "pi-ai/anthropic"]
+openai = ["http", "pi-ai/openai"]
+vercel-gateway = ["anthropic", "pi-ai/vercel-gateway"]
+providers = ["anthropic", "openai", "vercel-gateway", "pi-ai/providers"]
 
 [[example]]
 name = "agent"
@@ -58,13 +62,5 @@ name = "openai_responses_e2e"
 required-features = ["openai"]
 
 [[example]]
-name = "oauth_flow"
-required-features = ["anthropic"]
-
-[[example]]
 name = "openai_completions_e2e"
 required-features = ["openai"]
-
-[[example]]
-name = "parity_ai"
-required-features = ["providers"]

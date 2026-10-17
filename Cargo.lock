@@ -163,6 +163,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "pi-ai"
+version = "0.1.0"
+dependencies = [
+ "pi-chord",
+ "pi-rt",
+ "regex",
+ "ring",
+ "rustls",
+ "serde",
+ "serde_json",
+ "webpki-roots",
+]
+
+[[package]]
 name = "pi-chord"
 version = "0.1.0"
 dependencies = [
@@ -175,17 +189,14 @@ dependencies = [
 name = "pi-durable"
 version = "0.1.0"
 dependencies = [
+ "pi-ai",
  "pi-chord",
  "pi-env",
  "pi-rt",
- "regex",
- "ring",
  "rusqlite",
- "rustls",
  "serde",
  "serde_json",
  "unicode-normalization",
- "webpki-roots",
 ]
 
 [[package]]

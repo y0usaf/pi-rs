@@ -1,0 +1,33 @@
+[package]
+name = "pi-ai"
+description = "Pi's pi-ai: one streaming interface over LLM provider APIs, with Pi's model catalog, request and event shapes, and OAuth logins."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+exclude = ["/parity"]
+
+[dependencies]
+pi-rt.workspace = true
+pi-chord.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+rustls = { workspace = true, optional = true }
+webpki-roots = { workspace = true, optional = true }
+ring = { workspace = true, optional = true }
+
+[features]
+default = []
+http = ["dep:rustls", "dep:webpki-roots", "dep:ring"]
+anthropic = ["http"]
+openai = ["http"]
+vercel-gateway = ["anthropic"]
+providers = ["anthropic", "openai", "vercel-gateway"]
+
+[[example]]
+name = "oauth_flow"
+required-features = ["anthropic"]
+
+[[example]]
+name = "parity_ai"
+required-features = ["providers"]
