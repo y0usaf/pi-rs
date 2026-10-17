@@ -1,20 +1,20 @@
 [package]
 name = "pi-ai"
 description = "Pi's pi-ai: one streaming interface over LLM provider APIs, with Pi's model catalog, request and event shapes, and OAuth logins."
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
 exclude = ["/parity"]
 
 [dependencies]
-pi-rt.workspace = true
-pi-chord.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-regex.workspace = true
-rustls = { workspace = true, optional = true }
-webpki-roots = { workspace = true, optional = true }
-ring = { workspace = true, optional = true }
+pi-rt = { path = "../rt" }
+pi-chord = { path = "../chord" }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+regex = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+webpki-roots = { version = "1", optional = true }
+ring = { version = "0.17", optional = true }
 
 [features]
 default = []

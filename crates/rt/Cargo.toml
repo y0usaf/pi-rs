@@ -1,6 +1,6 @@
 [package]
 name = "pi-rt"
 description = "What Node gives Pi for free, for the other pi crates: a cancellation token in place of AbortSignal and a single-threaded turn in place of the event loop."
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2024"
+license = "MIT"

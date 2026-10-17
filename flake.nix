@@ -20,7 +20,7 @@
       ];
       forAll = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
       pname = "pi-rs";
-      inherit ((builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package) version;
+      inherit ((builtins.fromTOML (builtins.readFile ./crates/durable/Cargo.toml)).package) version;
       parityDirs = map toString [
         ./crates/ai/parity
         ./crates/durable/parity
