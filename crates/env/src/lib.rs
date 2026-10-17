@@ -1,4 +1,4 @@
-use crate::cancel::CancelToken;
+use pi_rt::cancel::CancelToken;
 use std::collections::BTreeMap;
 use std::fmt;
 

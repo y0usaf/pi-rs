@@ -8,7 +8,7 @@ use super::{
     ExecutionError, FileError, FileErrorCode, FileInfo, FileKind, FileWatcher, LineScan, TextLine,
     TextLineReader, WatchChange, WatchTarget,
 };
-use crate::cancel::CancelToken;
+use pi_rt::cancel::CancelToken;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, Metadata, OpenOptions};
 use std::hash::{BuildHasher, Hasher};
