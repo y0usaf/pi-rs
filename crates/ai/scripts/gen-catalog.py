@@ -8,8 +8,8 @@ import sys
 import tarfile
 import urllib.request
 
-VERSION = "1.2.0"
-INTEGRITY = "sha512-U5/1zXqfV1on7/9sbez03tT4Ru49Lvfb4+zXSDK3DBKF5cRk6KxvAOTOY3HJ4jimlZth+rs7vbJqN6iBQAoNuQ=="
+VERSION = "1.3.0"
+INTEGRITY = "sha512-KaBI8x7q7sPoFUXICNGD9efHzDG+oRNwVvkA9jdIsSQWH1RjFssOlEGsbLtewUPPgCrvmz0l2KTgSLXTyj3acw=="
 
 URL = f"https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-{VERSION}.tgz"
 SCHEMA = 6
