@@ -49,6 +49,43 @@
             runHook postInstall
           '';
         };
+      chatManifest = (builtins.fromTOML (builtins.readFile ./examples/chat/Cargo.toml)).package;
+      chatRuntime = pkgs: [
+        pkgs.vulkan-loader
+        pkgs.wayland
+        pkgs.libxkbcommon
+        pkgs.libx11
+        pkgs.libxcb
+      ];
+      chat =
+        pkgs:
+        pkgs.rustPlatform.buildRustPackage {
+          pname = chatManifest.name;
+          inherit (chatManifest) version;
+          inherit src;
+          cargoRoot = "examples/chat";
+          buildAndTestSubdir = "examples/chat";
+          cargoLock = {
+            lockFile = ./examples/chat/Cargo.lock;
+            outputHashes = {
+              "gpui-ce-0.2.2" = "sha256-AoSkSHlKqgeSwmT7QfdGuWwBvipy1PsqGwtlGsk7c3c=";
+              "wgsl-rs-0.1.0" = "sha256-M+YP+viw8PADmxr92qg/6C3WweXBRvOTDuS1RKvzoBA=";
+            };
+          };
+          nativeBuildInputs = [ pkgs.pkg-config ];
+          buildInputs = [
+            pkgs.fontconfig
+            pkgs.freetype
+          ]
+          ++ chatRuntime pkgs;
+          doCheck = false;
+          preBuild = "export PI_CHAT_FONT=$out/share/pi-chat/InterVariable.ttf";
+          postInstall = "install -Dm444 ${pkgs.inter}/share/fonts/truetype/InterVariable.ttf $PI_CHAT_FONT";
+          postFixup = ''
+            patchelf --add-rpath ${nixpkgs.lib.makeLibraryPath (chatRuntime pkgs)} $out/bin/pi-chat
+          '';
+          meta.mainProgram = "pi-chat";
+        };
       npm =
         pkgs: name: version: hash:
         pkgs.fetchurl {
@@ -113,6 +150,7 @@
       packages = forAll (pkgs: {
         default = build pkgs "pi-durable/providers";
         storage-only = build pkgs "";
+        chat = chat pkgs;
       });
 
       checks = forAll (
@@ -123,6 +161,7 @@
         {
           build = self.packages.${system}.default;
           storage-only = self.packages.${system}.storage-only;
+          chat = self.packages.${system}.chat;
           clippy = self.packages.${system}.default.overrideAttrs (old: {
             pname = "${pname}-clippy";
             nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.clippy ];
@@ -192,6 +231,15 @@
             pkgs.rustfmt
             pkgs.nodejs
           ];
+        };
+        chat = pkgs.mkShell {
+          inputsFrom = [ (chat pkgs) ];
+          packages = [
+            pkgs.clippy
+            pkgs.rustfmt
+          ];
+          LD_LIBRARY_PATH = nixpkgs.lib.makeLibraryPath (chatRuntime pkgs);
+          PI_CHAT_FONT = "${pkgs.inter}/share/fonts/truetype/InterVariable.ttf";
         };
       });
 
