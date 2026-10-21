@@ -22,13 +22,24 @@ pi-durable re-exports the crates under it (`pi_durable::{ai, chord, env, cancel,
 
 ## Chat window
 
-`examples/chat` (`pi-chat`) is a minimal [GPUI](https://github.com/gpui-ce/gpui-ce) window on pi-durable, built outside the workspace so the crates stay free of GPUI. It keeps one conversation in a SQLite file and draws it as the store changes.
+`examples/chat` (`pi-chat`) is a minimal [GPUI](https://github.com/gpui-ce/gpui-ce) window on pi-durable, built outside the workspace so the crates stay free of GPUI. It keeps its conversations in a SQLite file and draws the open one as the store changes.
 
 ```
 nix run github:y0usaf/pi-rs#chat
 ```
 
-Kill it in the middle of a reply, with `kill -9` if you like, and run it again: the conversation is still there, and the interrupted reply is asked for again and finishes. With no `PI_CHAT_MODEL` it talks to pi-ai's faux model; set it to `PROVIDER/MODEL`, such as `vercel-ai-gateway/anthropic/claude-haiku-4.5`, with that provider's key in the environment. The file is `$XDG_STATE_HOME/pi-chat/chat.db` unless you pass a path. It needs Vulkan, and has only been run on Wayland.
+Kill it in the middle of a reply, with `kill -9` if you like, and run it again: it reopens the latest conversation, and the interrupted reply is asked for again and finishes. The file is `$XDG_STATE_HOME/pi-chat/chat.db` unless you pass a path. It needs Vulkan, and has only been run on Wayland.
+
+Under the message box, the model picker lists pi-ai's faux model and every model whose provider has its key in the environment, such as `AI_GATEWAY_API_KEY`; models that reason get a thinking level beside it. Both are stored with the conversation. `PI_CHAT_MODEL=PROVIDER/MODEL` picks the model a new chat starts with.
+
+| Key | Does |
+| --- | --- |
+| Ctrl+B | show or hide the chats |
+| Ctrl+N | start a new chat |
+| Ctrl+M | pick a model; type to filter |
+| Ctrl+T | step through thinking levels |
+| Esc | stop the reply |
+| Ctrl+= / Ctrl+- / Ctrl+0 | zoom in, out, back to 100%, kept in `$XDG_STATE_HOME/pi-chat/zoom` |
 
 ## Build and checks
 

@@ -1,0 +1,7 @@
+/home/y0usaf/dev/developing/pi-rs/examples/chat/target/release/deps/xmlwriter-33a2cddd58f38309.d: /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xmlwriter-0.1.0/src/lib.rs
+
+/home/y0usaf/dev/developing/pi-rs/examples/chat/target/release/deps/libxmlwriter-33a2cddd58f38309.rlib: /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xmlwriter-0.1.0/src/lib.rs
+
+/home/y0usaf/dev/developing/pi-rs/examples/chat/target/release/deps/libxmlwriter-33a2cddd58f38309.rmeta: /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xmlwriter-0.1.0/src/lib.rs
+
+/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xmlwriter-0.1.0/src/lib.rs:

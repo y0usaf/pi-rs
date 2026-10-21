@@ -1,0 +1,10 @@
+/home/y0usaf/dev/developing/pi-rs/examples/chat/target/release/deps/potential_utf-12e1a6b5e8e41594.d: /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/lib.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/uchar.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/ustr.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/writeable.rs
+
+/home/y0usaf/dev/developing/pi-rs/examples/chat/target/release/deps/libpotential_utf-12e1a6b5e8e41594.rlib: /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/lib.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/uchar.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/ustr.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/writeable.rs
+
+/home/y0usaf/dev/developing/pi-rs/examples/chat/target/release/deps/libpotential_utf-12e1a6b5e8e41594.rmeta: /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/lib.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/uchar.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/ustr.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/writeable.rs
+
+/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/lib.rs:
+/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/uchar.rs:
+/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/ustr.rs:
+/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/potential_utf-0.1.6/src/writeable.rs:
