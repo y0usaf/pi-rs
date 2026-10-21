@@ -1,0 +1,9 @@
+/home/y0usaf/dev/developing/pi-rs/examples/chat/target/release/deps/siphasher-5fbef516b787e769.d: /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/lib.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/common.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/sip.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/sip128.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/../README.md
+
+/home/y0usaf/dev/developing/pi-rs/examples/chat/target/release/deps/libsiphasher-5fbef516b787e769.rmeta: /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/lib.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/common.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/sip.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/sip128.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/../README.md
+
+/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/lib.rs:
+/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/common.rs:
+/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/sip.rs:
+/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/sip128.rs:
+/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/siphasher-1.0.4/src/../README.md:

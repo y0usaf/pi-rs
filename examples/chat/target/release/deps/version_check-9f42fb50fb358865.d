@@ -1,0 +1,10 @@
+/home/y0usaf/dev/developing/pi-rs/examples/chat/target/release/deps/version_check-9f42fb50fb358865.d: /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/lib.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/version.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/channel.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/date.rs
+
+/home/y0usaf/dev/developing/pi-rs/examples/chat/target/release/deps/libversion_check-9f42fb50fb358865.rlib: /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/lib.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/version.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/channel.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/date.rs
+
+/home/y0usaf/dev/developing/pi-rs/examples/chat/target/release/deps/libversion_check-9f42fb50fb358865.rmeta: /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/lib.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/version.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/channel.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/date.rs
+
+/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/lib.rs:
+/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/version.rs:
+/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/channel.rs:
+/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/version_check-0.9.5/src/date.rs:
