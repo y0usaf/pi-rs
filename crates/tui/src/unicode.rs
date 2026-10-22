@@ -98,15 +98,20 @@ pub struct WordSegment<'a> {
     pub is_word_like: bool,
 }
 
-/// Word segments. `is_word_like` follows ICU: a segment holding a letter or a number.
+/// Word segments from ICU4X's segmenter, which uses the same dictionaries (CJK, Thai, ...) as
+/// V8's ICU.
 pub fn word_segments(s: &str) -> Vec<WordSegment<'_>> {
-    s.split_word_bound_indices()
-        .map(|(index, segment)| WordSegment {
-            index,
-            segment,
-            is_word_like: segment.chars().any(|c| is_letter(c) || is_number(c)),
-        })
-        .collect()
+    use icu_segmenter::WordSegmenter;
+    use icu_segmenter::options::WordBreakInvariantOptions;
+    let seg = WordSegmenter::new_auto(WordBreakInvariantOptions::default());
+    let mut it = seg.segment_str(s);
+    let mut out = Vec::new();
+    let mut prev = it.next().unwrap_or(0);
+    while let Some(b) = it.next() {
+        out.push(WordSegment { index: prev, segment: &s[prev..b], is_word_like: it.is_word_like() });
+        prev = b;
+    }
+    out
 }
 
 /// UTF-16 length, for the places where upstream compares `string.length`.
