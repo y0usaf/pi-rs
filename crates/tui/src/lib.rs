@@ -13,3 +13,5 @@ pub mod program_status;
 pub mod terminal;
 pub mod tui;
 pub mod tui_main_screen;
+pub mod keybindings;
+pub mod components;
