@@ -11,3 +11,4 @@ pub mod keys;
 pub mod stdin_buffer;
 pub mod program_status;
 pub mod terminal;
+pub mod tui;
