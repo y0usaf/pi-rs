@@ -1,0 +1,19 @@
+[package]
+name = "pi-coding-agent"
+description = "Pi's coding agent without the interactive TUI: settings, credentials, model resolution, the system prompt, print mode and the built-in tools, on pi-durable."
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+exclude = ["/parity"]
+
+[[bin]]
+name = "pi-rs"
+path = "src/main.rs"
+
+[dependencies]
+pi-durable = { path = "../durable", features = ["providers"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+regex = "1"
+unicode-normalization = "0.1"
+ring = "0.17"
