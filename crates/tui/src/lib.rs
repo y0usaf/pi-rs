@@ -7,3 +7,4 @@
 mod unicode_tables;
 pub mod unicode;
 pub mod utils;
+pub mod keys;
