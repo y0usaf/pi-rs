@@ -17,7 +17,7 @@ use crate::harness::generation::{
 };
 use crate::harness::inbox::{Phase, apply_boundary, prepare_boundary};
 use crate::harness::live::{SlotStatus, ToolSlot};
-use crate::harness::tool::{ToolTaskResult, erase, harness_error};
+use crate::harness::tool::{ToolTaskResult, erase};
 use crate::harness::types::{HookApi, ToolControl, ToolExecutionMode};
 use crate::ids::{EntryId, TaskId};
 use crate::tasks::{JoinPolicy, NextTaskState, RunningTask, TaskOutcome};
@@ -50,6 +50,17 @@ pub fn read_calls(
 }
 
 pub fn answer(runtime: Runtime<'_>, message: AssistantMessage, cancel: &CancelToken) -> Result<()> {
+    answer_with(runtime, message, false, cancel)
+}
+
+/// Ends the run on `message`; with `omit`, the reply is kept in history but hidden from
+/// the model's context.
+pub fn answer_with(
+    runtime: Runtime<'_>,
+    message: AssistantMessage,
+    omit: bool,
+    cancel: &CancelToken,
+) -> Result<()> {
     let mut continuation: Option<UserContent> = None;
     let api = HookApi {
         conversation_id: runtime.conversation_id(),
@@ -72,6 +83,9 @@ pub fn answer(runtime: Runtime<'_>, message: AssistantMessage, cancel: &CancelTo
             let mut boundary = prepare_boundary(tx, conversation_id, modes)?;
             let mut live = read_live(tx, conversation_id)?;
             let entry = append_assistant(tx, conversation_id, &message)?;
+            if omit {
+                crate::harness::generation::omit_entry(tx, conversation_id, entry.id)?;
+            }
             let result = apply_boundary(tx, &mut boundary, Phase::Final, now)?;
             if let Some(content) = continuation.clone()
                 && result.users.is_empty()
@@ -146,6 +160,7 @@ pub fn start_tool_round(
         });
     let owner = erase(runtime.task_id());
     let now = runtime.now();
+    let tool_errors = runtime.settings().tool_errors;
     runtime.commit(
         Box::new(move |tx, _task| {
             let mut live = read_live(tx, conversation_id)?;
@@ -155,10 +170,8 @@ pub fn start_tool_round(
             let mut pending: Vec<String> = Vec::new();
             for call in &calls {
                 if !offered.contains(&call.name) {
-                    let unavailable = harness_error(
-                        "tool_unavailable",
-                        &format!("Tool {} is not available", call.name),
-                    );
+                    let unavailable =
+                        crate::harness::tool::unavailable_tool(tool_errors, &call.name);
                     let result = crate::harness::tool::append_tool_result(
                         tx,
                         conversation_id,

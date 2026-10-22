@@ -278,6 +278,24 @@ pub fn queue_modes(settings: &Settings) -> QueueModes {
     }
 }
 
+/// Hides an entry from the model's context; it stays in history.
+pub fn omit_entry(tx: &mut dyn Tx, conversation_id: ConversationId, target: EntryId) -> Result<()> {
+    tx.append_entry(
+        conversation_id,
+        EntryDraft {
+            kind: crate::entries::context_edit_entry().kind().to_owned(),
+            model: None,
+            data: None,
+            head: None,
+            edits: Some(vec![crate::types::ContextEdit {
+                target,
+                action: crate::types::ContextAction::Omit,
+            }]),
+        },
+    )?;
+    Ok(())
+}
+
 pub fn append_assistant(
     tx: &mut dyn Tx,
     conversation_id: ConversationId,

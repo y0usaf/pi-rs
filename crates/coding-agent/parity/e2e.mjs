@@ -126,29 +126,13 @@ async function runOne(kind, c) {
  * Known differences that come from layers below this crate, which it does not change. Each is
  * applied to pi-rs's side so the rest of the case still compares, and reported when used.
  */
-const KNOWN = {
-	harnessToolErrors:
-		"pi-durable's harness reports invalid arguments and unknown tools itself, wrapped as `<harness>\\n[error] ...\\n</harness>`, and names an unknown tool `Tool X is not available` (crates/durable/src/harness/tool.rs, harness_error); upstream's agent loop sends the bare message and `Tool X not found`",
-};
-
-function applyKnown(run, used) {
-	for (const request of run.requests) {
-		for (const message of request.messages ?? []) {
-			if (message.role !== "tool" || typeof message.content !== "string") continue;
-			const m = /^<harness>\n\[error\] ([\s\S]*)\n<\/harness>$/.exec(message.content);
-			if (!m) continue;
-			used.add("harnessToolErrors");
-			message.content = m[1].replace(/^Tool (.+) is not available$/, "Tool $1 not found");
-		}
-	}
-}
+const KNOWN = {};
 
 let bad = 0;
 const used = new Set();
 for (const c of cases) {
 	const ts = await runOne("ts", c);
 	const rs = await runOne("rs", c);
-	applyKnown(rs, used);
 	const problems = [];
 	for (const key of ["code", "stdout", "stderr"]) {
 		if (c.known?.[key]) {
