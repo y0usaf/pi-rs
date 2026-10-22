@@ -45,4 +45,53 @@ for (const [msg, ind] of [["Loading...", undefined], ["Working on it, a long mes
 	l.stop();
 	out.loader.push({ msg, ind: ind ?? null, frames });
 }
+
+const { SelectList } = await import(src("components/select-list.ts"));
+const { fuzzyMatch, fuzzyFilter } = await import(src("fuzzy.ts"));
+const th = {
+	selectedPrefix: (s) => `<P>${s}`,
+	selectedText: (s) => `${E}[1m${s}${E}[22m`,
+	description: (s) => `${E}[2m${s}${E}[22m`,
+	scrollInfo: (s) => `${E}[90m${s}${E}[39m`,
+	noMatch: (s) => `!${s}`,
+};
+const names = ["model", "settings", "session", "new", "resume", "Model-Picker", "a/b/c.ts", "src/utils.rs", "x1", "abc12", "12abc", "日本", "export_html", "tree", "fork", "compact"];
+const descs = [undefined, "", "Pick a model", "multi\nline\r\ndescription that is quite long indeed and keeps going", "短い説明", "\x1b[31mred\x1b[0m desc"];
+out.fuzzy = [];
+const queries = ["", "m", "mo", "mdl", "set", "s/n", "ses ion", "abc12", "12abc", "a1", "1a", "zz", "src/u", "日", "Tree", " ", "x 1", "e"];
+for (const q of queries) {
+	out.fuzzy.push({ q, m: names.map((n) => fuzzyMatch(q, n)), f: fuzzyFilter(names, q, (x) => x) });
+}
+out.select = [];
+const keys = ["\x1b[A", "\x1b[B", "\r", "\x1b", "x", "\x1b[B", "\x1b[B"];
+for (let k = 0; k < 120; k++) {
+	const n = rnd(12);
+	const items = Array.from({ length: n }, () => {
+		const v = names[rnd(names.length)];
+		return { value: v, label: rnd(3) ? "" : v.toUpperCase() + (rnd(2) ? " label" : ""), description: descs[rnd(descs.length)] };
+	});
+	const maxVisible = 1 + rnd(7);
+	const layout = {};
+	if (rnd(3) === 0) layout.minPrimaryColumnWidth = rnd(40);
+	if (rnd(3) === 0) layout.maxPrimaryColumnWidth = rnd(40);
+	const list = new SelectList(items, maxVisible, th, layout);
+	const events = [];
+	list.onSelect = (i) => events.push(["select", i.value]);
+	list.onCancel = () => events.push(["cancel"]);
+	list.onSelectionChange = (i) => events.push(["change", i.value]);
+	const steps = [];
+	for (let s = 0; s < 6; s++) {
+		const op = rnd(4);
+		let input = null, filter = null;
+		if (op === 0) {
+			filter = ["", "s", "m", "mo", "zz", "a"][rnd(6)];
+			list.setFilter(filter);
+		} else {
+			input = keys[rnd(keys.length)];
+			list.handleInput(input);
+		}
+		steps.push({ input, filter, r: [20, 41, 60, 100].map((w) => list.render(w)), ev: events.splice(0) });
+	}
+	out.select.push({ items, maxVisible, layout, steps });
+}
 process.stdout.write(JSON.stringify(out));

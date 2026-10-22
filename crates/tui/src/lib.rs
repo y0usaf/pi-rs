@@ -15,3 +15,4 @@ pub mod tui;
 pub mod tui_main_screen;
 pub mod keybindings;
 pub mod components;
+pub mod fuzzy;
