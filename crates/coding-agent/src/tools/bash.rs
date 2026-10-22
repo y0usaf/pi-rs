@@ -115,10 +115,7 @@ fn execute(args: &Value, ctx: &mut ToolContext<'_>) -> Result<ToolOutput, String
     if let Some(update) = ctx.on_update.as_deref_mut() {
         update(&snapshot.content);
     }
-    let ended = match ended {
-        Ok(ended) => ended,
-        Err(message) => return Err(message),
-    };
+    let ended = ended?;
     let status = |text: &str, status: &str| {
         if text.is_empty() {
             status.to_owned()
@@ -245,17 +242,15 @@ fn run(
                 killed = Some(Ended::TimedOut);
             }
         }
-        if exit.is_none() {
-            if let Ok(Some(status)) = child.try_wait() {
+        if exit.is_none()
+            && let Ok(Some(status)) = child.try_wait() {
                 let code = status.code().or_else(|| status.signal().map(|s| 128 + s));
                 exit = Some((code, Instant::now()));
             }
-        }
-        if let Some((_, at)) = exit {
-            if open == 0 || at.elapsed() >= EXIT_STDIO_GRACE {
+        if let Some((_, at)) = exit
+            && (open == 0 || at.elapsed() >= EXIT_STDIO_GRACE) {
                 break;
             }
-        }
         match rx.recv_timeout(Duration::from_millis(10)) {
             Ok(Some(chunk)) => {
                 acc.append(&chunk);
