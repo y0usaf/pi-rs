@@ -542,8 +542,8 @@ impl Lexer {
                 let idx = m.start() + if m.as_str().starts_with('\n') { 1 } else { 0 };
                 cut = &src[..idx + off];
             }
-            if self.top {
-                if let Some(t) = self.paragraph(cut) {
+            if self.top
+                && let Some(t) = self.paragraph(cut) {
                     let clipped_now = cut.len() != src.len();
                     if last_paragraph_clipped
                         && tokens.last().map(|t| t.kind) == Some(Kind::Paragraph)
@@ -561,7 +561,6 @@ impl Lexer {
                     src = &src[t.raw.len()..];
                     continue;
                 }
-            }
             if let Some(t) = self.text(src) {
                 src = &src[t.raw.len()..];
                 if tokens.last().map(|t| t.kind) == Some(Kind::Text) {
@@ -1173,8 +1172,8 @@ fn tokenize_inline_latex(source: &str) -> Option<Token> {
         return None;
     };
     let closing = find_closing_delimiter(source, close, open.len());
-    if let Some(ci) = closing {
-        if open == "$" {
+    if let Some(ci) = closing
+        && open == "$" {
             let inner = &source[1..ci];
             let after = &source[ci + 1..];
             if test(&R_TRAILING_WS, inner)
@@ -1185,7 +1184,6 @@ fn tokenize_inline_latex(source: &str) -> Option<Token> {
                 return None;
             }
         }
-    }
     let Some(ci) = closing else {
         let pending = &source[open.len()..];
         if open.starts_with('\\') || looks_like_pending_dollar_math(pending) {
@@ -1383,7 +1381,7 @@ impl Lexer {
                 return None;
             }
             let without = &trimmed_url[..trimmed_url.len() - 1];
-            if (trimmed_url.len() - without.trim_end_matches('\\').len()) % 2 == 0 {
+            if (trimmed_url.len() - without.trim_end_matches('\\').len()).is_multiple_of(2) {
                 return None;
             }
         } else {
