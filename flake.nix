@@ -153,6 +153,13 @@
         chat = chat pkgs;
       });
 
+      apps = forAll (pkgs: {
+        tui = {
+          type = "app";
+          program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/tui_editor";
+        };
+      });
+
       checks = forAll (
         pkgs:
         let
