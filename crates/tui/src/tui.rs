@@ -10,6 +10,56 @@ use crate::utils::{extract_segments, normalize_terminal_output, slice_by_column,
 use std::cell::RefCell;
 use std::rc::Rc;
 
+
+/// Kind of mouse event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseEventType {
+    Press,
+    Release,
+    Move,
+    Drag,
+    Click,
+    Wheel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseButton {
+    Left,
+    Middle,
+    Right,
+    None,
+}
+
+/// A cell-based mouse event; coordinates are zero-based.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TuiMouseEvent {
+    pub kind: MouseEventType,
+    pub button: MouseButton,
+    /// Local to the receiving component.
+    pub x: i64,
+    pub y: i64,
+    /// Absolute terminal coordinates.
+    pub screen_x: i64,
+    pub screen_y: i64,
+    pub width: i64,
+    pub height: i64,
+    pub shift: bool,
+    pub alt: bool,
+    pub ctrl: bool,
+    /// Logical lines; negative scrolls up.
+    pub wheel_delta: Option<i64>,
+    pub click_count: Option<u32>,
+}
+
+/// What a component did with a mouse event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TuiMouseEventResult {
+    pub handled: bool,
+    pub capture: bool,
+    pub focus: bool,
+    pub render: Option<bool>,
+}
+
 /// A piece of UI that renders to lines.
 pub trait Component {
     /// Render to lines no wider than `width` columns.
@@ -23,6 +73,10 @@ pub trait Component {
     /// Receive Kitty key release events too.
     fn wants_key_release(&self) -> bool {
         false
+    }
+    /// Handle a mouse event (dispatched by the alternate-screen renderer).
+    fn handle_mouse(&mut self, _event: &TuiMouseEvent) -> Option<TuiMouseEventResult> {
+        None
     }
     /// Drop cached rendering state.
     fn invalidate(&mut self) {}

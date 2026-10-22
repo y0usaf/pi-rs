@@ -93,3 +93,75 @@ fn loader_matches_upstream() {
     }
     finish(f);
 }
+
+fn style(f: fn(&str) -> String) -> pi_tui::components::select_list::Style {
+    Rc::new(move |s: &str| f(s))
+}
+
+#[test]
+fn fuzzy_matches_upstream() {
+    use pi_tui::fuzzy::{fuzzy_filter, fuzzy_match};
+    let names = ["model", "settings", "session", "new", "resume", "Model-Picker", "a/b/c.ts", "src/utils.rs", "x1", "abc12", "12abc", "日本", "export_html", "tree", "fork", "compact"];
+    let names: Vec<String> = names.iter().map(|s| s.to_string()).collect();
+    for c in fixtures()["fuzzy"].as_array().unwrap() {
+        let q = c["q"].as_str().unwrap();
+        for (i, n) in names.iter().enumerate() {
+            let m = fuzzy_match(q, n);
+            let want = &c["m"][i];
+            assert_eq!(m.matches, want["matches"].as_bool().unwrap(), "fuzzy_match({q:?}, {n:?})");
+            assert!((m.score - want["score"].as_f64().unwrap()).abs() < 1e-9, "fuzzy_match({q:?}, {n:?}) score {} vs {}", m.score, want["score"]);
+        }
+        assert_eq!(fuzzy_filter(&names, q, |s| s.clone()), lines(&c["f"]), "fuzzy_filter({q:?})");
+    }
+}
+
+#[test]
+fn select_list_matches_upstream() {
+    use pi_tui::components::select_list::*;
+    use std::cell::RefCell;
+    let theme = SelectListTheme {
+        selected_prefix: style(|s| format!("<P>{s}")),
+        selected_text: style(|s| format!("\x1b[1m{s}\x1b[22m")),
+        description: style(|s| format!("\x1b[2m{s}\x1b[22m")),
+        scroll_info: style(|s| format!("\x1b[90m{s}\x1b[39m")),
+        no_match: style(|s| format!("!{s}")),
+    };
+    let mut f = Vec::new();
+    for (n, c) in fixtures()["select"].as_array().unwrap().iter().enumerate() {
+        let items: Vec<SelectItem> = c["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| SelectItem::new(i["value"].as_str().unwrap(), i["label"].as_str().unwrap(), i["description"].as_str()))
+            .collect();
+        let layout = SelectListLayoutOptions {
+            min_primary_column_width: c["layout"]["minPrimaryColumnWidth"].as_u64().map(|v| v as usize),
+            max_primary_column_width: c["layout"]["maxPrimaryColumnWidth"].as_u64().map(|v| v as usize),
+            truncate_primary: None,
+        };
+        let mut list = SelectList::new(items, c["maxVisible"].as_u64().unwrap() as usize, theme.clone(), layout);
+        let events: Rc<RefCell<Vec<Value>>> = Rc::default();
+        let e1 = events.clone();
+        list.on_select = Some(Box::new(move |i| e1.borrow_mut().push(serde_json::json!(["select", i.value]))));
+        let e2 = events.clone();
+        list.on_cancel = Some(Box::new(move || e2.borrow_mut().push(serde_json::json!(["cancel"]))));
+        let e3 = events.clone();
+        list.on_selection_change = Some(Box::new(move |i| e3.borrow_mut().push(serde_json::json!(["change", i.value]))));
+        for (s, step) in c["steps"].as_array().unwrap().iter().enumerate() {
+            if let Some(filter) = step["filter"].as_str() {
+                list.set_filter(filter);
+            }
+            if let Some(input) = step["input"].as_str() {
+                list.handle_input(input);
+            }
+            for (i, w) in [20, 41, 60, 100].iter().enumerate() {
+                check(&mut f, format!("select {n} step {s} render({w})"), list.render(*w), lines(&step["r"][i]));
+            }
+            let got = Value::Array(events.borrow_mut().drain(..).collect());
+            if got != step["ev"] {
+                f.push(format!("select {n} step {s} events {got} vs {}", step["ev"]));
+            }
+        }
+    }
+    finish(f);
+}
