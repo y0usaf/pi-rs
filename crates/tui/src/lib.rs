@@ -18,3 +18,4 @@ pub mod components;
 pub mod fuzzy;
 pub mod kill_ring;
 pub mod word_navigation;
+pub mod autocomplete;
