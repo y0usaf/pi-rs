@@ -247,8 +247,8 @@ impl ModelRegistry {
                             );
                         }
                         None => {
-                            if provider == "anthropic" {
-                                if let Some(token) = std::env::var("ANTHROPIC_AUTH_TOKEN")
+                            if provider == "anthropic"
+                                && let Some(token) = std::env::var("ANTHROPIC_AUTH_TOKEN")
                                     .ok()
                                     .filter(|v| !v.is_empty())
                                 {
@@ -257,7 +257,6 @@ impl ModelRegistry {
                                         format!("Bearer {token}"),
                                     );
                                 }
-                            }
                             if auth.headers.is_empty() {
                                 auth.api_key = self.ambient_key(provider);
                             }
