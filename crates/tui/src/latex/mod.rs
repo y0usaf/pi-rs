@@ -91,10 +91,10 @@ fn strip_trailing_comma(value: &str) -> &str {
 /// `/^\s*\{[^}]*\}/` removed once.
 fn strip_column_spec(body: &str) -> &str {
     let t = trim_start(body);
-    if let Some(rest) = t.strip_prefix('{') {
-        if let Some(end) = rest.find('}') {
-            return &rest[end + 1..];
-        }
+    if let Some(rest) = t.strip_prefix('{')
+        && let Some(end) = rest.find('}')
+    {
+        return &rest[end + 1..];
     }
     body
 }
@@ -197,14 +197,14 @@ impl<'a> Parser<'a> {
                 result.push(' ');
                 continue;
             }
-            if c == '.' {
-                if let Some(Node::Matrix { lines, .. }) = trailing_marker(&result).and_then(|i| self.nodes.get_mut(i)) {
-                    if let Some(last) = lines.last_mut() {
-                        last.push('.');
-                    }
-                    self.pos += 1;
-                    continue;
+            if c == '.'
+                && let Some(Node::Matrix { lines, .. }) = trailing_marker(&result).and_then(|i| self.nodes.get_mut(i))
+            {
+                if let Some(last) = lines.last_mut() {
+                    last.push('.');
                 }
+                self.pos += 1;
+                continue;
             }
             result.push(c);
             self.pos += 1;
@@ -622,7 +622,7 @@ impl Parser<'_> {
         }
         let middle = contents.len() / 2;
         let mut visual: Vec<Option<&String>> = contents.iter().map(Some).collect();
-        if contents.len() % 2 == 0 {
+        if contents.len().is_multiple_of(2) {
             visual.insert(middle, None);
         }
         let n = visual.len();

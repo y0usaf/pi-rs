@@ -1,8 +1,6 @@
 //! Golden parity for Markdown against upstream (fixtures from parity/gen-markdown-fixtures.mjs).
-//! LaTeX rendering (upstream latex.ts) is not ported: cases whose output depends on it are counted
-//! apart and must only differ where math is rendered.
+//! Math renders through the ported latex.ts (`pi_tui::latex`), so cases with math run in every variant.
 
-use pi_tui::components::markdown::lexer::{Kind, Token, lex};
 use pi_tui::components::markdown::{DefaultTextStyle, Markdown, MarkdownOptions, MarkdownTheme, StyleFn};
 use pi_tui::tui::Component;
 use serde_json::Value;
@@ -73,31 +71,17 @@ fn variant(v: u64, text: &str) -> Markdown {
     }
 }
 
-fn has_math(tokens: &[Token]) -> bool {
-    tokens.iter().any(|t| {
-        (matches!(t.kind, Kind::Latex | Kind::LatexBlock) && !t.pending)
-            || has_math(&t.tokens)
-            || has_math(&t.items)
-            || t.header.iter().chain(t.rows.iter().flatten()).any(|c| has_math(&c.tokens))
-    })
-}
-
 const WIDTHS: &[usize] = &[1, 3, 8, 20, 40, 80];
 
 #[test]
 fn markdown_matches_upstream() {
     let f: Value = serde_json::from_str(include_str!("fixtures/markdown.json")).unwrap();
     let mut failures = Vec::new();
-    let (mut checked, mut latex_skipped) = (0, 0);
+    let mut checked = 0;
     for (ci, c) in f["cases"].as_array().unwrap().iter().enumerate() {
         let text = c["t"].as_str().unwrap();
-        let math = has_math(&lex(&text.replace('\t', "   ")));
         for r in c["r"].as_array().unwrap() {
             let v = r["v"].as_u64().unwrap();
-            if math && v != 5 {
-                latex_skipped += 1;
-                continue;
-            }
             let mut md = variant(v, text);
             for (wi, want) in r["out"].as_array().unwrap().iter().enumerate() {
                 let want: Vec<String> = want.as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_string()).collect();
@@ -109,7 +93,7 @@ fn markdown_matches_upstream() {
             }
         }
     }
-    eprintln!("checked {checked} renders; {latex_skipped} variant runs skipped (LaTeX rendering not ported)");
+    eprintln!("checked {checked} renders");
     if !failures.is_empty() {
         let n = failures.len();
         let shown: Vec<_> = failures.into_iter().take(6).collect();

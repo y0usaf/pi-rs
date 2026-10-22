@@ -61,8 +61,8 @@ pub struct MarkdownOptions {
     pub transform: Option<TransformFn>,
     /// Upstream `renderLatex` (default true). Rendering itself goes through `latex`.
     pub render_latex: Option<bool>,
-    /// The LaTeX renderer (upstream `latex.ts`, not ported yet). Without one, math stays as source,
-    /// which is what upstream shows for expressions its renderer does not support.
+    /// Replaces the LaTeX renderer, [`crate::latex::render_latex`] by default (upstream `latex.ts`).
+    /// Math the renderer rejects (`None`) stays as source, as upstream shows it.
     pub latex: Option<LatexRenderer>,
     /// Terminal OSC 8 hyperlink support (upstream reads `getCapabilities().hyperlinks`).
     pub hyperlinks: bool,
@@ -194,7 +194,10 @@ impl Markdown {
         if self.options.render_latex == Some(false) {
             return None;
         }
-        self.options.latex.as_ref().and_then(|f| f(text, display))
+        match &self.options.latex {
+            Some(f) => f(text, display),
+            None => crate::latex::render_latex(text, display),
+        }
     }
 }
 
