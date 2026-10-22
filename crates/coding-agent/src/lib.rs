@@ -6,6 +6,8 @@ pub mod collate;
 pub mod config;
 pub mod config_value;
 pub mod json;
+pub mod model_config;
+pub mod models;
 pub mod node_fs;
 pub mod output_files;
 pub mod paths;
