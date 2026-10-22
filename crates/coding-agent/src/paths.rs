@@ -48,11 +48,10 @@ pub fn normalize_path(input: &str, options: PathInput) -> String {
             .map(|c| if is_unicode_space(c) { ' ' } else { c })
             .collect();
     }
-    if options.strip_at_prefix {
-        if let Some(rest) = s.strip_prefix('@') {
+    if options.strip_at_prefix
+        && let Some(rest) = s.strip_prefix('@') {
             s = rest.to_owned();
         }
-    }
     if !options.no_tilde {
         let home = home_dir();
         if s == "~" {
@@ -73,13 +72,12 @@ fn percent_decode(text: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(v) = u8::from_str_radix(&text[i + 1..i + 3], 16) {
+        if bytes[i] == b'%' && i + 2 < bytes.len()
+            && let Ok(v) = u8::from_str_radix(&text[i + 1..i + 3], 16) {
                 out.push(v);
                 i += 3;
                 continue;
             }
-        }
         out.push(bytes[i]);
         i += 1;
     }

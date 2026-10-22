@@ -126,44 +126,44 @@ fn count_occurrences(content: &str, old_text: &str) -> usize {
 
 fn not_found_error(path: &str, edit_index: usize, total: usize) -> String {
     if total == 1 {
-        return String::from(format!(
+        return format!(
             "Could not find the exact text in {path}. The old text must match exactly including all whitespace and newlines."
-        ));
+        );
     }
-    String::from(format!(
+    format!(
         "Could not find edits[{edit_index}] in {path}. The oldText must match exactly including all whitespace and newlines."
-    ))
+    )
 }
 
 fn duplicate_error(path: &str, edit_index: usize, total: usize, occurrences: usize) -> String {
     if total == 1 {
-        return String::from(format!(
+        return format!(
             "Found {occurrences} occurrences of the text in {path}. The text must be unique. Please provide more context to make it unique."
-        ));
+        );
     }
-    String::from(format!(
+    format!(
         "Found {occurrences} occurrences of edits[{edit_index}] in {path}. Each oldText must be unique. Please provide more context to make it unique."
-    ))
+    )
 }
 
 fn empty_old_text_error(path: &str, edit_index: usize, total: usize) -> String {
     if total == 1 {
-        return String::from(format!("oldText must not be empty in {path}."));
+        return format!("oldText must not be empty in {path}.");
     }
-    String::from(format!(
+    format!(
         "edits[{edit_index}].oldText must not be empty in {path}."
-    ))
+    )
 }
 
 fn no_change_error(path: &str, total: usize) -> String {
     if total == 1 {
-        return String::from(format!(
+        return format!(
             "No changes made to {path}. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected."
-        ));
+        );
     }
-    String::from(format!(
+    format!(
         "No changes made to {path}. The replacements produced identical content."
-    ))
+    )
 }
 
 fn split_lines_with_endings(content: &str) -> Vec<&str> {
@@ -323,10 +323,10 @@ pub fn apply_edits_to_normalized_content(
     for pair in matched.windows(2) {
         let (previous, current) = (&pair[0], &pair[1]);
         if previous.match_index + previous.match_length > current.match_index {
-            return Err(String::from(format!(
+            return Err(format!(
                 "edits[{}] and edits[{}] overlap in {path}. Merge them into one edit or target disjoint regions.",
                 previous.edit_index, current.edit_index
-            )));
+            ));
         }
     }
 
