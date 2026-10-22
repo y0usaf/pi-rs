@@ -590,7 +590,8 @@ fn split_into_tokens_with_ansi(text: &str) -> Vec<String> {
             i += code.len();
             continue;
         }
-        let mut end = text[i + 1..].find('\x1b').map(|j| j + i + 1);
+        let after = i + text[i..].chars().next().map_or(1, char::len_utf8);
+        let mut end = text[after..].find('\x1b').map(|j| j + after);
         while let Some(e) = end {
             if ansi_code_length(text, e) != 0 {
                 break;
