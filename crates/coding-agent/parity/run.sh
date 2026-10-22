@@ -30,3 +30,9 @@ PI_CODING_AGENT_DIR="$out/agent" PI_OFFLINE=1 node --import "$PI_TS/packages/cod
 	"$here/prompt-driver.ts" "$here/prompt.json" "$out/prompt-ts" >"$out/prompt-ts.jsonl"
 "$(dirname "$bin")/prompt_parity" "$here/prompt.json" "$out/prompt-rs" >"$out/prompt-rs.jsonl"
 node "$here/compare-lines.mjs" prompt "$out/prompt-ts.jsonl" "$out/prompt-rs.jsonl"
+
+# Print-mode end to end: upstream `pi -p` and `pi-rs -p` against the same scripted server
+# (parity/e2e.json), comparing the requests sent and the output.
+cargo build -q -p pi-coding-agent --bin pi-rs
+mkdir -p "$out/e2e"
+node "$here/e2e.mjs" "$here/e2e.json" "$out/e2e" "$(dirname "$(dirname "$bin")")/pi-rs"

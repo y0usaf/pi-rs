@@ -103,7 +103,15 @@ enum Ended {
 }
 
 fn execute(args: &Value, ctx: &mut ToolContext<'_>) -> Result<ToolOutput, String> {
-    let command = str_arg(args, "command").unwrap_or_default();
+    let given = str_arg(args, "command").unwrap_or_default();
+    let prefixed;
+    let command = match ctx.command_prefix {
+        Some(prefix) if !prefix.is_empty() => {
+            prefixed = format!("{prefix}\n{given}");
+            prefixed.as_str()
+        }
+        _ => given,
+    };
     let timeout = num_arg(args, "timeout");
     let mut acc = Accumulator::new();
     if let Some(update) = ctx.on_update.as_deref_mut() {
