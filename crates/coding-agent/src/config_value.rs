@@ -97,9 +97,10 @@ pub fn env_var_names(config: &str) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for part in template(config) {
         if let Part::Env(name) = part
-            && !names.contains(&name) {
-                names.push(name);
-            }
+            && !names.contains(&name)
+        {
+            names.push(name);
+        }
     }
     names
 }

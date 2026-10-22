@@ -351,9 +351,10 @@ pub fn compose(
         .map(|m| {
             let mut m = m.clone();
             if config.get("oauth").is_none()
-                && let Some(url) = str_of(config, "baseUrl") {
-                    m.base_url = url.to_owned();
-                }
+                && let Some(url) = str_of(config, "baseUrl")
+            {
+                m.base_url = url.to_owned();
+            }
             m.compat = merge_compat(m.compat.as_ref(), config.get("compat"));
             m
         })

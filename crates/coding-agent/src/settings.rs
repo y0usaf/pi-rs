@@ -40,28 +40,32 @@ fn merge_settings(base: &Map<String, Value>, overrides: &Map<String, Value>) -> 
     let mut merged = deep_merge(base, overrides);
     if let (Some(Value::Array(a)), Some(Value::Array(b))) =
         (base.get("defaultTools"), overrides.get("defaultTools"))
-        && b.iter().all(|e| e.as_str().is_some_and(is_modifier)) {
-            let mut both = a.clone();
-            both.extend(b.iter().cloned());
-            merged.insert("defaultTools".to_owned(), Value::Array(both));
-        }
+        && b.iter().all(|e| e.as_str().is_some_and(is_modifier))
+    {
+        let mut both = a.clone();
+        both.extend(b.iter().cloned());
+        merged.insert("defaultTools".to_owned(), Value::Array(both));
+    }
     merged
 }
 
 /// `migrateSettings`, for the keys print mode reads.
 fn migrate(mut settings: Map<String, Value>) -> Map<String, Value> {
-    if settings.contains_key("queueMode") && !settings.contains_key("steeringMode")
-        && let Some(v) = settings.remove("queueMode") {
-            settings.insert("steeringMode".to_owned(), v);
-        }
+    if settings.contains_key("queueMode")
+        && !settings.contains_key("steeringMode")
+        && let Some(v) = settings.remove("queueMode")
+    {
+        settings.insert("steeringMode".to_owned(), v);
+    }
     if !settings.contains_key("transport")
-        && let Some(Value::Bool(ws)) = settings.get("websockets").cloned() {
-            settings.insert(
-                "transport".to_owned(),
-                Value::String(if ws { "websocket" } else { "sse" }.to_owned()),
-            );
-            settings.remove("websockets");
-        }
+        && let Some(Value::Bool(ws)) = settings.get("websockets").cloned()
+    {
+        settings.insert(
+            "transport".to_owned(),
+            Value::String(if ws { "websocket" } else { "sse" }.to_owned()),
+        );
+        settings.remove("websockets");
+    }
     settings
 }
 

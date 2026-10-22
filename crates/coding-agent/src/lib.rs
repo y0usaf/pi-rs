@@ -13,4 +13,6 @@ pub mod node_fs;
 pub mod output_files;
 pub mod paths;
 pub mod settings;
+pub mod skills;
+pub mod system_prompt;
 pub mod tools;

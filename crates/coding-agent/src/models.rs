@@ -251,12 +251,10 @@ impl ModelRegistry {
                                 && let Some(token) = std::env::var("ANTHROPIC_AUTH_TOKEN")
                                     .ok()
                                     .filter(|v| !v.is_empty())
-                                {
-                                    auth.headers.insert(
-                                        "Authorization".to_owned(),
-                                        format!("Bearer {token}"),
-                                    );
-                                }
+                            {
+                                auth.headers
+                                    .insert("Authorization".to_owned(), format!("Bearer {token}"));
+                            }
                             if auth.headers.is_empty() {
                                 auth.api_key = self.ambient_key(provider);
                             }

@@ -59,6 +59,9 @@ fn parse_credential(value: &Value) -> Option<Credential> {
     }
 }
 
+/// Exchanges a stored OAuth credential for a fresh one.
+pub type RefreshFn<'a> = dyn Fn(&Map<String, Value>) -> Result<Map<String, Value>, String> + 'a;
+
 pub struct AuthStore {
     pub path: String,
     data: Map<String, Value>,
@@ -196,7 +199,7 @@ impl AuthStore {
     pub fn fresh_oauth(
         &mut self,
         provider: &str,
-        refresh: &dyn Fn(&Map<String, Value>) -> Result<Map<String, Value>, String>,
+        refresh: &RefreshFn<'_>,
     ) -> Result<Option<Map<String, Value>>, String> {
         let expires_soon = |c: &Map<String, Value>| {
             c.get("expires")

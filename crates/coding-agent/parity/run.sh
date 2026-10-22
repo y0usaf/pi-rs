@@ -20,10 +20,13 @@ cargo build -q -p pi-coding-agent --example models_parity
 PI_CODING_AGENT_DIR="$out/agent" PI_OFFLINE=1 node --import "$PI_TS/packages/coding-agent/src/experimental/source-resolver.ts" \
 	"$here/models-driver.ts" "$here/models.json" >"$out/models-ts.jsonl"
 "$(dirname "$bin")/models_parity" "$here/models.json" >"$out/models-rs.jsonl"
-if cmp -s "$out/models-ts.jsonl" "$out/models-rs.jsonl"; then
-	echo "models: $(wc -l <"$out/models-ts.jsonl") cases match"
-else
-	echo "models: mismatch"
-	diff "$out/models-ts.jsonl" "$out/models-rs.jsonl" | head -40
-	exit 1
-fi
+node "$here/compare-lines.mjs" models "$out/models-ts.jsonl" "$out/models-rs.jsonl"
+
+# System prompt parity: parity/prompt.json (context files, SYSTEM.md, skills) through upstream's
+# resource loader and buildSystemPrompt, and through examples/prompt_parity.
+cargo build -q -p pi-coding-agent --example prompt_parity
+mkdir -p "$out/prompt-ts" "$out/prompt-rs"
+PI_CODING_AGENT_DIR="$out/agent" PI_OFFLINE=1 node --import "$PI_TS/packages/coding-agent/src/experimental/source-resolver.ts" \
+	"$here/prompt-driver.ts" "$here/prompt.json" "$out/prompt-ts" >"$out/prompt-ts.jsonl"
+"$(dirname "$bin")/prompt_parity" "$here/prompt.json" "$out/prompt-rs" >"$out/prompt-rs.jsonl"
+node "$here/compare-lines.mjs" prompt "$out/prompt-ts.jsonl" "$out/prompt-rs.jsonl"
