@@ -85,6 +85,7 @@ fn main() {
             cancel: &cancel,
             model_takes_images: true,
             shell_path: None,
+            command_prefix: None,
             env: &[],
             on_update: None,
         };

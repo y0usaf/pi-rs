@@ -17,7 +17,7 @@ pub mod grep;
 
 mod jsdiff;
 pub mod ls;
-mod mime;
+pub mod mime;
 pub mod read;
 pub mod truncate;
 pub mod write;
@@ -75,6 +75,8 @@ pub struct ToolContext<'a> {
     pub model_takes_images: bool,
     /// `shellPath` from settings.
     pub shell_path: Option<&'a str>,
+    /// `shellCommandPrefix` from settings, put on its own line before every bash command.
+    pub command_prefix: Option<&'a str>,
     /// Variables set for bash commands (`PI_SESSION_ID`, `PI_MODEL`, ..., and PATH with the agent's
     /// bin directory).
     pub env: &'a [(String, String)],
