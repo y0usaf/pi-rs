@@ -277,9 +277,10 @@ fn resolve_text<'m>(
         return r;
     }
     if req.fuzzy
-        && let Some(r) = select_fuzzy(fuzzy_matches(text, pool), usable) {
-            return r;
-        }
+        && let Some(r) = select_fuzzy(fuzzy_matches(text, pool), usable)
+    {
+        return r;
+    }
     if req.thinking_suffix == ThinkingSuffix::None {
         return Reference::NotFound { target: None };
     }
@@ -782,42 +783,46 @@ pub struct InitialModel {
     pub thinking_level: String,
 }
 
+/// What `findInitialModel` consults besides the scoped models.
+pub struct InitialModelSources<'a> {
+    pub default_provider: Option<&'a str>,
+    pub default_model_id: Option<&'a str>,
+    pub default_thinking: Option<&'a str>,
+    /// `modelThinkingLevels["provider/id"]`.
+    pub model_thinking: &'a dyn Fn(&str, &str) -> Option<String>,
+    pub get_model: &'a dyn Fn(&str, &str) -> Option<Model>,
+    pub has_auth: Usable<'a>,
+    pub available: &'a [&'a Model],
+}
+
 /// `findInitialModel` (not continuing a session).
-pub fn find_initial_model(
-    scoped: &[ScopedModel],
-    default_provider: Option<&str>,
-    default_model_id: Option<&str>,
-    default_thinking: Option<&str>,
-    model_thinking: &dyn Fn(&str, &str) -> Option<String>,
-    get_model: &dyn Fn(&str, &str) -> Option<Model>,
-    has_auth: Usable,
-    available: &[&Model],
-) -> InitialModel {
+pub fn find_initial_model(scoped: &[ScopedModel], s: &InitialModelSources) -> InitialModel {
     let fallback = || DEFAULT_THINKING_LEVEL.to_string();
     if let Some(first) = scoped.first() {
         let level = first
             .thinking_level
             .clone()
-            .or_else(|| model_thinking(&first.model.provider, &first.model.id))
-            .or_else(|| default_thinking.map(str::to_string))
+            .or_else(|| (s.model_thinking)(&first.model.provider, &first.model.id))
+            .or_else(|| s.default_thinking.map(str::to_string))
             .unwrap_or_else(fallback);
         return InitialModel {
             model: Some(first.model.clone()),
             thinking_level: level,
         };
     }
-    if let (Some(p), Some(id)) = (default_provider, default_model_id)
-        && let Some(found) = get_model(p, id).filter(|m| has_auth(&m.provider)) {
-            let level = model_thinking(p, id)
-                .or_else(|| default_thinking.map(str::to_string))
-                .unwrap_or_else(fallback);
-            return InitialModel {
-                model: Some(found),
-                thinking_level: level,
-            };
-        }
+    if let (Some(p), Some(id)) = (s.default_provider, s.default_model_id)
+        && let Some(found) = (s.get_model)(p, id).filter(|m| (s.has_auth)(&m.provider))
+    {
+        let level = (s.model_thinking)(p, id)
+            .or_else(|| s.default_thinking.map(str::to_string))
+            .unwrap_or_else(fallback);
+        return InitialModel {
+            model: Some(found),
+            thinking_level: level,
+        };
+    }
     InitialModel {
-        model: default_available(available).cloned(),
+        model: default_available(s.available).cloned(),
         thinking_level: fallback(),
     }
 }
@@ -851,13 +856,15 @@ mod tests {
         assert_eq!(default_available(&available).unwrap().id, "gpt-5.5");
         let r = find_initial_model(
             &[],
-            None,
-            None,
-            None,
-            &|_, _| None,
-            &|_, _| None,
-            &|_| true,
-            &available[..1],
+            &InitialModelSources {
+                default_provider: None,
+                default_model_id: None,
+                default_thinking: None,
+                model_thinking: &|_, _| None,
+                get_model: &|_, _| None,
+                has_auth: &|_| true,
+                available: &available[..1],
+            },
         );
         assert_eq!(r.model.unwrap().id, "first");
         assert_eq!(r.thinking_level, "medium");
