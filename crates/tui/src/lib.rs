@@ -6,3 +6,4 @@
 
 mod unicode_tables;
 pub mod unicode;
+pub mod utils;
