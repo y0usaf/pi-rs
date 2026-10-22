@@ -643,7 +643,7 @@ pub(crate) fn js_trim_end(s: &str) -> &str {
 }
 
 /// JS `String.prototype.trim`.
-pub(crate) fn js_trim(s: &str) -> &str {
+pub fn js_trim(s: &str) -> &str {
     let f = |c: char| is_js_whitespace(c) || matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}' | '\u{FEFF}');
     s.trim_matches(f)
 }
