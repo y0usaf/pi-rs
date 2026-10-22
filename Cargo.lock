@@ -186,6 +186,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pi-coding-agent"
+version = "0.1.0"
+dependencies = [
+ "pi-durable",
+ "regex",
+ "ring",
+ "serde",
+ "serde_json",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "pi-durable"
 version = "0.1.0"
 dependencies = [
