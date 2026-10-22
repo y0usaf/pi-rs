@@ -12,6 +12,8 @@ use serde_json::Value;
 pub mod bash;
 pub mod edit;
 mod edit_diff;
+pub mod find;
+pub mod grep;
 
 mod jsdiff;
 pub mod ls;
@@ -107,6 +109,8 @@ pub fn spec(name: &str) -> Option<ToolSpec> {
         "edit" => Some(edit::spec()),
         "bash" => Some(bash::spec()),
 
+        "grep" => Some(grep::spec()),
+        "find" => Some(find::spec()),
         "ls" => Some(ls::spec()),
         _ => None,
     }
@@ -135,5 +139,53 @@ pub(crate) fn js_number(n: f64) -> String {
         format!("{}", n as i64)
     } else {
         format!("{n}")
+    }
+}
+
+/// What a call came to, as upstream's agent loop records it: the result, or the message of the
+/// error the tool threw (shown to the model as an error result with that text only).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Outcome {
+    Done(ToolOutput),
+    Threw(String),
+}
+
+/// Runs one call the way upstream's agent loop does: `prepareArguments`, then validation against
+/// the schema (with its coercions), then `execute`.
+pub fn run(
+    spec: &ToolSpec,
+    arguments: serde_json::Map<String, Value>,
+    ctx: &mut ToolContext<'_>,
+) -> Outcome {
+    use pi_durable::ai::types::{Tool, ToolCall, ToolCallType};
+    use pi_durable::ai::utils::validation::validate_tool_arguments;
+    let prepared = match spec.prepare_arguments {
+        Some(prepare) => match prepare(Value::Object(arguments.clone())) {
+            Value::Object(map) => map,
+            _ => arguments.clone(),
+        },
+        None => arguments.clone(),
+    };
+    let tool = Tool {
+        name: spec.name.to_owned(),
+        description: spec.description.clone(),
+        parameters: spec.parameters.clone(),
+        constrained_sampling: None,
+    };
+    let call = ToolCall {
+        kind: ToolCallType,
+        id: String::new(),
+        name: spec.name.to_owned(),
+        arguments: prepared,
+        thought_signature: None,
+        namespace: None,
+    };
+    let args = match validate_tool_arguments(&tool, &call) {
+        Ok(args) => args,
+        Err(error) => return Outcome::Threw(error.0),
+    };
+    match (spec.execute)(&args, ctx) {
+        Ok(output) => Outcome::Done(output),
+        Err(message) => Outcome::Threw(message),
     }
 }
