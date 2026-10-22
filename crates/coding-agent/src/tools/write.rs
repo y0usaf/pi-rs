@@ -37,13 +37,7 @@ fn execute(args: &Value, ctx: &mut ToolContext<'_>) -> Result<ToolOutput, String
     check_aborted(ctx.cancel)?;
     std::fs::create_dir_all(&dir).map_err(|e| node_fs::message(&e, "mkdir", &dir))?;
     check_aborted(ctx.cancel)?;
-    std::fs::write(&absolute, content).map_err(|e| {
-        if node_fs::code(&e) == "EISDIR" {
-            "EISDIR: illegal operation on a directory, open".to_owned()
-        } else {
-            node_fs::message(&e, "open", &absolute)
-        }
-    })?;
+    std::fs::write(&absolute, content).map_err(|e| node_fs::message(&e, "open", &absolute))?;
     check_aborted(ctx.cancel)?;
     Ok(ToolOutput::text(format!("Successfully wrote to {path}")))
 }
