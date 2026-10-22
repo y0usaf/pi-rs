@@ -150,9 +150,7 @@ fn empty_old_text_error(path: &str, edit_index: usize, total: usize) -> String {
     if total == 1 {
         return format!("oldText must not be empty in {path}.");
     }
-    format!(
-        "edits[{edit_index}].oldText must not be empty in {path}."
-    )
+    format!("edits[{edit_index}].oldText must not be empty in {path}.")
 }
 
 fn no_change_error(path: &str, total: usize) -> String {
@@ -161,9 +159,7 @@ fn no_change_error(path: &str, total: usize) -> String {
             "No changes made to {path}. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected."
         );
     }
-    format!(
-        "No changes made to {path}. The replacements produced identical content."
-    )
+    format!("No changes made to {path}. The replacements produced identical content.")
 }
 
 fn split_lines_with_endings(content: &str) -> Vec<&str> {
