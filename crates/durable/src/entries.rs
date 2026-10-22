@@ -81,3 +81,8 @@ pub fn reset_entry() -> Entry {
 pub fn compaction_entry() -> Entry<CompactionData> {
     Entry::named("pi.compaction")
 }
+
+/// An entry that only carries context edits, such as hiding a cut-off reply.
+pub fn context_edit_entry() -> Entry {
+    Entry::named("pi.context-edit")
+}

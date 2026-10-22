@@ -1,3 +1,4 @@
+use crate::harness::types::ToolErrorStyle;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -136,11 +137,9 @@ fn call_phase(
     let assistant = task.input.assistant;
     let call = read_call(rt, &task.input, cancel)?;
     let agent = rt.agent(cancel)?;
+    let style = rt.settings().tool_errors;
     let Some(tool) = find_tool(&agent, &call) else {
-        let error = harness_error(
-            "tool_unavailable",
-            &format!("Tool {} is not available", call.name),
-        );
+        let error = unavailable_tool(style, &call.name);
         return settle(rt, &call, Ending::Completed, move |_| error, cancel, None);
     };
     let checked = match prepare(tool, call.arguments.clone()) {
@@ -154,7 +153,7 @@ fn call_phase(
                 rt,
                 &call,
                 Ending::Completed,
-                move |_| invalid(&message),
+                move |_| invalid(style, &message),
                 cancel,
                 None,
             );
@@ -231,7 +230,7 @@ pub fn before_tool_hooks(
     }
     Ok(match validate(tool, call, args) {
         Ok(args) => ToolGate::Run(args),
-        Err(message) => ToolGate::Blocked(Box::new(invalid(&message))),
+        Err(message) => ToolGate::Blocked(Box::new(invalid(rt.settings().tool_errors, &message))),
     })
 }
 
@@ -790,8 +789,29 @@ pub fn harness_error(code: &str, message: &str) -> ToolExecutionResult {
     }
 }
 
-fn invalid(message: &str) -> ToolExecutionResult {
-    harness_error("invalid_arguments", message)
+fn invalid(style: ToolErrorStyle, message: &str) -> ToolExecutionResult {
+    match style {
+        ToolErrorStyle::Diagnostics => harness_error("invalid_arguments", message),
+        ToolErrorStyle::Plain => plain_error(message),
+    }
+}
+
+/// The result for a call to a tool the agent does not offer.
+pub fn unavailable_tool(style: ToolErrorStyle, name: &str) -> ToolExecutionResult {
+    match style {
+        ToolErrorStyle::Diagnostics => {
+            harness_error("tool_unavailable", &format!("Tool {name} is not available"))
+        }
+        ToolErrorStyle::Plain => plain_error(&format!("Tool {name} not found")),
+    }
+}
+
+fn plain_error(message: &str) -> ToolExecutionResult {
+    ToolExecutionResult {
+        content: Some(vec![text_block(message.to_owned())]),
+        is_error: Some(true),
+        ..ToolExecutionResult::default()
+    }
 }
 
 fn tool_diagnostic(code: &str, message: &str) -> ToolDiagnostic {

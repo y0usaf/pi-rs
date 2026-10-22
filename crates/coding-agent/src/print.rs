@@ -15,8 +15,9 @@ use pi_durable::harness::harness::{Conversation, Harness};
 use pi_durable::harness::registry::Registry;
 use pi_durable::harness::submissions::{SubmissionDraft, WhenBusy};
 use pi_durable::harness::types::{
-    Extension, HarnessOptions, ModelRef, OutputLimitsSpec, PrepareArguments, PromptInput,
-    PromptSection, Render, RootOptions, ToolExecute, ToolExecutionResult, ToolRegistration,
+    Extension, HarnessOptions, HarnessSettings, ModelRef, OutputLimitsSpec, PrepareArguments,
+    PromptInput, PromptSection, Render, RootOptions, ToolErrorStyle, ToolExecute,
+    ToolExecutionResult, ToolRegistration,
 };
 use pi_durable::types::{EntryQuery, ScanOrder};
 use serde_json::Value;
@@ -151,12 +152,13 @@ pub struct RunInput {
     pub messages: Vec<String>,
 }
 
-/// The messages of the conversation, oldest first.
+/// The messages of the conversation the model still sees, oldest first.
 pub fn transcript(
     conversation: &Conversation,
     cancel: &CancelToken,
 ) -> Result<Vec<Message>, Error> {
-    let mut out = Vec::new();
+    let mut entries: Vec<(pi_durable::ids::EntryId, Vec<Message>)> = Vec::new();
+    let mut omitted = std::collections::BTreeSet::new();
     let mut from = None;
     loop {
         let page = conversation.entries(
@@ -172,8 +174,13 @@ pub fn transcript(
         )?;
         let last = page.items.last().map(|e| e.id);
         for entry in page.items {
+            for edit in entry.edits.iter().flatten() {
+                if matches!(edit.action, pi_durable::types::ContextAction::Omit) {
+                    omitted.insert(edit.target);
+                }
+            }
             if let Some(model) = entry.model {
-                out.extend(model);
+                entries.push((entry.id, model));
             }
         }
         match (page.next, last) {
@@ -181,7 +188,13 @@ pub fn transcript(
             _ => break,
         }
     }
-    Ok(out)
+    // Hidden entries (a cut-off reply the harness dropped) are left out, as upstream prints
+    // from the projected context.
+    Ok(entries
+        .into_iter()
+        .filter(|(id, _)| !omitted.contains(id))
+        .flat_map(|(_, model)| model)
+        .collect())
 }
 
 /// Sends the messages and waits for each run to finish, as `session.prompt` does in print mode.
@@ -231,7 +244,8 @@ pub fn run_turns(
 }
 
 /// Text mode's ending: the last assistant message's text on stdout (exit 0), or its error on
-/// stderr (exit 1); a reply cut by the output limit is printed and exits 1.
+/// stderr (exit 1); a kept reply cut by the output limit is printed and exits 1. The harness
+/// hides a recoverable cut reply, so a run that only produced one prints nothing.
 pub fn text_result(messages: &[Message]) -> (String, String, i32) {
     let Some(Message::Assistant(last)) = messages.last() else {
         return (String::new(), String::new(), 0);
@@ -288,7 +302,13 @@ pub fn open_harness(
         HarnessOptions {
             models: Arc::new(providers),
             registry,
-            settings: None,
+            // Upstream's agent loop sends a bad call's error as bare text.
+            settings: Some(HarnessSettings {
+                tool_errors: Some(ToolErrorStyle::Plain),
+                // A reply cut by the output limit is hidden and retried after compaction.
+                length_recovery: Some(true),
+                ..HarnessSettings::default()
+            }),
             conversation_created: None,
             now: None,
             env: None,

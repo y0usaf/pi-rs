@@ -251,6 +251,16 @@ pub fn classify(
             runtime, request, message, calls, cancel,
         );
     }
+    if message.stop_reason == StopReason::Length
+        && request.compacted.is_none()
+        && runtime.settings().length_recovery
+        && runtime
+            .models()
+            .get_model(&request.model.provider, &request.model.model_id)
+            .is_some_and(|model| model.max_tokens > 0 && message.usage.output < model.max_tokens)
+    {
+        return recover_length(runtime, request, message, cancel);
+    }
     if matches!(
         message.stop_reason,
         StopReason::Stop | StopReason::Length | StopReason::ToolUse
@@ -379,4 +389,51 @@ fn stop_reason_text(reason: StopReason) -> &'static str {
         StopReason::Aborted => "aborted",
         StopReason::Deferred => "deferred",
     }
+}
+
+/// A reply cut by the output limit below the model's own maximum: hide it, then compact and
+/// retry once when compaction can cut anything, or end the run without an answer otherwise.
+fn recover_length(
+    runtime: Runtime<'_>,
+    request: &Request,
+    message: AssistantMessage,
+    cancel: &CancelToken,
+) -> Result<()> {
+    let settings = runtime.settings().clone();
+    let view = runtime.context(Some(request.cutoff), cancel)?;
+    let compactable = settings.compaction.enabled
+        && select_cut(&view, settings.compaction.keep_recent_tokens).is_some();
+    if !compactable {
+        return crate::harness::generation::rounds::answer_with(runtime, message, true, cancel);
+    }
+    let conversation_id = runtime.conversation_id();
+    let task_id = crate::harness::tool::erase(runtime.task_id());
+    let attempt = request.attempt;
+    runtime.commit(
+        Box::new(move |tx, _task| {
+            let entry = append_assistant(tx, conversation_id, &message)?;
+            crate::harness::generation::omit_entry(tx, conversation_id, entry.id)?;
+            edit_live(tx, conversation_id, |live| live.generation = None)?;
+            let child = create_compaction(
+                tx,
+                conversation_id,
+                CompactionReason::Overflow,
+                Some(task_id),
+            )?;
+            Ok(Some(NextTaskState::Waiting {
+                checkpoint: GenerationCheckpoint::Prepare {
+                    attempt,
+                    compacted: Some(child),
+                    overflow: Some(
+                        "Truncated response recovery failed after one compact-and-retry attempt."
+                            .to_owned(),
+                    ),
+                },
+                on: vec![child],
+                policy: JoinPolicy::AllSettled,
+            }))
+        }),
+        cancel,
+    )?;
+    Ok(())
 }

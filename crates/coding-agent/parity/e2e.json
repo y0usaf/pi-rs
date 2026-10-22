@@ -197,12 +197,7 @@
     "text": "partial",
     "finish": "length"
    }
-  ],
-  "known": {
-   "code": "upstream's AgentSession treats a `length` stop as recoverable: it omits the cut reply and tries compact-and-retry, then prints nothing; pi-durable has no such recovery, so pi-rs prints the partial reply and the truncation error as print-mode.ts does for a kept `length` reply",
-   "stdout": "see code",
-   "stderr": "see code"
-  }
+  ]
  },
  {
   "name": "system-prompt-flags",
