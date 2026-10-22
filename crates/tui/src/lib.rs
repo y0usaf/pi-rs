@@ -16,3 +16,5 @@ pub mod tui_main_screen;
 pub mod keybindings;
 pub mod components;
 pub mod fuzzy;
+pub mod kill_ring;
+pub mod word_navigation;
