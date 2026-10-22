@@ -243,14 +243,16 @@ fn run(
             }
         }
         if exit.is_none()
-            && let Ok(Some(status)) = child.try_wait() {
-                let code = status.code().or_else(|| status.signal().map(|s| 128 + s));
-                exit = Some((code, Instant::now()));
-            }
+            && let Ok(Some(status)) = child.try_wait()
+        {
+            let code = status.code().or_else(|| status.signal().map(|s| 128 + s));
+            exit = Some((code, Instant::now()));
+        }
         if let Some((_, at)) = exit
-            && (open == 0 || at.elapsed() >= EXIT_STDIO_GRACE) {
-                break;
-            }
+            && (open == 0 || at.elapsed() >= EXIT_STDIO_GRACE)
+        {
+            break;
+        }
         match rx.recv_timeout(Duration::from_millis(10)) {
             Ok(Some(chunk)) => {
                 acc.append(&chunk);
