@@ -2,7 +2,7 @@
 
 use super::text::is_paste_marker;
 use super::{Editor, Jump, VisualLine};
-use crate::unicode::WordSegment;
+use crate::unicode::{WordSegment, utf16_len};
 use crate::word_navigation::{WordNavigationOptions, find_word_backward, find_word_forward};
 
 impl Editor {
@@ -68,50 +68,71 @@ impl Editor {
         }
     }
 
+
+    /// Visual lines measured in UTF-16 units, as upstream measures columns.
+    fn visual_lines_u16(&self, vls: &[VisualLine]) -> Vec<VisualLine> {
+        vls.iter()
+            .map(|vl| {
+                let line = &self.state.lines[vl.logical_line];
+                VisualLine {
+                    logical_line: vl.logical_line,
+                    start_col: utf16_len(&line[..vl.start_col]),
+                    length: utf16_len(&line[vl.start_col..vl.start_col + vl.length]),
+                }
+            })
+            .collect()
+    }
+
+    /// Upstream `moveToVisualLine`; columns, the sticky column and the snap origin are UTF-16 units.
     pub(crate) fn move_to_visual_line(&mut self, vls: &[VisualLine], cur_i: usize, target_i: usize) {
-        let (Some(&cur), Some(&target)) = (vls.get(cur_i), vls.get(target_i)) else { return };
+        let u = self.visual_lines_u16(vls);
+        let (Some(&cur), Some(&target)) = (u.get(cur_i), u.get(target_i)) else { return };
+        let cursor16 = utf16_len(&self.current_line()[..self.state.cursor_col]);
         let cur_col = match self.snapped_from_cursor_col {
             Some(s) => {
-                let i = Self::find_visual_line_at(vls, cur.logical_line, s);
-                s.saturating_sub(vls[i].start_col)
+                let i = Self::find_visual_line_at(&u, cur.logical_line, s);
+                s as i64 - u[i].start_col as i64
             }
-            None => self.state.cursor_col.saturating_sub(cur.start_col),
+            None => cursor16 as i64 - cur.start_col as i64,
         };
-        let max_col = |i: usize, vl: VisualLine| if Self::is_last_segment(vls, i) { vl.length } else { vl.length.saturating_sub(1) };
+        let cur_col = cur_col.max(0) as usize;
+        let max_col = |i: usize, vl: VisualLine| if Self::is_last_segment(&u, i) { vl.length } else { vl.length.saturating_sub(1) };
         let col = self.compute_vertical_move_column(cur_col, max_col(cur_i, cur), max_col(target_i, target));
         self.state.cursor_line = target.logical_line;
         let line = self.state.lines.get(target.logical_line).cloned().unwrap_or_default();
-        let mut c = (target.start_col + col).min(line.len());
-        while !line.is_char_boundary(c) {
-            c -= 1;
-        }
-        self.state.cursor_col = c;
+        let c16 = (target.start_col + col).min(utf16_len(&line));
+        self.state.cursor_col = byte_floor(&line, c16);
+        let mut pos16 = 0;
         for seg in self.seg_graphemes(&line) {
-            if seg.index > c {
+            let seg16 = utf16_len(seg.segment);
+            let start16 = pos16;
+            pos16 += seg16;
+            if start16 > c16 {
                 break;
             }
-            if seg.segment.len() <= 1 {
+            if seg16 <= 1 {
                 continue;
             }
-            if c < seg.index + seg.segment.len() {
-                if seg.index < target.start_col && target_i > cur_i {
-                    let seg_end = seg.index + seg.segment.len();
+            if c16 < start16 + seg16 {
+                if start16 < target.start_col && target_i > cur_i {
+                    let seg_end = start16 + seg16;
                     let mut next = target_i + 1;
-                    while next < vls.len() && vls[next].logical_line == target.logical_line && vls[next].start_col < seg_end {
+                    while next < u.len() && u[next].logical_line == target.logical_line && u[next].start_col < seg_end {
                         next += 1;
                     }
-                    if next < vls.len() {
+                    if next < u.len() {
                         self.move_to_visual_line(vls, cur_i, next);
                         return;
                     }
                 }
-                self.snapped_from_cursor_col = Some(c);
+                self.snapped_from_cursor_col = Some(c16);
                 self.state.cursor_col = seg.index;
                 return;
             }
         }
         self.snapped_from_cursor_col = None;
     }
+
 
     pub(crate) fn move_cursor(&mut self, delta_line: i64, delta_col: i64) {
         self.last_action = None;
@@ -132,7 +153,9 @@ impl Editor {
                 self.state.cursor_line += 1;
                 self.set_cursor_col(0);
             } else if let Some(vl) = vls.get(cur) {
-                self.preferred_visual_col = Some(self.state.cursor_col.saturating_sub(vl.start_col));
+                let line = self.current_line();
+                let col16 = utf16_len(&line[..self.state.cursor_col]) - utf16_len(&line[..vl.start_col.min(self.state.cursor_col)]);
+                self.preferred_visual_col = Some(col16);
             }
         } else if delta_col < 0 {
             if self.state.cursor_col > 0 {
@@ -293,4 +316,16 @@ fn find_from(line: &str, ch: &str, mut from: usize) -> Option<usize> {
 /// `line.lastIndexOf(ch, from)`: the last match starting at or before `from`.
 fn rfind_upto(line: &str, ch: &str, from: usize) -> Option<usize> {
     line.match_indices(ch).map(|(i, _)| i).take_while(|&i| i <= from).last()
+}
+
+/// Byte offset of UTF-16 offset `u16_off`, rounded down to a char boundary.
+fn byte_floor(t: &str, u16_off: usize) -> usize {
+    let mut units = 0;
+    for (i, c) in t.char_indices() {
+        units += c.len_utf16();
+        if units > u16_off {
+            return i;
+        }
+    }
+    t.len()
 }
