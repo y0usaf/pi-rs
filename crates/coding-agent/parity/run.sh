@@ -14,3 +14,16 @@ PI_CODING_AGENT_DIR="$out/agent" PI_OFFLINE=1 node --import "$PI_TS/packages/cod
 	"$here/tools-driver.ts" "$here/tools.json" "$out/ts" >"$out/ts.jsonl"
 PI_CODING_AGENT_DIR="$out/agent" "$bin" "$here/tools.json" "$out/rs" >"$out/rs.jsonl"
 node "$here/compare-tools.mjs" "$out/ts.jsonl" "$out/rs.jsonl" "$here/tools.json"
+
+# Model resolution parity: parity/models.json through model-resolver.ts and examples/models_parity.
+cargo build -q -p pi-coding-agent --example models_parity
+PI_CODING_AGENT_DIR="$out/agent" PI_OFFLINE=1 node --import "$PI_TS/packages/coding-agent/src/experimental/source-resolver.ts" \
+	"$here/models-driver.ts" "$here/models.json" >"$out/models-ts.jsonl"
+"$(dirname "$bin")/models_parity" "$here/models.json" >"$out/models-rs.jsonl"
+if cmp -s "$out/models-ts.jsonl" "$out/models-rs.jsonl"; then
+	echo "models: $(wc -l <"$out/models-ts.jsonl") cases match"
+else
+	echo "models: mismatch"
+	diff "$out/models-ts.jsonl" "$out/models-rs.jsonl" | head -40
+	exit 1
+fi

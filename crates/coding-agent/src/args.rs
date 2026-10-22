@@ -234,12 +234,11 @@ pub fn parse(args: &[String]) -> Args {
             }
             "--print" | "-p" => {
                 r.print = true;
-                if let Some(n) = next(i) {
-                    if !n.starts_with('@') && (!n.starts_with('-') || n.starts_with("---")) {
+                if let Some(n) = next(i)
+                    && !n.starts_with('@') && (!n.starts_with('-') || n.starts_with("---")) {
                         r.messages.push(n.to_owned());
                         i += 1;
                     }
-                }
             }
             "--export" if has_next => {
                 i += 1;
