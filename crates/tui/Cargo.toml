@@ -1,0 +1,11 @@
+[package]
+name = "pi-tui"
+description = "Pi's pi-tui: a terminal UI with differential rendering, key decoding, an editor, autocomplete, select lists and markdown."
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+exclude = ["/parity"]
+
+[dependencies]
+unicode-segmentation = "1"
+libc = "0.2"
