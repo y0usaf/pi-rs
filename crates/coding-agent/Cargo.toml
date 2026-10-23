@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 pi-durable = { path = "../durable", features = ["providers"] }
+pi-tui = { path = "../tui" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"
