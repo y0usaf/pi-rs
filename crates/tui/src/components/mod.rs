@@ -7,3 +7,4 @@ pub mod truncated_text;
 pub mod select_list;
 pub mod input;
 pub mod editor;
+pub mod markdown;
