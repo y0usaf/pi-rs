@@ -10,6 +10,7 @@ exclude = ["/parity"]
 unicode-segmentation = "1"
 libc = "0.2"
 icu_segmenter = "2.4.0"
+fancy-regex = "0.19"
 
 [dev-dependencies]
 serde_json = "1"
