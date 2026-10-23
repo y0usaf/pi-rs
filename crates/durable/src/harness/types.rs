@@ -38,6 +38,18 @@ pub enum QueueMode {
     OneAtATime,
 }
 
+/// How the harness words the tool results it writes itself (unknown tool,
+/// invalid arguments).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolErrorStyle {
+    /// `<harness>[error] ...</harness>` diagnostics, "Tool X is not available".
+    #[default]
+    Diagnostics,
+    /// The bare message as text, "Tool X not found", like pi's agent loop.
+    Plain,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ToolExecutionMode {
@@ -362,6 +374,10 @@ pub struct HarnessSettings {
     pub compaction: Option<CompactionOverrides>,
     pub progress: Option<ProgressOverrides>,
     pub tool_execution: Option<ToolExecutionMode>,
+    pub tool_errors: Option<ToolErrorStyle>,
+    /// Hide a reply cut by the output limit and compact-and-retry once, like pi's
+    /// AgentSession. Off by default.
+    pub length_recovery: Option<bool>,
     pub steering_mode: Option<QueueMode>,
     pub follow_up_mode: Option<QueueMode>,
     pub context_retention_ms: Option<u64>,
@@ -375,6 +391,8 @@ pub struct Settings {
     pub compaction: CompactionPolicy,
     pub progress: ProgressPolicy,
     pub tool_execution: ToolExecutionMode,
+    pub tool_errors: ToolErrorStyle,
+    pub length_recovery: bool,
     pub steering_mode: QueueMode,
     pub follow_up_mode: QueueMode,
     pub context_retention_ms: u64,
