@@ -294,6 +294,26 @@ pub fn open_harness(
     providers: Providers,
     extension: Extension,
 ) -> Result<Harness, Error> {
+    open_harness_with(
+        storage,
+        providers,
+        extension,
+        Arc::new(|error| {
+            if !CLOSING.load(std::sync::atomic::Ordering::SeqCst) {
+                eprintln!("{error}");
+            }
+        }),
+    )
+}
+
+/// `open_harness` with the scheduler's error reports going to `report` (interactive mode shows
+/// them in the chat rather than on stderr, under the TUI).
+pub fn open_harness_with(
+    storage: Arc<dyn pi_durable::types::Storage>,
+    providers: Providers,
+    extension: Extension,
+    report: pi_durable::harness::types::ErrorReport,
+) -> Result<Harness, Error> {
     let registry = Arc::new(Registry::default());
     registry.install(extension)?;
     CLOSING.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -312,9 +332,9 @@ pub fn open_harness(
             conversation_created: None,
             now: None,
             env: None,
-            on_report: Some(Arc::new(|error| {
+            on_report: Some(Arc::new(move |error| {
                 if !CLOSING.load(std::sync::atomic::Ordering::SeqCst) {
-                    eprintln!("{error}");
+                    report(error);
                 }
             })),
         },
