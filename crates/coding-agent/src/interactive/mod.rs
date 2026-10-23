@@ -7,3 +7,4 @@ pub mod tool_row;
 pub mod footer;
 pub mod chat;
 pub mod status;
+pub mod run;
