@@ -4,3 +4,4 @@
 pub mod theme;
 pub mod messages;
 pub mod tool_row;
+pub mod footer;
