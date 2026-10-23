@@ -211,10 +211,10 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
         for action in actions.borrow_mut().drain(..) {
             match action {
                 Action::Interrupt => {
-                    if chat.working {
-                        if let Err(e) = root.abort(false, &cancel) {
-                            chat.notice("error", &format!("Error: {e}"));
-                        }
+                    if chat.working
+                        && let Err(e) = root.abort(false, &cancel)
+                    {
+                        chat.notice("error", &format!("Error: {e}"));
                     }
                 }
                 Action::Clear => {
