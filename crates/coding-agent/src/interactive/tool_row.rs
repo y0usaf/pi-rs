@@ -181,6 +181,10 @@ impl ToolRow {
         self.dirty = true;
     }
 
+    pub fn partial(&self) -> Option<String> {
+        self.partial.clone()
+    }
+
     pub fn set_partial(&mut self, output: String) {
         self.partial = Some(output);
         self.dirty = true;
