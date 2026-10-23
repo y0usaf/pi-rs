@@ -1,0 +1,257 @@
+[
+ {
+  "name": "hello",
+  "args": [
+   "say hi"
+  ],
+  "script": [
+   {
+    "text": "Hello there!"
+   }
+  ]
+ },
+ {
+  "name": "tools-roundtrip",
+  "args": [
+   "--tools",
+   "read,ls",
+   "list then read a.txt"
+  ],
+  "files": {
+   "home/proj/a.txt": "hi\n",
+   "home/proj/AGENTS.md": "Proj rules\nBe nice.\n"
+  },
+  "script": [
+   {
+    "tool": {
+     "name": "ls",
+     "arguments": {}
+    }
+   },
+   {
+    "tool": {
+     "name": "read",
+     "arguments": {
+      "path": "a.txt"
+     }
+    }
+   },
+   {
+    "text": "Done: a.txt says hi."
+   }
+  ]
+ },
+ {
+  "name": "bash-edit-write",
+  "args": [
+   "do things"
+  ],
+  "files": {
+   "home/proj/f.txt": "one\ntwo\nthree\n"
+  },
+  "script": [
+   {
+    "tool": {
+     "name": "bash",
+     "arguments": {
+      "command": "echo out; echo err 1>&2; exit 3"
+     }
+    }
+   },
+   {
+    "tool": {
+     "name": "edit",
+     "arguments": {
+      "path": "f.txt",
+      "edits": [
+       {
+        "oldText": "two",
+        "newText": "TWO"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "tool": {
+     "name": "write",
+     "arguments": {
+      "path": "new/g.txt",
+      "content": "made"
+     }
+    }
+   },
+   {
+    "tool": {
+     "name": "read",
+     "arguments": {
+      "path": "missing.txt"
+     }
+    }
+   },
+   {
+    "text": "ok"
+   }
+  ]
+ },
+ {
+  "name": "invalid-args",
+  "args": [
+   "x"
+  ],
+  "script": [
+   {
+    "tool": {
+     "name": "read",
+     "arguments": {}
+    }
+   },
+   {
+    "tool": {
+     "name": "nosuch",
+     "arguments": {
+      "a": 1
+     }
+    }
+   },
+   {
+    "text": "recovered"
+   }
+  ]
+ },
+ {
+  "name": "parallel-calls",
+  "args": [
+   "--tools",
+   "read,grep,find",
+   "many"
+  ],
+  "files": {
+   "home/proj/a.txt": "needle here\n",
+   "home/proj/b.txt": "nothing\n"
+  },
+  "script": [
+   {
+    "tool": [
+     {
+      "name": "grep",
+      "arguments": {
+       "pattern": "needle"
+      }
+     },
+     {
+      "name": "read",
+      "arguments": {
+       "path": "b.txt"
+      }
+     }
+    ]
+   },
+   {
+    "text": "both done"
+   }
+  ]
+ },
+ {
+  "name": "stdin-and-files",
+  "stdin": "from stdin\n",
+  "args": [
+   "@a.txt",
+   "first",
+   "second"
+  ],
+  "files": {
+   "home/proj/a.txt": "file body\n"
+  },
+  "script": [
+   {
+    "text": "r1"
+   },
+   {
+    "text": "r2"
+   }
+  ]
+ },
+ {
+  "name": "provider-error",
+  "args": [
+   "x"
+  ],
+  "script": [
+   {
+    "status": 400,
+    "error": "bad request from mock"
+   }
+  ],
+  "known": {
+   "stderr": "pi-ai formats an openai-completions HTTP error as `<status>: <whole JSON body>`; upstream shows body.error (crates/ai/parity/known.json, openai-completions:message.errorMessage)"
+  }
+ },
+ {
+  "name": "length-stop",
+  "args": [
+   "x"
+  ],
+  "script": [
+   {
+    "text": "partial",
+    "finish": "length"
+   }
+  ]
+ },
+ {
+  "name": "system-prompt-flags",
+  "args": [
+   "--system-prompt",
+   "Be terse.",
+   "--append-system-prompt",
+   "Extra.",
+   "--no-context-files",
+   "--thinking",
+   "high",
+   "go"
+  ],
+  "files": {
+   "home/proj/AGENTS.md": "ignored"
+  },
+  "script": [
+   {
+    "text": "k"
+   }
+  ]
+ },
+ {
+  "name": "no-tools",
+  "args": [
+   "--no-tools",
+   "x"
+  ],
+  "script": [
+   {
+    "text": "k"
+   }
+  ]
+ },
+ {
+  "name": "skills-and-settings",
+  "args": [
+   "x"
+  ],
+  "settings": {
+   "defaultTools": [
+    "read",
+    "ls"
+   ],
+   "shellCommandPrefix": "set -e"
+  },
+  "files": {
+   "home/.pi/agent/skills/s1/SKILL.md": "---\nname: s1\ndescription: a skill\n---\nBody of s1\n",
+   "home/.pi/agent/AGENTS.md": "global"
+  },
+  "script": [
+   {
+    "text": "k"
+   }
+  ]
+ }
+]

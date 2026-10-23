@@ -162,6 +162,12 @@ pub fn resolve_settings(settings: Option<&HarnessSettings>) -> Settings {
         tool_execution: settings
             .and_then(|settings| settings.tool_execution)
             .unwrap_or(crate::harness::types::ToolExecutionMode::Parallel),
+        tool_errors: settings
+            .and_then(|settings| settings.tool_errors)
+            .unwrap_or_default(),
+        length_recovery: settings
+            .and_then(|settings| settings.length_recovery)
+            .unwrap_or(false),
         steering_mode: settings
             .and_then(|settings| settings.steering_mode)
             .unwrap_or(crate::harness::types::QueueMode::OneAtATime),

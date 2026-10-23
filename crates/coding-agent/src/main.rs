@@ -1,0 +1,370 @@
+//! `pi-rs`: pi's coding agent without the interactive TUI. `-p` (or piped input) runs print
+//! mode; `--mode json` is not supported yet. Sessions are pi-durable sqlite files.
+
+use std::io::{IsTerminal, Read, Write};
+use std::process::ExitCode;
+use std::sync::Arc;
+
+use pi_coding_agent::args::{self, Args, Mode};
+use pi_coding_agent::config::{self, VERSION};
+use pi_coding_agent::models::ModelRegistry;
+use pi_coding_agent::paths::{PathInput, join, normalize_path, resolve_read_path};
+use pi_coding_agent::print::{self, RunInput, ToolSettings};
+use pi_coding_agent::run_config::{self, Diagnostic, level_name};
+use pi_coding_agent::settings::{self, Settings};
+use pi_coding_agent::system_prompt::{self, AssembleOptions};
+use pi_coding_agent::tools::mime;
+use pi_durable::ai::types::{ImageContent, ImageType, UserBlock};
+use pi_durable::cancel::CancelToken;
+use pi_durable::storage::memory::MemoryStorage;
+use pi_durable::storage::sqlite::SqliteStorage;
+use pi_durable::types::Storage;
+
+fn fail(message: impl std::fmt::Display) -> ExitCode {
+    eprintln!("{message}");
+    ExitCode::from(1)
+}
+
+/// `readPipedStdin`: all of stdin when it is not a terminal, trimmed; None when empty.
+fn piped_stdin() -> Option<String> {
+    if std::io::stdin().is_terminal() {
+        return None;
+    }
+    let mut data = String::new();
+    std::io::stdin().read_to_string(&mut data).ok()?;
+    let trimmed = data.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+/// `processFileArguments`: text files inline in `<file>` tags, images attached.
+fn file_arguments(files: &[String], cwd: &str) -> Result<(String, Vec<UserBlock>), String> {
+    let mut text = String::new();
+    let mut images = Vec::new();
+    for file in files {
+        let path = resolve_read_path(file, cwd);
+        let meta =
+            std::fs::metadata(&path).map_err(|_| format!("Error: File not found: {path}"))?;
+        if meta.len() == 0 {
+            continue;
+        }
+        let bytes =
+            std::fs::read(&path).map_err(|e| format!("Error: Could not read file {path}: {e}"))?;
+        match mime::detect_supported_image_mime_type(&bytes) {
+            Some(mime_type) => {
+                images.push(UserBlock::Image(ImageContent {
+                    kind: ImageType,
+                    data: mime::base64(&bytes),
+                    mime_type: mime_type.to_string(),
+                }));
+                text.push_str(&format!("<file name=\"{path}\"></file>\n"));
+            }
+            None => {
+                let content = String::from_utf8_lossy(&bytes);
+                let content = content.strip_prefix('\u{feff}').unwrap_or(&content);
+                text.push_str(&format!("<file name=\"{path}\">\n{content}\n</file>\n"));
+            }
+        }
+    }
+    Ok((text, images))
+}
+
+/// `<agentDir>/sessions/--<cwd with / as ->--`, upstream's session directory for a cwd.
+fn session_dir(agent_dir: &str, cwd: &str, args: &Args, settings: &Settings) -> String {
+    if let Some(dir) = &args.session_dir {
+        return normalize_path(dir, PathInput::default());
+    }
+    if let Ok(dir) = std::env::var("PI_CODING_AGENT_SESSION_DIR")
+        && !dir.is_empty()
+    {
+        return normalize_path(&dir, PathInput::default());
+    }
+    if let Some(dir) = settings.str("sessionDir") {
+        return normalize_path(dir, PathInput::default());
+    }
+    let safe = format!(
+        "--{}--",
+        cwd.trim_start_matches('/').replace(['/', '\\', ':'], "-")
+    );
+    join(agent_dir, &format!("sessions/{safe}"))
+}
+
+/// The newest `*.db` session in `dir`.
+fn latest_session(dir: &str) -> Option<String> {
+    let mut found: Vec<(std::time::SystemTime, String)> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".db"))
+        .filter_map(|e| {
+            Some((
+                e.metadata().ok()?.modified().ok()?,
+                e.path().to_string_lossy().into_owned(),
+            ))
+        })
+        .collect();
+    found.sort();
+    found.pop().map(|(_, p)| p)
+}
+
+fn report(diagnostics: &[Diagnostic]) {
+    for d in diagnostics {
+        eprintln!("{}", d.render());
+    }
+}
+
+fn run() -> Result<ExitCode, String> {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let parsed = args::parse(&argv);
+    let mut had_error = false;
+    for d in &parsed.diagnostics {
+        eprintln!(
+            "{}: {}",
+            if d.error { "Error" } else { "Warning" },
+            d.message
+        );
+        had_error |= d.error;
+    }
+    if had_error {
+        return Ok(ExitCode::from(1));
+    }
+    if parsed.version {
+        println!("{VERSION}");
+        return Ok(ExitCode::SUCCESS);
+    }
+    if parsed.help {
+        println!(
+            "pi-rs {VERSION}: pi's coding agent without the TUI.\n\nUsage: pi-rs [options] [@files...] [messages...]\n\nSee upstream `pi --help` for the options; pi-rs runs print mode (-p) only."
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+    // Without -p or --mode upstream starts the TUI on a terminal; pi-rs always runs print mode.
+    let mode = parsed.mode;
+    if matches!(mode, Some(Mode::Rpc)) {
+        return Err("Error: --mode rpc is not supported by pi-rs".into());
+    }
+    if matches!(mode, Some(Mode::Json)) {
+        return Err("Error: --mode json is not supported by pi-rs yet".into());
+    }
+
+    let cwd = std::env::current_dir()
+        .map_err(|e| e.to_string())?
+        .to_string_lossy()
+        .into_owned();
+    let agent_dir = config::agent_dir();
+    let startup = Settings::load(&cwd, &agent_dir, false);
+    for w in &startup.warnings {
+        eprintln!("Warning: {w}");
+    }
+    let trusted = settings::resolve_project_trust(
+        &cwd,
+        &agent_dir,
+        parsed.project_trust_override,
+        startup.default_project_trust(),
+    )?;
+    let settings = Settings::load(&cwd, &agent_dir, trusted);
+    if trusted {
+        for w in settings
+            .warnings
+            .iter()
+            .filter(|w| !startup.warnings.contains(w))
+        {
+            eprintln!("Warning: {w}");
+        }
+    }
+
+    let tools = run_config::select_tools(&parsed, &settings)?;
+    let registry = Arc::new(ModelRegistry::load(&agent_dir));
+
+    // The session: a durable sqlite file, or memory with --no-session.
+    let sessions = session_dir(&agent_dir, &cwd, &parsed, &settings);
+    let session_path = if parsed.no_session {
+        None
+    } else if let Some(path) = &parsed.session {
+        Some(normalize_path(path, PathInput::default()))
+    } else if parsed.continue_ {
+        latest_session(&sessions).or_else(|| Some(new_session_path(&sessions)))
+    } else {
+        Some(new_session_path(&sessions))
+    };
+    let assembled = system_prompt::assemble(&AssembleOptions {
+        cwd: &cwd,
+        agent_dir: &agent_dir,
+        project_trusted: trusted,
+        system_prompt: parsed.system_prompt.as_deref(),
+        append_system_prompt: parsed.append_system_prompt.as_deref(),
+        no_context_files: parsed.no_context_files,
+        no_skills: parsed.no_skills,
+        skill_paths: parsed.skills.as_deref().unwrap_or(&[]),
+        tools: &tools,
+    });
+    for w in &assembled.warnings {
+        eprintln!("{w}");
+    }
+    let sections = system_prompt::build_sections(&assembled.input);
+
+    // A first look at the stored conversation, for --continue's model and thinking level.
+    let cancel = CancelToken::new();
+    let (session_model, session_thinking) = match session_path
+        .as_deref()
+        .filter(|p| std::path::Path::new(p).exists())
+    {
+        None => (None, None),
+        Some(path) => {
+            let storage: Arc<dyn Storage> = Arc::new(
+                SqliteStorage::open(path, &Default::default())
+                    .map_err(|e| format!("Error: {e}"))?,
+            );
+            let probe = print::open_harness(
+                storage,
+                print::providers(Arc::clone(&registry), &placeholder()),
+                print::extension(&[], Vec::new(), tool_settings(&cwd, &settings, &[])),
+            )
+            .map_err(|e| e.to_string())?;
+            let root = print::root(&probe, &cancel).map_err(|e| e.to_string())?;
+            let agent = root.agent(&cancel).map_err(|e| e.to_string())?;
+            let has_messages = !print::transcript(&root, &cancel)
+                .map_err(|e| e.to_string())?
+                .is_empty();
+            let model = agent
+                .model
+                .filter(|_| has_messages)
+                .and_then(|m| registry.get_model(&m.provider, &m.model_id).cloned());
+            let thinking = has_messages.then_some(agent.thinking_level);
+            print::close(&probe, &cancel).map_err(|e| e.to_string())?;
+            (model, thinking)
+        }
+    };
+
+    let choice = run_config::choose_model(
+        &parsed,
+        &settings,
+        &registry,
+        session_model,
+        session_thinking,
+    );
+    report(&choice.diagnostics);
+    if choice.diagnostics.iter().any(|d| d.error) {
+        return Ok(ExitCode::from(1));
+    }
+
+    let stdin = piped_stdin();
+    let (file_text, images) = file_arguments(&parsed.file_args, &cwd)?;
+    let mut messages = parsed.messages.clone();
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(s) = stdin {
+        parts.push(s);
+    }
+    if !file_text.is_empty() {
+        parts.push(file_text);
+    }
+    if !messages.is_empty() {
+        parts.push(messages.remove(0));
+    }
+    let initial = (!parts.is_empty()).then(|| (parts.concat(), images));
+
+    let Some(model) = choice.model else {
+        let docs = join(&system_prompt::package_dir(), "docs");
+        return Err(format!(
+            "No models available. Use /login to log into a provider via OAuth or API key. See:\n  {}\n  {}",
+            join(&docs, "providers.md"),
+            join(&docs, "models.md")
+        ));
+    };
+    let env = vec![
+        ("PI_PROVIDER".to_string(), model.provider.clone()),
+        ("PI_MODEL".to_string(), model.id.clone()),
+        (
+            "PI_REASONING_LEVEL".to_string(),
+            level_name(choice.thinking),
+        ),
+    ];
+    let mut tool_env = env;
+    if let Some(path) = &session_path {
+        tool_env.push(("PI_SESSION_FILE".to_string(), path.clone()));
+    }
+    let settings_for_tools = ToolSettings {
+        model_takes_images: model.input.iter().any(|i| i == "image"),
+        ..tool_settings(&cwd, &settings, &tool_env)
+    };
+    let storage: Arc<dyn Storage> = match &session_path {
+        Some(path) => {
+            std::fs::create_dir_all(pi_coding_agent::paths::dirname(path))
+                .map_err(|e| e.to_string())?;
+            Arc::new(
+                SqliteStorage::open(path, &Default::default())
+                    .map_err(|e| format!("Error: {e}"))?,
+            )
+        }
+        None => Arc::new(MemoryStorage::new()),
+    };
+
+    let harness = print::open_harness(
+        storage,
+        print::providers(Arc::clone(&registry), &model),
+        print::extension(&tools, sections, settings_for_tools),
+    )
+    .map_err(|e| e.to_string())?;
+    let root = print::root(&harness, &cancel).map_err(|e| e.to_string())?;
+    let input = RunInput {
+        model,
+        thinking: choice.thinking,
+        cwd: cwd.clone(),
+        initial,
+        messages,
+    };
+    let outcome = print::run_turns(&harness, &root, &input, &cancel);
+    let transcript = print::transcript(&root, &cancel).map_err(|e| e.to_string())?;
+    print::close(&harness, &cancel).map_err(|e| e.to_string())?;
+    if let Err(e) = outcome {
+        return Err(e.to_string());
+    }
+    let (out, err, code) = print::text_result(&transcript);
+    let mut stdout = std::io::stdout().lock();
+    stdout
+        .write_all(out.as_bytes())
+        .map_err(|e| e.to_string())?;
+    stdout.flush().map_err(|e| e.to_string())?;
+    eprint!("{err}");
+    Ok(ExitCode::from(code as u8))
+}
+
+fn placeholder() -> pi_durable::ai::types::Model {
+    pi_durable::ai::types::Model::new("pi-rs", "none", "none", 0, 0, false)
+}
+
+fn tool_settings(cwd: &str, settings: &Settings, env: &[(String, String)]) -> ToolSettings {
+    let bin = config::bin_dir();
+    let path = std::env::var("PATH").unwrap_or_default();
+    let mut env = env.to_vec();
+    if !path.split(':').any(|p| p == bin) {
+        let joined = if path.is_empty() {
+            bin
+        } else {
+            format!("{bin}:{path}")
+        };
+        env.push(("PATH".to_string(), joined));
+    }
+    ToolSettings {
+        cwd: cwd.to_string(),
+        shell_path: settings.shell_path(),
+        command_prefix: settings.shell_command_prefix().map(str::to_string),
+        env,
+        model_takes_images: true,
+    }
+}
+
+fn new_session_path(dir: &str) -> String {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let id =
+        pi_durable::ai::utils::uuid::uuidv7(Some(millis)).unwrap_or_else(|_| millis.to_string());
+    join(dir, &format!("{id}.db"))
+}
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(code) => code,
+        Err(message) => fail(message),
+    }
+}
