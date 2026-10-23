@@ -1,10 +1,11 @@
-//! Pi's coding agent (`@earendil-works/pi-coding-agent`) without the interactive TUI.
+//! Pi's coding agent (`@earendil-works/pi-coding-agent`) with print mode and a first interactive mode.
 
 pub mod args;
 pub mod auth;
 pub mod collate;
 pub mod config;
 pub mod config_value;
+pub mod interactive;
 pub mod json;
 pub mod model_config;
 pub mod model_resolver;
