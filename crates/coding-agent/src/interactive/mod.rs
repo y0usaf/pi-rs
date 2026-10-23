@@ -2,3 +2,4 @@
 //! the footer, on pi-durable's agent events.
 
 pub mod theme;
+pub mod messages;
