@@ -1,5 +1,5 @@
-//! `pi-rs`: pi's coding agent without the interactive TUI. `-p` (or piped input) runs print
-//! mode; `--mode json` is not supported yet. Sessions are pi-durable sqlite files.
+//! `pi-rs`: pi's coding agent. On a terminal it opens the interactive mode; `-p` (or piped
+//! input) runs print mode; `--mode json` is not supported yet. Sessions are pi-durable sqlite files.
 
 use std::io::{IsTerminal, Read, Write};
 use std::process::ExitCode;
@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use pi_coding_agent::args::{self, Args, Mode};
 use pi_coding_agent::config::{self, VERSION};
+use pi_coding_agent::interactive::{self, run::Incoming};
 use pi_coding_agent::models::ModelRegistry;
 use pi_coding_agent::paths::{PathInput, join, normalize_path, resolve_read_path};
 use pi_coding_agent::print::{self, RunInput, ToolSettings};
@@ -132,11 +133,10 @@ fn run() -> Result<ExitCode, String> {
     }
     if parsed.help {
         println!(
-            "pi-rs {VERSION}: pi's coding agent without the TUI.\n\nUsage: pi-rs [options] [@files...] [messages...]\n\nSee upstream `pi --help` for the options; pi-rs runs print mode (-p) only."
+            "pi-rs {VERSION}: pi's coding agent.\n\nUsage: pi-rs [options] [@files...] [messages...]\n\nSee upstream `pi --help` for the options; pi-rs runs the interactive mode on a terminal, print mode with -p."
         );
         return Ok(ExitCode::SUCCESS);
     }
-    // Without -p or --mode upstream starts the TUI on a terminal; pi-rs always runs print mode.
     let mode = parsed.mode;
     if matches!(mode, Some(Mode::Rpc)) {
         return Err("Error: --mode rpc is not supported by pi-rs".into());
@@ -247,6 +247,12 @@ fn run() -> Result<ExitCode, String> {
     }
 
     let stdin = piped_stdin();
+    // Upstream starts the TUI without -p or --mode when stdin and stdout are terminals.
+    let interactive = !parsed.print
+        && mode.is_none()
+        && stdin.is_none()
+        && std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal();
     let (file_text, images) = file_arguments(&parsed.file_args, &cwd)?;
     let mut messages = parsed.messages.clone();
     let mut parts: Vec<String> = Vec::new();
@@ -297,6 +303,47 @@ fn run() -> Result<ExitCode, String> {
         None => Arc::new(MemoryStorage::new()),
     };
 
+    if interactive {
+        let (sender, incoming) = std::sync::mpsc::channel();
+        let reports = std::sync::Mutex::new(sender.clone());
+        let harness = print::open_harness_with(
+            storage,
+            print::providers(Arc::clone(&registry), &model),
+            print::extension(&tools, sections, settings_for_tools),
+            Arc::new(move |error| {
+                if let Ok(s) = reports.lock() {
+                    let _ = s.send(Incoming::Report(error.to_string()));
+                }
+            }),
+        )
+        .map_err(|e| e.to_string())?;
+        let root = print::root(&harness, &cancel).map_err(|e| e.to_string())?;
+        let provider_count = {
+            let mut providers: Vec<&str> =
+                registry.available().iter().map(|m| m.provider.as_str()).collect();
+            providers.sort();
+            providers.dedup();
+            providers.len()
+        };
+        let outcome = interactive::run::run(interactive::run::Session {
+            harness: &harness,
+            root: &root,
+            model,
+            thinking: choice.thinking,
+            cwd: cwd.clone(),
+            initial,
+            messages,
+            provider_count,
+            incoming,
+            sender,
+        });
+        print::close(&harness, &cancel).map_err(|e| e.to_string())?;
+        outcome?;
+        if let Some(path) = &session_path {
+            println!("Session: {path}");
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
     let harness = print::open_harness(
         storage,
         print::providers(Arc::clone(&registry), &model),
