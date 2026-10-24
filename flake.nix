@@ -260,6 +260,10 @@
               ${examples}/bin/extensions_e2e
             touch $out
           '';
+          codemode-e2e = pkgs.runCommand "${pname}-codemode-e2e" { } ''
+            PI_RS_BIN=${self.packages.${system}.default}/bin/pi-rs ${examples}/bin/codemode_e2e
+            touch $out
+          '';
           parity =
             pkgs.runCommand "${pname}-parity"
               {

@@ -11,6 +11,7 @@ name = "pi-rs"
 path = "src/main.rs"
 
 [dependencies]
+pi-codemode = { path = "../codemode" }
 pi-durable = { path = "../durable", features = ["providers"] }
 pi-mcp = { path = "../mcp" }
 pi-extensions = { path = "../extensions" }

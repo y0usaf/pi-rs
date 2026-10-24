@@ -1,0 +1,11 @@
+[package]
+name = "pi-codemode"
+description = "Codemode scripts in a QuickJS child process: upstream's protocol, prelude and guardrails (a Rust reproduction of Pi's pi-codemode)."
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+rquickjs = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }

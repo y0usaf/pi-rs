@@ -650,6 +650,9 @@ fn tool_settings(cwd: &str, settings: &SettingsManager, env: &[(String, String)]
 }
 
 fn main() -> ExitCode {
+    if std::env::args().nth(1).as_deref() == Some("--codemode-vm") {
+        return ExitCode::from(pi_codemode::child::run() as u8);
+    }
     match run() {
         Ok(code) => code,
         Err(message) => fail(message),
