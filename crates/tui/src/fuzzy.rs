@@ -16,6 +16,39 @@ fn is_boundary(u: u16) -> bool {
     }
 }
 
+fn score_positions(text: &[u16], positions: &[i64]) -> f64 {
+    let mut score = 0.0f64;
+    let mut last: i64 = -1;
+    let mut consecutive = 0i64;
+    for &i in positions {
+        if last == i - 1 {
+            consecutive += 1;
+            score -= (consecutive * 5) as f64;
+        } else {
+            consecutive = 0;
+            if last >= 0 {
+                score += ((i - last - 1) * 2) as f64;
+            }
+        }
+        if i == 0 || is_boundary(text[i as usize - 1]) {
+            score -= 10.0;
+        }
+        score += i as f64 * 0.1;
+        last = i;
+    }
+    score
+}
+
+fn find_sub(hay: &[u16], needle: &[u16], from: usize) -> Option<usize> {
+    let rest = hay.get(from..)?;
+    if needle.len() > rest.len() {
+        return None;
+    }
+    (0..=rest.len() - needle.len())
+        .find(|&i| &rest[i..i + needle.len()] == needle)
+        .map(|i| from + i)
+}
+
 fn match_query(q: &[u16], text: &[u16]) -> FuzzyMatch {
     if q.is_empty() {
         return FuzzyMatch {
@@ -29,41 +62,30 @@ fn match_query(q: &[u16], text: &[u16]) -> FuzzyMatch {
             score: 0.0,
         };
     }
-    let mut qi = 0;
-    let mut score = 0.0f64;
+    let mut positions: Vec<i64> = Vec::with_capacity(q.len());
     let mut last: i64 = -1;
-    let mut consecutive = 0i64;
-    while qi < q.len() {
+    for &c in q {
         let from = (last + 1) as usize;
         let Some(off) = text
             .get(from..)
-            .and_then(|t| t.iter().position(|&u| u == q[qi]))
+            .and_then(|t| t.iter().position(|&u| u == c))
         else {
-            break;
+            return FuzzyMatch {
+                matches: false,
+                score: 0.0,
+            };
         };
-        let i = (from + off) as i64;
-        let boundary = i == 0 || is_boundary(text[i as usize - 1]);
-        if last == i - 1 {
-            consecutive += 1;
-            score -= (consecutive * 5) as f64;
-        } else {
-            consecutive = 0;
-            if last >= 0 {
-                score += ((i - last - 1) * 2) as f64;
-            }
-        }
-        if boundary {
-            score -= 10.0;
-        }
-        score += i as f64 * 0.1;
-        last = i;
-        qi += 1;
+        last = (from + off) as i64;
+        positions.push(last);
     }
-    if qi < q.len() {
-        return FuzzyMatch {
-            matches: false,
-            score: 0.0,
-        };
+    let mut score = score_positions(text, &positions);
+    let mut start = find_sub(text, q, 0);
+    while let Some(s) = start {
+        for (k, p) in positions.iter_mut().enumerate() {
+            *p = (s + k) as i64;
+        }
+        score = score.min(score_positions(text, &positions));
+        start = find_sub(text, q, s + 1);
     }
     if q == text {
         score -= 100.0;
