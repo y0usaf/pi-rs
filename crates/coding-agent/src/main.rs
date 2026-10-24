@@ -7,13 +7,14 @@ use std::sync::Arc;
 
 use pi_coding_agent::args::{self, Args, Mode};
 use pi_coding_agent::config::{self, VERSION};
-use pi_coding_agent::interactive::{self, run::Incoming};
+use pi_coding_agent::interactive;
 use pi_coding_agent::list_models;
 use pi_coding_agent::models::ModelRegistry;
 use pi_coding_agent::modes;
 use pi_coding_agent::paths::{PathInput, join, normalize_path, resolve_read_path};
 use pi_coding_agent::print::{self, RunInput, ToolSettings};
 use pi_coding_agent::run_config::{self, Diagnostic, level_name};
+use pi_coding_agent::session_list;
 use pi_coding_agent::settings::{
     self, SettingsManager, collect_diagnostics, deduplicate_diagnostics,
 };
@@ -73,43 +74,6 @@ fn file_arguments(files: &[String], cwd: &str) -> Result<(String, Vec<UserBlock>
         }
     }
     Ok((text, images))
-}
-
-/// `<agentDir>/sessions/--<cwd with / as ->--`, upstream's session directory for a cwd.
-fn session_dir(agent_dir: &str, cwd: &str, args: &Args, settings: &SettingsManager) -> String {
-    if let Some(dir) = &args.session_dir {
-        return normalize_path(dir, PathInput::default());
-    }
-    if let Ok(dir) = std::env::var("PI_CODING_AGENT_SESSION_DIR")
-        && !dir.is_empty()
-    {
-        return normalize_path(&dir, PathInput::default());
-    }
-    if let Some(dir) = settings.session_dir() {
-        return dir;
-    }
-    let safe = format!(
-        "--{}--",
-        cwd.trim_start_matches('/').replace(['/', '\\', ':'], "-")
-    );
-    join(agent_dir, &format!("sessions/{safe}"))
-}
-
-/// The newest `*.db` session in `dir`.
-fn latest_session(dir: &str) -> Option<String> {
-    let mut found: Vec<(std::time::SystemTime, String)> = std::fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .filter(|e| e.file_name().to_string_lossy().ends_with(".db"))
-        .filter_map(|e| {
-            Some((
-                e.metadata().ok()?.modified().ok()?,
-                e.path().to_string_lossy().into_owned(),
-            ))
-        })
-        .collect();
-    found.sort();
-    found.pop().map(|(_, p)| p)
 }
 
 /// The flags pi-rs parses but has no behaviour for yet, in the order upstream reads them.
@@ -251,13 +215,13 @@ fn run() -> Result<ExitCode, String> {
     let registry = Arc::new(ModelRegistry::load(&agent_dir));
 
     // The session: a durable sqlite file, or memory with --no-session.
-    let sessions = session_dir(&agent_dir, &cwd, &parsed, &settings);
+    let sessions = session_list::dir(&agent_dir, &cwd, &parsed, &settings);
     let session_path = if parsed.no_session {
         None
     } else if let Some(path) = &parsed.session {
         Some(normalize_path(path, PathInput::default()))
     } else if parsed.continue_ {
-        latest_session(&sessions).or_else(|| Some(new_session_path(&sessions)))
+        session_list::latest(&sessions).or_else(|| Some(session_list::new_path(&sessions)))
     } else if let Some(id) = &parsed.session_id {
         let path = join(&sessions, &format!("{id}.db"));
         if !std::path::Path::new(&path).exists() {
@@ -267,7 +231,7 @@ fn run() -> Result<ExitCode, String> {
         }
         Some(path)
     } else {
-        Some(new_session_path(&sessions))
+        Some(session_list::new_path(&sessions))
     };
     let assembled = system_prompt::assemble(&AssembleOptions {
         cwd: &cwd,
@@ -385,6 +349,49 @@ fn run() -> Result<ExitCode, String> {
         model_takes_images: model.input.iter().any(|i| i == "image"),
         ..tool_settings(&cwd, &settings, &tool_env)
     };
+    if interactive {
+        let (sender, incoming) = std::sync::mpsc::channel();
+        let provider_count = {
+            let mut providers: Vec<&str> = registry
+                .available()
+                .iter()
+                .map(|m| m.provider.as_str())
+                .collect();
+            providers.sort();
+            providers.dedup();
+            providers.len()
+        };
+        let opener = interactive::run::Opener {
+            registry: Arc::clone(&registry),
+            model: model.clone(),
+            tools: tools.clone(),
+            sections: sections.clone(),
+            tool_settings: settings_for_tools.clone(),
+            compaction: compaction.clone(),
+            sender: sender.clone(),
+            reports: Arc::new(std::sync::Mutex::new(sender)),
+        };
+        let path = interactive::run::run(interactive::run::Session {
+            opener,
+            session_dir: sessions.clone(),
+            persists: !parsed.no_session,
+            model,
+            thinking: choice.thinking,
+            cwd: cwd.clone(),
+            settings: std::rc::Rc::new(std::cell::RefCell::new(settings)),
+            registry,
+            agent_dir: agent_dir.clone(),
+            initial,
+            messages,
+            provider_count,
+            session_path,
+            incoming,
+        })?;
+        if let Some(path) = path {
+            println!("Session: {path}");
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
     let storage: Arc<dyn Storage> = match &session_path {
         Some(path) => {
             std::fs::create_dir_all(pi_coding_agent::paths::dirname(path))
@@ -396,56 +403,6 @@ fn run() -> Result<ExitCode, String> {
         }
         None => Arc::new(MemoryStorage::new()),
     };
-
-    if interactive {
-        let (sender, incoming) = std::sync::mpsc::channel();
-        let reports = std::sync::Mutex::new(sender.clone());
-        let harness = print::open_harness_with(
-            storage,
-            print::providers(Arc::clone(&registry), &model),
-            print::extension(&tools, sections, settings_for_tools),
-            compaction,
-            Arc::new(move |error| {
-                if let Ok(s) = reports.lock() {
-                    let _ = s.send(Incoming::Report(error.to_string()));
-                }
-            }),
-        )
-        .map_err(|e| e.to_string())?;
-        let root = print::root(&harness, &cancel).map_err(|e| e.to_string())?;
-        let provider_count = {
-            let mut providers: Vec<&str> = registry
-                .available()
-                .iter()
-                .map(|m| m.provider.as_str())
-                .collect();
-            providers.sort();
-            providers.dedup();
-            providers.len()
-        };
-        let outcome = interactive::run::run(interactive::run::Session {
-            harness: &harness,
-            root: &root,
-            model,
-            thinking: choice.thinking,
-            cwd: cwd.clone(),
-            settings: std::rc::Rc::new(std::cell::RefCell::new(settings)),
-            registry: std::sync::Arc::clone(&registry),
-            agent_dir: agent_dir.clone(),
-            initial,
-            messages,
-            provider_count,
-            session_path: session_path.clone(),
-            incoming,
-            sender,
-        });
-        print::close(&harness, &cancel).map_err(|e| e.to_string())?;
-        outcome?;
-        if let Some(path) = &session_path {
-            println!("Session: {path}");
-        }
-        return Ok(ExitCode::SUCCESS);
-    }
     let harness = print::open_harness(
         storage,
         print::providers(Arc::clone(&registry), &model),
@@ -532,16 +489,6 @@ fn tool_settings(cwd: &str, settings: &SettingsManager, env: &[(String, String)]
         env,
         model_takes_images: true,
     }
-}
-
-fn new_session_path(dir: &str) -> String {
-    let millis = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-    let id =
-        pi_durable::ai::utils::uuid::uuidv7(Some(millis)).unwrap_or_else(|_| millis.to_string());
-    join(dir, &format!("{id}.db"))
 }
 
 fn main() -> ExitCode {

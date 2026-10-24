@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use std::time::Instant;
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use pi_durable::ai::thinking::{clamp_thinking_level, supported_thinking_levels};
 use pi_durable::ai::types::{
@@ -17,10 +17,13 @@ use pi_durable::ai::types::{
 };
 use pi_durable::cancel::CancelToken;
 use pi_durable::harness::agent::{AgentChange, Change};
-use pi_durable::harness::events::AgentEvent;
+use pi_durable::harness::events::{AgentEvent, AgentEventStream};
 use pi_durable::harness::harness::{Conversation, Harness};
 use pi_durable::harness::submissions::{SubmissionDraft, WhenBusy};
-use pi_durable::harness::types::ModelRef;
+use pi_durable::harness::types::{CompactionOverrides, ModelRef};
+use pi_durable::storage::memory::MemoryStorage;
+use pi_durable::storage::sqlite::SqliteStorage;
+use pi_durable::types::Storage;
 use pi_tui::autocomplete::CombinedAutocompleteProvider;
 use pi_tui::components::editor::{Editor, EditorOptions};
 use pi_tui::components::text::Text;
@@ -42,7 +45,9 @@ use super::status::{StatusArea, WORKING, header};
 use super::theme;
 use crate::model_resolver;
 use crate::models::ModelRegistry;
+use crate::print::{self, ToolSettings};
 use crate::run_config::{level_name, parse_level};
+use crate::session_list;
 use crate::settings::{self as settings_mod, SettingsManager};
 
 /// What the loop hears from other threads.
@@ -51,9 +56,99 @@ pub enum Incoming {
     Report(String),
 }
 
-pub struct Session<'a> {
-    pub harness: &'a Harness,
-    pub root: &'a Conversation,
+/// Opens a session's harness and root conversation. The loop owns what an open returns, and
+/// opens another one when it switches session, so nothing here borrows the session it replaces.
+pub struct Opener {
+    pub registry: Arc<ModelRegistry>,
+    /// A model the catalog lacks (a --model id) is still callable.
+    pub model: Model,
+    pub tools: Vec<String>,
+    pub sections: Vec<(String, String)>,
+    /// The tool environment without PI_SESSION_FILE, which depends on the session.
+    pub tool_settings: ToolSettings,
+    pub compaction: CompactionOverrides,
+    pub sender: mpsc::Sender<Incoming>,
+    pub reports: Arc<Mutex<mpsc::Sender<Incoming>>>,
+}
+
+/// A session open in the loop: its harness, its root conversation and the subscription that
+/// feeds the loop its events.
+pub struct Open {
+    pub harness: Harness,
+    pub root: Conversation,
+    pub stream: AgentEventStream,
+    /// The sqlite file it lives in; None under --no-session.
+    pub path: Option<String>,
+}
+
+impl Opener {
+    /// Open the session at path, or a fresh in-memory one for None: the harness, its root
+    /// conversation, and a subscription whose events arrive as Incoming::Events.
+    pub fn open(&self, path: Option<&str>) -> Result<Open, String> {
+        let cancel = CancelToken::new();
+        let storage: Arc<dyn Storage> = match path {
+            Some(path) => {
+                std::fs::create_dir_all(crate::paths::dirname(path)).map_err(|e| e.to_string())?;
+                Arc::new(
+                    SqliteStorage::open(path, &Default::default())
+                        .map_err(|e| format!("Error: {e}"))?,
+                )
+            }
+            None => Arc::new(MemoryStorage::new()),
+        };
+        let mut settings = self.tool_settings.clone();
+        settings.env.retain(|(key, _)| key != "PI_SESSION_FILE");
+        if let Some(path) = path {
+            settings
+                .env
+                .push(("PI_SESSION_FILE".to_owned(), path.to_owned()));
+        }
+        let reports = Arc::clone(&self.reports);
+        let harness = print::open_harness_with(
+            storage,
+            print::providers(Arc::clone(&self.registry), &self.model),
+            print::extension(&self.tools, self.sections.clone(), settings),
+            self.compaction.clone(),
+            Arc::new(move |error| {
+                if let Ok(sender) = reports.lock() {
+                    let _ = sender.send(Incoming::Report(error.to_string()));
+                }
+            }),
+        )
+        .map_err(|e| e.to_string())?;
+        let root = print::root(&harness, &cancel).map_err(|e| e.to_string())?;
+        let stream = root.events(&cancel).map_err(|e| e.to_string())?;
+        let feed = self.sender.clone();
+        stream
+            .start(move |events, _| {
+                let _ = feed.send(Incoming::Events(events.to_vec()));
+                Ok(())
+            })
+            .map_err(|e| e.to_string())?;
+        // Picks up a run a killed process left behind.
+        harness.resume().map_err(|e| e.to_string())?;
+        Ok(Open {
+            harness,
+            root,
+            stream,
+            path: path.map(str::to_owned),
+        })
+    }
+}
+
+impl Open {
+    /// Stop the event feed and close the harness, which settles its transaction and the file.
+    pub fn shutdown(&mut self, cancel: &CancelToken) -> Result<(), String> {
+        self.stream.stop();
+        print::close(&self.harness, cancel).map_err(|e| e.to_string())
+    }
+}
+
+pub struct Session {
+    pub opener: Opener,
+    /// Where /new puts its file; persists is false under --no-session.
+    pub session_dir: String,
+    pub persists: bool,
     pub model: Model,
     pub thinking: ModelThinkingLevel,
     pub cwd: String,
@@ -67,10 +162,9 @@ pub struct Session<'a> {
     pub initial: Option<(String, Vec<UserBlock>)>,
     pub messages: Vec<String>,
     pub provider_count: usize,
-    /// The SQLite file the conversation lives in; `None` under `--no-session`.
+    /// The SQLite file the loop starts in; `None` under `--no-session`.
     pub session_path: Option<String>,
     pub incoming: mpsc::Receiver<Incoming>,
-    pub sender: mpsc::Sender<Incoming>,
 }
 
 /// Keys the loop acts on, read by an input listener before the editor sees them.
@@ -337,11 +431,58 @@ fn session_info(
     }))
 }
 
-pub fn run(session: Session<'_>) -> Result<(), String> {
+/// Upstream's `switchSession` and `newSession` (`core/agent-session-runtime.ts`): settle the run
+/// in flight into the session it belongs to, close it, open the target, and redraw the chat from
+/// the target's transcript.
+fn replace_session(
+    open: &mut Open,
+    opener: &Opener,
+    chat: &mut Chat,
+    target: Option<&str>,
+    cancel: &CancelToken,
+) -> Result<(), String> {
+    if chat.working {
+        let _ = open.root.abort(false, cancel);
+    }
+    let _ = open.root.wait_for_idle(cancel);
+    open.shutdown(cancel)?;
+    let next = opener.open(target)?;
+    chat.clear();
+    chat.load(&next.stream.snapshot);
+    *open = next;
+    Ok(())
+}
+
+/// Point a session's agent at the loop's model, thinking level and cwd, as upstream does for a
+/// session it creates or switches to.
+fn apply_agent(
+    root: &Conversation,
+    cancel: &CancelToken,
+    model: &Model,
+    thinking: ModelThinkingLevel,
+    cwd: &str,
+) -> Result<(), String> {
+    root.configure(
+        &AgentChange {
+            model: Change::Set(ModelRef {
+                provider: model.provider.clone(),
+                model_id: model.id.clone(),
+            }),
+            thinking_level: Change::Set(clamp_thinking_level(model, thinking)),
+            cwd: Change::Set(cwd.to_owned()),
+            ..AgentChange::default()
+        },
+        cancel,
+    )
+    .map_err(|e| e.to_string())
+}
+
+pub fn run(session: Session) -> Result<Option<String>, String> {
     let cancel = CancelToken::new();
     let Session {
-        harness,
-        root,
+        opener,
+        session_dir,
+        persists,
         model,
         thinking,
         cwd,
@@ -353,39 +494,17 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
         provider_count,
         session_path,
         incoming,
-        sender,
     } = session;
     let (mut model, mut thinking) = (model, thinking);
     keybindings::install();
-    root.configure(
-        &AgentChange {
-            model: Change::Set(ModelRef {
-                provider: model.provider.clone(),
-                model_id: model.id.clone(),
-            }),
-            thinking_level: Change::Set(thinking),
-            cwd: Change::Set(cwd.clone()),
-            ..AgentChange::default()
-        },
-        &cancel,
-    )
-    .map_err(|e| e.to_string())?;
+    let mut open = opener.open(session_path.as_deref())?;
+    apply_agent(&open.root, &cancel, &model, thinking, &cwd)?;
 
     let mut chat = Chat::new(&cwd);
     chat.hide_thinking = settings.borrow().hide_thinking_block();
     chat.output_pad = settings.borrow().output_pad() as usize;
     let mut scope = session_scope(&settings.borrow(), &available_models(&registry));
-    let stream = root.events(&cancel).map_err(|e| e.to_string())?;
-    chat.load(&stream.snapshot);
-    let feed = sender.clone();
-    stream
-        .start(move |events, _| {
-            let _ = feed.send(Incoming::Events(events.to_vec()));
-            Ok(())
-        })
-        .map_err(|e| e.to_string())?;
-    // Picks up a run a killed process left behind.
-    harness.resume().map_err(|e| e.to_string())?;
+    chat.load(&open.stream.snapshot);
 
     let start = Instant::now();
     let now = || start.elapsed().as_millis() as u64;
@@ -480,7 +599,7 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
         // Queued command-line messages go one per idle turn, as print mode sends them.
         if !chat.working && !pending.is_empty() {
             let content = pending.remove(0);
-            if let Err(e) = submit(root, content, false, &cancel) {
+            if let Err(e) = submit(&open.root, content, false, &cancel) {
                 chat.notice("error", &format!("Error: {e}"));
             }
             chat.working = true;
@@ -518,7 +637,7 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
             match action {
                 Action::Interrupt => {
                     if chat.working
-                        && let Err(e) = root.abort(false, &cancel)
+                        && let Err(e) = open.root.abort(false, &cancel)
                     {
                         chat.notice("error", &format!("Error: {e}"));
                     }
@@ -554,7 +673,7 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
                     close = true;
                     match registry.get_model(&provider, &id).cloned() {
                         Some(found) => match apply_model(
-                            root,
+                            &open.root,
                             &cancel,
                             &mut settings.borrow_mut(),
                             &footer,
@@ -575,7 +694,7 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
                 OverlayAction::SetThinking { level, persist } => {
                     close = true;
                     match apply_thinking(
-                        root,
+                        &open.root,
                         &cancel,
                         &mut settings.borrow_mut(),
                         &footer,
@@ -682,17 +801,25 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
             if let Some(command) = slash_commands::dispatch(trimmed) {
                 match command {
                     Command::Quit => quit = true,
-                    Command::New => match root.reset(None, &cancel) {
-                        Ok(()) => {
-                            chat.clear();
-                            chat.notice("accent", "✓ New session started");
+                    Command::New => {
+                        let target = persists.then(|| session_list::new_path(&session_dir));
+                        match replace_session(
+                            &mut open,
+                            &opener,
+                            &mut chat,
+                            target.as_deref(),
+                            &cancel,
+                        )
+                        .and_then(|()| apply_agent(&open.root, &cancel, &model, thinking, &cwd))
+                        {
+                            Ok(()) => chat.notice("accent", "✓ New session started"),
+                            Err(e) => chat.notice("error", &format!("Error: {e}")),
                         }
-                        Err(e) => chat.notice("error", &format!("Error: {e}")),
-                    },
+                    }
                     Command::Session => match session_info(
-                        root,
+                        &open.root,
                         &cancel,
-                        session_path.as_deref(),
+                        open.path.as_deref(),
                         chat.totals,
                         chat.context_tokens,
                     ) {
@@ -701,7 +828,7 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
                     },
                     Command::Hotkeys => chat.block(&slash_commands::hotkeys()),
                     Command::Compact(instructions) => {
-                        if let Err(e) = root.compact(instructions.as_deref(), &cancel) {
+                        if let Err(e) = open.root.compact(instructions.as_deref(), &cancel) {
                             chat.notice("error", &format!("Error: {e}"));
                         }
                     }
@@ -713,7 +840,7 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
                         });
                         match exact {
                             Some(found) => match apply_model(
-                                root,
+                                &open.root,
                                 &cancel,
                                 &mut settings.borrow_mut(),
                                 &footer,
@@ -745,7 +872,7 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
                         let levels = supported_thinking_levels(&model);
                         match term.as_deref().and_then(parse_level) {
                             Some(level) => match apply_thinking(
-                                root,
+                                &open.root,
                                 &cancel,
                                 &mut settings.borrow_mut(),
                                 &footer,
@@ -823,7 +950,7 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
                 continue;
             }
             editor.borrow_mut().add_to_history(&text);
-            if let Err(e) = submit(root, text_input(&text, &[]), chat.working, &cancel) {
+            if let Err(e) = submit(&open.root, text_input(&text, &[]), chat.working, &cancel) {
                 chat.notice("error", &format!("Error: {e}"));
             }
             chat.working = true;
@@ -854,9 +981,9 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
     }
     tui.stop(false);
     tui.terminal.drain_input(1000, 50);
-    stream.stop();
     if chat.working {
-        let _ = root.abort(false, &cancel);
+        let _ = open.root.abort(false, &cancel);
     }
-    Ok(())
+    open.shutdown(&cancel)?;
+    Ok(open.path)
 }

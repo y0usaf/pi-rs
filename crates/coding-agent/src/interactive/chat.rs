@@ -280,6 +280,8 @@ impl Chat {
         }
         self.working = snapshot.run.is_some();
         self.totals = totals_of(&snapshot.usage);
+        self.context_tokens = None;
+        self.status = None;
     }
 
     fn apply_change(message: &mut AssistantMessage, change: &MessageChange) {
