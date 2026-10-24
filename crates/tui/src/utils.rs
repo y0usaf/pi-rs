@@ -987,8 +987,7 @@ pub fn truncate_to_width(text: &str, max_width: usize, ellipsis: &str, pad: bool
     let mut kept = 0;
     let mut keep_prefix = true;
     let mut overflowed = false;
-    let exhausted;
-    if !text.contains('\x1b') && !text.contains('\t') {
+    let exhausted = if !text.contains('\x1b') && !text.contains('\t') {
         for seg in graphemes(text) {
             let w = grapheme_width(seg);
             if keep_prefix && kept + w <= target {
@@ -1003,7 +1002,7 @@ pub fn truncate_to_width(text: &str, max_width: usize, ellipsis: &str, pad: bool
                 break;
             }
         }
-        exhausted = !overflowed;
+        !overflowed
     } else {
         let mut i = 0;
         'outer: while i < text.len() {
@@ -1048,8 +1047,8 @@ pub fn truncate_to_width(text: &str, max_width: usize, ellipsis: &str, pad: bool
             }
             i = end;
         }
-        exhausted = i >= text.len();
-    }
+        i >= text.len()
+    };
     if !overflowed && exhausted {
         return if pad {
             format!("{text}{}", " ".repeat(max_width.saturating_sub(so_far)))
