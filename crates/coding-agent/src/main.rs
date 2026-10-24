@@ -9,6 +9,7 @@ use pi_coding_agent::args::{self, Args, Mode};
 use pi_coding_agent::config::{self, VERSION};
 use pi_coding_agent::interactive;
 use pi_coding_agent::list_models;
+use pi_coding_agent::mcp;
 use pi_coding_agent::models::ModelRegistry;
 use pi_coding_agent::modes;
 use pi_coding_agent::paths::{PathInput, join, normalize_path, resolve_read_path};
@@ -268,6 +269,11 @@ fn run() -> Result<ExitCode, String> {
 
     let tools = run_config::select_tools(&parsed, &settings)?;
     let registry = Arc::new(ModelRegistry::load(&agent_dir));
+    let mcp = mcp::Servers::start(&agent_dir, &cwd, trusted, parsed.no_mcp);
+    let mcp_tools = mcp.registrations();
+    // Upstream reports MCP trouble through the UI, which print mode does not have.
+    let mut mcp_notices: Vec<String> = mcp.problems();
+    mcp_notices.extend(mcp.unreachable_warning());
 
     // The session: a durable sqlite file, or memory with --no-session.
     let initial_name = parsed
@@ -326,7 +332,13 @@ fn run() -> Result<ExitCode, String> {
     for w in &assembled.warnings {
         eprintln!("{w}");
     }
-    let sections = system_prompt::build_sections(&assembled.input);
+    let mut sections = system_prompt::build_sections(&assembled.input);
+    if let Some(section) = mcp.section() {
+        sections.push((
+            "mcp_servers".to_owned(),
+            format!("<mcp_servers>\n{section}\n</mcp_servers>"),
+        ));
+    }
 
     // A first look at the stored conversation, for --continue's model and thinking level.
     let cancel = CancelToken::new();
@@ -448,6 +460,7 @@ fn run() -> Result<ExitCode, String> {
             registry: Arc::clone(&registry),
             model: model.clone(),
             tools: tools.clone(),
+            extra_tools: mcp_tools,
             sections: sections.clone(),
             tool_settings: settings_for_tools.clone(),
             compaction: compaction.clone(),
@@ -469,6 +482,7 @@ fn run() -> Result<ExitCode, String> {
             provider_count,
             session_path,
             initial_name,
+            mcp_problems: mcp_notices,
             incoming,
         })?;
         if let Some(path) = path {
@@ -490,7 +504,7 @@ fn run() -> Result<ExitCode, String> {
     let harness = print::open_harness(
         storage,
         print::providers(Arc::clone(&registry), &model),
-        print::extension(&tools, sections, settings_for_tools),
+        print::extension_with(&tools, sections, settings_for_tools, mcp_tools),
         compaction,
     )
     .map_err(|e| e.to_string())?;

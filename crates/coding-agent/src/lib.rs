@@ -8,6 +8,7 @@ pub mod config_value;
 pub mod interactive;
 pub mod json;
 pub mod list_models;
+pub mod mcp;
 pub mod model_config;
 pub mod model_resolver;
 pub mod models;

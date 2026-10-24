@@ -68,6 +68,8 @@ pub struct Opener {
     /// A model the catalog lacks (a --model id) is still callable.
     pub model: Model,
     pub tools: Vec<String>,
+    /// Tools other parts add beside the built-in ones (MCP's servers').
+    pub extra_tools: Vec<pi_durable::harness::types::ToolRegistration>,
     pub sections: Vec<(String, String)>,
     /// The tool environment without PI_SESSION_FILE, which depends on the session.
     pub tool_settings: ToolSettings,
@@ -112,7 +114,12 @@ impl Opener {
         let harness = print::open_harness_with(
             storage,
             print::providers(Arc::clone(&self.registry), &self.model),
-            print::extension(&self.tools, self.sections.clone(), settings),
+            print::extension_with(
+                &self.tools,
+                self.sections.clone(),
+                settings,
+                self.extra_tools.clone(),
+            ),
             self.compaction.clone(),
             Arc::new(move |error| {
                 if let Ok(sender) = reports.lock() {
@@ -171,6 +178,8 @@ pub struct Session {
     pub session_path: Option<String>,
     /// `--name`: the name the session starts with.
     pub initial_name: Option<String>,
+    /// MCP servers that failed to connect or are configured wrongly, shown once at startup.
+    pub mcp_problems: Vec<String>,
     pub incoming: mpsc::Receiver<Incoming>,
 }
 
@@ -638,6 +647,15 @@ fn branch_session(
     crate::session_fork::branch(&dir, &path)
 }
 
+/// `MCP servers need attention`, with one line per server, as upstream reports them once at startup.
+pub fn mcp_report(problems: &[String]) -> String {
+    let lines: Vec<String> = problems
+        .iter()
+        .map(|problem| format!("  {problem}"))
+        .collect();
+    format!("MCP servers need attention:\n{}", lines.join("\n"))
+}
+
 pub fn run(session: Session) -> Result<Option<String>, String> {
     let cancel = CancelToken::new();
     let Session {
@@ -655,6 +673,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         provider_count,
         session_path,
         initial_name,
+        mcp_problems,
         incoming,
     } = session;
     let (mut model, mut thinking, mut cwd) = (model, thinking, cwd);
@@ -670,6 +689,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     chat.output_pad = settings.borrow().output_pad() as usize;
     let mut scope = session_scope(&settings.borrow(), &available_models(&registry));
     chat.load(&open.stream.snapshot);
+    if !mcp_problems.is_empty() {
+        chat.notice("warning", &mcp_report(&mcp_problems));
+    }
 
     let start = Instant::now();
     let now = || start.elapsed().as_millis() as u64;

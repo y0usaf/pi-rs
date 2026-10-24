@@ -114,6 +114,16 @@ pub fn extension(
     sections: Vec<(String, String)>,
     settings: ToolSettings,
 ) -> Extension {
+    extension_with(tool_names, sections, settings, Vec::new())
+}
+
+/// The built-in tools and the ones other parts add (MCP's servers'), in that order.
+pub fn extension_with(
+    tool_names: &[String],
+    sections: Vec<(String, String)>,
+    settings: ToolSettings,
+    extra: Vec<ToolRegistration>,
+) -> Extension {
     let settings = Arc::new(settings);
     Extension {
         name: "pi-coding-agent".to_owned(),
@@ -121,6 +131,7 @@ pub fn extension(
             .iter()
             .filter_map(|name| tools::spec(name))
             .map(|spec| registration(spec, Arc::clone(&settings)))
+            .chain(extra)
             .collect(),
         sections: sections
             .into_iter()
