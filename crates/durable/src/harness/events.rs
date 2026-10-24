@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use crate::ai::types::{AssistantBlock, AssistantMessage, Message, Usage};
 use crate::cancel::CancelToken;
 use crate::chord::delta::{Op, Seg};
+use crate::chord::watch::{NativeWatch, WatchEnd};
 use crate::documents::DocDefinition;
 use crate::errors::{Error, Result};
 use crate::harness::agent::{AgentState, agent_doc};
@@ -20,8 +21,7 @@ use crate::harness::util::scan_all;
 use crate::harness::view::{Change, ConversationViews, Observer};
 use crate::ids::{ConversationId, EntryId, SubmissionId, TaskId};
 use crate::session::kernel::Session;
-use crate::session::observation::WatchShared;
-use crate::session::types::WatchEnd;
+use crate::session::replica::watch_error;
 use crate::tasks::{TaskOutcome, TaskState, TaskStatus};
 use crate::types::{
     AnyTaskRecord, CommitChange, CompactionReason, EntryRecord, JsonObject, JsonValue, Storage,
@@ -207,7 +207,7 @@ pub enum AgentEvent {
 
 pub struct AgentEventStream {
     pub snapshot: SnapshotEvent,
-    watch: Arc<WatchShared<Vec<AgentEvent>>>,
+    watch: NativeWatch<Vec<AgentEvent>>,
 }
 
 impl AgentEventStream {
@@ -216,10 +216,11 @@ impl AgentEventStream {
         mut listener: impl FnMut(&[AgentEvent], &CancelToken) -> Result<()> + Send + 'static,
     ) -> Result<()> {
         self.watch
-            .start(Box::new(move |events, _ops, cancel| match events {
-                Some(events) => listener(events, cancel),
+            .start(Box::new(move |events, cancel| match events {
+                Some(events) => listener(events, cancel).map_err(watch_error),
                 None => Ok(()),
             }))
+            .map_err(Error::from)
     }
 
     pub fn stop(&self) -> WatchEnd {
@@ -245,23 +246,29 @@ pub fn watch_events(
         views.attach_with(session, conversation, cancel, |value, storage| {
             let held = completing_generations(storage, conversation, cancel)?;
             let snapshot = snapshot_of(value)?;
-            let watch = WatchShared::new(Some(Vec::new()), deliveries);
+            let current = Arc::new(Mutex::new(value.clone()));
+            let newest = Arc::clone(&current);
+            let watch = NativeWatch::new(
+                Some(Vec::new()),
+                deliveries,
+                Arc::new(move |_events: &Vec<AgentEvent>| {
+                    let value = newest.lock().expect(LOCK).clone();
+                    let snapshot = snapshot_of(&value).map_err(watch_error)?;
+                    Ok((vec![AgentEvent::Snapshot(Box::new(snapshot))], Vec::new()))
+                }),
+            );
             let held = Mutex::new(held);
-            let feed = Arc::clone(&watch);
+            let feed = watch.clone();
             let observer: Observer = Arc::new(move |change: &Change<'_>| {
                 let mut held = held.lock().expect(LOCK);
                 match translate(conversation, change, &mut held) {
                     Ok(events) if events.is_empty() => {}
-                    Ok(events) => feed.advance(Some(events), Vec::new(), |_| {
-                        snapshot_of(change.after).map(|snapshot| {
-                            (
-                                Some(vec![AgentEvent::Snapshot(Box::new(snapshot))]),
-                                Vec::new(),
-                            )
-                        })
-                    }),
+                    Ok(events) => {
+                        *current.lock().expect(LOCK) = change.after.clone();
+                        feed.advance(Some(events));
+                    }
                     Err(error) => {
-                        feed.terminate(WatchEnd::ListenerError(Arc::new(error)));
+                        feed.terminate(WatchEnd::ListenerError(watch_error(error)));
                     }
                 }
             });

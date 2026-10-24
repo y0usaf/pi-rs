@@ -6,6 +6,7 @@ use serde_json::{Map, Value, json};
 use crate::cancel::CancelToken;
 use crate::chord::delta::{Op, Seg, apply};
 use crate::chord::state::Attached;
+use crate::chord::watch::{Deliveries, Watch};
 use crate::documents::DocDefinition;
 use crate::errors::{Error, Result};
 use crate::harness::agent::agent_doc;
@@ -16,7 +17,7 @@ use crate::harness::provider::provider_doc;
 use crate::harness::usage::usage_doc;
 use crate::ids::ConversationId;
 use crate::session::kernel::{Session, report_error};
-use crate::session::observation::{AttachedState, Deliveries, Sink, Watch, WatchShared, feeder};
+use crate::session::replica::{AttachedState, Sink, feeder, replacing};
 use crate::session::types::{DocumentWatch, WatchEnd};
 use crate::types::{
     CommitChange, CommitPublication, ConversationRecord, DocumentCommitChange, EntryRecord,
@@ -201,15 +202,15 @@ impl ConversationViews {
     ) -> Result<DocumentWatch> {
         let deliveries = session.deliveries();
         let (_, guard, shared) = self.attach_with(session, id, cancel, |value, _| {
-            let shared = WatchShared::new(value.as_object().cloned(), deliveries);
+            let shared = Watch::new(value.as_object().cloned(), deliveries, replacing());
             Ok((watch_observer(&shared), shared))
         })?;
         attached_watch(shared, guard, cancel)
     }
 }
 
-pub(crate) fn watch_observer(shared: &Arc<WatchShared<JsonObject>>) -> Observer {
-    let sink = Sink::Watch(Arc::clone(shared));
+pub(crate) fn watch_observer(shared: &Watch<JsonObject>) -> Observer {
+    let sink = Sink::Watch(shared.clone());
     Arc::new(move |change| {
         if !change.ops.is_empty() {
             sink.advance(change.after.as_object().cloned(), change.ops.to_vec());
@@ -218,7 +219,7 @@ pub(crate) fn watch_observer(shared: &Arc<WatchShared<JsonObject>>) -> Observer 
 }
 
 pub(crate) fn attached_watch<G: Send + 'static>(
-    shared: Arc<WatchShared<JsonObject>>,
+    shared: Watch<JsonObject>,
     guard: G,
     cancel: &CancelToken,
 ) -> Result<DocumentWatch> {
@@ -228,7 +229,7 @@ pub(crate) fn attached_watch<G: Send + 'static>(
         return Err(Error::Aborted);
     }
     shared.observe_cancellation(cancel);
-    Ok(Watch::boxed(shared))
+    Ok(Box::new(shared))
 }
 
 pub(crate) fn replicate(value: &Value) -> (Observer, Arc<Mutex<Attached>>) {

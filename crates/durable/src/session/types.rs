@@ -1,11 +1,11 @@
 use crate::cancel::CancelToken;
 use crate::documents::DocDefinition;
-use crate::errors::{Error, Result};
+use crate::errors::Result;
 use crate::ids::{ConversationId, EntryId, SubmissionId, TaskId};
 use crate::tasks::TaskOwnership;
 use crate::types::{
     AnyTaskRecord, CommitPublication, ConversationOwnership, ConversationQuery, ConversationRecord,
-    Cursor, EntryDraft, EntryQuery, EntryRecord, HeadMarker, JsonObject, JsonValue, Op, Page,
+    Cursor, EntryDraft, EntryQuery, EntryRecord, HeadMarker, JsonObject, JsonValue, Page,
     SubmissionCreate, SubmissionRecord, SubmissionSettlement, TaskQuery,
 };
 
@@ -19,26 +19,11 @@ pub struct DocRef<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DraftId(pub usize);
 
-#[derive(Debug, Clone)]
-pub enum WatchEnd {
-    Stopped,
-    Cancelled,
-    SessionClosed,
-    Retired,
-    ListenerError(std::sync::Arc<Error>),
-}
+pub use crate::chord::watch::{FrameListener, WatchEnd, WatchHandle};
 
-pub type WatchListener =
-    Box<dyn FnMut(Option<&JsonObject>, &[Op], &CancelToken) -> Result<()> + Send>;
+pub type WatchListener = FrameListener<JsonObject>;
 
-pub trait WatchHandle {
-    fn value(&self) -> Option<JsonObject>;
-    fn start(&mut self, listener: WatchListener) -> Result<()>;
-    fn stop(&mut self) -> WatchEnd;
-    fn closed(&self) -> Option<WatchEnd>;
-}
-
-pub type DocumentWatch = Box<dyn WatchHandle + Send>;
+pub type DocumentWatch = Box<dyn WatchHandle<JsonObject> + Send>;
 
 pub trait DocumentReader {
     fn snapshot(&self, doc: DocRef, cancel: &CancelToken) -> Result<Option<JsonObject>>;

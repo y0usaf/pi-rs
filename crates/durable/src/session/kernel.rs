@@ -9,15 +9,14 @@ use crate::cancel::CancelToken;
 use crate::chord::delta::track;
 use crate::chord::error::Error as ChordError;
 use crate::chord::state::Attached;
+use crate::chord::watch::{Deliveries, Detach, Watch};
 use crate::documents::{
     DocDefinition, DocToken, check_record_scope, check_record_version, materialize_document,
     resolve_address,
 };
 use crate::errors::{Error, Result};
 use crate::ids::{ConversationId, DocumentId, EntryId, Seq};
-use crate::session::observation::{
-    Deliveries, Detach, DocumentState, Sink, StateSource, Watch, WatchShared, observed_operations,
-};
+use crate::session::replica::{DocumentState, Sink, StateSource, observed_operations, replacing};
 use crate::session::transaction::{LoadedDocument, Transaction, TransactionHost, TransactionScope};
 use crate::session::types::{
     CommitListener, DocRef, DocumentObserver, DocumentReader, DocumentWatch, Tx, Unsubscribe,
@@ -351,12 +350,16 @@ impl Session {
         &self,
         definition: &DocDefinition,
         loaded: &LoadedDocument,
-    ) -> Result<Arc<WatchShared<JsonObject>>> {
+    ) -> Result<Watch<JsonObject>> {
         check_record_scope(definition, &loaded.record.create)?;
         check_record_version(definition, &loaded.record.create, loaded.stored_version)?;
-        let shared = WatchShared::new(Some(tracked_object(loaded)?), Arc::clone(&self.deliveries));
+        let shared = Watch::new(
+            Some(tracked_object(loaded)?),
+            Arc::clone(&self.deliveries),
+            replacing(),
+        );
         let detach = self.register(
-            Sink::Watch(Arc::clone(&shared)),
+            Sink::Watch(shared.clone()),
             loaded.record.create.id,
             loaded.value_version,
         );
@@ -602,7 +605,7 @@ impl DocumentObserver for Session {
             return Err(Error::Invalid(ABORTED_WAIT.into()));
         }
         shared.observe_cancellation(cancel);
-        Ok(Some(Watch::boxed(shared)))
+        Ok(Some(Box::new(shared)))
     }
 }
 

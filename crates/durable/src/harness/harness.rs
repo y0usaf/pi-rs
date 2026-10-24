@@ -30,7 +30,7 @@ use crate::harness::util::{conversation_doc, scan_all};
 use crate::harness::view::{ConversationViews, ViewGuard};
 use crate::ids::{ConversationId, EntryId, ROOT_CONVERSATION_ID, TaskId};
 use crate::session::kernel::{CreatedHook, Session, open_session, system_now};
-use crate::session::observation::AttachedState;
+use crate::session::replica::AttachedState;
 use crate::session::transaction::TransactionScope;
 use crate::session::types::{DocumentWatch, Tx};
 use crate::types::CompactionReason;
