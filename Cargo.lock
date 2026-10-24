@@ -337,6 +337,7 @@ name = "pi-coding-agent"
 version = "0.1.0"
 dependencies = [
  "pi-durable",
+ "pi-mcp",
  "pi-tui",
  "regex",
  "ring",
@@ -364,6 +365,14 @@ name = "pi-env"
 version = "0.1.0"
 dependencies = [
  "pi-rt",
+]
+
+[[package]]
+name = "pi-mcp"
+version = "0.1.0"
+dependencies = [
+ "pi-ai",
+ "serde_json",
 ]
 
 [[package]]

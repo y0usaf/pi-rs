@@ -1,0 +1,10 @@
+[package]
+name = "pi-mcp"
+description = "Pi's pi-mcp: a Model Context Protocol client over stdio and streamable HTTP."
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+pi-ai = { path = "../ai", features = ["http"] }
+serde_json = { version = "1", features = ["preserve_order"] }
