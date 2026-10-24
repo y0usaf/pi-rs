@@ -1,7 +1,7 @@
 mod database;
 pub mod migrations;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -11,12 +11,14 @@ use rusqlite::{Connection, Row, params, params_from_iter};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use self::database::{all, get, invalid, run, transaction};
+use self::database::{all, get, invalid, run, sql, transaction};
 use self::migrations::{SQLITE_MIGRATIONS, apply_migrations};
+use crate::ai::types::{AssistantBlock, Message, UserBlock, UserContent};
 use crate::cancel::CancelToken;
 use crate::chord::delta::Op;
 use crate::documents::MAX_SAFE_INTEGER;
 use crate::errors::{Error, Result};
+use crate::harness::agent::AgentState;
 use crate::ids::{ConversationId, DocumentId, EntryId, Seq, SubmissionId, TaskId};
 use crate::storage::scan::{ScanStart, cursor_after, page, scan_start};
 use crate::storage::{
@@ -26,9 +28,9 @@ use crate::tasks::TaskStatus;
 use crate::types::{
     AnyTaskRecord, CommittedEntry, ConversationQuery, ConversationRecord, Cursor, DocumentAddress,
     DocumentBase, DocumentContent, DocumentCopySource, DocumentCreate, DocumentPoint,
-    DocumentQuery, DocumentRecord, EntryQuery, EntryRecord, HeadMarker, JsonObject, Page,
-    ScanOrder, ScopeRef, Storage, StorageWrite, StoredDocument, SubmissionQuery, SubmissionRecord,
-    SubmissionStatus, TableChange, TaskQuery,
+    DocumentQuery, DocumentRecord, EntryQuery, EntryRecord, HeadMarker, JsonObject, JsonValue,
+    Page, ScanOrder, ScopeRef, Storage, StorageWrite, StoredDocument, SubmissionQuery,
+    SubmissionRecord, SubmissionStatus, TableChange, TaskQuery,
 };
 
 pub use database::OpenOptions;
@@ -928,6 +930,138 @@ impl SqliteStorage {
         let state = self.lock();
         operation(state.connection.as_ref().ok_or_else(closed)?)
     }
+}
+
+/// What a session file says about itself, read over a read-only connection: listing sessions must
+/// neither write to a file nor wait on one that another process holds open.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SessionOverview {
+    /// The cwd the conversation's agent runs in.
+    pub cwd: Option<String>,
+    /// Message entries, as upstream counts them: user, assistant and tool results.
+    pub message_count: u64,
+    /// The first user message's text, for the picker's one-line summary.
+    pub first_user_text: Option<String>,
+    /// Every user and assistant message's text, joined by spaces, for search.
+    pub all_text: String,
+    /// The session-scope documents by kind: the session's own metadata.
+    pub documents: BTreeMap<String, JsonObject>,
+}
+
+fn message_text(message: &Message) -> String {
+    match message {
+        Message::User(user) => match &user.content {
+            UserContent::Text(text) => text.clone(),
+            UserContent::Blocks(blocks) => blocks
+                .iter()
+                .filter_map(|block| match block {
+                    UserBlock::Text(text) => Some(text.text.as_str()),
+                    UserBlock::Image(_) => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+        },
+        Message::Assistant(assistant) => assistant
+            .content
+            .iter()
+            .filter_map(|block| match block {
+                AssistantBlock::Text(text) => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
+        Message::System(_) | Message::ToolResult(_) => String::new(),
+    }
+}
+
+/// Read a session file without opening it for writing: its cwd, the messages it holds, and its
+/// session-scope documents. Another pi-rs may hold the file open; a read that would wait fails
+/// after a short timeout instead of blocking the caller.
+pub fn read_session_overview(path: &Path) -> Result<SessionOverview> {
+    let connection = Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(sql)?;
+    connection
+        .busy_timeout(std::time::Duration::from_millis(250))
+        .map_err(sql)?;
+    let version: u64 = get(
+        &connection,
+        "SELECT version FROM durable_schema WHERE singleton = 1",
+        params![],
+        |row| row.get(0),
+    )?
+    .ok_or_else(|| invalid("Durable SQLite schema metadata is missing"))?;
+    let current = SQLITE_MIGRATIONS
+        .last()
+        .map_or(0, |migration| migration.version);
+    if version > current {
+        return Err(invalid(format!(
+            "Durable SQLite schema version {version} is newer than supported version {current}"
+        )));
+    }
+    let mut overview = SessionOverview::default();
+    let mut statement = connection
+        .prepare(
+            "SELECT id, kind FROM documents WHERE scope_kind = 'session' AND retired_at IS NULL ORDER BY id",
+        )
+        .map_err(sql)?;
+    let mut documents = statement.query([]).map_err(sql)?;
+    let mut session_docs: Vec<(u64, String)> = Vec::new();
+    while let Some(row) = documents.next().map_err(sql)? {
+        // Columns that carry a name store it JSON-encoded, as every indexed value does.
+        let kind: String = decode(&row.get::<_, String>(1).map_err(sql)?)?;
+        session_docs.push((row.get(0).map_err(sql)?, kind));
+    }
+    drop(documents);
+    drop(statement);
+    for (id, kind) in session_docs {
+        if let Some(stored) = materialize(&connection, DocumentId(id), DocumentPoint::Current)? {
+            overview.documents.insert(kind, stored.value);
+        }
+    }
+    let root: Option<u64> = get(
+        &connection,
+        "SELECT id FROM conversations WHERE owner_conversation_id IS NULL AND owner_task_id IS NULL ORDER BY id LIMIT 1",
+        params![],
+        |row| row.get(0),
+    )?;
+    if let Some(root) = root {
+        let token = crate::harness::agent::agent_doc()?;
+        let address =
+            crate::documents::resolve_address(token.definition(), Some(root), None)?.address;
+        let create = crate::documents::document_create(token.definition(), &address, DocumentId(0));
+        if let Some(id) = current_document_id(&connection, &create)?
+            && let Some(stored) = materialize(&connection, DocumentId(id), DocumentPoint::Current)?
+        {
+            overview.cwd =
+                serde_json::from_value::<AgentState>(JsonValue::Object(stored.value))?.cwd;
+        }
+    }
+    let mut statement = connection
+        .prepare("SELECT record FROM entries WHERE json_extract(record, '$.kind') IN ('pi.user', 'pi.assistant', 'pi.tool-result') ORDER BY id")
+        .map_err(sql)?;
+    let mut rows = statement.query([]).map_err(sql)?;
+    while let Some(row) = rows.next().map_err(sql)? {
+        let record: String = row.get(0).map_err(sql)?;
+        let entry: EntryRecord = decode(&record)?;
+        overview.message_count += 1;
+        for message in entry.model.unwrap_or_default() {
+            let text = message_text(&message);
+            if text.is_empty() {
+                continue;
+            }
+            if !overview.all_text.is_empty() {
+                overview.all_text.push(' ');
+            }
+            overview.all_text.push_str(&text);
+            if overview.first_user_text.is_none() && matches!(message, Message::User(_)) {
+                overview.first_user_text = Some(text);
+            }
+        }
+    }
+    Ok(overview)
 }
 
 impl Storage for SqliteStorage {

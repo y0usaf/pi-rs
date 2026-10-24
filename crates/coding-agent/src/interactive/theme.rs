@@ -22,6 +22,7 @@ const DARK: &[(&str, u8, u8, u8)] = &[
     ("dim", 126, 136, 142),
     ("text", 222, 224, 225),
     ("thinkingText", 150, 160, 164),
+    ("selectedBg", 33, 59, 73),
     ("userMessageBg", 33, 59, 73),
     ("userMessageText", 222, 224, 225),
     ("toolPendingBg", 52, 56, 58),

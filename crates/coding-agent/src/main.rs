@@ -81,7 +81,6 @@ fn unimplemented_flag(parsed: &Args) -> Option<&'static str> {
     let flags = [
         (parsed.export.is_some(), "--export"),
         (parsed.fork.is_some(), "--fork"),
-        (parsed.resume, "--resume"),
         (parsed.extensions.is_some(), "--extension"),
         (parsed.prompt_templates.is_some(), "--prompt-template"),
         (parsed.themes.is_some(), "--theme"),
@@ -232,6 +231,17 @@ fn run() -> Result<ExitCode, String> {
         None
     } else if let Some(path) = &parsed.session {
         Some(normalize_path(path, PathInput::default()))
+    } else if parsed.resume {
+        if !std::io::stdin().is_terminal() {
+            return Err("Error: --resume needs a terminal".into());
+        }
+        match interactive::selectors::session::select_session(&sessions, &agent_dir)? {
+            Some(path) => Some(path),
+            None => {
+                println!("No session selected");
+                return Ok(ExitCode::SUCCESS);
+            }
+        }
     } else if parsed.continue_ {
         session_list::latest(&sessions).or_else(|| Some(session_list::new_path(&sessions)))
     } else if let Some(id) = &parsed.session_id {

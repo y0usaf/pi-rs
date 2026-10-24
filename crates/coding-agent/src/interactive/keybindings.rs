@@ -27,6 +27,32 @@ const APP_DEFS: &[(&str, &[&str], &str)] = &[
         &["alt+down"],
         "Move model down in order",
     ),
+    ("app.session.new", &[], "Start a new session"),
+    ("app.session.tree", &[], "Open session tree"),
+    ("app.session.fork", &[], "Fork current session"),
+    ("app.session.resume", &[], "Resume a session"),
+    (
+        "app.session.toggleNamedFilter",
+        &["ctrl+n"],
+        "Toggle named session filter",
+    ),
+    (
+        "app.session.togglePath",
+        &["ctrl+p"],
+        "Toggle session path display",
+    ),
+    (
+        "app.session.toggleSort",
+        &["ctrl+s"],
+        "Toggle session sort mode",
+    ),
+    ("app.session.rename", &["ctrl+r"], "Rename session"),
+    ("app.session.delete", &["ctrl+d"], "Delete session"),
+    (
+        "app.session.deleteNoninvasive",
+        &["ctrl+backspace"],
+        "Delete session when query is empty",
+    ),
 ];
 
 /// The app bindings, in upstream's declaration order.

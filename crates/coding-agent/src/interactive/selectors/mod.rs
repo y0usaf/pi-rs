@@ -4,6 +4,7 @@
 
 pub mod model;
 pub mod scoped_models;
+pub mod session;
 pub mod settings;
 pub mod thinking;
 pub mod trust;
@@ -42,6 +43,8 @@ pub enum OverlayAction {
     },
     /// A settings row changed; `id` is the row's id.
     Setting { id: String, value: String },
+    /// The session picker chose a file: switch the loop to it.
+    Resume { path: String },
 }
 
 /// One project trust decision to write, `decision: None` clearing the entry.

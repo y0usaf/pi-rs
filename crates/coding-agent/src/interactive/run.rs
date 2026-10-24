@@ -441,6 +441,39 @@ fn session_info(
     }))
 }
 
+/// Take the model and thinking level a session recorded for itself, so switching to it does not
+/// rewrite what it stored. False when it recorded none, and the caller configures it instead.
+fn adopt_session_agent(
+    root: &Conversation,
+    cancel: &CancelToken,
+    registry: &ModelRegistry,
+    footer: &Rc<RefCell<Footer>>,
+    model: &mut Model,
+    thinking: &mut ModelThinkingLevel,
+) -> Result<bool, String> {
+    let agent = root.agent(cancel).map_err(|e| e.to_string())?;
+    let Some(reference) = agent.model else {
+        return Ok(false);
+    };
+    let Some(found) = registry
+        .get_model(&reference.provider, &reference.model_id)
+        .cloned()
+    else {
+        return Ok(false);
+    };
+    *thinking = clamp_thinking_level(&found, agent.thinking_level);
+    *model = found.clone();
+    {
+        let mut footer = footer.borrow_mut();
+        footer.state.model_id = Some(found.id.clone());
+        footer.state.provider = Some(found.provider.clone());
+        footer.state.context_window = found.context_window;
+        footer.state.reasoning = found.reasoning;
+        footer.state.thinking = level_name(*thinking);
+    }
+    Ok(true)
+}
+
 /// Upstream's `switchSession` and `newSession` (`core/agent-session-runtime.ts`): settle the run
 /// in flight into the session it belongs to, close it, open the target, and redraw the chat from
 /// the target's transcript.
@@ -757,6 +790,33 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         Err(e) => chat.notice("error", &format!("Error: {e}")),
                     }
                 }
+                OverlayAction::Resume { path } => {
+                    close = true;
+                    match replace_session(&mut open, &opener, &mut chat, Some(&path), &cancel) {
+                        Ok(()) => {
+                            let adopted = adopt_session_agent(
+                                &open.root,
+                                &cancel,
+                                &registry,
+                                &footer,
+                                &mut model,
+                                &mut thinking,
+                            );
+                            let configured = match adopted {
+                                Ok(true) => Ok(()),
+                                Ok(false) => {
+                                    apply_agent(&open.root, &cancel, &model, thinking, &cwd)
+                                }
+                                Err(e) => Err(e),
+                            };
+                            match configured {
+                                Ok(()) => chat.notice("dim", "Resumed session"),
+                                Err(e) => chat.notice("error", &format!("Error: {e}")),
+                            }
+                        }
+                        Err(e) => chat.notice("error", &format!("Error: {e}")),
+                    }
+                }
                 OverlayAction::Setting { id, value } => match id.as_str() {
                     "hide-thinking" => {
                         let hidden = value == "true";
@@ -983,6 +1043,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         ));
                         selector = Some((built, slot));
                     }
+
                     Command::Unavailable(name) => {
                         chat.notice("dim", &format!("/{name} is not available in pi-rs yet"))
                     }
