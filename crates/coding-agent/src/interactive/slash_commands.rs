@@ -141,6 +141,8 @@ pub enum Command {
     Settings,
     Trust,
     Tree,
+    Fork,
+    Clone,
     Unavailable(&'static str),
 }
 
@@ -190,6 +192,8 @@ pub fn dispatch(text: &str) -> Option<Command> {
         "settings" => Command::Settings,
         "trust" => Command::Trust,
         "tree" => Command::Tree,
+        "fork" => Command::Fork,
+        "clone" => Command::Clone,
         _ => Command::Unavailable(builtin.name),
     })
 }
@@ -326,7 +330,7 @@ pub struct Counts {
 pub struct SessionInfo {
     pub name: Option<String>,
     pub file: Option<String>,
-    pub id: u64,
+    pub id: String,
     pub counts: Counts,
     pub totals: Totals,
     pub context_tokens: Option<u64>,
@@ -489,7 +493,7 @@ mod tests {
         let info = SessionInfo {
             name: Some("night shift".into()),
             file: None,
-            id: 7,
+            id: "7".to_owned(),
             counts: Counts {
                 total: 4,
                 user: 2,

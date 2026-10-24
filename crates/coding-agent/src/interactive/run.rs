@@ -37,7 +37,7 @@ use super::chat::Chat;
 use super::footer::{Footer, FooterState, Totals, git_branch};
 use super::keybindings;
 use super::selectors::{
-    ActionSlot, OverlayAction, action_slot, model::ModelSelector,
+    ActionSlot, OverlayAction, action_slot, fork::ForkSelector, model::ModelSelector,
     scoped_models::ScopedModelsSelector, session::SessionSelector, settings::SettingsCallbacks,
     settings::SettingsConfig, settings::SettingsSelector, thinking::ThinkingSelector,
     tree::TreeSelector, trust::TrustSelector,
@@ -437,7 +437,10 @@ fn session_info(
     Ok(slash_commands::session(&SessionInfo {
         name,
         file: path.map(str::to_owned),
-        id: root.id().0,
+        id: path
+            .and_then(|path| path.rsplit('/').next())
+            .and_then(|name| name.strip_suffix(".db").map(str::to_owned))
+            .unwrap_or_else(|| root.id().0.to_string()),
         counts,
         totals,
         context_tokens,
@@ -499,6 +502,54 @@ fn replace_session(
     Ok(())
 }
 
+/// Upstream's `fork` (`core/agent-session-runtime.ts`): write the session's active path up to
+/// `point` as a new file and switch the loop to it, as `/resume` does. Hands back the path and
+/// the text of the entry the fork stopped before, which upstream re-opens in the editor.
+fn branch_and_switch(
+    open: &mut Open,
+    opener: &Opener,
+    chat: &mut Chat,
+    point: Option<EntryId>,
+    cancel: &CancelToken,
+) -> Result<String, String> {
+    let tree = Tree::build(&open.root, cancel).map_err(|e| e.to_string())?;
+    let path = branch_session(open.path.as_deref(), &tree, point)?;
+    replace_session(open, opener, chat, Some(&path), cancel)?;
+    Ok(path)
+}
+
+/// `/fork`: the branch stops before the chosen user message, whose text the editor re-opens.
+fn fork_session(
+    open: &mut Open,
+    opener: &Opener,
+    chat: &mut Chat,
+    target: EntryId,
+    cancel: &CancelToken,
+) -> Result<(String, Option<String>), String> {
+    let tree = Tree::build(&open.root, cancel).map_err(|e| e.to_string())?;
+    let point = session_tree::fork_point(&tree, target);
+    let text = tree.entry(target).and_then(session_tree::user_message_text);
+    let path = branch_and_switch(open, opener, chat, point, cancel)?;
+    Ok((path, text))
+}
+
+/// Point a session the loop switched to at its own recorded model and thinking level, or at the
+/// loop's when it recorded none, as upstream's `switchSession` does.
+fn adopt_or_apply(
+    root: &Conversation,
+    cancel: &CancelToken,
+    registry: &ModelRegistry,
+    footer: &Rc<RefCell<Footer>>,
+    model: &mut Model,
+    thinking: &mut ModelThinkingLevel,
+    cwd: &str,
+) -> Result<(), String> {
+    match adopt_session_agent(root, cancel, registry, footer, model, thinking)? {
+        true => Ok(()),
+        false => apply_agent(root, cancel, model, *thinking, cwd),
+    }
+}
+
 /// Upstream's `navigateTree`: move the session's leaf to a chosen entry, redraw the chat from
 /// the branch that forks, and hand back the text to re-open in the editor.
 fn navigate_session(
@@ -558,6 +609,32 @@ fn apply_agent(
         cancel,
     )
     .map_err(|e| e.to_string())
+}
+
+/// Where `/fork` and `/clone` write their copy: a new session file holding the path up to
+/// `point`, beside the session it came from. With nothing to attach after, it is a new empty
+/// session.
+fn branch_session(
+    source: Option<&str>,
+    tree: &Tree,
+    point: Option<pi_durable::ids::EntryId>,
+) -> Result<String, String> {
+    let source = source.ok_or_else(|| {
+        "This session has not been saved yet. Send a message before cloning or forking it."
+            .to_owned()
+    })?;
+    let dir = std::path::Path::new(source)
+        .parent()
+        .and_then(std::path::Path::to_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| ".".to_owned());
+    let path: Vec<pi_durable::types::EntryRecord> = point
+        .map(|at| tree.path_to(at))
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|id| tree.entry(id).cloned())
+        .collect();
+    crate::session_fork::branch(&dir, &path)
 }
 
 pub fn run(session: Session) -> Result<Option<String>, String> {
@@ -868,14 +945,41 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         match navigate_session(&mut open, &mut chat, &opener, target, &cancel) {
                             Ok((false, _)) => chat.notice("dim", "Already at this point"),
                             Ok((true, text)) => {
-                                if let Some(text) = &text {
-                                    if editor.borrow().get_text().trim().is_empty() {
-                                        editor.borrow_mut().set_text(text);
-                                    }
+                                if let Some(text) = &text
+                                    && editor.borrow().get_text().trim().is_empty()
+                                {
+                                    editor.borrow_mut().set_text(text);
                                 }
                                 chat.notice("accent", "Navigated to selected point");
                             }
                             Err(e) => chat.notice("error", &format!("Error: {e}")),
+                        }
+                    }
+                }
+                OverlayAction::Fork(target) => {
+                    close = true;
+                    match fork_session(&mut open, &opener, &mut chat, target, &cancel) {
+                        Err(e) => chat.notice("error", &format!("Error: {e}")),
+                        Ok((path, text)) => {
+                            let switched = adopt_or_apply(
+                                &open.root,
+                                &cancel,
+                                &registry,
+                                &footer,
+                                &mut model,
+                                &mut thinking,
+                                &cwd,
+                            );
+                            match switched {
+                                Err(e) => chat.notice("error", &format!("Error: {e}")),
+                                Ok(()) => {
+                                    editor.borrow_mut().set_text(text.as_deref().unwrap_or(""));
+                                    chat.notice(
+                                        "accent",
+                                        &format!("Forked to new session: {path}"),
+                                    );
+                                }
+                            }
                         }
                     }
                 }
@@ -1099,6 +1203,62 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                             selector = Some((built, slot));
                         }
                         Err(e) => chat.notice("error", &format!("Error: {e}")),
+                    },
+                    Command::Fork => match Tree::build(&open.root, &cancel) {
+                        Err(e) => chat.notice("error", &format!("Error: {e}")),
+                        Ok(tree) => {
+                            let mut messages: Vec<(pi_durable::ids::EntryId, String)> = tree
+                                .nodes
+                                .iter()
+                                .filter_map(|node| {
+                                    session_tree::user_message_text(&node.entry)
+                                        .map(|text| (node.entry.id, text))
+                                })
+                                .filter(|(_, text)| !text.is_empty())
+                                .collect();
+                            messages.sort_by_key(|(id, _)| *id);
+                            if messages.is_empty() {
+                                chat.notice("dim", "No messages to fork from");
+                            } else {
+                                let slot = action_slot();
+                                let built: ComponentRef =
+                                    component(ForkSelector::new(messages, None, slot.clone()));
+                                selector = Some((built, slot));
+                            }
+                        }
+                    },
+                    Command::Clone => match Tree::build(&open.root, &cancel) {
+                        Err(e) => chat.notice("error", &format!("Error: {e}")),
+                        Ok(tree) if tree.leaf.is_none() => {
+                            chat.notice("dim", "Nothing to clone yet")
+                        }
+                        Ok(tree) => {
+                            let switched = branch_and_switch(
+                                &mut open, &opener, &mut chat, tree.leaf, &cancel,
+                            )
+                            .and_then(|path| {
+                                adopt_or_apply(
+                                    &open.root,
+                                    &cancel,
+                                    &registry,
+                                    &footer,
+                                    &mut model,
+                                    &mut thinking,
+                                    &cwd,
+                                )?;
+                                Ok(path)
+                            });
+                            match switched {
+                                Err(e) => chat.notice("error", &format!("Error: {e}")),
+                                Ok(path) => {
+                                    editor.borrow_mut().set_text("");
+                                    chat.notice(
+                                        "accent",
+                                        &format!("Cloned to new session: {path}"),
+                                    );
+                                }
+                            }
+                        }
                     },
                     Command::Trust => {
                         let slot = action_slot();

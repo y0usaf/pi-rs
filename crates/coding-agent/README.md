@@ -27,6 +27,8 @@ Without `-p`, on a terminal, it opens the interactive mode (below). `--continue`
 
 `/tree` is upstream's session tree (its filter keys, search, folding and branch markers): picking an entry moves the session's leaf there, which pi-durable spells as a forked conversation, and a picked user message reopens in the editor. Two things the tree shows upstream are missing: entry labels (and the label keys and timestamps that go with them) and branch summaries, so picking an entry never asks whether to summarize the branch.
 
+`/fork` lists the session's user messages and `/clone` takes the current leaf; both write a new session file holding the active path up to that point and switch the screen to it, as upstream's branch files do, and `/fork` puts the picked message back in the editor. Each says so in the transcript and names the file it wrote, where upstream says "Forked to new session" or "Cloned to new session" on the status line.
+
 Not there yet: the remaining slash commands (`/model`, `/thinking`, `/settings` and the rest), `!` bash, image display, syntax highlighting in code blocks, the light theme, the editor's embedded status, and upstream's keybinding configuration. A resumed session from another folder keeps the current folder, where upstream switches to the session's own; `/resume` reports in the transcript, where upstream uses the status line.
 
 ## Headless modes

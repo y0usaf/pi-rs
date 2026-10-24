@@ -73,6 +73,13 @@ pub struct Conversation {
     inner: Arc<Inner>,
 }
 
+/// A conversation's documents, as creating one seeds them. A session writing a conversation into
+/// a file of its own needs this before its entries: without the live and inbox documents the
+/// conversation has no history to read.
+pub fn seed_conversation(tx: &mut dyn Tx, record: &ConversationRecord) -> Result<()> {
+    run_created_hook(tx, record, None)
+}
+
 fn run_created_hook(
     tx: &mut dyn Tx,
     record: &ConversationRecord,

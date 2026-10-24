@@ -2,6 +2,7 @@
 //! the model, thinking level, scoped model, settings and project trust selectors, on
 //! `pi_tui`'s select list and settings list.
 
+pub mod fork;
 pub mod model;
 pub mod scoped_models;
 pub mod session;
@@ -48,6 +49,8 @@ pub enum OverlayAction {
     Resume { path: String },
     /// The session tree picked an entry to move the session's leaf to.
     Navigate(pi_durable::ids::EntryId),
+    /// `/fork` picked a user message to fork the session before.
+    Fork(pi_durable::ids::EntryId),
 }
 
 /// One project trust decision to write, `decision: None` clearing the entry.
