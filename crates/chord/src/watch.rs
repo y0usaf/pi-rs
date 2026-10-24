@@ -431,6 +431,17 @@ impl<T: Clone + Send + 'static> NativeWatch<T> {
     }
 }
 
+pub trait NativeWatchable {
+    type Value: Clone + Send + 'static;
+
+    fn value(&self) -> Option<Self::Value>;
+
+    fn watch(
+        &self,
+        cancel: &CancelToken,
+    ) -> Result<Box<dyn NativeWatchHandle<Self::Value> + Send>, Error>;
+}
+
 impl<T: Clone + Send + 'static> NativeWatchHandle<T> for NativeWatch<T> {
     fn value(&self) -> Option<T> {
         NativeWatch::value(self)
