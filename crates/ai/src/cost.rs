@@ -23,4 +23,5 @@ pub fn calculate_cost(model: &Model, usage: &mut Usage) {
     usage.cost.cache_write = (cache_write * short_write + input * 2.0 * long_write) / 1_000_000.0;
     usage.cost.total =
         usage.cost.input + usage.cost.output + usage.cost.cache_read + usage.cost.cache_write;
+    usage.cost.total_from_provider = Some(false);
 }

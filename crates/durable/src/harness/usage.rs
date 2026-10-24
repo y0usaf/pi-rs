@@ -73,6 +73,10 @@ pub fn add_usage(total: &mut Usage, usage: &Usage) {
     total.cost.cache_read += usage.cost.cache_read;
     total.cost.cache_write += usage.cost.cache_write;
     total.cost.total += usage.cost.total;
+    total.cost.total_from_provider = Some(
+        total.cost.total_from_provider == Some(true)
+            && usage.cost.total_from_provider == Some(true),
+    );
 }
 
 pub fn add_usage_state(sum: &mut UsageState, state: &UsageState) {

@@ -367,6 +367,7 @@ fn parse_usage(raw: &Value, model: &Model) -> Usage {
             cache_read: 0.0,
             cache_write: 0.0,
             total: 0.0,
+            total_from_provider: None,
         },
     };
     usage.total_tokens = usage.input + usage.output + usage.cache_read + usage.cache_write;

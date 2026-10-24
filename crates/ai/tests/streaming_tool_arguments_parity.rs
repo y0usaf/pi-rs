@@ -271,6 +271,7 @@ fn faux_streams_growing_arguments() {
                 cache_read: 0.0,
                 cache_write: 0.0,
                 total: 0.0,
+                total_from_provider: None,
             },
         },
         stop_reason: StopReason::ToolUse,
