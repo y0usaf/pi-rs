@@ -38,7 +38,7 @@
           doCheck = false;
           buildPhase = ''
             runHook preBuild
-            cargo build --release --workspace --lib --frozen --examples --features "${features}"
+            cargo build --release --workspace --lib --bins --frozen --examples --features "${features}"
             runHook postBuild
           '';
           installPhase = ''
@@ -46,8 +46,10 @@
             mkdir -p $out/lib $out/bin
             cp target/release/lib*.rlib $out/lib/
             find target/release/examples -maxdepth 1 -type f -executable -exec cp {} $out/bin/ \;
+            find target/release -maxdepth 1 -type f -executable -exec cp {} $out/bin/ \;
             runHook postInstall
           '';
+          meta.mainProgram = "pi-rs";
         };
       chatManifest = (builtins.fromTOML (builtins.readFile ./examples/chat/Cargo.toml)).package;
       chatRuntime = pkgs: [
@@ -154,6 +156,10 @@
       });
 
       apps = forAll (pkgs: {
+        default = {
+          type = "app";
+          program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/pi-rs";
+        };
         tui = {
           type = "app";
           program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/tui_editor";
@@ -173,6 +179,11 @@
             pname = "${pname}-clippy";
             nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.clippy ];
             buildPhase = "cargo clippy --workspace --all-targets --frozen --features pi-durable/providers -- -D warnings";
+            installPhase = "touch $out";
+          });
+          tests = self.packages.${system}.default.overrideAttrs (old: {
+            pname = "${pname}-tests";
+            buildPhase = "cargo test --release --workspace --frozen --features pi-durable/providers";
             installPhase = "touch $out";
           });
           oauth-flow = pkgs.runCommand "${pname}-oauth-flow" { } ''

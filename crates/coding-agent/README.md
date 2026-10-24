@@ -1,6 +1,6 @@
 # pi-coding-agent
 
-Pi's coding agent ([`@earendil-works/pi-coding-agent`](https://github.com/earendil-works/pi)) without the interactive TUI, as the `pi-rs` binary. It runs print mode (`pi-rs -p "..."`) on [pi-durable](../durable)'s harness and reads the same files as `pi`: settings, `auth.json`, `models.json`, AGENTS.md / CLAUDE.md, SYSTEM.md, APPEND_SYSTEM.md and skills.
+Pi's coding agent ([`@earendil-works/pi-coding-agent`](https://github.com/earendil-works/pi)) as the `pi-rs` binary. It runs print mode (`pi-rs -p "..."`) and a first port of the interactive mode on [pi-durable](../durable)'s harness and reads the same files as `pi`: settings, `auth.json`, `models.json`, AGENTS.md / CLAUDE.md, SYSTEM.md, APPEND_SYSTEM.md and skills.
 
 It won't: show upstream's session picker, `/tree`, forking or settings screens, or any slash command but `/quit`; run `--mode json` or `--mode rpc`; load extensions, prompt templates, themes or MCP servers; log in (it reads the credentials `pi` stores, and refreshes Anthropic and OpenAI Codex OAuth tokens); compact a conversation on demand; fork or branch sessions.
 

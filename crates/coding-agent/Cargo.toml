@@ -1,6 +1,6 @@
 [package]
 name = "pi-coding-agent"
-description = "Pi's coding agent without the interactive TUI: settings, credentials, model resolution, the system prompt, print mode and the built-in tools, on pi-durable."
+description = "Pi's coding agent on pi-durable: settings, credentials, model resolution, the system prompt, the built-in tools, print mode and the interactive mode."
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
