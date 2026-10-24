@@ -151,10 +151,10 @@ fn need(lines: &[Value], what: &str, found: impl Fn(&Value) -> bool) -> Result<u
 fn stdout_of(bin: &Path, scratch: &Scratch, args: &[&str]) -> Result<(Vec<Value>, String)> {
     let out = Command::new(bin)
         .args(args)
-        .current_dir(&scratch.cwd)
+        .current_dir(scratch.root.join("cwd"))
         .env_clear()
-        .env("HOME", &scratch.home)
-        .env("PI_CODING_AGENT_DIR", &scratch.agent)
+        .env("HOME", scratch.root.join("home"))
+        .env("PI_CODING_AGENT_DIR", scratch.root.join("agent"))
         .env("PATH", "/nonexistent")
         .output()?;
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
@@ -169,9 +169,17 @@ fn stdout_of(bin: &Path, scratch: &Scratch, args: &[&str]) -> Result<(Vec<Value>
 }
 
 struct Scratch {
-    home: PathBuf,
-    agent: PathBuf,
-    cwd: PathBuf,
+    root: PathBuf,
+}
+
+impl Scratch {
+    fn new() -> Result<Self> {
+        let root = std::env::temp_dir().join(format!("modes-e2e-{}", std::process::id()));
+        for dir in ["home", "agent", "cwd"] {
+            std::fs::create_dir_all(root.join(dir))?;
+        }
+        Ok(Self { root })
+    }
 }
 
 fn json_run(bin: &Path, scratch: &Scratch, written: &Path) -> Result<()> {
@@ -296,10 +304,10 @@ fn rpc_run(bin: &Path, scratch: &Scratch) -> Result<()> {
             "--mode",
             "rpc",
         ])
-        .current_dir(&scratch.cwd)
+        .current_dir(scratch.root.join("cwd"))
         .env_clear()
-        .env("HOME", &scratch.home)
-        .env("PI_CODING_AGENT_DIR", &scratch.agent)
+        .env("HOME", scratch.root.join("home"))
+        .env("PI_CODING_AGENT_DIR", scratch.root.join("agent"))
         .env("PATH", "/nonexistent")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -420,21 +428,8 @@ fn rpc_run(bin: &Path, scratch: &Scratch) -> Result<()> {
 
 fn main() -> Result<()> {
     let bin = binary()?;
-    let scratch = Scratch {
-        home: std::env::temp_dir()
-            .join(format!("modes-e2e-{}", std::process::id()))
-            .join("home"),
-        agent: std::env::temp_dir()
-            .join(format!("modes-e2e-{}", std::process::id()))
-            .join("agent"),
-        cwd: std::env::temp_dir()
-            .join(format!("modes-e2e-{}", std::process::id()))
-            .join("cwd"),
-    };
-    for dir in [&scratch.home, &scratch.agent, &scratch.cwd] {
-        std::fs::create_dir_all(dir)?;
-    }
-    let written = scratch.cwd.join("written.txt");
+    let scratch = Scratch::new()?;
+    let written = scratch.root.join("cwd").join("written.txt");
     let arguments = json!({"path": written.to_string_lossy(), "content": "hi"}).to_string();
 
     let listener = TcpListener::bind("127.0.0.1:0")?;
@@ -458,12 +453,13 @@ fn main() -> Result<()> {
         "models": [{"id": "fake-test", "contextWindow": 200000, "maxTokens": 8192}],
     }}});
     std::fs::write(
-        scratch.agent.join("models.json"),
+        scratch.root.join("agent/models.json"),
         serde_json::to_vec(&models)?,
     )?;
 
     json_run(&bin, &scratch, &written)?;
     rpc_run(&bin, &scratch)?;
+    std::fs::remove_dir_all(&scratch.root)?;
     println!("modes e2e ok");
     Ok(())
 }
