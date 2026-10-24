@@ -20,6 +20,7 @@ pub mod runtime;
 pub mod scheduler;
 pub mod submissions;
 pub mod task_graph;
+pub mod timers;
 pub mod tool;
 pub mod types;
 pub mod usage;

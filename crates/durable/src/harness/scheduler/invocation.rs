@@ -85,6 +85,7 @@ fn status_name(state: &TaskState<JsonValue, JsonValue>) -> &'static str {
         TaskState::Pending { .. } => "pending",
         TaskState::Running { .. } => "running",
         TaskState::Waiting { .. } => "waiting",
+        TaskState::Sleeping { .. } => "sleeping",
         TaskState::Completing { .. } => "completing",
         TaskState::Terminal { .. } => "terminal",
     }
@@ -318,27 +319,16 @@ impl TaskRuntime<JsonValue, JsonValue, JsonValue, JsonValue> for InvocationRunti
         (self.scheduler.0.report)(error);
     }
 
-    fn sleep(&self, until: u64, cancel: &CancelToken) -> Result<()> {
-        self.ensure_live()?;
-        let joined = CancelToken::new();
-        let inner = joined.clone();
-        self.invocation.cancel.on_cancel(move || inner.cancel());
-        let outer = joined.clone();
-        cancel.on_cancel(move || outer.cancel());
-        loop {
-            if joined.is_cancelled() {
-                return Err(Error::Aborted);
-            }
-            let remaining = until.saturating_sub(self.now());
-            if remaining == 0 {
-                return Ok(());
-            }
-            pause(|| {
-                joined.wait_timeout(std::time::Duration::from_millis(
-                    remaining.min(MAX_TIMER_DELAY),
-                ))
-            });
-        }
+    fn sleep_until(&self, until: u64, checkpoint: JsonValue, cancel: &CancelToken) -> Result<()> {
+        self.gated(cancel, |tx, current, st| {
+            self.scheduler.commit_state(
+                tx,
+                st,
+                &self.invocation,
+                current,
+                NextTaskState::Sleeping { checkpoint, until },
+            )
+        })
     }
 }
 

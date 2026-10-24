@@ -52,6 +52,10 @@ fn next_json<S: Serialize, R: Serialize>(
             on,
             policy,
         },
+        NextTaskState::Sleeping { checkpoint, until } => NextTaskState::Sleeping {
+            checkpoint: convert(&checkpoint)?,
+            until,
+        },
         NextTaskState::Terminal { outcome } => NextTaskState::Terminal {
             outcome: convert(&outcome)?,
         },
@@ -216,8 +220,8 @@ where
         self.inner.report(error)
     }
 
-    fn sleep(&self, until: u64, cancel: &CancelToken) -> Result<()> {
-        self.inner.sleep(until, cancel)
+    fn sleep_until(&self, until: u64, checkpoint: S, cancel: &CancelToken) -> Result<()> {
+        self.inner.sleep_until(until, convert(&checkpoint)?, cancel)
     }
 }
 

@@ -214,7 +214,7 @@ pub fn classify(
                         deferred: Some(DeferredStatus { poll_at }),
                     });
                 })?;
-                Ok(Some(NextTaskState::Running {
+                Ok(Some(NextTaskState::Sleeping {
                     checkpoint: GenerationCheckpoint::Poll {
                         attempt,
                         compacted,
@@ -223,6 +223,7 @@ pub fn classify(
                         handle,
                         poll_at,
                     },
+                    until: poll_at,
                 }))
             }),
             cancel,
@@ -338,12 +339,13 @@ pub fn classify(
                         deferred: None,
                     });
                 })?;
-                return Ok(Some(NextTaskState::Running {
+                return Ok(Some(NextTaskState::Sleeping {
                     checkpoint: GenerationCheckpoint::Retry {
                         attempt,
                         compacted,
                         until,
                     },
+                    until,
                 }));
             }
             let text = message.error_message.clone().unwrap_or_else(|| {

@@ -28,6 +28,7 @@ pub enum TaskStatus {
     Pending,
     Running,
     Waiting,
+    Sleeping,
     Completing,
     Terminal,
 }
@@ -90,6 +91,10 @@ pub enum TaskState<S, R> {
         on: Vec<TaskId>,
         policy: JoinPolicy,
     },
+    Sleeping {
+        checkpoint: S,
+        until: u64,
+    },
     Completing {
         outcome: TaskOutcome<R>,
     },
@@ -125,6 +130,7 @@ impl<I, S, R> TaskRecord<I, S, R> {
             TaskState::Pending { .. } => TaskStatus::Pending,
             TaskState::Running { .. } => TaskStatus::Running,
             TaskState::Waiting { .. } => TaskStatus::Waiting,
+            TaskState::Sleeping { .. } => TaskStatus::Sleeping,
             TaskState::Completing { .. } => TaskStatus::Completing,
             TaskState::Terminal { .. } => TaskStatus::Terminal,
         }
@@ -184,6 +190,10 @@ pub enum NextTaskState<S, R> {
         on: Vec<TaskId>,
         policy: JoinPolicy,
     },
+    Sleeping {
+        checkpoint: S,
+        until: u64,
+    },
     Terminal {
         outcome: TaskOutcome<R>,
     },
@@ -202,6 +212,7 @@ impl<S, R> NextTaskState<S, R> {
                 on,
                 policy,
             },
+            Self::Sleeping { checkpoint, until } => TaskState::Sleeping { checkpoint, until },
             Self::Terminal { outcome } => TaskState::Terminal { outcome },
         }
     }
@@ -238,5 +249,5 @@ pub trait TaskRuntime<I, S, R, H>: DocumentObserver + DocumentReader {
     fn entry(&self, id: EntryId, cancel: &CancelToken) -> Result<Option<EntryRecord>>;
     fn now(&self) -> u64;
     fn report(&self, error: Error);
-    fn sleep(&self, until: u64, cancel: &CancelToken) -> Result<()>;
+    fn sleep_until(&self, until: u64, checkpoint: S, cancel: &CancelToken) -> Result<()>;
 }

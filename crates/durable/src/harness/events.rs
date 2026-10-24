@@ -439,7 +439,8 @@ fn checkpoint(state: &TaskState<JsonValue, JsonValue>) -> Option<&JsonValue> {
     match state {
         TaskState::Pending { checkpoint }
         | TaskState::Running { checkpoint }
-        | TaskState::Waiting { checkpoint, .. } => Some(checkpoint),
+        | TaskState::Waiting { checkpoint, .. }
+        | TaskState::Sleeping { checkpoint, .. } => Some(checkpoint),
         TaskState::Completing { .. } | TaskState::Terminal { .. } => None,
     }
 }

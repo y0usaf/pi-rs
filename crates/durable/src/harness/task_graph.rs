@@ -22,10 +22,11 @@ use crate::types::{
 
 const LOCK: &str = "task graph lock poisoned";
 const SCAN_PAGE_SIZE: usize = 256;
-const LIVE: [TaskStatus; 4] = [
+const LIVE: [TaskStatus; 5] = [
     TaskStatus::Pending,
     TaskStatus::Running,
     TaskStatus::Waiting,
+    TaskStatus::Sleeping,
     TaskStatus::Completing,
 ];
 
@@ -42,6 +43,10 @@ pub enum TaskGraphState {
         phase: String,
         on: Vec<TaskId>,
         policy: JoinPolicy,
+    },
+    Sleeping {
+        phase: String,
+        until: u64,
     },
     Completing {
         outcome: String,
@@ -368,6 +373,10 @@ fn graph_state(state: &TaskState<Value, Value>) -> Option<TaskGraphState> {
             phase: phase_of(checkpoint),
             on: on.clone(),
             policy: *policy,
+        }),
+        TaskState::Sleeping { checkpoint, until } => Some(TaskGraphState::Sleeping {
+            phase: phase_of(checkpoint),
+            until: *until,
         }),
         TaskState::Completing { outcome } => Some(TaskGraphState::Completing {
             outcome: outcome_status(outcome),

@@ -347,6 +347,7 @@ pub fn open_harness_with(
             conversation_created: None,
             now: None,
             env: None,
+            set_timer: None,
             on_report: Some(Arc::new(move |error| {
                 if !CLOSING.load(std::sync::atomic::Ordering::SeqCst) {
                     report(error);

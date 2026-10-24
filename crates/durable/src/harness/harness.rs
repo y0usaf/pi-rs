@@ -20,6 +20,7 @@ use crate::harness::submissions::{
     AbortResult, SubmissionDraft, SubmissionHandle, Submissions, settle_orphaned_inputs,
 };
 use crate::harness::task_graph::{GraphGuard, TaskGraphView};
+use crate::harness::timers::Timers;
 use crate::harness::types::{ConversationBinder, ConversationHandle, InvocationBinding};
 use crate::harness::types::{
     ConversationCreateOptions, ConversationCreated, ConversationInit, EnvBuilder, EnvTarget,
@@ -126,6 +127,7 @@ impl Harness {
         let settings = options.settings;
         let queue_settings = settings.clone();
         let report: ErrorReport = options.on_report.unwrap_or_else(|| Arc::new(|_| {}));
+        let timers = Timers::new(options.set_timer.clone(), Arc::clone(&report));
         let env = options.env;
         let conversation_slot: Arc<OnceLock<Weak<Inner>>> = Arc::new(OnceLock::new());
         let tasks = scheduler(
@@ -138,6 +140,7 @@ impl Harness {
             &report,
             &now,
             env.clone(),
+            timers,
         );
         let resume_tasks = tasks.clone();
         let submissions = Submissions::new(
@@ -418,6 +421,7 @@ fn scheduler(
     report: &ErrorReport,
     now: &Arc<dyn Fn() -> u64 + Send + Sync>,
     env: Option<EnvBuilder>,
+    timers: Timers,
 ) -> TaskScheduler {
     let resolve_session = Arc::clone(session);
     let resolve_settings_of = settings.clone();
@@ -454,6 +458,7 @@ fn scheduler(
         settings: Arc::new(move || resolve_settings(settings_of.as_ref())),
         now: Arc::new(move || clock()),
         registry: Arc::clone(registry),
+        timers,
     })
 }
 

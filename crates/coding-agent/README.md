@@ -8,7 +8,7 @@ It won't: show settings screens, or the model and thinking selectors; run any sl
 
 The flags for what it won't do, `--export`, `--fork`, `--extension`, `--prompt-template`, `--tui-mode` and `--verbose`, are refused before anything starts: `pi-rs: --export is not implemented yet`, exit 1. The flags that turn a resource off — `--no-extensions` and `--no-prompt-templates` — and `--offline`, which would skip a model-catalog refresh this port never makes, are accepted and change nothing; `--no-mcp` reads no `mcp.json`, and `--no-themes` leaves only the built-in themes. A flag no option or extension defines is `Error: Unknown option: --foo`.
 
-Its behaviour and `pi-ai`'s follow the upstream TypeScript at `bdb1517`; `pi-durable`'s follows `f1b2e77f` ([its README](../durable/README.md)). The parity scripts below compare the two on the same inputs.
+Its behaviour and `pi-ai`'s follow the upstream TypeScript at `bdb1517`; `pi-durable`'s follows `f1b2e77f` ([its README](../durable/README.md) says why the two pins differ). The parity scripts below compare the two on the same inputs.
 
 ## Try it
 

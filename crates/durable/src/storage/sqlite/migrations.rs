@@ -13,37 +13,38 @@ const SCHEMA_TABLE: &str = r#"CREATE TABLE IF NOT EXISTS durable_schema (
 			version INTEGER NOT NULL CHECK (version >= 0)
 		) STRICT"#;
 
-pub const SQLITE_MIGRATIONS: &[Migration<'static>] = &[Migration {
-    version: 1,
-    statements: &[
-        r#"CREATE TABLE durable_metadata (
+pub const SQLITE_MIGRATIONS: &[Migration<'static>] = &[
+    Migration {
+        version: 1,
+        statements: &[
+            r#"CREATE TABLE durable_metadata (
 		singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
 		next_id TEXT NOT NULL,
 		next_seq INTEGER NOT NULL
 	) STRICT"#,
-        r#"INSERT INTO durable_metadata (singleton, next_id, next_seq) VALUES (1, '2', 1)"#,
-        r#"CREATE TABLE record_ids (
+            r#"INSERT INTO durable_metadata (singleton, next_id, next_seq) VALUES (1, '2', 1)"#,
+            r#"CREATE TABLE record_ids (
 		id INTEGER PRIMARY KEY,
 		record_type TEXT NOT NULL CHECK (record_type IN ('conversation', 'entry', 'task', 'submission', 'document'))
 	) STRICT"#,
-        r#"CREATE TABLE conversations (
+            r#"CREATE TABLE conversations (
 		id INTEGER PRIMARY KEY,
 		owner_conversation_id INTEGER,
 		owner_task_id INTEGER,
 		record TEXT NOT NULL CHECK (json_valid(record))
 	) STRICT"#,
-        r#"CREATE INDEX conversations_by_owner_conversation ON conversations (owner_conversation_id, id)"#,
-        r#"CREATE INDEX conversations_by_owner_task ON conversations (owner_task_id, id)"#,
-        r#"CREATE TABLE entries (
+            r#"CREATE INDEX conversations_by_owner_conversation ON conversations (owner_conversation_id, id)"#,
+            r#"CREATE INDEX conversations_by_owner_task ON conversations (owner_task_id, id)"#,
+            r#"CREATE TABLE entries (
 		id INTEGER PRIMARY KEY,
 		conversation_id INTEGER NOT NULL,
 		head INTEGER,
 		commit_seq INTEGER NOT NULL,
 		record TEXT NOT NULL CHECK (json_valid(record))
 	) STRICT"#,
-        r#"CREATE INDEX entries_by_conversation ON entries (conversation_id, id DESC)"#,
-        r#"CREATE INDEX entry_heads_by_conversation ON entries (conversation_id, id DESC) WHERE head IS NOT NULL"#,
-        r#"CREATE TABLE tasks (
+            r#"CREATE INDEX entries_by_conversation ON entries (conversation_id, id DESC)"#,
+            r#"CREATE INDEX entry_heads_by_conversation ON entries (conversation_id, id DESC) WHERE head IS NOT NULL"#,
+            r#"CREATE TABLE tasks (
 		id INTEGER PRIMARY KEY,
 		conversation_id INTEGER NOT NULL,
 		kind TEXT NOT NULL,
@@ -52,22 +53,22 @@ pub const SQLITE_MIGRATIONS: &[Migration<'static>] = &[Migration {
 		background INTEGER NOT NULL CHECK (background IN (0, 1)),
 		record TEXT NOT NULL CHECK (json_valid(record))
 	) STRICT"#,
-        r#"CREATE INDEX tasks_by_status ON tasks (status, id)"#,
-        r#"CREATE INDEX tasks_by_conversation ON tasks (conversation_id, id)"#,
-        r#"CREATE INDEX tasks_by_kind ON tasks (kind, id)"#,
-        r#"CREATE INDEX tasks_by_abort_requested ON tasks (abort_requested, id)"#,
-        r#"CREATE INDEX tasks_by_background ON tasks (background, id)"#,
-        r#"CREATE TABLE submissions (
+            r#"CREATE INDEX tasks_by_status ON tasks (status, id)"#,
+            r#"CREATE INDEX tasks_by_conversation ON tasks (conversation_id, id)"#,
+            r#"CREATE INDEX tasks_by_kind ON tasks (kind, id)"#,
+            r#"CREATE INDEX tasks_by_abort_requested ON tasks (abort_requested, id)"#,
+            r#"CREATE INDEX tasks_by_background ON tasks (background, id)"#,
+            r#"CREATE TABLE submissions (
 		id INTEGER PRIMARY KEY,
 		conversation_id INTEGER NOT NULL,
 		request_id TEXT,
 		status TEXT NOT NULL CHECK (status IN ('queued', 'placed', 'done', 'unanswered')),
 		record TEXT NOT NULL CHECK (json_valid(record))
 	) STRICT"#,
-        r#"CREATE INDEX submissions_by_request ON submissions (conversation_id, request_id)"#,
-        r#"CREATE INDEX submissions_by_conversation ON submissions (conversation_id, id)"#,
-        r#"CREATE INDEX submissions_by_status ON submissions (status, id)"#,
-        r#"CREATE TABLE documents (
+            r#"CREATE INDEX submissions_by_request ON submissions (conversation_id, request_id)"#,
+            r#"CREATE INDEX submissions_by_conversation ON submissions (conversation_id, id)"#,
+            r#"CREATE INDEX submissions_by_status ON submissions (status, id)"#,
+            r#"CREATE TABLE documents (
 		id INTEGER PRIMARY KEY,
 		kind TEXT NOT NULL,
 		family INTEGER NOT NULL CHECK (family IN (0, 1)),
@@ -78,11 +79,11 @@ pub const SQLITE_MIGRATIONS: &[Migration<'static>] = &[Migration {
 		retired_at INTEGER,
 		record TEXT NOT NULL CHECK (json_valid(record))
 	) STRICT"#,
-        r#"CREATE INDEX documents_by_address
+            r#"CREATE INDEX documents_by_address
 		ON documents (kind, scope_kind, owner_id, family, key_value, created_at DESC, retired_at)"#,
-        r#"CREATE INDEX documents_by_scope ON documents (scope_kind, owner_id, id)"#,
-        r#"CREATE INDEX documents_by_scope_kind ON documents (scope_kind, owner_id, kind, id)"#,
-        r#"CREATE TABLE document_revisions (
+            r#"CREATE INDEX documents_by_scope ON documents (scope_kind, owner_id, id)"#,
+            r#"CREATE INDEX documents_by_scope_kind ON documents (scope_kind, owner_id, kind, id)"#,
+            r#"CREATE TABLE document_revisions (
 		document_id INTEGER NOT NULL,
 		seq INTEGER NOT NULL,
 		kind TEXT NOT NULL CHECK (kind IN ('base', 'delta')),
@@ -90,9 +91,33 @@ pub const SQLITE_MIGRATIONS: &[Migration<'static>] = &[Migration {
 		content TEXT NOT NULL CHECK (json_valid(content)),
 		PRIMARY KEY (document_id, seq)
 	) STRICT"#,
-        r#"CREATE INDEX document_revisions_by_kind ON document_revisions (document_id, kind, seq DESC)"#,
-    ],
-}];
+            r#"CREATE INDEX document_revisions_by_kind ON document_revisions (document_id, kind, seq DESC)"#,
+        ],
+    },
+    Migration {
+        version: 2,
+        statements: &[
+            r#"CREATE TABLE tasks_v2 (
+		id INTEGER PRIMARY KEY,
+		conversation_id INTEGER NOT NULL,
+		kind TEXT NOT NULL,
+		status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'waiting', 'sleeping', 'completing', 'terminal')),
+		abort_requested INTEGER NOT NULL CHECK (abort_requested IN (0, 1)),
+		background INTEGER NOT NULL CHECK (background IN (0, 1)),
+		record TEXT NOT NULL CHECK (json_valid(record))
+	) STRICT"#,
+            r#"INSERT INTO tasks_v2 (id, conversation_id, kind, status, abort_requested, background, record)
+		SELECT id, conversation_id, kind, status, abort_requested, background, record FROM tasks"#,
+            r#"DROP TABLE tasks"#,
+            r#"ALTER TABLE tasks_v2 RENAME TO tasks"#,
+            r#"CREATE INDEX tasks_by_status ON tasks (status, id)"#,
+            r#"CREATE INDEX tasks_by_conversation ON tasks (conversation_id, id)"#,
+            r#"CREATE INDEX tasks_by_kind ON tasks (kind, id)"#,
+            r#"CREATE INDEX tasks_by_abort_requested ON tasks (abort_requested, id)"#,
+            r#"CREATE INDEX tasks_by_background ON tasks (background, id)"#,
+        ],
+    },
+];
 
 pub fn apply_migrations(connection: &mut Connection, migrations: &[Migration]) -> Result<()> {
     if migrations

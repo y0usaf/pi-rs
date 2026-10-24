@@ -6,7 +6,7 @@ It won't: ship a CLI or a UI; bring an async runtime; follow redirects or speak 
 
 ## Why it exists
 
-Pi's TypeScript package [`@earendil-works/pi-durable`](https://github.com/earendil-works/pi) 1.1.0 already does this job well. This crate is the same design for programs that are written in Rust and don't want a Node process next to them. It is a port, not a redesign: behaviour is translated from the TypeScript at one pinned commit (`f1b2e77f5b13b2a199b1052cb79c235451afe7d7`, the `pi` flake input), together with the parts of `pi-ai` its harness needs, which follow the newer `bdb151774ed6bef2b5676bbff4669f20a0c233fe` (the `piAi` input). A flake check runs both implementations on the same scripted conversations and compares what they wrote down (see [What the parity check covers](#what-the-parity-check-covers)).
+Pi's TypeScript package [`@earendil-works/pi-durable`](https://github.com/earendil-works/pi) 1.1.0 already does this job well. This crate is the same design for programs that are written in Rust and don't want a Node process next to them. It is a port, not a redesign: behaviour is translated from the TypeScript at one pinned commit (`f1b2e77f5b13b2a199b1052cb79c235451afe7d7`, the `pi` flake input), together with the parts of `pi-ai` its harness needs, which follow the newer `bdb151774ed6bef2b5676bbff4669f20a0c233fe` (the `piAi` input). Moving `pi` to `bdb1517` needs the commits between them ported first: run against an oracle at `bdb1517`, 9 of the parity probes below differ, in `pi.tool` task records (version 2, an `input.kind`, and the tool result's text stored elsewhere) and in cancel and steering entries. Until that is done the sleeping lifecycle below is checked by `durable-sleep-e2e`, not by a parity scenario. A flake check runs both implementations on the same scripted conversations and compares what they wrote down (see [What the parity check covers](#what-the-parity-check-covers)).
 
 The two can share a SQLite file: the check kills a TypeScript or Rust writer mid-tool-call and lets the other implementation finish the turn (`parity/run.sh`, the `cross` cells).
 
@@ -189,10 +189,11 @@ The crate is 0.1.0 and its API is still moving.
 - **Bash output windows.** `ToolExecutionApi::outputWindow` does not exist; `skipped` is always `None` and chunk boundaries differ on large output. The retained tail matches.
 - **Unicode.** Strings cannot hold lone surrogates, so a cut through a surrogate pair yields U+FFFD; `t` counts stay UTF-16 units.
 - **Not ported from chord:** replicated state for views (`viewState` observers run synchronously on the commit path), `copyJson`, `isJsonValue`, the revision validator.
-- **Not ported**: `HookApi` memo and models, a commit-subscribe callback (use `DocumentWatch`), coding services and resource loader, MCP, the codemode sandbox.
+- **Not ported**: `HookApi` memo and models, a commit-subscribe callback (use `DocumentWatch`), coding services and resource loader, MCP, the codemode sandbox, durable telemetry (`DURABLE_TELEMETRY_SCHEMA` needs `pi-telemetry`, which has no Rust counterpart here, and nothing in this crate consumes spans yet).
 - **Process groups** use `process_group(0)` plus a two-line `extern "C"` call to `kill(2)`; temp-file names come from `RandomState` instead of a UUID. Unix only.
 - **Context budget (Rust only).** `AgentChange::context_budget_tokens` stores `contextBudgetTokens` in the conversation's agent document. Compaction thresholds then use the smaller of the model's context window and the budget (`budgeted_window`, `src/harness/generation.rs`), so a 1M-window model compacts near the budget; with no budget nothing changes, and a model with an unknown window (0) uses the budget alone. It is per conversation, because `CompactionPolicy` is harness-wide.
 - **Coding-agent behaviour (Rust only, opt-in).** Two `HarnessSettings` fields make the harness act like pi's coding agent rather than TypeScript pi-durable; both are off by default, so the parity check is unchanged. `tool_errors: Some(ToolErrorStyle::Plain)` answers an unknown tool or invalid arguments with the bare message as text (`Tool X not found`) instead of `<harness>` diagnostics. `length_recovery: Some(true)` treats a reply cut by the output limit below the model's `max_tokens` as recoverable: the reply is kept in history but hidden from context by a `pi.context-edit` entry, then the harness compacts and retries once (as for an overflow), or ends the run unanswered when nothing can be compacted (`src/harness/generation/classify.rs`).
+- **Sleeping tasks.** A phase ends asleep with `NextTaskState::Sleeping { checkpoint, until }` or `TaskRuntime::sleep_until`: no invocation is held, the deadline is a time on the harness clock and survives a restart, and the task resumes at that checkpoint once the clock reaches it. The scheduler arms the wake timer through `HarnessOptions::set_timer` (default: a thread). SQLite keeps a store at schema version 1 until a task first sleeps, then upgrades that file in place to version 2, which admits the status: TypeScript at the pinned commit knows only version 1 and refuses a version 2 file, so a store that has held a sleeping task can be opened by this crate alone until the two pins match, and the parity cross cells (one implementation's writer, the other's reader) never sleep. Generation retries, deferred polls and compaction retries sleep this way. Not ported: `HarnessOptions::onWake` and `Harness::wake()`, the evictable-host story (a Rust program is its own host, and nothing holds it open for a sleeping task: a thread does not outlive `main`, so a program that returns exits with the deadline stored and resumes it when it next opens the store), and `TaskRuntime::set_timer`, because progress pacing already runs on its own condvar and real time.
 - **Close.** `Harness::close` joins running invocations before closing the session; TypeScript seals admission first, so a task admitted during close can start in Rust and be refused in TypeScript.
 
 ### Providers
@@ -224,6 +225,8 @@ The HTTP client is hand-written HTTP/1.1 over `rustls` (`../ai/src/http.rs`). On
 - **Steps the driver can take:** submit, wait idle, sleep, wait for a run or tool, abort, compact, crash point.
 - **Model and tools:** the faux provider with two toy tools (`echo`, `sleep`).
 
+Sleeping tasks are not among the probes: the oracle pin predates them, so `durable-sleep-e2e` covers them instead (a generation retry sleeps through its backoff without an invocation, a restart resumes it, and a version 1 store migrates in place).
+
 What 48 green probes do **not** say: anything about a real provider or the HTTP code, the built-in `read` / `write` / `edit` / `bash` tools, the execution environment, JSONL storage, hooks, prompt sections, extension-defined tasks, fork / reset / configure, images or thinking blocks, event streams and watches, or timing. Some of those have older, uncommitted probes (see above), and some have none.
 
 ## Build and checks
@@ -233,7 +236,7 @@ nix build
 nix flake check
 ```
 
-`nix flake check` builds with and without features, runs `clippy` and `rustfmt`, the loopback end-to-end examples, and the parity check described above. The crate uses edition 2024, so it needs a recent Rust (`Cargo.toml` sets no `rust-version`, so the exact floor is unknown).
+`nix flake check` builds with and without features, runs `clippy` and `rustfmt`, the loopback end-to-end examples (`durable-sleep-e2e` among them: sleeping tasks, and the version 1 to 2 store migration), and the parity check described above. The crate uses edition 2024, so it needs a recent Rust (`Cargo.toml` sets no `rust-version`, so the exact floor is unknown).
 
 ## Layout
 

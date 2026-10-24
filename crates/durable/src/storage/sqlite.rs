@@ -93,6 +93,8 @@ impl Filter {
 struct State {
     connection: Option<Connection>,
     next_id: u64,
+    /// The schema version applied to this file. A store stays at version 1 until a task sleeps.
+    schema: u64,
 }
 
 #[derive(Debug)]
@@ -168,6 +170,7 @@ fn task_status_name(status: TaskStatus) -> &'static str {
         TaskStatus::Pending => "pending",
         TaskStatus::Running => "running",
         TaskStatus::Waiting => "waiting",
+        TaskStatus::Sleeping => "sleeping",
         TaskStatus::Completing => "completing",
         TaskStatus::Terminal => "terminal",
     }
@@ -899,20 +902,50 @@ fn apply_document_actions(
     Ok(())
 }
 
-fn initialize(connection: &mut Connection) -> Result<u64> {
-    apply_migrations(connection, SQLITE_MIGRATIONS)?;
+fn initialize(connection: &mut Connection) -> Result<(u64, u64)> {
+    let latest = SQLITE_MIGRATIONS[SQLITE_MIGRATIONS.len() - 1].version;
+    let schema = applied_version(connection)?;
+    if schema > latest {
+        return Err(invalid(format!(
+            "Durable SQLite schema version {schema} is newer than supported version {latest}"
+        )));
+    }
+    // A new file starts at the version every build of this port has written; a sleep upgrades it.
+    if schema == 0 {
+        apply_migrations(connection, &SQLITE_MIGRATIONS[..1])?;
+    }
     let (next_id, _) = metadata(connection)?;
-    Ok(next_id)
+    Ok((next_id, schema.max(SQLITE_MIGRATIONS[0].version)))
+}
+
+fn applied_version(connection: &Connection) -> Result<u64> {
+    let table: Option<String> = get(
+        connection,
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'durable_schema'",
+        params![],
+        |row| row.get(0),
+    )?;
+    if table.is_none() {
+        return Ok(0);
+    }
+    get(
+        connection,
+        "SELECT version FROM durable_schema WHERE singleton = 1",
+        params![],
+        |row| row.get(0),
+    )?
+    .ok_or_else(|| invalid("Durable SQLite schema metadata is missing"))
 }
 
 impl SqliteStorage {
     pub fn open(path: impl AsRef<Path>, options: &OpenOptions) -> Result<Self> {
         let mut connection = database::open(path.as_ref(), options)?;
         match initialize(&mut connection) {
-            Ok(next_id) => Ok(Self {
+            Ok((next_id, schema)) => Ok(Self {
                 state: Mutex::new(State {
                     connection: Some(connection),
                     next_id,
+                    schema,
                 }),
             }),
             Err(error) => {
@@ -1114,6 +1147,16 @@ impl Storage for SqliteStorage {
         let mut guard = self.lock();
         let state = &mut *guard;
         let connection = state.connection.as_mut().ok_or_else(closed)?;
+        // A sleep needs the schema version that admits it. A store an older build wrote stays at
+        // version 1 until then, so a TypeScript package at the older pin can still read it.
+        let sleeping = writes.iter().any(|write| {
+            matches!(write, StorageWrite::Table(change)
+                if matches!(change.as_ref(), TableChange::Task(record) if record.status() == TaskStatus::Sleeping))
+        });
+        if sleeping && state.schema < SQLITE_MIGRATIONS[SQLITE_MIGRATIONS.len() - 1].version {
+            apply_migrations(connection, SQLITE_MIGRATIONS)?;
+            state.schema = applied_version(connection)?;
+        }
         let actions = prepare_document_actions(writes)?;
         let candidate = candidate_next_id(state.next_id, writes);
         let seq = transaction(connection, |tx| {

@@ -734,7 +734,9 @@ fn retry(
     else {
         return Err(mismatch("retry"));
     };
-    runtime.sleep(until, cancel)?;
+    if until > runtime.now() {
+        return runtime.sleep_until(until, task.checkpoint().clone(), cancel);
+    }
     let conversation_id = runtime.conversation_id();
     runtime.commit(
         Box::new(move |tx, _task| {
@@ -774,13 +776,15 @@ fn poll(
     else {
         return Err(mismatch("poll"));
     };
+    if poll_at > runtime.now() {
+        return runtime.sleep_until(poll_at, task.checkpoint().clone(), cancel);
+    }
     let Some(model) = runtime
         .models()
         .get_model(&model_ref.provider, &model_ref.model_id)
     else {
         return fail_no_model(runtime, Some(&model_ref), cancel);
     };
-    runtime.sleep(poll_at, cancel)?;
     let message = runtime
         .models()
         .fetch_deferred(&model, &handle, runtime.signal())

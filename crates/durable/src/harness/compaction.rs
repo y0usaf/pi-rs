@@ -402,8 +402,9 @@ fn summarize(task: Task, runtime: Runtime<'_>, cancel: &CancelToken) -> Result<(
                         status.retry = Some(RetryStatus { at: until, error });
                     }
                 })?;
-                return Ok(Some(NextTaskState::Running {
+                return Ok(Some(NextTaskState::Sleeping {
                     checkpoint: CompactionCheckpoint::Retry { until, request },
+                    until,
                 }));
             }
             remove_status(tx, conversation_id, task_id)?;
@@ -425,7 +426,9 @@ fn retry(task: Task, runtime: Runtime<'_>, cancel: &CancelToken) -> Result<()> {
     let CompactionCheckpoint::Retry { until, request } = task.checkpoint().clone() else {
         return Err(mismatch("retry"));
     };
-    runtime.sleep(until, cancel)?;
+    if until > runtime.now() {
+        return runtime.sleep_until(until, task.checkpoint().clone(), cancel);
+    }
     let conversation_id = runtime.conversation_id();
     let task_id = erase(runtime.task_id());
     let attempt = request.attempt + 1;

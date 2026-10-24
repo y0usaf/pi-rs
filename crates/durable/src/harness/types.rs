@@ -15,6 +15,7 @@ use crate::harness::output::{OutputChunk, Retain, ShellOutputSkip};
 use crate::harness::registry::{Registry, RegistrySnapshot};
 use crate::harness::scheduler::ErasedTask;
 use crate::harness::submissions::{SubmissionDraft, SubmissionHandle};
+pub use crate::harness::timers::SetTimer;
 use crate::ids::{ConversationId, EntryId, TaskId};
 use crate::session::types::{DocumentObserver, DocumentReader, Tx};
 use crate::types::{
@@ -410,6 +411,10 @@ pub struct HarnessOptions {
     pub conversation_created: Option<ConversationCreated>,
     pub now: Option<Arc<dyn Fn() -> u64 + Send + Sync>>,
     pub env: Option<EnvBuilder>,
+    /// Arms the timers of the scheduler and its tasks: the ones that resume sleeping tasks and
+    /// those that free idle memory. Default: a thread. Tests pass fake timers; a host can keep
+    /// timers off a process that should hibernate.
+    pub set_timer: Option<SetTimer>,
     pub on_report: Option<ErrorReport>,
 }
 

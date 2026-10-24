@@ -20,6 +20,7 @@ use crate::errors::{Error, Result};
 use crate::harness::context::ContextRange;
 use crate::harness::registry::Registry;
 use crate::harness::runtime::HarnessTaskRuntime;
+use crate::harness::timers::{Disarm, Timers};
 use crate::harness::util::{Ticket, Waiters, scan_all};
 use crate::ids::{ConversationId, EntryId, TaskId};
 use crate::session::kernel::Session;
@@ -35,14 +36,14 @@ use crate::types::{
 };
 
 const SCAN_PAGE_SIZE: usize = 256;
-const MAX_TIMER_DELAY: u64 = 2_147_483_647;
 
 mod invocation;
 pub use invocation::InvocationRuntime;
-const LIVE_STATUSES: [TaskStatus; 4] = [
+const LIVE_STATUSES: [TaskStatus; 5] = [
     TaskStatus::Pending,
     TaskStatus::Running,
     TaskStatus::Waiting,
+    TaskStatus::Sleeping,
     TaskStatus::Completing,
 ];
 
@@ -224,7 +225,9 @@ struct State {
     failed_migrations: BTreeMap<TaskId, (Arc<dyn ErasedTask>, String)>,
     invocations: BTreeMap<TaskId, Arc<Invocation>>,
     contexts: BTreeMap<ConversationId, KeptContext>,
-    expiry: Option<(u64, CancelToken)>,
+    expiry: Option<(u64, Disarm)>,
+    /// The timer that resumes sleeping tasks when the earliest of them is due.
+    wake_timer: Option<(u64, Disarm)>,
     reconcile_scheduled: bool,
     cascade_pending: bool,
     enabled: bool,
@@ -248,6 +251,7 @@ pub struct SchedulerOptions {
     pub settings: SettingsSource,
     pub now: Clock,
     pub registry: Arc<Registry>,
+    pub timers: Timers,
 }
 
 struct Shared {
@@ -263,6 +267,7 @@ struct Shared {
     conversation: ConversationBinder,
     settings: SettingsSource,
     now: Clock,
+    timers: Timers,
     task_waiters: Waiters<TaskId, AnyTaskRecord>,
     idle_waiters: Waiters<Option<ConversationId>, ()>,
     registry: Arc<Registry>,
@@ -473,6 +478,7 @@ impl TaskScheduler {
             invocations: BTreeMap::new(),
             contexts: BTreeMap::new(),
             expiry: None,
+            wake_timer: None,
             reconcile_scheduled: false,
             cascade_pending: false,
             enabled: false,
@@ -494,6 +500,7 @@ impl TaskScheduler {
             conversation: options.conversation,
             settings: options.settings,
             now: options.now,
+            timers: options.timers,
             task_waiters: Waiters::default(),
             idle_waiters: Waiters::default(),
             registry: options.registry,
@@ -605,8 +612,11 @@ impl TaskScheduler {
         let mut st = self.lock();
         st.closing = true;
         st.contexts.clear();
-        if let Some((_, token)) = st.expiry.take() {
-            token.cancel();
+        if let Some((_, disarm)) = st.expiry.take() {
+            disarm();
+        }
+        if let Some((_, disarm)) = st.wake_timer.take() {
+            disarm();
         }
         for invocation in st.invocations.values() {
             invocation.cancel.cancel();
@@ -962,7 +972,8 @@ fn checkpoint_of(state: &TaskState<JsonValue, JsonValue>) -> Option<&JsonValue> 
     match state {
         TaskState::Pending { checkpoint }
         | TaskState::Running { checkpoint }
-        | TaskState::Waiting { checkpoint, .. } => Some(checkpoint),
+        | TaskState::Waiting { checkpoint, .. }
+        | TaskState::Sleeping { checkpoint, .. } => Some(checkpoint),
         TaskState::Completing { .. } | TaskState::Terminal { .. } => None,
     }
 }
@@ -1007,6 +1018,16 @@ fn waiting_on(
             .copied()
             .collect(),
         _ => Vec::new(),
+    }
+}
+
+/// A sleep whose `until` the clock has not reached; an abort mark ends a sleep.
+fn sleeping_until(now: u64, record: &AnyTaskRecord) -> Option<u64> {
+    match &record.state {
+        TaskState::Sleeping { until, .. } if !record.abort_requested && *until > now => {
+            Some(*until)
+        }
+        _ => None,
     }
 }
 
@@ -1090,6 +1111,10 @@ fn with_checkpoint(
             on: on.clone(),
             policy: *policy,
         },
+        TaskState::Sleeping { until, .. } => TaskState::Sleeping {
+            checkpoint,
+            until: *until,
+        },
         other => other.clone(),
     }
 }
@@ -1145,6 +1170,7 @@ impl TaskScheduler {
                     if st.invocations.contains_key(&id)
                         || !waiting_on(&st, live, &owned).is_empty()
                         || matches!(live.state, TaskState::Completing { .. })
+                        || sleeping_until((self.0.now)(), live).is_some()
                     {
                         continue;
                     }
@@ -1444,6 +1470,7 @@ impl TaskScheduler {
     }
 
     fn kick(&self) {
+        self.schedule_wake();
         {
             let mut st = self.lock();
             st.dirty = true;
@@ -1494,6 +1521,12 @@ impl TaskScheduler {
     ) -> Result<()> {
         if let NextTaskState::Waiting { on, policy, .. } = &next {
             self.validate_wait(tx, st, invocation, current, on, *policy)?;
+        }
+        if matches!(next, NextTaskState::Sleeping { .. }) && invocation.mode == Mode::Abort {
+            return Err(Error::Invalid(format!(
+                "Abort handler of task {} cannot sleep",
+                current.id
+            )));
         }
         if let NextTaskState::Terminal { outcome } = &next {
             let overlay = overlay_of(tx);
@@ -1600,6 +1633,9 @@ fn idle(st: &State, conversation: Option<ConversationId>) -> bool {
 
 pub enum Inspected {
     Running,
+    Sleeping {
+        until: u64,
+    },
     Completing,
     Waiting {
         on: Vec<TaskId>,
@@ -1773,6 +1809,8 @@ impl TaskScheduler {
                 Inspected::Running
             } else if matches!(record.state, TaskState::Completing { .. }) {
                 Inspected::Completing
+            } else if let Some(until) = sleeping_until((self.0.now)(), record) {
+                Inspected::Sleeping { until }
             } else {
                 let on = waiting_on(&st, record, &owned);
                 if !on.is_empty() {
@@ -1868,8 +1906,8 @@ impl TaskScheduler {
         {
             return;
         }
-        if let Some((_, token)) = st.expiry.take() {
-            token.cancel();
+        if let Some((_, disarm)) = st.expiry.take() {
+            disarm();
         }
         let Some(at) = at else {
             return;
@@ -1877,15 +1915,69 @@ impl TaskScheduler {
         if st.closing {
             return;
         }
-        let token = CancelToken::new();
-        st.expiry = Some((at, token.clone()));
-        let delay = at.saturating_sub((self.0.now)()).min(MAX_TIMER_DELAY);
+        let delay = at.saturating_sub((self.0.now)());
         let scheduler = self.clone();
-        thread::spawn(move || {
-            if !token.wait_timeout(std::time::Duration::from_millis(delay)) {
-                scheduler.expire();
+        let callback = Arc::new(move || scheduler.expire());
+        st.expiry = self
+            .0
+            .timers
+            .background(callback, delay)
+            .map(|disarm| (at, disarm));
+    }
+
+    /// Keep the timer for the earliest sleep. Unlike the context expiry timer it keeps the process
+    /// alive while it waits: a sleeping task has work left, such as a retry backoff.
+    fn schedule_wake(&self) {
+        let now = (self.0.now)();
+        let (at, previous) = {
+            let mut st = self.lock();
+            let at = st
+                .live
+                .values()
+                .filter_map(|record| match &record.state {
+                    TaskState::Sleeping { until, .. }
+                        if !record.abort_requested && *until > now =>
+                    {
+                        Some(*until)
+                    }
+                    _ => None,
+                })
+                .min();
+            if st.wake_timer.as_ref().map(|(current, _)| *current) == at {
+                return;
             }
-        });
+            let previous = st.wake_timer.take();
+            if st.closing {
+                (None, previous)
+            } else {
+                (at, previous)
+            }
+        };
+        if let Some((_, disarm)) = previous {
+            disarm();
+        }
+        let Some(at) = at else {
+            return;
+        };
+        let scheduler = self.clone();
+        let callback = Arc::new(move || scheduler.wake());
+        let armed = self.0.timers.foreground(callback, at.saturating_sub(now));
+        let mut st = self.lock();
+        // A timer that fired inline may have armed its own: keep only one for this deadline.
+        if st.closing || st.wake_timer.is_some() {
+            armed();
+            return;
+        }
+        st.wake_timer = Some((at, armed));
+    }
+
+    /// A sleep's time has come: schedule again.
+    fn wake(&self) {
+        let armed = self.lock().wake_timer.take();
+        if let Some((_, disarm)) = armed {
+            disarm();
+        }
+        self.kick();
     }
 
     fn expire(&self) {

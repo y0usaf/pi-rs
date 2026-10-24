@@ -316,6 +316,7 @@ fn main() -> Result<()> {
             conversation_created: None,
             now: None,
             env: None,
+            set_timer: None,
             on_report: Some(Arc::new(|error| eprintln!("report: {error}"))),
         },
     )?;

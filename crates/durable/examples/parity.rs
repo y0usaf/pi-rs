@@ -210,6 +210,7 @@ fn run_case(case: &Value, kind: &str, db: &str, phase: &str) -> Result<Value> {
             conversation_created: None,
             env: None,
             now: Some(Arc::new(|| 1000)),
+            set_timer: None,
             on_report: Some(Arc::new(move |error| {
                 sink.lock().expect("reports").push(error.to_string())
             })),

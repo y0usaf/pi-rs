@@ -224,6 +224,10 @@
             PI_RS_BIN=${self.packages.${system}.default}/bin/pi-rs ${examples}/bin/mcp_e2e
             touch $out
           '';
+          durable-sleep-e2e = pkgs.runCommand "${pname}-durable-sleep-e2e" { } ''
+            ${examples}/bin/durable_sleep_e2e
+            touch $out
+          '';
           parity =
             pkgs.runCommand "${pname}-parity"
               {
