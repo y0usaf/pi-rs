@@ -11,7 +11,7 @@ It won't: bring an async runtime; follow redirects or speak through proxies; tal
 | Pi package | crate | state |
 | --- | --- | --- |
 | `@earendil-works/pi-ai` | `crates/ai` (`pi-ai`) | here; a subset of providers and logins, checked against the TypeScript by `crates/ai/parity` |
-| `@earendil-works/chord` | `crates/chord` (`pi-chord`) | here; only the replicated state (delta ops, tracker, state) |
+| `@earendil-works/chord` | `crates/chord` (`pi-chord`) | here; the replicated state (delta ops, tracker, state) and the watch handle (`Watch`, `NativeWatch`, pending ops) |
 | `@earendil-works/pi-env` | `crates/env` (`pi-env`) | here; `ExecutionEnv` and the local implementation, no remote SSH environment |
 | `@earendil-works/pi-durable` | `crates/durable` (`pi-durable`) | here; see [its README](crates/durable/README.md) |
 | `@earendil-works/pi-tui` | `crates/tui` (`pi-tui`) | here; components checked against upstream renders by `crates/tui/tests` |
