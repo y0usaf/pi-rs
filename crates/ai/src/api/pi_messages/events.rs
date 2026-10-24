@@ -271,6 +271,9 @@ fn finish(output: &mut AssistantMessage, event: &Value) -> Result<(), String> {
     if let Some(id) = event["responseId"].as_str() {
         output.response_id = Some(id.to_owned());
     }
+    if let Some(model) = event["responseModel"].as_str() {
+        output.response_model = Some(model.to_owned());
+    }
     if let Some(level) = event["providerThinkingLevel"].as_str() {
         output.provider_thinking_level = Some(level.to_owned());
     }
