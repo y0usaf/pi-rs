@@ -17,7 +17,9 @@ fn latex_matches_upstream() {
             let got = render_latex(source, display);
             checked += 1;
             if got.as_deref() != want {
-                failures.push(format!("{source:?} display={display}\n  got:  {got:?}\n  want: {want:?}"));
+                failures.push(format!(
+                    "{source:?} display={display}\n  got:  {got:?}\n  want: {want:?}"
+                ));
             }
         }
     }

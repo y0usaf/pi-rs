@@ -537,8 +537,7 @@ pub(super) fn subscript(key: &str) -> Option<&'static str> {
 pub(super) fn is_spacing_command(key: &str) -> bool {
     matches!(
         key,
-        ","
-            | ":"
+        "," | ":"
             | ";"
             | " "
             | ">"
@@ -553,37 +552,17 @@ pub(super) fn is_spacing_command(key: &str) -> bool {
 }
 
 pub(super) fn is_negative_spacing_command(key: &str) -> bool {
-    matches!(
-        key,
-        "!"
-            | "negmedspace"
-            | "negthickspace"
-            | "negthinspace"
-    )
+    matches!(key, "!" | "negmedspace" | "negthickspace" | "negthinspace")
 }
 
 pub(super) fn is_font_switch_command(key: &str) -> bool {
-    matches!(
-        key,
-        "bf"
-            | "cal"
-            | "it"
-            | "rm"
-            | "sf"
-            | "sl"
-            | "tt"
-    )
+    matches!(key, "bf" | "cal" | "it" | "rm" | "sf" | "sl" | "tt")
 }
 
 pub(super) fn is_ignored_command(key: &str) -> bool {
     matches!(
         key,
-        "displaystyle"
-            | "limits"
-            | "nolimits"
-            | "scriptstyle"
-            | "scriptscriptstyle"
-            | "textstyle"
+        "displaystyle" | "limits" | "nolimits" | "scriptstyle" | "scriptscriptstyle" | "textstyle"
     )
 }
 

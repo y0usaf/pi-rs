@@ -41,7 +41,6 @@ impl Component for Lines {
     }
 }
 
-
 fn size(v: &Value) -> Option<SizeValue> {
     match v {
         Value::Number(n) => Some(SizeValue::Abs(n.as_i64().unwrap())),
@@ -94,7 +93,11 @@ fn main_screen_matches_upstream() {
     for (n, sc) in scenarios.iter().enumerate() {
         let out = Rc::new(RefCell::new(String::new()));
         let frames = sc["frames"].as_array().unwrap();
-        let term = Rec { cols: frames[0]["cols"].as_u64().unwrap() as usize, rows: frames[0]["rows"].as_u64().unwrap() as usize, out: out.clone() };
+        let term = Rec {
+            cols: frames[0]["cols"].as_u64().unwrap() as usize,
+            rows: frames[0]["rows"].as_u64().unwrap() as usize,
+            out: out.clone(),
+        };
         let mut tui = TuiMainScreen::with_hardware_cursor(term, sc["hw"].as_bool().unwrap());
         tui.set_clear_on_shrink(sc["clearOnShrink"].as_bool().unwrap());
         let comp = Rc::new(RefCell::new(Lines(Vec::new())));
@@ -105,11 +108,21 @@ fn main_screen_matches_upstream() {
         for (f, fr) in frames.iter().enumerate() {
             tui.terminal.cols = fr["cols"].as_u64().unwrap() as usize;
             tui.terminal.rows = fr["rows"].as_u64().unwrap() as usize;
-            comp.borrow_mut().0 = fr["lines"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_string()).collect();
+            comp.borrow_mut().0 = fr["lines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|l| l.as_str().unwrap().to_string())
+                .collect();
             for op in fr["ops"].as_array().unwrap() {
                 match op["op"].as_str().unwrap() {
                     "show" => {
-                        let lines = op["lines"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_string()).collect();
+                        let lines = op["lines"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|l| l.as_str().unwrap().to_string())
+                            .collect();
                         let c = Rc::new(RefCell::new(Lines(lines)));
                         overlays.push(tui.show_overlay(c, Some(options(&op["opts"]))));
                     }
@@ -134,20 +147,35 @@ fn main_screen_matches_upstream() {
             let got = std::mem::take(&mut *out.borrow_mut());
             let want = fr["out"].as_str().unwrap();
             if got != want {
-                failures.push(format!("scenario {n} frame {f} ({}x{}, lines {:?})\n  got:  {got:?}\n  want: {want:?}", fr["cols"], fr["rows"], fr["lines"]));
+                failures.push(format!(
+                    "scenario {n} frame {f} ({}x{}, lines {:?})\n  got:  {got:?}\n  want: {want:?}",
+                    fr["cols"], fr["rows"], fr["lines"]
+                ));
                 break;
             }
         }
         tui.stop(false);
         let got = std::mem::take(&mut *out.borrow_mut());
         if failures.is_empty() && got != sc["stopOut"].as_str().unwrap() {
-            failures.push(format!("scenario {n} stop\n  got:  {got:?}\n  want: {:?}", sc["stopOut"]));
+            failures.push(format!(
+                "scenario {n} stop\n  got:  {got:?}\n  want: {:?}",
+                sc["stopOut"]
+            ));
         }
         if tui.full_redraws() != sc["fullRedraws"].as_u64().unwrap() {
-            failures.push(format!("scenario {n}: full redraws {} vs {}", tui.full_redraws(), sc["fullRedraws"]));
+            failures.push(format!(
+                "scenario {n}: full redraws {} vs {}",
+                tui.full_redraws(),
+                sc["fullRedraws"]
+            ));
         }
     }
     let total = failures.len();
     failures.truncate(5);
-    assert!(total == 0, "{total} of {} scenarios differ:\n{}", scenarios.len(), failures.join("\n"));
+    assert!(
+        total == 0,
+        "{total} of {} scenarios differ:\n{}",
+        scenarios.len(),
+        failures.join("\n")
+    );
 }

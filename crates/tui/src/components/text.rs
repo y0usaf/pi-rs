@@ -21,10 +21,19 @@ impl Default for Text {
 
 impl Text {
     pub fn new(text: &str, padding_x: usize, padding_y: usize) -> Self {
-        Text { text: text.into(), padding_x, padding_y, bg: None, cache: None }
+        Text {
+            text: text.into(),
+            padding_x,
+            padding_y,
+            bg: None,
+            cache: None,
+        }
     }
     pub fn with_bg(text: &str, padding_x: usize, padding_y: usize, bg: StyleFn) -> Self {
-        Text { bg: Some(bg), ..Text::new(text, padding_x, padding_y) }
+        Text {
+            bg: Some(bg),
+            ..Text::new(text, padding_x, padding_y)
+        }
     }
     pub fn set_text(&mut self, text: &str) {
         self.text = text.into();
@@ -45,10 +54,11 @@ impl Text {
 
 impl Component for Text {
     fn render(&mut self, width: usize) -> Vec<String> {
-        if let Some((t, w, lines)) = &self.cache {
-            if *t == self.text && *w == width {
-                return lines.clone();
-            }
+        if let Some((t, w, lines)) = &self.cache
+            && *t == self.text
+            && *w == width
+        {
+            return lines.clone();
         }
         if js_trim(&self.text).is_empty() {
             self.cache = Some((self.text.clone(), width, Vec::new()));
@@ -78,7 +88,11 @@ impl Component for Text {
         result.extend(content);
         result.extend(std::iter::repeat_n(empty_line, self.padding_y));
         self.cache = Some((self.text.clone(), width, result.clone()));
-        if result.is_empty() { vec![String::new()] } else { result }
+        if result.is_empty() {
+            vec![String::new()]
+        } else {
+            result
+        }
     }
     fn invalidate(&mut self) {
         self.cache = None;

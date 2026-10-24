@@ -3,9 +3,8 @@
 //! Positions are byte offsets into UTF-8; widths are terminal columns.
 
 use crate::unicode::{
-    east_asian_width, graphemes, is_cjk_break, is_js_whitespace, is_mark,
-    is_non_printing, is_punctuation, is_rgi_emoji, is_terminal_spacing_mark, is_zero_width,
-    utf16_len,
+    east_asian_width, graphemes, is_cjk_break, is_js_whitespace, is_mark, is_non_printing,
+    is_punctuation, is_rgi_emoji, is_terminal_spacing_mark, is_zero_width, utf16_len,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -105,17 +104,21 @@ pub fn visible_width(s: &str) -> usize {
     if let Some(w) = WIDTH_CACHE.with(|c| c.borrow().0.get(s).copied()) {
         return w;
     }
-    let mut clean = if s.contains('\t') { s.replace('\t', "   ") } else { s.to_string() };
+    let mut clean = if s.contains('\t') {
+        s.replace('\t', "   ")
+    } else {
+        s.to_string()
+    };
     if clean.contains('\x1b') {
         clean = strip_ansi_lenient(&clean);
     }
     let width = graphemes(&clean).map(grapheme_width).sum();
     WIDTH_CACHE.with(|c| {
         let (map, order) = &mut *c.borrow_mut();
-        if map.len() >= WIDTH_CACHE_SIZE {
-            if let Some(k) = order.pop_front() {
-                map.remove(&k);
-            }
+        if map.len() >= WIDTH_CACHE_SIZE
+            && let Some(k) = order.pop_front()
+        {
+            map.remove(&k);
         }
         if map.insert(s.to_string(), width).is_none() {
             order.push_back(s.to_string());
@@ -185,8 +188,8 @@ pub fn ansi_code_length(s: &str, pos: usize) -> usize {
     }
     match b.get(pos + 1) {
         Some(b'[') => {
-            for j in pos + 2..b.len() {
-                if matches!(b[j], b'm' | b'G' | b'K' | b'H' | b'J') {
+            for (j, &c) in b.iter().enumerate().skip(pos + 2) {
+                if matches!(c, b'm' | b'G' | b'K' | b'H' | b'J') {
                     return j + 1 - pos;
                 }
             }
@@ -255,13 +258,15 @@ pub fn osc8_link_at_column(line: &str, column: usize) -> Option<String> {
     while i < line.len() {
         if let Some(code) = extract_ansi_code(line, i) {
             if let Some(rest) = code.strip_prefix("\x1b]8;") {
-                let body = rest.strip_suffix('\x07').or_else(|| rest.strip_suffix("\x1b\\"));
-                if let Some(body) = body {
-                    if let Some(semi) = body.find(';') {
-                        let url = &body[semi + 1..];
-                        if !url.contains('\x07') && !url.contains('\x1b') {
-                            active = (!url.is_empty()).then(|| url.to_string());
-                        }
+                let body = rest
+                    .strip_suffix('\x07')
+                    .or_else(|| rest.strip_suffix("\x1b\\"));
+                if let Some(body) = body
+                    && let Some(semi) = body.find(';')
+                {
+                    let url = &body[semi + 1..];
+                    if !url.contains('\x07') && !url.contains('\x1b') {
+                        active = (!url.is_empty()).then(|| url.to_string());
                     }
                 }
             }
@@ -284,7 +289,8 @@ pub fn osc8_link_at_column(line: &str, column: usize) -> Option<String> {
 /// Decompose Thai/Lao AM vowels and expand visible tabs to three spaces.
 pub fn normalize_terminal_output(s: &str) -> String {
     let normalized = if s.contains(['\u{0e33}', '\u{0eb3}']) {
-        s.replace('\u{0e33}', "\u{0e4d}\u{0e32}").replace('\u{0eb3}', "\u{0ecd}\u{0eb2}")
+        s.replace('\u{0e33}', "\u{0e4d}\u{0e32}")
+            .replace('\u{0eb3}', "\u{0ecd}\u{0eb2}")
     } else {
         s.to_string()
     };
@@ -323,7 +329,11 @@ fn parse_osc8(code: &str) -> Option<Option<Hyperlink>> {
     if !code.starts_with("\x1b]8;") {
         return None;
     }
-    let terminator = if code.ends_with('\x07') { "\x07" } else { "\x1b\\" };
+    let terminator = if code.ends_with('\x07') {
+        "\x07"
+    } else {
+        "\x1b\\"
+    };
     let end = code.len().saturating_sub(terminator.len()).max(4);
     let body = &code[4..end];
     let semi = body.find(';')?;
@@ -331,7 +341,11 @@ fn parse_osc8(code: &str) -> Option<Option<Hyperlink>> {
     if url.is_empty() {
         return Some(None);
     }
-    Some(Some(Hyperlink { params: body[..semi].to_string(), url: url.to_string(), terminator }))
+    Some(Some(Hyperlink {
+        params: body[..semi].to_string(),
+        url: url.to_string(),
+        terminator,
+    }))
 }
 
 fn format_osc8(h: &Hyperlink) -> String {
@@ -358,7 +372,9 @@ fn active_osc8_close(prefix: &str) -> String {
             i += 1;
         }
     }
-    active.map(|h| format_osc8_close(h.terminator)).unwrap_or_default()
+    active
+        .map(|h| format_osc8_close(h.terminator))
+        .unwrap_or_default()
 }
 
 /// First match of `/\x1b\[([\d;]*)m/` in the code.
@@ -367,7 +383,10 @@ fn sgr_params(code: &str) -> Option<&str> {
     while let Some(p) = code[from..].find("\x1b\x5b") {
         let start = from + p + 2;
         let rest = &code[start..];
-        let n = rest.bytes().take_while(|b| b.is_ascii_digit() || *b == b';').count();
+        let n = rest
+            .bytes()
+            .take_while(|b| b.is_ascii_digit() || *b == b';')
+            .count();
         if rest.as_bytes().get(n) == Some(&b'm') {
             return Some(&rest[..n]);
         }
@@ -421,7 +440,9 @@ impl AnsiCodeTracker {
         if !code.ends_with('m') {
             return;
         }
-        let Some(params) = sgr_params(code) else { return };
+        let Some(params) = sgr_params(code) else {
+            return;
+        };
         if params.is_empty() || params == "0" {
             self.reset();
             return;
@@ -433,12 +454,20 @@ impl AnsiCodeTracker {
             if code == Some(38) || code == Some(48) {
                 if parts.get(i + 1) == Some(&"5") && i + 2 < parts.len() {
                     let color = format!("{};{};{}", parts[i], parts[i + 1], parts[i + 2]);
-                    if code == Some(38) { self.fg = Some(color) } else { self.bg = Some(color) }
+                    if code == Some(38) {
+                        self.fg = Some(color)
+                    } else {
+                        self.bg = Some(color)
+                    }
                     i += 3;
                     continue;
                 } else if parts.get(i + 1) == Some(&"2") && i + 4 < parts.len() {
                     let color = parts[i..i + 5].join(";");
-                    if code == Some(38) { self.fg = Some(color) } else { self.bg = Some(color) }
+                    if code == Some(38) {
+                        self.fg = Some(color)
+                    } else {
+                        self.bg = Some(color)
+                    }
                     i += 5;
                     continue;
                 }
@@ -480,7 +509,10 @@ impl AnsiCodeTracker {
 
     fn reset(&mut self) {
         let link = self.link.take();
-        *self = Self { link, ..Self::default() };
+        *self = Self {
+            link,
+            ..Self::default()
+        };
     }
 
     #[allow(dead_code)]
@@ -510,7 +542,11 @@ impl AnsiCodeTracker {
         if let Some(bg) = self.bg.as_deref().filter(|s| !s.is_empty()) {
             codes.push(bg);
         }
-        let mut out = if codes.is_empty() { String::new() } else { format!("\x1b\x5b{}m", codes.join(";")) };
+        let mut out = if codes.is_empty() {
+            String::new()
+        } else {
+            format!("\x1b\x5b{}m", codes.join(";"))
+        };
         if let Some(h) = &self.link {
             out.push_str(&format_osc8(h));
         }
@@ -639,12 +675,16 @@ fn split_into_tokens_with_ansi(text: &str) -> Vec<String> {
 
 /// JS `String.prototype.trimEnd`.
 pub(crate) fn js_trim_end(s: &str) -> &str {
-    s.trim_end_matches(|c: char| is_js_whitespace(c) || matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}' | '\u{FEFF}'))
+    s.trim_end_matches(|c: char| {
+        is_js_whitespace(c) || matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}' | '\u{FEFF}')
+    })
 }
 
 /// JS `String.prototype.trim`.
 pub fn js_trim(s: &str) -> &str {
-    let f = |c: char| is_js_whitespace(c) || matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}' | '\u{FEFF}');
+    let f = |c: char| {
+        is_js_whitespace(c) || matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}' | '\u{FEFF}')
+    };
     s.trim_matches(f)
 }
 
@@ -680,11 +720,19 @@ pub fn wrap_text_with_ansi(text: &str, width: usize) -> Vec<String> {
     let mut result: Vec<String> = Vec::new();
     let mut tracker = AnsiCodeTracker::new();
     for input in split_lines(text) {
-        let prefix = if result.is_empty() { String::new() } else { tracker.active_codes() };
+        let prefix = if result.is_empty() {
+            String::new()
+        } else {
+            tracker.active_codes()
+        };
         result.extend(wrap_single_line(&(prefix + input), width));
         update_tracker_from_text(input, &mut tracker);
     }
-    if result.is_empty() { vec![String::new()] } else { result }
+    if result.is_empty() {
+        vec![String::new()]
+    } else {
+        result
+    }
 }
 
 fn wrap_single_line(line: &str, width: usize) -> Vec<String> {
@@ -778,7 +826,11 @@ fn break_long_word(word: &str, width: usize, tracker: &mut AnsiCodeTracker) -> V
     if !current.is_empty() {
         lines.push(current);
     }
-    if lines.is_empty() { vec![String::new()] } else { lines }
+    if lines.is_empty() {
+        vec![String::new()]
+    } else {
+        lines
+    }
 }
 
 /// Pad `line` to `width` and pass it through `bg`.
@@ -856,7 +908,14 @@ fn truncate_fragment_to_width(text: &str, max_width: usize) -> (String, usize) {
     (result, width)
 }
 
-fn finalize_truncated(prefix: &str, prefix_width: usize, ellipsis: &str, ellipsis_width: usize, max_width: usize, pad: bool) -> String {
+fn finalize_truncated(
+    prefix: &str,
+    prefix_width: usize,
+    ellipsis: &str,
+    ellipsis_width: usize,
+    max_width: usize,
+    pad: bool,
+) -> String {
     let reset = "\x1b\x5b0m";
     let close = active_osc8_close(prefix);
     let mut out = if ellipsis.is_empty() {
@@ -877,26 +936,49 @@ pub fn truncate_to_width(text: &str, max_width: usize, ellipsis: &str, pad: bool
         return String::new();
     }
     if text.is_empty() {
-        return if pad { " ".repeat(max_width) } else { String::new() };
+        return if pad {
+            " ".repeat(max_width)
+        } else {
+            String::new()
+        };
     }
     let ellipsis_width = visible_width(ellipsis);
     if ellipsis_width >= max_width {
         let tw = visible_width(text);
         if tw <= max_width {
-            return if pad { format!("{text}{}", " ".repeat(max_width - tw)) } else { text.to_string() };
+            return if pad {
+                format!("{text}{}", " ".repeat(max_width - tw))
+            } else {
+                text.to_string()
+            };
         }
         let (clipped, cw) = truncate_fragment_to_width(ellipsis, max_width);
         if cw == 0 {
-            return if pad { " ".repeat(max_width) } else { String::new() };
+            return if pad {
+                " ".repeat(max_width)
+            } else {
+                String::new()
+            };
         }
         return finalize_truncated("", 0, &clipped, cw, max_width, pad);
     }
     if is_printable_ascii(text) {
         if text.len() <= max_width {
-            return if pad { format!("{text}{}", " ".repeat(max_width - text.len())) } else { text.to_string() };
+            return if pad {
+                format!("{text}{}", " ".repeat(max_width - text.len()))
+            } else {
+                text.to_string()
+            };
         }
         let target = max_width - ellipsis_width;
-        return finalize_truncated(&text[..target], target, ellipsis, ellipsis_width, max_width, pad);
+        return finalize_truncated(
+            &text[..target],
+            target,
+            ellipsis,
+            ellipsis_width,
+            max_width,
+            pad,
+        );
     }
     let target = max_width - ellipsis_width;
     let mut result = String::new();
@@ -969,7 +1051,11 @@ pub fn truncate_to_width(text: &str, max_width: usize, ellipsis: &str, pad: bool
         exhausted = i >= text.len();
     }
     if !overflowed && exhausted {
-        return if pad { format!("{text}{}", " ".repeat(max_width.saturating_sub(so_far))) } else { text.to_string() };
+        return if pad {
+            format!("{text}{}", " ".repeat(max_width.saturating_sub(so_far)))
+        } else {
+            text.to_string()
+        };
     }
     finalize_truncated(&result, kept, ellipsis, ellipsis_width, max_width, pad)
 }
@@ -981,7 +1067,12 @@ pub fn slice_by_column(line: &str, start_col: usize, length: usize, strict: bool
 }
 
 /// Like [`slice_by_column`], also returning the visible width of the result.
-pub fn slice_with_width(line: &str, start_col: usize, length: usize, strict: bool) -> (String, usize) {
+pub fn slice_with_width(
+    line: &str,
+    start_col: usize,
+    length: usize,
+    strict: bool,
+) -> (String, usize) {
     if length == 0 {
         return (String::new(), 0);
     }
@@ -1036,7 +1127,13 @@ pub struct Segments {
 
 /// Extract the text before column `before_end` and the `after_len` columns from `after_start`,
 /// the latter inheriting the styling active where it starts.
-pub fn extract_segments(line: &str, before_end: usize, after_start: usize, after_len: usize, strict_after: bool) -> Segments {
+pub fn extract_segments(
+    line: &str,
+    before_end: usize,
+    after_start: usize,
+    after_len: usize,
+    strict_after: bool,
+) -> Segments {
     let mut s = Segments::default();
     let mut col = 0;
     let mut i = 0;
@@ -1044,13 +1141,22 @@ pub fn extract_segments(line: &str, before_end: usize, after_start: usize, after
     let mut after_started = false;
     let after_end = after_start + after_len;
     let mut tracker = AnsiCodeTracker::new();
-    let done = |col: usize| if after_len == 0 { col >= before_end } else { col >= after_end };
+    let done = |col: usize| {
+        if after_len == 0 {
+            col >= before_end
+        } else {
+            col >= after_end
+        }
+    };
     while i < line.len() {
         if let Some(code) = extract_ansi_code(line, i) {
             tracker.process(code);
             if col < before_end {
                 pending_before.push_str(code);
-            } else if col >= after_start && col < after_end && (after_started || code.starts_with("\x1b_")) {
+            } else if col >= after_start
+                && col < after_end
+                && (after_started || code.starts_with("\x1b_"))
+            {
                 s.after.push_str(code);
             }
             i += code.len();
@@ -1063,15 +1169,16 @@ pub fn extract_segments(line: &str, before_end: usize, after_start: usize, after
                 s.before.push_str(&std::mem::take(&mut pending_before));
                 s.before.push_str(seg);
                 s.before_width += w;
-            } else if col >= after_start && col < after_end {
-                if !strict_after || col + w <= after_end {
-                    if !after_started {
-                        s.after.push_str(&tracker.active_codes());
-                        after_started = true;
-                    }
-                    s.after.push_str(seg);
-                    s.after_width += w;
+            } else if col >= after_start
+                && col < after_end
+                && (!strict_after || col + w <= after_end)
+            {
+                if !after_started {
+                    s.after.push_str(&tracker.active_codes());
+                    after_started = true;
                 }
+                s.after.push_str(seg);
+                s.after_width += w;
             }
             col += w;
             if done(col) {
@@ -1101,12 +1208,18 @@ mod tests {
 
     #[test]
     fn truncates() {
-        assert_eq!(truncate_to_width("hello world", 8, "...", false), "hello\x1b\x5b0m...\x1b\x5b0m");
+        assert_eq!(
+            truncate_to_width("hello world", 8, "...", false),
+            "hello\x1b\x5b0m...\x1b\x5b0m"
+        );
         assert_eq!(truncate_to_width("hi", 5, "...", true), "hi   ");
     }
 
     #[test]
     fn wraps() {
-        assert_eq!(wrap_text_with_ansi("hello world foo", 11), vec!["hello world", "foo"]);
+        assert_eq!(
+            wrap_text_with_ansi("hello world foo", 11),
+            vec!["hello world", "foo"]
+        );
     }
 }

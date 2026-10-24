@@ -47,7 +47,9 @@ const DARK: &[(&str, u8, u8, u8)] = &[
 fn truecolor() -> bool {
     static TRUECOLOR: OnceLock<bool> = OnceLock::new();
     *TRUECOLOR.get_or_init(|| {
-        let ct = std::env::var("COLORTERM").unwrap_or_default().to_lowercase();
+        let ct = std::env::var("COLORTERM")
+            .unwrap_or_default()
+            .to_lowercase();
         ct == "truecolor" || ct == "24bit"
     })
 }

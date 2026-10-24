@@ -32,7 +32,12 @@ pub struct Loader {
 }
 
 impl Loader {
-    pub fn new(spinner_color: StyleFn, message_color: StyleFn, message: &str, indicator: Option<LoaderIndicatorOptions>) -> Self {
+    pub fn new(
+        spinner_color: StyleFn,
+        message_color: StyleFn,
+        message: &str,
+        indicator: Option<LoaderIndicatorOptions>,
+    ) -> Self {
         let mut l = Loader {
             text: Text::new("", 1, 0),
             frames: Vec::new(),
@@ -69,8 +74,13 @@ impl Loader {
     pub fn set_indicator(&mut self, indicator: Option<LoaderIndicatorOptions>) {
         self.verbatim = indicator.is_some();
         let ind = indicator.unwrap_or_default();
-        self.frames = ind.frames.unwrap_or_else(|| DEFAULT_FRAMES.iter().map(|s| s.to_string()).collect());
-        self.interval_ms = ind.interval_ms.filter(|&i| i > 0).unwrap_or(DEFAULT_INTERVAL_MS);
+        self.frames = ind
+            .frames
+            .unwrap_or_else(|| DEFAULT_FRAMES.iter().map(|s| s.to_string()).collect());
+        self.interval_ms = ind
+            .interval_ms
+            .filter(|&i| i > 0)
+            .unwrap_or(DEFAULT_INTERVAL_MS);
         self.current = 0;
         self.start();
     }
@@ -92,12 +102,20 @@ impl Loader {
 
     fn rendered_indicator(&self) -> String {
         let frame = self.frames.get(self.current).map_or("", |s| s);
-        if self.verbatim { frame.to_string() } else { (self.spinner_color)(frame) }
+        if self.verbatim {
+            frame.to_string()
+        } else {
+            (self.spinner_color)(frame)
+        }
     }
 
     fn update_display(&mut self) {
         let f = self.rendered_indicator();
-        let ind = if f.is_empty() { String::new() } else { format!("{f} ") };
+        let ind = if f.is_empty() {
+            String::new()
+        } else {
+            format!("{f} ")
+        };
         let text = format!("{ind}{}", (self.message_color)(&self.message));
         self.text.set_text(&text);
     }
@@ -124,7 +142,11 @@ pub struct CancellableLoader {
 
 impl CancellableLoader {
     pub fn new(loader: Loader) -> Self {
-        CancellableLoader { loader, aborted: false, on_abort: None }
+        CancellableLoader {
+            loader,
+            aborted: false,
+            on_abort: None,
+        }
     }
     pub fn aborted(&self) -> bool {
         self.aborted

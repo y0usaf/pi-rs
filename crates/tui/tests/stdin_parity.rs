@@ -36,17 +36,31 @@ fn stdin_buffer_matches_upstream() {
         let got = json!({ "events": events, "rest": buf.buffer() });
         let want = json!({ "events": script["events"], "rest": script["rest"] });
         if got != want {
-            failures.push(format!("steps {}\n  got:  {got}\n  want: {want}", script["steps"]));
+            failures.push(format!(
+                "steps {}\n  got:  {got}\n  want: {want}",
+                script["steps"]
+            ));
         }
     }
     let total = failures.len();
     failures.truncate(10);
-    assert!(total == 0, "{total} of {} scripts differ:\n{}", scripts.len(), failures.join("\n"));
+    assert!(
+        total == 0,
+        "{total} of {} scripts differ:\n{}",
+        scripts.len(),
+        failures.join("\n")
+    );
 }
 
 #[test]
 fn astral_characters_stay_whole() {
     // Upstream emits the two UTF-16 halves of an astral character as separate events.
     let mut buf = StdinBuffer::default();
-    assert_eq!(buf.process("a\u{1F600}", 0), vec![StdinEvent::Data("a".into()), StdinEvent::Data("\u{1F600}".into())]);
+    assert_eq!(
+        buf.process("a\u{1F600}", 0),
+        vec![
+            StdinEvent::Data("a".into()),
+            StdinEvent::Data("\u{1F600}".into())
+        ]
+    );
 }

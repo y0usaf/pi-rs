@@ -87,7 +87,9 @@ pub struct Markdown {
 
 fn style_prefix(f: &dyn Fn(&str) -> String) -> String {
     let styled = f("\0");
-    styled.find('\0').map_or(String::new(), |i| styled[..i].to_string())
+    styled
+        .find('\0')
+        .map_or(String::new(), |i| styled[..i].to_string())
 }
 
 fn hyperlink(text: &str, url: &str) -> String {
@@ -100,7 +102,9 @@ fn js_trim(s: &str) -> &str {
 
 /// upstream `applyDefaultStyle`: foreground and decorations (the background comes at padding).
 fn apply_default(style: Option<&DefaultTextStyle>, theme: &MarkdownTheme, text: &str) -> String {
-    let Some(s) = style else { return text.to_string() };
+    let Some(s) = style else {
+        return text.to_string();
+    };
     let mut styled = text.to_string();
     if let Some(c) = &s.color {
         styled = c(&styled);
@@ -167,7 +171,16 @@ impl Markdown {
         default_style: Option<DefaultTextStyle>,
         options: MarkdownOptions,
     ) -> Self {
-        Markdown { text: text.into(), padding_x, padding_y, default_style, theme, options, cache: None, tokens: None }
+        Markdown {
+            text: text.into(),
+            padding_x,
+            padding_y,
+            default_style,
+            theme,
+            options,
+            cache: None,
+            tokens: None,
+        }
     }
 
     pub fn set_text(&mut self, text: &str) {
@@ -186,8 +199,15 @@ impl Markdown {
     fn default_context(&self) -> StyleContext {
         let style = self.default_style.clone();
         let theme = self.theme.clone();
-        let prefix = if style.is_some() { style_prefix(&|t: &str| apply_default(style.as_ref(), &theme, t)) } else { String::new() };
-        StyleContext { apply: Rc::new(move |t: &str| apply_default(style.as_ref(), &theme, t)), prefix }
+        let prefix = if style.is_some() {
+            style_prefix(&|t: &str| apply_default(style.as_ref(), &theme, t))
+        } else {
+            String::new()
+        };
+        StyleContext {
+            apply: Rc::new(move |t: &str| apply_default(style.as_ref(), &theme, t)),
+            prefix,
+        }
     }
 
     fn latex(&self, text: &str, display: bool) -> Option<String> {
@@ -204,9 +224,11 @@ impl Markdown {
 impl Component for Markdown {
     fn render(&mut self, width: usize) -> Vec<String> {
         if let Some((t, w, lines)) = &self.cache
-            && *t == self.text && *w == width {
-                return lines.clone();
-            }
+            && *t == self.text
+            && *w == width
+        {
+            return lines.clone();
+        }
         let content_width = width.saturating_sub(self.padding_x * 2).max(1);
         let text = match &self.options.transform {
             Some(f) => f(&self.text, content_width),
@@ -250,7 +272,11 @@ impl Component for Markdown {
             }
             let with_margins = format!("{margin}{line}{margin}");
             match &bg {
-                Some(bg) => content.push(apply_background_to_line(&with_margins, width, &|s: &str| bg(s))),
+                Some(bg) => content.push(apply_background_to_line(
+                    &with_margins,
+                    width,
+                    &|s: &str| bg(s),
+                )),
                 None => {
                     let pad = width.saturating_sub(visible_width(&with_margins));
                     content.push(with_margins + &" ".repeat(pad));
@@ -266,7 +292,11 @@ impl Component for Markdown {
         result.extend(content);
         result.extend(std::iter::repeat_n(empty_line, self.padding_y));
         self.cache = Some((self.text.clone(), width, result.clone()));
-        if result.is_empty() { vec![String::new()] } else { result }
+        if result.is_empty() {
+            vec![String::new()]
+        } else {
+            result
+        }
     }
 }
 
@@ -275,7 +305,13 @@ fn not_space(next: Option<Kind>) -> bool {
 }
 
 impl Markdown {
-    fn render_token(&self, token: &Token, width: usize, next: Option<Kind>, ctx: Option<&StyleContext>) -> Vec<String> {
+    fn render_token(
+        &self,
+        token: &Token,
+        width: usize,
+        next: Option<Kind>,
+        ctx: Option<&StyleContext>,
+    ) -> Vec<String> {
         let mut lines = Vec::new();
         let th = &self.theme;
         match token.kind {
@@ -288,9 +324,16 @@ impl Markdown {
                 } else {
                     Rc::new(move |t: &str| (theme.heading)(&(theme.bold)(t)))
                 };
-                let hctx = StyleContext { prefix: style_prefix(&*style), apply: style.clone() };
+                let hctx = StyleContext {
+                    prefix: style_prefix(&*style),
+                    apply: style.clone(),
+                };
                 let text = self.render_inline(&token.tokens, Some(&hctx));
-                lines.push(if depth >= 3 { style(&prefix) + &text } else { text });
+                lines.push(if depth >= 3 {
+                    style(&prefix) + &text
+                } else {
+                    text
+                });
                 if not_space(next) {
                     lines.push(String::new());
                 }
@@ -303,7 +346,11 @@ impl Markdown {
             }
             Kind::Text => lines.push(self.render_inline(std::slice::from_ref(token), ctx)),
             Kind::LatexBlock => {
-                let rendered = if token.pending { None } else { self.latex(&token.text, true) };
+                let rendered = if token.pending {
+                    None
+                } else {
+                    self.latex(&token.text, true)
+                };
                 let rendered = rendered.unwrap_or_else(|| js_trim(&token.raw).to_string());
                 for line in rendered.split('\n') {
                     lines.push(self.apply_default_style(line));
@@ -314,7 +361,10 @@ impl Markdown {
             }
             Kind::Code => {
                 let indent = th.code_block_indent.clone().unwrap_or_else(|| "  ".into());
-                lines.push((th.code_block_border)(&format!("```{}", token.lang.as_deref().unwrap_or(""))));
+                lines.push((th.code_block_border)(&format!(
+                    "```{}",
+                    token.lang.as_deref().unwrap_or("")
+                )));
                 match &th.highlight_code {
                     Some(h) => {
                         for l in h(&token.text, token.lang.as_deref()) {
@@ -336,10 +386,14 @@ impl Markdown {
             Kind::Table => lines.extend(self.render_table(token, width, next, ctx)),
             Kind::Blockquote => {
                 let theme = th.clone();
-                let quote_style: StyleFn = Rc::new(move |t: &str| (theme.quote)(&(theme.italic)(t)));
+                let quote_style: StyleFn =
+                    Rc::new(move |t: &str| (theme.quote)(&(theme.italic)(t)));
                 let qprefix = style_prefix(&*quote_style);
                 let content_width = width.saturating_sub(2).max(1);
-                let qctx = StyleContext { apply: Rc::new(|t: &str| t.to_string()), prefix: qprefix.clone() };
+                let qctx = StyleContext {
+                    apply: Rc::new(|t: &str| t.to_string()),
+                    prefix: qprefix.clone(),
+                };
                 let mut quote_lines = Vec::new();
                 for (i, t) in token.tokens.iter().enumerate() {
                     let n = token.tokens.get(i + 1).map(|t| t.kind);
@@ -390,16 +444,31 @@ impl Markdown {
         };
         let apply = &ctx.apply;
         let prefix = &ctx.prefix;
-        let with_newlines = |t: &str| t.split('\n').map(|s| apply(s)).collect::<Vec<_>>().join("\n");
+        let with_newlines = |t: &str| {
+            t.split('\n')
+                .map(|s| apply(s))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
         let th = &self.theme;
         let mut out = String::new();
         for t in tokens {
             match t.kind {
                 Kind::Latex => {
-                    let rendered = if t.pending { None } else { self.latex(&t.text, false) };
+                    let rendered = if t.pending {
+                        None
+                    } else {
+                        self.latex(&t.text, false)
+                    };
                     out += &with_newlines(rendered.as_deref().unwrap_or(&t.raw));
                 }
-                Kind::Escape => out += &with_newlines(if self.options.preserve_backslash_escapes { &t.raw } else { &t.text }),
+                Kind::Escape => {
+                    out += &with_newlines(if self.options.preserve_backslash_escapes {
+                        &t.raw
+                    } else {
+                        &t.text
+                    })
+                }
                 Kind::Text => {
                     if t.tokens.is_empty() {
                         out += &with_newlines(&t.text);
@@ -408,8 +477,12 @@ impl Markdown {
                     }
                 }
                 Kind::Paragraph => out += &self.render_inline(&t.tokens, Some(ctx)),
-                Kind::Strong => out += &((th.bold)(&self.render_inline(&t.tokens, Some(ctx))) + prefix),
-                Kind::Em => out += &((th.italic)(&self.render_inline(&t.tokens, Some(ctx))) + prefix),
+                Kind::Strong => {
+                    out += &((th.bold)(&self.render_inline(&t.tokens, Some(ctx))) + prefix)
+                }
+                Kind::Em => {
+                    out += &((th.italic)(&self.render_inline(&t.tokens, Some(ctx))) + prefix)
+                }
                 Kind::Codespan => out += &((th.code)(&t.text) + prefix),
                 Kind::Link => {
                     let text = self.render_inline(&t.tokens, Some(ctx));
@@ -426,7 +499,9 @@ impl Markdown {
                     }
                 }
                 Kind::Br => out.push('\n'),
-                Kind::Del => out += &((th.strikethrough)(&self.render_inline(&t.tokens, Some(ctx))) + prefix),
+                Kind::Del => {
+                    out += &((th.strikethrough)(&self.render_inline(&t.tokens, Some(ctx))) + prefix)
+                }
                 Kind::Html => out += &with_newlines(&t.raw),
                 // tokens without text (checkbox, space, hr, br-like) add nothing
                 Kind::Checkbox | Kind::Space | Kind::Hr | Kind::Def | Kind::List | Kind::Table => {}
@@ -469,7 +544,13 @@ impl Markdown {
         }
     }
 
-    fn render_list(&self, token: &Token, depth: usize, width: usize, ctx: Option<&StyleContext>) -> Vec<String> {
+    fn render_list(
+        &self,
+        token: &Token,
+        depth: usize,
+        width: usize,
+        ctx: Option<&StyleContext>,
+    ) -> Vec<String> {
         let mut lines = Vec::new();
         let indent = "    ".repeat(depth);
         let start = token.start.unwrap_or(1);
@@ -478,13 +559,21 @@ impl Markdown {
             let last = i + 1 == token.items.len();
             let bullet = if token.ordered {
                 let n = format!("{}. ", start + i as u64);
-                if preserve { Self::ordered_marker(item).unwrap_or(n) } else { n }
+                if preserve {
+                    Self::ordered_marker(item).unwrap_or(n)
+                } else {
+                    n
+                }
             } else if preserve {
                 Self::unordered_marker(item).unwrap_or_else(|| "- ".into())
             } else {
                 "- ".into()
             };
-            let task = if item.task { format!("[{}] ", if item.checked == Some(true) { "x" } else { " " }) } else { String::new() };
+            let task = if item.task {
+                format!("[{}] ", if item.checked == Some(true) { "x" } else { " " })
+            } else {
+                String::new()
+            };
             let marker = bullet + &task;
             let first_prefix = indent.clone() + &(self.theme.list_bullet)(&marker);
             let cont_prefix = indent.clone() + &" ".repeat(visible_width(&marker));
@@ -498,7 +587,10 @@ impl Markdown {
                 }
                 for line in self.render_token(it, item_width, None, ctx) {
                     for w in wrap_text_with_ansi(&line, item_width) {
-                        lines.push(format!("{}{w}", if any { &cont_prefix } else { &first_prefix }));
+                        lines.push(format!(
+                            "{}{w}",
+                            if any { &cont_prefix } else { &first_prefix }
+                        ));
                         any = true;
                     }
                 }
@@ -515,7 +607,12 @@ impl Markdown {
 }
 
 fn longest_word_width(text: &str, max: usize) -> usize {
-    text.split(lexer::js_ws).filter(|w| !w.is_empty()).map(visible_width).max().unwrap_or(0).min(max)
+    text.split(lexer::js_ws)
+        .filter(|w| !w.is_empty())
+        .map(visible_width)
+        .max()
+        .unwrap_or(0)
+        .min(max)
 }
 
 fn wrap_cell(text: &str, max_width: usize, prefix: &str) -> Vec<String> {
@@ -525,14 +622,24 @@ fn wrap_cell(text: &str, max_width: usize, prefix: &str) -> Vec<String> {
         .into_iter()
         .enumerate()
         .map(|(i, l)| {
-            let reset = if i + 1 < n { "\x1b[22;23;24;25;27;28;29;39m" } else { "" };
+            let reset = if i + 1 < n {
+                "\x1b[22;23;24;25;27;28;29;39m"
+            } else {
+                ""
+            };
             format!("{l}{reset}{prefix}")
         })
         .collect()
 }
 
 impl Markdown {
-    fn render_table(&self, token: &Token, avail: usize, next: Option<Kind>, ctx: Option<&StyleContext>) -> Vec<String> {
+    fn render_table(
+        &self,
+        token: &Token,
+        avail: usize,
+        next: Option<Kind>,
+        ctx: Option<&StyleContext>,
+    ) -> Vec<String> {
         let mut lines = Vec::new();
         let cols = token.header.len();
         if cols == 0 {
@@ -541,7 +648,11 @@ impl Markdown {
         let overhead = 3 * cols + 1;
         let for_cells = avail as isize - overhead as isize;
         if for_cells < cols as isize {
-            let mut fallback = if token.raw.is_empty() { Vec::new() } else { wrap_text_with_ansi(&token.raw, avail) };
+            let mut fallback = if token.raw.is_empty() {
+                Vec::new()
+            } else {
+                wrap_text_with_ansi(&token.raw, avail)
+            };
             if not_space(next) {
                 fallback.push(String::new());
             }
@@ -572,7 +683,14 @@ impl Markdown {
                 let total_weight: usize = min_word.iter().map(|w| w - 1).sum();
                 let growth: Vec<usize> = min_word
                     .iter()
-                    .map(|w| if total_weight > 0 { ((w - 1) as f64 / total_weight as f64 * remaining as f64).floor() as usize } else { 0 })
+                    .map(|w| {
+                        if total_weight > 0 {
+                            ((w - 1) as f64 / total_weight as f64 * remaining as f64).floor()
+                                as usize
+                        } else {
+                            0
+                        }
+                    })
                     .collect();
                 for i in 0..cols {
                     min_cols[i] += growth[i];
@@ -589,16 +707,28 @@ impl Markdown {
         }
         let total_natural: usize = natural.iter().sum::<usize>() + overhead;
         let widths: Vec<usize> = if total_natural <= avail {
-            natural.iter().zip(&min_cols).map(|(n, m)| *n.max(m)).collect()
+            natural
+                .iter()
+                .zip(&min_cols)
+                .map(|(n, m)| *n.max(m))
+                .collect()
         } else {
-            let grow_potential: usize = natural.iter().zip(&min_cols).map(|(n, m)| n.saturating_sub(*m)).sum();
+            let grow_potential: usize = natural
+                .iter()
+                .zip(&min_cols)
+                .map(|(n, m)| n.saturating_sub(*m))
+                .sum();
             let extra = for_cells.saturating_sub(min_total);
             let mut w: Vec<usize> = min_cols
                 .iter()
                 .zip(&natural)
                 .map(|(m, n)| {
                     let delta = n.saturating_sub(*m);
-                    let grow = if grow_potential > 0 { (delta as f64 / grow_potential as f64 * extra as f64).floor() as usize } else { 0 };
+                    let grow = if grow_potential > 0 {
+                        (delta as f64 / grow_potential as f64 * extra as f64).floor() as usize
+                    } else {
+                        0
+                    };
                     m + grow
                 })
                 .collect();
@@ -622,7 +752,16 @@ impl Markdown {
             }
             w
         };
-        let bar = |l: &str, m: &str, r: &str| format!("{l}─{}─{r}", widths.iter().map(|w| "─".repeat(*w)).collect::<Vec<_>>().join(&format!("─{m}─")));
+        let bar = |l: &str, m: &str, r: &str| {
+            format!(
+                "{l}─{}─{r}",
+                widths
+                    .iter()
+                    .map(|w| "─".repeat(*w))
+                    .collect::<Vec<_>>()
+                    .join(&format!("─{m}─"))
+            )
+        };
         lines.push(bar("┌", "┬", "┐"));
         let prefix = ctx.map_or("", |c| c.prefix.as_str());
         let header_cells: Vec<Vec<String>> = token
@@ -631,25 +770,38 @@ impl Markdown {
             .enumerate()
             .map(|(i, c)| wrap_cell(&self.render_inline(&c.tokens, ctx), widths[i], prefix))
             .collect();
-        let pad = |text: &str, w: usize| format!("{text}{}", " ".repeat(w.saturating_sub(visible_width(text))));
+        let pad = |text: &str, w: usize| {
+            format!(
+                "{text}{}",
+                " ".repeat(w.saturating_sub(visible_width(text)))
+            )
+        };
         let header_n = header_cells.iter().map(Vec::len).max().unwrap_or(0);
         for li in 0..header_n {
             let parts: Vec<String> = header_cells
                 .iter()
                 .enumerate()
-                .map(|(ci, cl)| (self.theme.bold)(&pad(cl.get(li).map_or("", String::as_str), widths[ci])))
+                .map(|(ci, cl)| {
+                    (self.theme.bold)(&pad(cl.get(li).map_or("", String::as_str), widths[ci]))
+                })
                 .collect();
             lines.push(format!("│ {} │", parts.join(" │ ")));
         }
         let sep = bar("├", "┼", "┤");
         lines.push(sep.clone());
         for (ri, row) in token.rows.iter().enumerate() {
-            let cells: Vec<Vec<String>> =
-                row.iter().enumerate().map(|(i, c)| wrap_cell(&self.render_inline(&c.tokens, ctx), widths[i], prefix)).collect();
+            let cells: Vec<Vec<String>> = row
+                .iter()
+                .enumerate()
+                .map(|(i, c)| wrap_cell(&self.render_inline(&c.tokens, ctx), widths[i], prefix))
+                .collect();
             let n = cells.iter().map(Vec::len).max().unwrap_or(0);
             for li in 0..n {
-                let parts: Vec<String> =
-                    cells.iter().enumerate().map(|(ci, cl)| pad(cl.get(li).map_or("", String::as_str), widths[ci])).collect();
+                let parts: Vec<String> = cells
+                    .iter()
+                    .enumerate()
+                    .map(|(ci, cl)| pad(cl.get(li).map_or("", String::as_str), widths[ci]))
+                    .collect();
                 lines.push(format!("│ {} │", parts.join(" │ ")));
             }
             if ri + 1 < token.rows.len() {

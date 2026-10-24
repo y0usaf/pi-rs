@@ -179,7 +179,10 @@ impl Component for Footer {
             format!("{}{right}", " ".repeat(width - left_width - right_width))
         } else if width > left_width + min_padding {
             let cut = truncate_to_width(&right, width - left_width - min_padding, "", false);
-            format!("{}{cut}", " ".repeat(width.saturating_sub(left_width + visible_width(&cut))))
+            format!(
+                "{}{cut}",
+                " ".repeat(width.saturating_sub(left_width + visible_width(&cut)))
+            )
         } else {
             String::new()
         };
@@ -227,6 +230,9 @@ mod tests {
             .map(|l| pi_tui::utils::strip_terminal_sequences(l))
             .collect();
         assert_eq!(lines[0], "/w");
-        assert_eq!(lines[1], format!("0.0%/200k (auto){}m • high", " ".repeat(40 - 16 - 8)));
+        assert_eq!(
+            lines[1],
+            format!("0.0%/200k (auto){}m • high", " ".repeat(40 - 16 - 8))
+        );
     }
 }

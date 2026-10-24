@@ -33,10 +33,23 @@ pub(super) enum ScriptKind {
 }
 
 pub(super) enum Node {
-    Fraction { numerator: String, denominator: String },
-    Operator { operator: String, lower: Option<String>, upper: Option<String> },
-    Script { lower: Option<String>, upper: Option<String> },
-    Matrix { lines: Vec<String>, baseline: usize },
+    Fraction {
+        numerator: String,
+        denominator: String,
+    },
+    Operator {
+        operator: String,
+        lower: Option<String>,
+        upper: Option<String>,
+    },
+    Script {
+        lower: Option<String>,
+        upper: Option<String>,
+    },
+    Matrix {
+        lines: Vec<String>,
+        baseline: usize,
+    },
 }
 
 pub(super) fn marker(index: usize) -> String {
@@ -72,7 +85,11 @@ fn normalize_script_value(value: &str) -> String {
 }
 
 pub(super) fn format_unicode_script(value: &str, kind: ScriptKind) -> Option<String> {
-    let table = if kind == ScriptKind::Sub { tables::subscript } else { tables::superscript };
+    let table = if kind == ScriptKind::Sub {
+        tables::subscript
+    } else {
+        tables::superscript
+    };
     replace_characters(&normalize_script_value(value), table)
 }
 
@@ -96,15 +113,28 @@ fn letters_numbers_dots(s: &str) -> bool {
 pub(super) fn format_fraction(numerator: &str, denominator: &str) -> String {
     let (n, d) = (trim(numerator), trim(denominator));
     let simple_n = letters_numbers_dots(n);
-    let simple_d = (!d.is_empty() && d.chars().all(|c| is_number(c) || c == '.')) || d.chars().count() == 1;
-    let n = if simple_n { n.to_string() } else { format!("({n})") };
-    let d = if simple_d { d.to_string() } else { format!("({d})") };
+    let simple_d =
+        (!d.is_empty() && d.chars().all(|c| is_number(c) || c == '.')) || d.chars().count() == 1;
+    let n = if simple_n {
+        n.to_string()
+    } else {
+        format!("({n})")
+    };
+    let d = if simple_d {
+        d.to_string()
+    } else {
+        format!("({d})")
+    };
     format!("{n}/{d}")
 }
 
 pub(super) fn format_root(value: &str, symbol: &str) -> String {
     let value = trim(value);
-    if letters_numbers_dots(value) { format!("{symbol}{value}") } else { format!("{symbol}({value})") }
+    if letters_numbers_dots(value) {
+        format!("{symbol}{value}")
+    } else {
+        format!("{symbol}({value})")
+    }
 }
 
 /// Space named operators from neighbouring words, drop the markers, collapse spaces per line.
@@ -122,10 +152,15 @@ pub(super) fn normalize_output(value: &str) -> String {
             step.push(c);
         }
     }
-    let chars: Vec<char> = step.chars().filter(|&c| c != NAMED_OPERATOR_START).collect();
+    let chars: Vec<char> = step
+        .chars()
+        .filter(|&c| c != NAMED_OPERATOR_START)
+        .collect();
     let mut step = String::new();
     for (i, &c) in chars.iter().enumerate() {
-        let right = chars.get(i + 1).is_some_and(|&n| is_letter(n) || is_number(n) || n == '√' || n == LAYOUT_MARKER_START);
+        let right = chars
+            .get(i + 1)
+            .is_some_and(|&n| is_letter(n) || is_number(n) || n == '√' || n == LAYOUT_MARKER_START);
         if c == NAMED_OPERATOR_END && right {
             step.push(' ');
         } else if c != NAMED_OPERATOR_END {
@@ -152,8 +187,12 @@ pub(super) fn normalize_output(value: &str) -> String {
         })
         .collect();
     let n = lines.len();
-    let kept: Vec<&str> =
-        lines.iter().enumerate().filter(|(i, l)| !l.is_empty() || (*i > 0 && *i + 1 < n)).map(|(_, l)| l.as_str()).collect();
+    let kept: Vec<&str> = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, l)| !l.is_empty() || (*i > 0 && *i + 1 < n))
+        .map(|(_, l)| l.as_str())
+        .collect();
     trim(&kept.join("\n")).to_string()
 }
 
@@ -170,17 +209,29 @@ fn pad_layout_line(line: &str, width: usize, centered: bool) -> String {
 }
 
 fn text_layout(text: String) -> Layout {
-    Layout { width: visible_width(&text), lines: vec![text], baseline: 0 }
+    Layout {
+        width: visible_width(&text),
+        lines: vec![text],
+        baseline: 0,
+    }
 }
 
 fn join_layouts(layouts: &[Layout]) -> Layout {
     if layouts.is_empty() {
-        return Layout { lines: vec![String::new()], width: 0, baseline: 0 };
+        return Layout {
+            lines: vec![String::new()],
+            width: 0,
+            baseline: 0,
+        };
     }
     let baseline = layouts.iter().map(|l| l.baseline).max().unwrap_or(0);
     // `lines.length - baseline - 1` may be negative upstream (a script with neither part never
     // happens, so lines are never empty); keep it signed.
-    let below = layouts.iter().map(|l| l.lines.len() as isize - l.baseline as isize - 1).max().unwrap_or(0);
+    let below = layouts
+        .iter()
+        .map(|l| l.lines.len() as isize - l.baseline as isize - 1)
+        .max()
+        .unwrap_or(0);
     let mut lines = Vec::new();
     let mut row: isize = 0;
     while row <= baseline as isize + below {
@@ -188,7 +239,11 @@ fn join_layouts(layouts: &[Layout]) -> Layout {
         for layout in layouts {
             let source_row = row - baseline as isize + layout.baseline as isize;
             if source_row >= 0 && (source_row as usize) < layout.lines.len() {
-                line.push_str(&pad_layout_line(&layout.lines[source_row as usize], layout.width, false));
+                line.push_str(&pad_layout_line(
+                    &layout.lines[source_row as usize],
+                    layout.width,
+                    false,
+                ));
             } else {
                 line.push_str(&" ".repeat(layout.width));
             }
@@ -196,7 +251,11 @@ fn join_layouts(layouts: &[Layout]) -> Layout {
         lines.push(trim_end(&line).to_string());
         row += 1;
     }
-    Layout { lines, width: layouts.iter().map(|l| l.width).sum(), baseline }
+    Layout {
+        lines,
+        width: layouts.iter().map(|l| l.width).sum(),
+        baseline,
+    }
 }
 
 /// Matches of `/\u{f0000}(\d+)\u{f0001}/g`: (start, end, index).
@@ -206,11 +265,18 @@ fn markers(line: &str) -> Vec<(usize, usize, usize)> {
     while let Some(off) = line[from..].find(LAYOUT_MARKER_START) {
         let start = from + off;
         let digits_at = start + LAYOUT_MARKER_START.len_utf8();
-        let digits = line[digits_at..].bytes().take_while(u8::is_ascii_digit).count();
+        let digits = line[digits_at..]
+            .bytes()
+            .take_while(u8::is_ascii_digit)
+            .count();
         let close = digits_at + digits;
         if digits > 0 && line[close..].starts_with(LAYOUT_MARKER_END) {
             let end = close + LAYOUT_MARKER_END.len_utf8();
-            out.push((start, end, line[digits_at..close].parse().unwrap_or(usize::MAX)));
+            out.push((
+                start,
+                end,
+                line[digits_at..close].parse().unwrap_or(usize::MAX),
+            ));
             from = end;
         } else {
             from = digits_at;
@@ -245,11 +311,20 @@ pub(super) fn render_layout(source: &str, nodes: &[Node]) -> Layout {
             let Some(node) = nodes.get(n) else { continue };
             if index > position {
                 let sliced = &source_line[position..index];
-                let trimmed = trim_end(if previous.is_some() { trim_start(sliced) } else { sliced });
+                let trimmed = trim_end(if previous.is_some() {
+                    trim_start(sliced)
+                } else {
+                    sliced
+                });
                 let lead = matches!(previous, Some(Node::Matrix { .. })) && starts_space(sliced);
-                let trail = matches!(node, Node::Matrix { .. }) && sliced.chars().last().is_some_and(is_space);
+                let trail = matches!(node, Node::Matrix { .. })
+                    && sliced.chars().last().is_some_and(is_space);
                 let text = if !trimmed.is_empty() {
-                    format!("{}{trimmed}{}", if lead { " " } else { "" }, if trail { " " } else { "" })
+                    format!(
+                        "{}{trimmed}{}",
+                        if lead { " " } else { "" },
+                        if trail { " " } else { "" }
+                    )
                 } else if lead || trail {
                     " ".to_string()
                 } else {
@@ -258,17 +333,32 @@ pub(super) fn render_layout(source: &str, nodes: &[Node]) -> Layout {
                 layouts.push(text_layout(text));
             }
             match node {
-                Node::Fraction { numerator, denominator } => {
+                Node::Fraction {
+                    numerator,
+                    denominator,
+                } => {
                     let num = render_layout(numerator, nodes);
                     let den = render_layout(denominator, nodes);
                     let content = num.width.max(den.width).max(1);
                     let width = content + 2;
-                    let mut lines: Vec<String> = num.lines.iter().map(|l| pad_layout_line(l, width, true)).collect();
+                    let mut lines: Vec<String> = num
+                        .lines
+                        .iter()
+                        .map(|l| pad_layout_line(l, width, true))
+                        .collect();
                     lines.push(format!(" {} ", "─".repeat(content)));
                     lines.extend(den.lines.iter().map(|l| pad_layout_line(l, width, true)));
-                    layouts.push(Layout { lines, width, baseline: num.lines.len() });
+                    layouts.push(Layout {
+                        lines,
+                        width,
+                        baseline: num.lines.len(),
+                    });
                 }
-                Node::Operator { operator, lower, upper } => {
+                Node::Operator {
+                    operator,
+                    lower,
+                    upper,
+                } => {
                     let content = visible_width(operator)
                         .max(lower.as_deref().map_or(0, visible_width))
                         .max(upper.as_deref().map_or(0, visible_width));
@@ -280,12 +370,19 @@ pub(super) fn render_layout(source: &str, nodes: &[Node]) -> Layout {
                     if let Some(l) = lower {
                         lines.push(format!("{} ", pad_layout_line(l, content, true)));
                     }
-                    layouts.push(Layout { lines, width: content + 1, baseline: usize::from(upper.is_some()) });
+                    layouts.push(Layout {
+                        lines,
+                        width: content + 1,
+                        baseline: usize::from(upper.is_some()),
+                    });
                 }
                 Node::Script { lower, upper } => {
                     let up = upper.as_deref().map(|u| render_layout(u, nodes));
                     let low = lower.as_deref().map(|l| render_layout(l, nodes));
-                    let width = up.as_ref().map_or(0, |l| l.width).max(low.as_ref().map_or(0, |l| l.width));
+                    let width = up
+                        .as_ref()
+                        .map_or(0, |l| l.width)
+                        .max(low.as_ref().map_or(0, |l| l.width));
                     let mut lines: Vec<String> = Vec::new();
                     if let Some(u) = &up {
                         lines.extend(u.lines.iter().map(|l| pad_layout_line(l, width, false)));
@@ -294,12 +391,23 @@ pub(super) fn render_layout(source: &str, nodes: &[Node]) -> Layout {
                     if let Some(l) = &low {
                         lines.extend(l.lines.iter().map(|l| pad_layout_line(l, width, false)));
                     }
-                    layouts.push(Layout { lines, width, baseline: up.as_ref().map_or(0, |u| u.lines.len()) });
+                    layouts.push(Layout {
+                        lines,
+                        width,
+                        baseline: up.as_ref().map_or(0, |u| u.lines.len()),
+                    });
                 }
                 Node::Matrix { lines, baseline } => {
                     let width = lines.iter().map(|l| visible_width(l)).max().unwrap_or(0);
-                    let lines = lines.iter().map(|l| pad_layout_line(l, width, false)).collect();
-                    layouts.push(Layout { lines, width, baseline: *baseline });
+                    let lines = lines
+                        .iter()
+                        .map(|l| pad_layout_line(l, width, false))
+                        .collect();
+                    layouts.push(Layout {
+                        lines,
+                        width,
+                        baseline: *baseline,
+                    });
                 }
             }
             position = end;
@@ -307,7 +415,11 @@ pub(super) fn render_layout(source: &str, nodes: &[Node]) -> Layout {
         }
         if position < source_line.len() {
             let sliced = &source_line[position..];
-            let trimmed = if previous.is_some() { trim_start(sliced) } else { sliced };
+            let trimmed = if previous.is_some() {
+                trim_start(sliced)
+            } else {
+                sliced
+            };
             let text = if matches!(previous, Some(Node::Matrix { .. })) && starts_space(sliced) {
                 format!(" {trimmed}")
             } else {
@@ -321,6 +433,14 @@ pub(super) fn render_layout(source: &str, nodes: &[Node]) -> Layout {
         }
         rendered_lines.extend(line_layout.lines);
     }
-    let width = rendered_lines.iter().map(|l| visible_width(l)).max().unwrap_or(0);
-    Layout { lines: rendered_lines, width, baseline: first_baseline }
+    let width = rendered_lines
+        .iter()
+        .map(|l| visible_width(l))
+        .max()
+        .unwrap_or(0);
+    Layout {
+        lines: rendered_lines,
+        width,
+        baseline: first_baseline,
+    }
 }

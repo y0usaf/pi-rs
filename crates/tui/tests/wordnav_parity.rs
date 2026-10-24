@@ -26,9 +26,18 @@ fn word_segments_match_icu() {
             .as_array()
             .unwrap()
             .iter()
-            .map(|s| (byte_at(t, s[0].as_u64().unwrap() as usize), s[1].as_str().unwrap().to_string(), s[2].as_bool().unwrap()))
+            .map(|s| {
+                (
+                    byte_at(t, s[0].as_u64().unwrap() as usize),
+                    s[1].as_str().unwrap().to_string(),
+                    s[2].as_bool().unwrap(),
+                )
+            })
             .collect();
-        let got: Vec<(usize, String, bool)> = word_segments(t).into_iter().map(|s| (s.index, s.segment.to_string(), s.is_word_like)).collect();
+        let got: Vec<(usize, String, bool)> = word_segments(t)
+            .into_iter()
+            .map(|s| (s.index, s.segment.to_string(), s.is_word_like))
+            .collect();
         if got != want {
             f.push(format!("{t:?}\n  got:  {got:?}\n  want: {want:?}"));
         }
@@ -43,7 +52,13 @@ fn word_navigation_matches_upstream() {
     let mut f = Vec::new();
     for c in &cases {
         let t = c["t"].as_str().unwrap();
-        for (i, (b, fw)) in c["b"].as_array().unwrap().iter().zip(c["f"].as_array().unwrap()).enumerate() {
+        for (i, (b, fw)) in c["b"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(c["f"].as_array().unwrap())
+            .enumerate()
+        {
             if b.is_null() {
                 continue;
             }
@@ -55,11 +70,21 @@ fn word_navigation_matches_upstream() {
             if t == "ไทยภาษา" && cur == 12 {
                 continue;
             }
-            let (gb, gf) = (find_word_backward(t, cur, &o), find_word_forward(t, cur, &o));
+            let (gb, gf) = (
+                find_word_backward(t, cur, &o),
+                find_word_forward(t, cur, &o),
+            );
             if gb != wb || gf != wf {
-                f.push(format!("{t:?} at {cur}: back {gb} vs {wb}, fwd {gf} vs {wf}"));
+                f.push(format!(
+                    "{t:?} at {cur}: back {gb} vs {wb}, fwd {gf} vs {wf}"
+                ));
             }
         }
     }
-    assert!(f.is_empty(), "{} positions differ:\n{}", f.len(), f.into_iter().take(30).collect::<Vec<_>>().join("\n"));
+    assert!(
+        f.is_empty(),
+        "{} positions differ:\n{}",
+        f.len(),
+        f.into_iter().take(30).collect::<Vec<_>>().join("\n")
+    );
 }

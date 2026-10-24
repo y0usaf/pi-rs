@@ -85,7 +85,11 @@ impl AssistantView {
         }
     }
 
-    pub fn with_message(message: &AssistantMessage, hide_thinking: bool, output_pad: usize) -> Self {
+    pub fn with_message(
+        message: &AssistantMessage,
+        hide_thinking: bool,
+        output_pad: usize,
+    ) -> Self {
         let mut view = Self::new(hide_thinking, output_pad);
         view.update(message);
         view

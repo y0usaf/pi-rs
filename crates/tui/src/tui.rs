@@ -6,10 +6,11 @@
 //! [`TuiCore::handle_terminal_input`] and frames are drawn by the screen's `tick`/`render_now`.
 
 use crate::keys::{is_key_release, matches_key};
-use crate::utils::{extract_segments, normalize_terminal_output, slice_by_column, slice_with_width, visible_width};
+use crate::utils::{
+    extract_segments, normalize_terminal_output, slice_by_column, slice_with_width, visible_width,
+};
 use std::cell::RefCell;
 use std::rc::Rc;
-
 
 /// Kind of mouse event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,12 +172,24 @@ impl Component for Container {
 const SEGMENT_RESET: &str = "\x1b[0m\x1b]8;;\x07";
 
 /// Composite overlay content into a terminal line at a fixed column.
-pub fn composite_tui_line(base: &str, overlay: &str, start_col: usize, overlay_width: usize, total_width: usize) -> String {
+pub fn composite_tui_line(
+    base: &str,
+    overlay: &str,
+    start_col: usize,
+    overlay_width: usize,
+    total_width: usize,
+) -> String {
     if is_image_line(base) {
         return base.to_string();
     }
     let after_start = start_col + overlay_width;
-    let seg = extract_segments(base, start_col, after_start, total_width.saturating_sub(after_start), true);
+    let seg = extract_segments(
+        base,
+        start_col,
+        after_start,
+        total_width.saturating_sub(after_start),
+        true,
+    );
     let (otext, owidth) = slice_with_width(overlay, 0, overlay_width, true);
     let before_pad = start_col.saturating_sub(seg.before_width);
     let overlay_pad = overlay_width.saturating_sub(owidth);
@@ -192,7 +205,11 @@ pub fn composite_tui_line(base: &str, overlay: &str, start_col: usize, overlay_w
         seg.after,
         " ".repeat(after_pad)
     );
-    if visible_width(&result) <= total_width { result } else { slice_by_column(&result, 0, total_width, true) }
+    if visible_width(&result) <= total_width {
+        result
+    } else {
+        slice_by_column(&result, 0, total_width, true)
+    }
 }
 
 /// A size: absolute, or a percentage of the terminal.
@@ -233,7 +250,12 @@ pub struct OverlayMargin {
 
 impl OverlayMargin {
     pub fn all(n: i64) -> Self {
-        OverlayMargin { top: n, right: n, bottom: n, left: n }
+        OverlayMargin {
+            top: n,
+            right: n,
+            bottom: n,
+            left: n,
+        }
     }
 }
 
@@ -290,7 +312,12 @@ fn anchor_col(a: OverlayAnchor, w: i64, avail: i64, left: i64) -> i64 {
     }
 }
 
-pub(crate) fn resolve_overlay_layout(opt: &OverlayOptions, overlay_height: i64, tw: usize, th: usize) -> OverlayLayout {
+pub(crate) fn resolve_overlay_layout(
+    opt: &OverlayOptions,
+    overlay_height: i64,
+    tw: usize,
+    th: usize,
+) -> OverlayLayout {
     let (twi, thi) = (tw as i64, th as i64);
     let m = opt.margin.unwrap_or_default();
     let (mt, mr, mb, ml) = (m.top.max(0), m.right.max(0), m.bottom.max(0), m.left.max(0));
@@ -306,19 +333,28 @@ pub(crate) fn resolve_overlay_layout(opt: &OverlayOptions, overlay_height: i64, 
     let anchor = opt.anchor.unwrap_or_default();
     let mut row = match opt.row {
         Some(SizeValue::Abs(n)) => n,
-        Some(SizeValue::Percent(p)) => mt + ((avail_h - eff_h).max(0) as f64 * (p / 100.0)).floor() as i64,
+        Some(SizeValue::Percent(p)) => {
+            mt + ((avail_h - eff_h).max(0) as f64 * (p / 100.0)).floor() as i64
+        }
         None => anchor_row(anchor, eff_h, avail_h, mt),
     };
     let mut col = match opt.col {
         Some(SizeValue::Abs(n)) => n,
-        Some(SizeValue::Percent(p)) => ml + ((avail_w - width).max(0) as f64 * (p / 100.0)).floor() as i64,
+        Some(SizeValue::Percent(p)) => {
+            ml + ((avail_w - width).max(0) as f64 * (p / 100.0)).floor() as i64
+        }
         None => anchor_col(anchor, width, avail_w, ml),
     };
     row += opt.offset_y.unwrap_or(0);
     col += opt.offset_x.unwrap_or(0);
     row = row.min(thi - mb - eff_h).max(mt);
     col = col.min(twi - mr - width).max(ml);
-    OverlayLayout { width, row, col, max_height }
+    OverlayLayout {
+        width,
+        row,
+        col,
+        max_height,
+    }
 }
 
 /// Identifies a shown overlay (upstream returns an `OverlayHandle` of closures).
@@ -345,7 +381,11 @@ enum Resume {
 enum FocusRestore {
     Inactive,
     Eligible(OverlayId),
-    Blocked { overlay: OverlayId, blocked_by: ComponentRef, resume: Resume },
+    Blocked {
+        overlay: OverlayId,
+        blocked_by: ComponentRef,
+        resume: Resume,
+    },
 }
 
 impl FocusRestore {
@@ -566,7 +606,11 @@ impl TuiCore {
         }
     }
 
-    fn resolve_blocked_resume(&mut self, overlay: OverlayId, resume: &Resume) -> Option<ComponentRef> {
+    fn resolve_blocked_resume(
+        &mut self,
+        overlay: OverlayId,
+        resume: &Resume,
+    ) -> Option<ComponentRef> {
         match resume {
             Resume::RestoreOverlay => self.entry(overlay).map(|e| e.component.clone()),
             Resume::FocusTarget(t) => {
@@ -584,31 +628,51 @@ impl TuiCore {
     fn set_focus_internal(&mut self, component: Option<ComponentRef>, clear_restore: bool) {
         let previous = self.focused.clone();
         let mut next = component;
-        let prev_overlay = previous
-            .as_ref()
-            .and_then(|p| self.overlays.iter().find(|e| same(&e.component, p) && self.is_visible(e)).map(|e| e.id));
+        let prev_overlay = previous.as_ref().and_then(|p| {
+            self.overlays
+                .iter()
+                .find(|e| same(&e.component, p) && self.is_visible(e))
+                .map(|e| e.id)
+        });
         let next_is_overlay = next.as_ref().is_some_and(|n| self.entry_of(n).is_some());
         let restore = self.visible_restore();
         if let Some(n) = next.clone().filter(|_| !next_is_overlay) {
             match &restore {
-                FocusRestore::Blocked { overlay, blocked_by, resume } if same_opt(&Some(blocked_by.clone()), &previous) => {
+                FocusRestore::Blocked {
+                    overlay,
+                    blocked_by,
+                    resume,
+                } if same_opt(&Some(blocked_by.clone()), &previous) => {
                     if matches!(resume, Resume::FocusTarget(_)) || !self.is_mounted(blocked_by) {
                         next = self.resolve_blocked_resume(*overlay, resume);
                     } else {
-                        self.focus_restore = FocusRestore::Blocked { overlay: *overlay, blocked_by: n, resume: resume.clone() };
+                        self.focus_restore = FocusRestore::Blocked {
+                            overlay: *overlay,
+                            blocked_by: n,
+                            resume: resume.clone(),
+                        };
                     }
                 }
                 _ => {
-                    if let Some(po) = prev_overlay {
-                        if restore.overlay() == Some(po) && !self.is_focus_ancestor(po, &n) {
-                            self.focus_restore = FocusRestore::Blocked { overlay: po, blocked_by: n, resume: Resume::RestoreOverlay };
-                        }
+                    if let Some(po) = prev_overlay
+                        && restore.overlay() == Some(po)
+                        && !self.is_focus_ancestor(po, &n)
+                    {
+                        self.focus_restore = FocusRestore::Blocked {
+                            overlay: po,
+                            blocked_by: n,
+                            resume: Resume::RestoreOverlay,
+                        };
                     }
                 }
             }
         } else if next.is_none() {
             match &restore {
-                FocusRestore::Blocked { overlay, blocked_by, resume } if same_opt(&Some(blocked_by.clone()), &previous) => {
+                FocusRestore::Blocked {
+                    overlay,
+                    blocked_by,
+                    resume,
+                } if same_opt(&Some(blocked_by.clone()), &previous) => {
                     next = self.resolve_blocked_resume(*overlay, resume);
                 }
                 _ => {
@@ -618,24 +682,32 @@ impl TuiCore {
                 }
             }
         }
-        if let Some(f) = &self.focused {
-            if f.borrow().is_focusable() {
-                f.borrow_mut().set_focused(false);
-            }
+        if let Some(f) = &self.focused
+            && f.borrow().is_focusable()
+        {
+            f.borrow_mut().set_focused(false);
         }
         self.focused = next.clone();
         if let Some(n) = &next {
             if n.borrow().is_focusable() {
                 n.borrow_mut().set_focused(true);
             }
-            if let Some(e) = self.overlays.iter().find(|e| same(&e.component, n) && self.is_visible(e)) {
+            if let Some(e) = self
+                .overlays
+                .iter()
+                .find(|e| same(&e.component, n) && self.is_visible(e))
+            {
                 self.focus_restore = FocusRestore::Eligible(e.id);
             }
         }
     }
 
     /// Show an overlay above the content. It takes focus unless `non_capturing`.
-    pub fn show_overlay(&mut self, component: ComponentRef, options: Option<OverlayOptions>) -> OverlayId {
+    pub fn show_overlay(
+        &mut self,
+        component: ComponentRef,
+        options: Option<OverlayOptions>,
+    ) -> OverlayId {
         self.next_overlay += 1;
         self.focus_counter += 1;
         let id = OverlayId(self.next_overlay);
@@ -659,12 +731,17 @@ impl TuiCore {
 
     /// Remove an overlay for good.
     pub fn hide_overlay_id(&mut self, id: OverlayId) {
-        let Some(idx) = self.overlays.iter().position(|e| e.id == id) else { return };
+        let Some(idx) = self.overlays.iter().position(|e| e.id == id) else {
+            return;
+        };
         self.clear_restore_for(id);
         self.retarget_pre_focus(id);
         let e = self.overlays.remove(idx);
         if self.focused.as_ref().is_some_and(|f| same(f, &e.component)) {
-            let top = self.topmost_visible().and_then(|t| self.entry(t)).map(|t| t.component.clone());
+            let top = self
+                .topmost_visible()
+                .and_then(|t| self.entry(t))
+                .map(|t| t.component.clone());
             self.set_focus(top.or(e.pre_focus));
         }
         if self.overlays.is_empty() {
@@ -693,7 +770,10 @@ impl TuiCore {
         if hidden {
             self.clear_restore_for(id);
             if self.focused.as_ref().is_some_and(|f| same(f, &comp)) {
-                let top = self.topmost_visible().and_then(|t| self.entry(t)).map(|t| t.component.clone());
+                let top = self
+                    .topmost_visible()
+                    .and_then(|t| self.entry(t))
+                    .map(|t| t.component.clone());
                 self.set_focus(top.or(pre));
             }
         } else if capturing && self.is_visible_id(id) {
@@ -733,19 +813,32 @@ impl TuiCore {
         if !is_focused && !has_pending {
             return;
         }
-        if let FocusRestore::Blocked { overlay, blocked_by, .. } = self.focus_restore.clone() {
-            if overlay == id && same_opt(&self.focused, &Some(blocked_by.clone())) {
-                self.focus_restore = match target {
-                    Some(t) => FocusRestore::Blocked { overlay: id, blocked_by, resume: Resume::FocusTarget(t) },
-                    None => FocusRestore::Inactive,
-                };
-                self.request_render(false);
-                return;
-            }
+        if let FocusRestore::Blocked {
+            overlay,
+            blocked_by,
+            ..
+        } = self.focus_restore.clone()
+            && overlay == id
+            && same_opt(&self.focused, &Some(blocked_by.clone()))
+        {
+            self.focus_restore = match target {
+                Some(t) => FocusRestore::Blocked {
+                    overlay: id,
+                    blocked_by,
+                    resume: Resume::FocusTarget(t),
+                },
+                None => FocusRestore::Inactive,
+            };
+            self.request_render(false);
+            return;
         }
         self.clear_restore_for(id);
         if is_focused || target.is_some() {
-            let top = self.topmost_visible().filter(|t| *t != id).and_then(|t| self.entry(t)).map(|t| t.component.clone());
+            let top = self
+                .topmost_visible()
+                .filter(|t| *t != id)
+                .and_then(|t| self.entry(t))
+                .map(|t| t.component.clone());
             let fallback = top.or(pre);
             self.set_focus(match target {
                 Some(t) => t,
@@ -756,7 +849,8 @@ impl TuiCore {
     }
 
     pub fn is_overlay_focused(&self, id: OverlayId) -> bool {
-        self.entry(id).is_some_and(|e| self.focused.as_ref().is_some_and(|f| same(f, &e.component)))
+        self.entry(id)
+            .is_some_and(|e| self.focused.as_ref().is_some_and(|f| same(f, &e.component)))
     }
 
     /// Most recent rendered bounds of a visible overlay.
@@ -796,61 +890,74 @@ impl TuiCore {
             }
             data = current;
         }
-        if matches_key(&data, "shift+ctrl+d") {
-            if let Some(cb) = self.on_debug.as_mut() {
-                cb();
-                return false;
+        if matches_key(&data, "shift+ctrl+d")
+            && let Some(cb) = self.on_debug.as_mut()
+        {
+            cb();
+            return false;
+        }
+        if let Some(f) = self.focused.clone()
+            && let Some(e) = self.entry_of(&f)
+            && !self.is_visible(e)
+        {
+            let pre = e.pre_focus.clone();
+            match self
+                .topmost_visible()
+                .and_then(|t| self.entry(t))
+                .map(|t| t.component.clone())
+            {
+                Some(t) => self.set_focus(Some(t)),
+                None => self.set_focus_internal(pre, false),
             }
         }
-        if let Some(f) = self.focused.clone() {
-            if let Some(e) = self.entry_of(&f) {
-                if !self.is_visible(e) {
-                    let pre = e.pre_focus.clone();
-                    match self.topmost_visible().and_then(|t| self.entry(t)).map(|t| t.component.clone()) {
-                        Some(t) => self.set_focus(Some(t)),
-                        None => self.set_focus_internal(pre, false),
-                    }
-                }
-            }
-        }
-        let focus_is_overlay = self.focused.as_ref().is_some_and(|f| self.entry_of(f).is_some());
+        let focus_is_overlay = self
+            .focused
+            .as_ref()
+            .is_some_and(|f| self.entry_of(f).is_some());
         if !focus_is_overlay {
             match self.visible_restore() {
                 FocusRestore::Eligible(o) => {
                     let c = self.entry(o).map(|e| e.component.clone());
                     self.set_focus(c);
                 }
-                FocusRestore::Blocked { overlay, blocked_by, resume } if !same_opt(&Some(blocked_by.clone()), &self.focused) => {
-                    match resume {
-                        Resume::RestoreOverlay => {
-                            let c = self.entry(overlay).map(|e| e.component.clone());
-                            self.set_focus(c);
-                        }
-                        Resume::FocusTarget(t) => {
-                            self.focus_restore = FocusRestore::Inactive;
-                            self.set_focus(t);
-                        }
+                FocusRestore::Blocked {
+                    overlay,
+                    blocked_by,
+                    resume,
+                } if !same_opt(&Some(blocked_by.clone()), &self.focused) => match resume {
+                    Resume::RestoreOverlay => {
+                        let c = self.entry(overlay).map(|e| e.component.clone());
+                        self.set_focus(c);
                     }
-                }
+                    Resume::FocusTarget(t) => {
+                        self.focus_restore = FocusRestore::Inactive;
+                        self.set_focus(t);
+                    }
+                },
                 _ => {}
             }
         }
-        if let Some(f) = self.focused.clone() {
-            if f.borrow().accepts_input() {
-                if is_key_release(&data) && !f.borrow().wants_key_release() {
-                    return false;
-                }
-                f.borrow_mut().handle_input(&data);
-                self.render_requested = true;
-                self.immediate = true;
-                return true;
+        if let Some(f) = self.focused.clone()
+            && f.borrow().accepts_input()
+        {
+            if is_key_release(&data) && !f.borrow().wants_key_release() {
+                return false;
             }
+            f.borrow_mut().handle_input(&data);
+            self.render_requested = true;
+            self.immediate = true;
+            return true;
         }
         false
     }
 
     /// Composite visible overlays into the content lines, highest focus order on top.
-    pub(crate) fn composite_overlays(&mut self, lines: Vec<String>, tw: usize, th: usize) -> Vec<String> {
+    pub(crate) fn composite_overlays(
+        &mut self,
+        lines: Vec<String>,
+        tw: usize,
+        th: usize,
+    ) -> Vec<String> {
         if self.overlays.is_empty() {
             return lines;
         }
@@ -859,7 +966,9 @@ impl TuiCore {
         for e in &mut self.overlays {
             e.bounds = None;
         }
-        let mut visible: Vec<usize> = (0..self.overlays.len()).filter(|&i| self.is_visible(&self.overlays[i])).collect();
+        let mut visible: Vec<usize> = (0..self.overlays.len())
+            .filter(|&i| self.is_visible(&self.overlays[i]))
+            .collect();
         visible.sort_by_key(|&i| self.overlays[i].focus_order);
         let mut rendered = Vec::new();
         let mut min_lines = result.len() as i64;
@@ -867,13 +976,21 @@ impl TuiCore {
         for i in visible {
             let opts = self.overlays[i].options.clone().unwrap_or_default();
             let l0 = resolve_overlay_layout(&opts, 0, tw, th);
-            let raw = self.overlays[i].component.borrow_mut().render(l0.width as usize);
+            let raw = self.overlays[i]
+                .component
+                .borrow_mut()
+                .render(l0.width as usize);
             let mut ol = resolve_fake_cursors(raw, show_hw);
             if let Some(mh) = l0.max_height {
                 ol.truncate(mh as usize);
             }
             let l = resolve_overlay_layout(&opts, ol.len() as i64, tw, th);
-            self.overlays[i].bounds = Some(OverlayBounds { row: l.row, col: l.col, width: l0.width, height: ol.len() as i64 });
+            self.overlays[i].bounds = Some(OverlayBounds {
+                row: l.row,
+                col: l.col,
+                width: l0.width,
+                height: ol.len() as i64,
+            });
             min_lines = min_lines.max(l.row + ol.len() as i64);
             rendered.push((ol, l.row, l.col, l0.width));
         }
@@ -887,7 +1004,11 @@ impl TuiCore {
                 let idx = viewport_start + row + i as i64;
                 if idx >= 0 && (idx as usize) < result.len() {
                     let w = w as usize;
-                    let t = if visible_width(line) > w { slice_by_column(line, 0, w, true) } else { line.clone() };
+                    let t = if visible_width(line) > w {
+                        slice_by_column(line, 0, w, true)
+                    } else {
+                        line.clone()
+                    };
                     let idx = idx as usize;
                     result[idx] = composite_tui_line(&result[idx], &t, col.max(0) as usize, w, tw);
                 }
@@ -911,12 +1032,21 @@ pub(crate) fn resolve_fake_cursors(lines: Vec<String>, show_hardware_cursor: boo
                 let pat = format!("{CURSOR_MARKER}{FAKE_CURSOR_START}");
                 if let Some(at) = line.find(&pat) {
                     let body_start = at + pat.len();
-                    let body_end = line[body_start..].find(FAKE_CURSOR_END).map(|j| (body_start + j, FAKE_CURSOR_END.len()));
+                    let body_end = line[body_start..]
+                        .find(FAKE_CURSOR_END)
+                        .map(|j| (body_start + j, FAKE_CURSOR_END.len()));
                     let (end, skip) = body_end.unwrap_or((line.len(), 0));
-                    resolved = format!("{}{CURSOR_MARKER}{}{}", &line[..at], &line[body_start..end], &line[end + skip..]);
+                    resolved = format!(
+                        "{}{CURSOR_MARKER}{}{}",
+                        &line[..at],
+                        &line[body_start..end],
+                        &line[end + skip..]
+                    );
                 }
             }
-            resolved.replace(FAKE_CURSOR_START, "\x1b[7m").replace(FAKE_CURSOR_END, "\x1b[27m")
+            resolved
+                .replace(FAKE_CURSOR_START, "\x1b[7m")
+                .replace(FAKE_CURSOR_END, "\x1b[27m")
         })
         .collect()
 }
@@ -931,7 +1061,10 @@ pub(crate) fn apply_line_resets(lines: &mut [String]) {
 }
 
 /// Find CURSOR_MARKER in the bottom `height` lines, strip it, and return its (row, col).
-pub(crate) fn extract_cursor_position(lines: &mut [String], height: usize) -> Option<(usize, usize)> {
+pub(crate) fn extract_cursor_position(
+    lines: &mut [String],
+    height: usize,
+) -> Option<(usize, usize)> {
     let top = lines.len().saturating_sub(height);
     for row in (top..lines.len()).rev() {
         if let Some(i) = lines[row].find(CURSOR_MARKER) {

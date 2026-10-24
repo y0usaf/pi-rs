@@ -18,7 +18,11 @@ pub struct SelectItem {
 
 impl SelectItem {
     pub fn new(value: &str, label: &str, description: Option<&str>) -> Self {
-        SelectItem { value: value.into(), label: label.into(), description: description.map(Into::into) }
+        SelectItem {
+            value: value.into(),
+            label: label.into(),
+            description: description.map(Into::into),
+        }
     }
 }
 
@@ -46,7 +50,7 @@ pub struct TruncatePrimaryContext<'a> {
 pub struct SelectListLayoutOptions {
     pub min_primary_column_width: Option<usize>,
     pub max_primary_column_width: Option<usize>,
-    pub truncate_primary: Option<Rc<dyn Fn(&TruncatePrimaryContext) -> String>>,
+    pub truncate_primary: Option<TruncatePrimaryFn>,
 }
 
 fn single_line(text: &str) -> String {
@@ -74,13 +78,18 @@ pub struct SelectList {
     max_visible: usize,
     theme: SelectListTheme,
     layout: SelectListLayoutOptions,
-    pub on_select: Option<Box<dyn FnMut(&SelectItem)>>,
+    pub on_select: Option<ItemCallback>,
     pub on_cancel: Option<Box<dyn FnMut()>>,
-    pub on_selection_change: Option<Box<dyn FnMut(&SelectItem)>>,
+    pub on_selection_change: Option<ItemCallback>,
 }
 
 impl SelectList {
-    pub fn new(items: Vec<SelectItem>, max_visible: usize, theme: SelectListTheme, layout: SelectListLayoutOptions) -> Self {
+    pub fn new(
+        items: Vec<SelectItem>,
+        max_visible: usize,
+        theme: SelectListTheme,
+        layout: SelectListLayoutOptions,
+    ) -> Self {
         SelectList {
             filtered: items.clone(),
             items,
@@ -98,7 +107,12 @@ impl SelectList {
     /// Keep items whose value starts with `filter` (case-insensitive) and select the first.
     pub fn set_filter(&mut self, filter: &str) {
         let f = filter.to_lowercase();
-        self.filtered = self.items.iter().filter(|i| i.value.to_lowercase().starts_with(&f)).cloned().collect();
+        self.filtered = self
+            .items
+            .iter()
+            .filter(|i| i.value.to_lowercase().starts_with(&f))
+            .cloned()
+            .collect();
         self.selected = 0;
     }
 
@@ -113,57 +127,96 @@ impl SelectList {
     fn visible_range(&self) -> (usize, usize) {
         let len = self.filtered.len() as i64;
         let mv = self.max_visible as i64;
-        let start = (self.selected as i64 - mv.div_euclid(2)).min(len - mv).max(0);
+        let start = (self.selected as i64 - mv.div_euclid(2))
+            .min(len - mv)
+            .max(0);
         (start as usize, (start + mv).min(len) as usize)
     }
 
     fn display_value(item: &SelectItem) -> &str {
-        if item.label.is_empty() { &item.value } else { &item.label }
+        if item.label.is_empty() {
+            &item.value
+        } else {
+            &item.label
+        }
     }
 
     fn column_bounds(&self) -> (usize, usize) {
         let l = &self.layout;
-        let raw_min = l.min_primary_column_width.or(l.max_primary_column_width).unwrap_or(DEFAULT_PRIMARY_COLUMN_WIDTH);
-        let raw_max = l.max_primary_column_width.or(l.min_primary_column_width).unwrap_or(DEFAULT_PRIMARY_COLUMN_WIDTH);
+        let raw_min = l
+            .min_primary_column_width
+            .or(l.max_primary_column_width)
+            .unwrap_or(DEFAULT_PRIMARY_COLUMN_WIDTH);
+        let raw_max = l
+            .max_primary_column_width
+            .or(l.min_primary_column_width)
+            .unwrap_or(DEFAULT_PRIMARY_COLUMN_WIDTH);
         (raw_min.min(raw_max).max(1), raw_min.max(raw_max).max(1))
     }
 
     fn primary_column_width(&self) -> usize {
         let (min, max) = self.column_bounds();
-        let widest = self.filtered.iter().map(|i| visible_width(Self::display_value(i)) + PRIMARY_COLUMN_GAP).max().unwrap_or(0);
+        let widest = self
+            .filtered
+            .iter()
+            .map(|i| visible_width(Self::display_value(i)) + PRIMARY_COLUMN_GAP)
+            .max()
+            .unwrap_or(0);
         widest.clamp(min, max)
     }
 
-    fn truncate_primary(&self, item: &SelectItem, is_selected: bool, max_width: i64, column_width: i64) -> String {
+    fn truncate_primary(
+        &self,
+        item: &SelectItem,
+        is_selected: bool,
+        max_width: i64,
+        column_width: i64,
+    ) -> String {
         let dv = Self::display_value(item);
         let mw = max_width.max(0) as usize;
         let t = match &self.layout.truncate_primary {
-            Some(f) => f(&TruncatePrimaryContext { text: dv, max_width: mw, column_width: column_width.max(0) as usize, item, is_selected }),
+            Some(f) => f(&TruncatePrimaryContext {
+                text: dv,
+                max_width: mw,
+                column_width: column_width.max(0) as usize,
+                item,
+                is_selected,
+            }),
             None => truncate_to_width(dv, mw, "", false),
         };
         truncate_to_width(&t, mw, "", false)
     }
 
-    fn render_item(&self, item: &SelectItem, is_selected: bool, width: usize, desc: Option<&str>, primary_width: usize) -> String {
+    fn render_item(
+        &self,
+        item: &SelectItem,
+        is_selected: bool,
+        width: usize,
+        desc: Option<&str>,
+        primary_width: usize,
+    ) -> String {
         let prefix = if is_selected { "→ " } else { "  " };
         let pw = visible_width(prefix) as i64;
         let w = width as i64;
-        if let Some(desc) = desc.filter(|d| !d.is_empty()) {
-            if width > 40 {
-                let eff = (primary_width as i64).min(w - pw - 4).max(1);
-                let max_primary = (eff - PRIMARY_COLUMN_GAP as i64).max(1);
-                let value = self.truncate_primary(item, is_selected, max_primary, eff);
-                let vw = visible_width(&value) as i64;
-                let spacing = " ".repeat((eff - vw).max(1) as usize);
-                let start = pw + vw + spacing.len() as i64;
-                let remaining = w - start - 2;
-                if remaining > MIN_DESCRIPTION_WIDTH {
-                    let d = truncate_to_width(desc, remaining as usize, "", false);
-                    if is_selected {
-                        return (self.theme.selected_text)(&format!("{prefix}{value}{spacing}{d}"));
-                    }
-                    return format!("{prefix}{value}{}", (self.theme.description)(&format!("{spacing}{d}")));
+        if let Some(desc) = desc.filter(|d| !d.is_empty())
+            && width > 40
+        {
+            let eff = (primary_width as i64).min(w - pw - 4).max(1);
+            let max_primary = (eff - PRIMARY_COLUMN_GAP as i64).max(1);
+            let value = self.truncate_primary(item, is_selected, max_primary, eff);
+            let vw = visible_width(&value) as i64;
+            let spacing = " ".repeat((eff - vw).max(1) as usize);
+            let start = pw + vw + spacing.len() as i64;
+            let remaining = w - start - 2;
+            if remaining > MIN_DESCRIPTION_WIDTH {
+                let d = truncate_to_width(desc, remaining as usize, "", false);
+                if is_selected {
+                    return (self.theme.selected_text)(&format!("{prefix}{value}{spacing}{d}"));
                 }
+                return format!(
+                    "{prefix}{value}{}",
+                    (self.theme.description)(&format!("{spacing}{d}"))
+                );
             }
         }
         let max_width = w - pw - 2;
@@ -175,10 +228,10 @@ impl SelectList {
     }
 
     fn notify_selection_change(&mut self) {
-        if let Some(item) = self.filtered.get(self.selected).cloned() {
-            if let Some(f) = self.on_selection_change.as_mut() {
-                f(&item);
-            }
+        if let Some(item) = self.filtered.get(self.selected).cloned()
+            && let Some(f) = self.on_selection_change.as_mut()
+        {
+            f(&item);
         }
     }
 }
@@ -198,7 +251,12 @@ impl Component for SelectList {
         }
         if start > 0 || end < self.filtered.len() {
             let text = format!("  ({}/{})", self.selected + 1, self.filtered.len());
-            lines.push((self.theme.scroll_info)(&truncate_to_width(&text, width.saturating_sub(2), "", false)));
+            lines.push((self.theme.scroll_info)(&truncate_to_width(
+                &text,
+                width.saturating_sub(2),
+                "",
+                false,
+            )));
         }
         lines
     }
@@ -211,21 +269,29 @@ impl Component for SelectList {
         let kb = get_keybindings();
         let n = self.filtered.len();
         if kb.matches(data, "tui.select.up") {
-            self.selected = if self.selected == 0 { n.saturating_sub(1) } else { self.selected - 1 };
+            self.selected = if self.selected == 0 {
+                n.saturating_sub(1)
+            } else {
+                self.selected - 1
+            };
             self.notify_selection_change();
         } else if kb.matches(data, "tui.select.down") {
-            self.selected = if n == 0 || self.selected == n - 1 { 0 } else { self.selected + 1 };
+            self.selected = if n == 0 || self.selected == n - 1 {
+                0
+            } else {
+                self.selected + 1
+            };
             self.notify_selection_change();
         } else if kb.matches(data, "tui.select.confirm") {
-            if let Some(item) = self.filtered.get(self.selected).cloned() {
-                if let Some(f) = self.on_select.as_mut() {
-                    f(&item);
-                }
+            if let Some(item) = self.filtered.get(self.selected).cloned()
+                && let Some(f) = self.on_select.as_mut()
+            {
+                f(&item);
             }
-        } else if kb.matches(data, "tui.select.cancel") {
-            if let Some(f) = self.on_cancel.as_mut() {
-                f();
-            }
+        } else if kb.matches(data, "tui.select.cancel")
+            && let Some(f) = self.on_cancel.as_mut()
+        {
+            f();
         }
     }
 
@@ -236,13 +302,20 @@ impl Component for SelectList {
         if e.kind == MouseEventType::Wheel && e.wheel_delta.is_some_and(|d| d != 0) {
             let d: i64 = if e.wheel_delta.unwrap() < 0 { -1 } else { 1 };
             let prev = self.selected;
-            self.selected = (self.selected as i64 + d).clamp(0, self.filtered.len() as i64 - 1) as usize;
+            self.selected =
+                (self.selected as i64 + d).clamp(0, self.filtered.len() as i64 - 1) as usize;
             if self.selected != prev {
                 self.notify_selection_change();
             }
-            return Some(TuiMouseEventResult { handled: true, render: Some(self.selected != prev), ..Default::default() });
+            return Some(TuiMouseEventResult {
+                handled: true,
+                render: Some(self.selected != prev),
+                ..Default::default()
+            });
         }
-        if e.button != MouseButton::Left || !matches!(e.kind, MouseEventType::Press | MouseEventType::Click) {
+        if e.button != MouseButton::Left
+            || !matches!(e.kind, MouseEventType::Press | MouseEventType::Click)
+        {
             return None;
         }
         let (start, end) = self.visible_range();
@@ -257,7 +330,11 @@ impl Component for SelectList {
                 self.selected = idx;
                 self.notify_selection_change();
             }
-            return Some(TuiMouseEventResult { handled: true, focus: true, ..Default::default() });
+            return Some(TuiMouseEventResult {
+                handled: true,
+                focus: true,
+                ..Default::default()
+            });
         }
         let clicked = self.mouse_pressed.take().unwrap_or(idx);
         let changed = self.selected != clicked;
@@ -265,11 +342,19 @@ impl Component for SelectList {
         if changed {
             self.notify_selection_change();
         }
-        if let Some(item) = self.filtered.get(self.selected).cloned() {
-            if let Some(f) = self.on_select.as_mut() {
-                f(&item);
-            }
+        if let Some(item) = self.filtered.get(self.selected).cloned()
+            && let Some(f) = self.on_select.as_mut()
+        {
+            f(&item);
         }
-        Some(TuiMouseEventResult { handled: true, ..Default::default() })
+        Some(TuiMouseEventResult {
+            handled: true,
+            ..Default::default()
+        })
     }
 }
+
+/// Truncates a primary column.
+pub type TruncatePrimaryFn = Rc<dyn Fn(&TruncatePrimaryContext) -> String>;
+/// A callback given an item.
+pub type ItemCallback = Box<dyn FnMut(&SelectItem)>;

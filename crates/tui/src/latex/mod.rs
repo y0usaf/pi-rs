@@ -7,8 +7,8 @@
 mod format;
 mod tables;
 
-use format::*;
 use crate::utils::visible_width;
+use format::*;
 
 /// Upstream `renderLatex(source, { display })`: `None` when the expression holds unsupported or
 /// malformed syntax.
@@ -53,7 +53,8 @@ fn find_from(hay: &[char], needle: &[char], from: usize) -> Option<usize> {
     if needle.is_empty() {
         return Some(from.min(hay.len()));
     }
-    (from..hay.len().saturating_sub(needle.len() - 1)).find(|&i| hay[i..i + needle.len()] == *needle)
+    (from..hay.len().saturating_sub(needle.len() - 1))
+        .find(|&i| hay[i..i + needle.len()] == *needle)
 }
 
 /// `body.split(/\\\\(?:\[[^\]\n]*\])?/)`.
@@ -105,13 +106,24 @@ fn has_condition_word(s: &str) -> bool {
         s.len() >= w.len()
             && s.is_char_boundary(w.len())
             && s[..w.len()].eq_ignore_ascii_case(w)
-            && !s[w.len()..].chars().next().is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+            && !s[w.len()..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
     })
 }
 
 impl<'a> Parser<'a> {
     fn new(source: &str, nodes: &'a mut Vec<Node>, display: bool) -> Self {
-        Parser { src: source.chars().collect(), nodes, display, pos: 0, supported: true, stack_fractions: true, script_depth: 0 }
+        Parser {
+            src: source.chars().collect(),
+            nodes,
+            display,
+            pos: 0,
+            supported: true,
+            stack_fractions: true,
+            script_depth: 0,
+        }
     }
 
     fn at(&self, i: usize) -> Option<char> {
@@ -198,7 +210,8 @@ impl<'a> Parser<'a> {
                 continue;
             }
             if c == '.'
-                && let Some(Node::Matrix { lines, .. }) = trailing_marker(&result).and_then(|i| self.nodes.get_mut(i))
+                && let Some(Node::Matrix { lines, .. }) =
+                    trailing_marker(&result).and_then(|i| self.nodes.get_mut(i))
             {
                 if let Some(last) = lines.last_mut() {
                     last.push('.');
@@ -222,8 +235,16 @@ impl<'a> Parser<'a> {
             p.script_depth += 1;
             let value = p.parse_required_argument(false);
             p.script_depth -= 1;
-            let kind = if marker == '_' { ScriptKind::Sub } else { ScriptKind::Sup };
-            if kind == ScriptKind::Sub { sub = Some(value) } else { sup = Some(value) }
+            let kind = if marker == '_' {
+                ScriptKind::Sub
+            } else {
+                ScriptKind::Sup
+            };
+            if kind == ScriptKind::Sub {
+                sub = Some(value)
+            } else {
+                sup = Some(value)
+            }
             order.push(kind);
         };
         parse(self, initial);
@@ -231,33 +252,51 @@ impl<'a> Parser<'a> {
         while self.at(next).is_some_and(is_space) {
             next += 1;
         }
-        if let Some(m) = self.at(next).filter(|&m| (m == '^' || m == '_') && m != initial) {
+        if let Some(m) = self
+            .at(next)
+            .filter(|&m| (m == '^' || m == '_') && m != initial)
+        {
             self.pos = next + 1;
             parse(self, m);
         }
-        let sub_unicode = sub.as_deref().and_then(|s| format_unicode_script(s, ScriptKind::Sub));
-        let sup_unicode = sup.as_deref().and_then(|s| format_unicode_script(s, ScriptKind::Sup));
+        let sub_unicode = sub
+            .as_deref()
+            .and_then(|s| format_unicode_script(s, ScriptKind::Sub));
+        let sup_unicode = sup
+            .as_deref()
+            .and_then(|s| format_unicode_script(s, ScriptKind::Sup));
         let can_use_layout = ![&sub, &sup].iter().any(|v| {
             v.as_deref().is_some_and(|v| {
                 v.contains('/')
                     || (!v.contains(LAYOUT_MARKER_START)
                         && v.chars().count() > 1
-                        && !v.chars().any(|c| c.is_ascii_uppercase() || c == '*' || c == '∗'))
+                        && !v
+                            .chars()
+                            .any(|c| c.is_ascii_uppercase() || c == '*' || c == '∗'))
             })
         });
         let needs_layout = self.display
             && can_use_layout
-            && (self.script_depth > 0 || (sub.is_some() && sub_unicode.is_none()) || (sup.is_some() && sup_unicode.is_none()));
+            && (self.script_depth > 0
+                || (sub.is_some() && sub_unicode.is_none())
+                || (sup.is_some() && sup_unicode.is_none()));
         if !needs_layout {
             return order
                 .iter()
                 .map(|&k| match k {
-                    ScriptKind::Sub => sub_unicode.clone().unwrap_or_else(|| format_script(sub.as_deref().unwrap_or(""), k)),
-                    ScriptKind::Sup => sup_unicode.clone().unwrap_or_else(|| format_script(sup.as_deref().unwrap_or(""), k)),
+                    ScriptKind::Sub => sub_unicode
+                        .clone()
+                        .unwrap_or_else(|| format_script(sub.as_deref().unwrap_or(""), k)),
+                    ScriptKind::Sup => sup_unicode
+                        .clone()
+                        .unwrap_or_else(|| format_script(sup.as_deref().unwrap_or(""), k)),
                 })
                 .collect();
         }
-        let node = Node::Script { lower: sub.as_deref().map(normalize_output), upper: sup.as_deref().map(normalize_output) };
+        let node = Node::Script {
+            lower: sub.as_deref().map(normalize_output),
+            upper: sup.as_deref().map(normalize_output),
+        };
         self.push_node(node)
     }
 }
@@ -332,7 +371,11 @@ impl Parser<'_> {
                 return self.parse_operator(symbol.to_string(), false, true, false);
             }
             let spaced = cmd == "cdot" || cmd == "times" || tables::is_relation_command(cmd);
-            return if spaced { format!(" {symbol} ") } else { symbol.to_string() };
+            return if spaced {
+                format!(" {symbol} ")
+            } else {
+                symbol.to_string()
+            };
         }
         if tables::is_named_operator(cmd) {
             return format!("{NAMED_OPERATOR_START}{cmd}{NAMED_OPERATOR_END}");
@@ -351,7 +394,10 @@ impl Parser<'_> {
             let numerator = self.parse_required_argument(!stack);
             let denominator = self.parse_required_argument(!stack);
             if stack {
-                let node = Node::Fraction { numerator: normalize_output(&numerator), denominator: normalize_output(&denominator) };
+                let node = Node::Fraction {
+                    numerator: normalize_output(&numerator),
+                    denominator: normalize_output(&denominator),
+                };
                 return self.push_node(node);
             }
             return format_fraction(&numerator, &denominator);
@@ -363,7 +409,11 @@ impl Parser<'_> {
                 None | Some("2") => format_root(&value, "√"),
                 Some("3") => format_root(&value, "∛"),
                 Some("4") => format_root(&value, "∜"),
-                Some(d) => format!("{}{}", format_script(d, ScriptKind::Sup), format_root(&value, "√")),
+                Some(d) => format!(
+                    "{}{}",
+                    format_script(d, ScriptKind::Sup),
+                    format_root(&value, "√")
+                ),
             };
         }
         if cmd == "boxed" || cmd == "fbox" {
@@ -376,12 +426,22 @@ impl Parser<'_> {
         }
         if let Some(accent) = tables::accent(cmd) {
             let value = self.parse_required_argument(true);
-            return if value.chars().count() == 1 { format!("{value}{accent}") } else { format!("{cmd}({value})") };
+            return if value.chars().count() == 1 {
+                format!("{value}{accent}")
+            } else {
+                format!("{cmd}({value})")
+            };
         }
         if cmd == "mathbb" {
             let value = self.parse_required_argument(true);
             let mut buf = [0u8; 4];
-            return value.chars().map(|c| tables::blackboard(c.encode_utf8(&mut buf)).map_or(c.to_string(), str::to_string)).collect();
+            return value
+                .chars()
+                .map(|c| {
+                    tables::blackboard(c.encode_utf8(&mut buf))
+                        .map_or(c.to_string(), str::to_string)
+                })
+                .collect();
         }
         if cmd == "operatorname" {
             let starred = self.at(self.pos) == Some('*');
@@ -398,7 +458,11 @@ impl Parser<'_> {
         if cmd == "pmod" || cmd == "pod" {
             let arg = self.parse_required_argument(true);
             let value = trim(&arg);
-            return if cmd == "pmod" { format!(" (mod {value})") } else { format!(" ({value})") };
+            return if cmd == "pmod" {
+                format!(" (mod {value})")
+            } else {
+                format!(" ({value})")
+            };
         }
         if cmd == "overset" || cmd == "stackrel" {
             let upper = self.parse_required_argument(true);
@@ -412,7 +476,11 @@ impl Parser<'_> {
         }
         if tables::is_plain_wrapper(cmd) {
             let value = self.parse_required_argument(true);
-            return if cmd.starts_with("text") || cmd == "mbox" { value } else { trim(&value).to_string() };
+            return if cmd.starts_with("text") || cmd == "mbox" {
+                value
+            } else {
+                trim(&value).to_string()
+            };
         }
         if cmd == "begin" {
             return self.parse_environment();
@@ -426,7 +494,13 @@ impl Parser<'_> {
     }
 
     /// `bracket_lower`: inline lower limit as `op[lower]` instead of a subscript.
-    fn parse_operator(&mut self, operator: String, bracket_lower: bool, display_limits: bool, spaced: bool) -> String {
+    fn parse_operator(
+        &mut self,
+        operator: String,
+        bracket_lower: bool,
+        display_limits: bool,
+        spaced: bool,
+    ) -> String {
         let mut use_display_limits = display_limits;
         let mut modifier_pos = self.pos;
         while self.at(modifier_pos).is_some_and(is_space_or_tab) {
@@ -435,7 +509,9 @@ impl Parser<'_> {
         for (name, limits) in [("limits", true), ("nolimits", false)] {
             let pattern: Vec<char> = format!("\\{name}").chars().collect();
             let end = modifier_pos + pattern.len();
-            if self.src.get(modifier_pos..end) == Some(&pattern[..]) && !self.at(end).is_some_and(|c| c.is_ascii_alphabetic()) {
+            if self.src.get(modifier_pos..end) == Some(&pattern[..])
+                && !self.at(end).is_some_and(|c| c.is_ascii_alphabetic())
+            {
                 use_display_limits = limits;
                 self.pos = end;
                 break;
@@ -460,16 +536,28 @@ impl Parser<'_> {
             *slot = Some(value);
         }
         if self.display && use_display_limits && (lower.is_some() || upper.is_some()) {
-            return self.push_node(Node::Operator { operator, lower, upper });
+            return self.push_node(Node::Operator {
+                operator,
+                lower,
+                upper,
+            });
         }
         let mut rendered = operator;
         if let Some(l) = &lower {
-            rendered += &if bracket_lower { format!("[{l}]") } else { format_script(l, ScriptKind::Sub) };
+            rendered += &if bracket_lower {
+                format!("[{l}]")
+            } else {
+                format_script(l, ScriptKind::Sub)
+            };
         }
         if let Some(u) = &upper {
             rendered += &format_script(u, ScriptKind::Sup);
         }
-        if spaced { format!(" {rendered} ") } else { rendered }
+        if spaced {
+            format!(" {rendered} ")
+        } else {
+            rendered
+        }
     }
 
     fn parse_required_argument(&mut self, stack_fractions: bool) -> String {
@@ -563,14 +651,36 @@ impl Parser<'_> {
         }
         if matches!(
             env,
-            "aligned" | "align" | "align*" | "alignedat" | "alignat" | "alignat*" | "gather" | "gathered" | "multline" | "multline*" | "split"
+            "aligned"
+                | "align"
+                | "align*"
+                | "alignedat"
+                | "alignat"
+                | "alignat*"
+                | "gather"
+                | "gathered"
+                | "multline"
+                | "multline*"
+                | "split"
         ) {
             let aligned_at = matches!(env, "alignedat" | "alignat" | "alignat*");
-            let aligned_body = if aligned_at { strip_column_spec(&body) } else { &body };
+            let aligned_body = if aligned_at {
+                strip_column_spec(&body)
+            } else {
+                &body
+            };
             let mut rows = Vec::new();
             for row in split_environment_rows(aligned_body) {
                 let cells: Vec<&str> = row.split('&').collect();
-                let source = if aligned_at { cells.chunks(2).map(|c| c.concat()).collect::<Vec<_>>().join(" ") } else { cells.concat() };
+                let source = if aligned_at {
+                    cells
+                        .chunks(2)
+                        .map(|c| c.concat())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                } else {
+                    cells.concat()
+                };
                 let rendered = trim(&self.render_nested(&source, true)).to_string();
                 if !rendered.is_empty() {
                     rows.push(rendered);
@@ -581,8 +691,22 @@ impl Parser<'_> {
         if env == "cases" || env == "cases*" {
             return self.render_cases(&body);
         }
-        if matches!(env, "array" | "matrix" | "smallmatrix" | "pmatrix" | "bmatrix" | "Bmatrix" | "vmatrix" | "Vmatrix") {
-            let matrix_body = if env == "array" { strip_column_spec(&body) } else { &body };
+        if matches!(
+            env,
+            "array"
+                | "matrix"
+                | "smallmatrix"
+                | "pmatrix"
+                | "bmatrix"
+                | "Bmatrix"
+                | "vmatrix"
+                | "Vmatrix"
+        ) {
+            let matrix_body = if env == "array" {
+                strip_column_spec(&body)
+            } else {
+                &body
+            };
             return self.render_matrix(env, matrix_body);
         }
         self.supported = false;
@@ -592,7 +716,10 @@ impl Parser<'_> {
     fn render_cells(&mut self, body: &str) -> Vec<Vec<String>> {
         let mut out = Vec::new();
         for row in split_environment_rows(body) {
-            let cells: Vec<String> = row.split('&').map(|cell| trim(&self.render_nested(cell, false)).to_string()).collect();
+            let cells: Vec<String> = row
+                .split('&')
+                .map(|cell| trim(&self.render_nested(cell, false)).to_string())
+                .collect();
             if cells.iter().any(|c| !c.is_empty()) {
                 out.push(cells);
             }
@@ -602,8 +729,14 @@ impl Parser<'_> {
 
     fn render_cases(&mut self, body: &str) -> String {
         let rows = self.render_cells(body);
-        let first = |row: &Vec<String>| strip_trailing_comma(row.first().map_or("", String::as_str)).to_string();
-        let value_width = rows.iter().map(|r| visible_width(&first(r))).max().unwrap_or(0);
+        let first = |row: &Vec<String>| {
+            strip_trailing_comma(row.first().map_or("", String::as_str)).to_string()
+        };
+        let value_width = rows
+            .iter()
+            .map(|r| visible_width(&first(r)))
+            .max()
+            .unwrap_or(0);
         let contents: Vec<String> = rows
             .iter()
             .map(|row| {
@@ -612,8 +745,14 @@ impl Parser<'_> {
                 if condition.is_empty() {
                     return value;
                 }
-                let prefix = if has_condition_word(condition) { " " } else { " if " };
-                let pad = PROTECTED_SPACE.to_string().repeat(value_width.saturating_sub(visible_width(&value)));
+                let prefix = if has_condition_word(condition) {
+                    " "
+                } else {
+                    " if "
+                };
+                let pad = PROTECTED_SPACE
+                    .to_string()
+                    .repeat(value_width.saturating_sub(visible_width(&value)));
                 format!("{value}{pad}{prefix}{condition}")
             })
             .collect();
@@ -630,28 +769,49 @@ impl Parser<'_> {
             .iter()
             .enumerate()
             .map(|(i, content)| {
-                let delimiter = if i == 0 { "⎧" } else if i == n - 1 { "⎩" } else { "⎨" };
+                let delimiter = if i == 0 {
+                    "⎧"
+                } else if i == n - 1 {
+                    "⎩"
+                } else {
+                    "⎨"
+                };
                 match content {
                     None => delimiter.to_string(),
                     Some(c) => format!("{delimiter} {c}"),
                 }
             })
             .collect();
-        self.push_node(Node::Matrix { lines, baseline: middle })
+        self.push_node(Node::Matrix {
+            lines,
+            baseline: middle,
+        })
     }
 
     fn render_matrix(&mut self, environment: &str, body: &str) -> String {
         let matrix = self.render_cells(body);
         let column_count = matrix.iter().map(Vec::len).max().unwrap_or(0);
-        let widths: Vec<usize> =
-            (0..column_count).map(|c| matrix.iter().map(|r| r.get(c).map_or(0, |s| visible_width(s))).max().unwrap_or(0)).collect();
+        let widths: Vec<usize> = (0..column_count)
+            .map(|c| {
+                matrix
+                    .iter()
+                    .map(|r| r.get(c).map_or(0, |s| visible_width(s)))
+                    .max()
+                    .unwrap_or(0)
+            })
+            .collect();
         let rows: Vec<String> = matrix
             .iter()
             .map(|row| {
                 (0..column_count)
                     .map(|c| {
                         let cell = row.get(c).map_or("", String::as_str);
-                        format!("{cell}{}", PROTECTED_SPACE.to_string().repeat(widths[c].saturating_sub(visible_width(cell))))
+                        format!(
+                            "{cell}{}",
+                            PROTECTED_SPACE
+                                .to_string()
+                                .repeat(widths[c].saturating_sub(visible_width(cell)))
+                        )
                     })
                     .collect::<Vec<_>>()
                     .join(" │ ")
@@ -675,7 +835,13 @@ impl Parser<'_> {
             rows.iter()
                 .enumerate()
                 .map(|(i, row)| {
-                    let (l, r) = if i == 0 { (d[0], d[1]) } else if i == n - 1 { (d[4], d[5]) } else { (d[2], d[3]) };
+                    let (l, r) = if i == 0 {
+                        (d[0], d[1])
+                    } else if i == n - 1 {
+                        (d[4], d[5])
+                    } else {
+                        (d[2], d[3])
+                    };
                     format!("{l} {row} {r}")
                 })
                 .collect()

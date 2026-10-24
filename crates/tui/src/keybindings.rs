@@ -27,28 +27,100 @@ pub struct KeybindingConflict {
 const TUI_DEFS: &[(&str, &[&str], &str)] = &[
     ("tui.editor.cursorUp", &["up"], "Move cursor up"),
     ("tui.editor.cursorDown", &["down"], "Move cursor down"),
-    ("tui.editor.historyPrevious", &[], "Select previous prompt history entry"),
-    ("tui.editor.historyNext", &[], "Select next prompt history entry"),
-    ("tui.editor.cursorLeft", &["left", "ctrl+b"], "Move cursor left"),
-    ("tui.editor.cursorRight", &["right", "ctrl+f"], "Move cursor right"),
-    ("tui.editor.cursorWordLeft", &["alt+left", "ctrl+left", "alt+b"], "Move cursor word left"),
-    ("tui.editor.cursorWordRight", &["alt+right", "ctrl+right", "alt+f"], "Move cursor word right"),
-    ("tui.editor.cursorLineStart", &["home", "ctrl+a"], "Move to line start"),
-    ("tui.editor.cursorLineEnd", &["end", "ctrl+e"], "Move to line end"),
-    ("tui.editor.jumpForward", &["ctrl+]"], "Jump forward to character"),
-    ("tui.editor.jumpBackward", &["ctrl+alt+]"], "Jump backward to character"),
+    (
+        "tui.editor.historyPrevious",
+        &[],
+        "Select previous prompt history entry",
+    ),
+    (
+        "tui.editor.historyNext",
+        &[],
+        "Select next prompt history entry",
+    ),
+    (
+        "tui.editor.cursorLeft",
+        &["left", "ctrl+b"],
+        "Move cursor left",
+    ),
+    (
+        "tui.editor.cursorRight",
+        &["right", "ctrl+f"],
+        "Move cursor right",
+    ),
+    (
+        "tui.editor.cursorWordLeft",
+        &["alt+left", "ctrl+left", "alt+b"],
+        "Move cursor word left",
+    ),
+    (
+        "tui.editor.cursorWordRight",
+        &["alt+right", "ctrl+right", "alt+f"],
+        "Move cursor word right",
+    ),
+    (
+        "tui.editor.cursorLineStart",
+        &["home", "ctrl+a"],
+        "Move to line start",
+    ),
+    (
+        "tui.editor.cursorLineEnd",
+        &["end", "ctrl+e"],
+        "Move to line end",
+    ),
+    (
+        "tui.editor.jumpForward",
+        &["ctrl+]"],
+        "Jump forward to character",
+    ),
+    (
+        "tui.editor.jumpBackward",
+        &["ctrl+alt+]"],
+        "Jump backward to character",
+    ),
     ("tui.editor.pageUp", &["pageUp", "ctrl+pageUp"], "Page up"),
-    ("tui.editor.pageDown", &["pageDown", "ctrl+pageDown"], "Page down"),
-    ("tui.editor.deleteCharBackward", &["backspace"], "Delete character backward"),
-    ("tui.editor.deleteCharForward", &["delete", "ctrl+d"], "Delete character forward"),
-    ("tui.editor.deleteWordBackward", &["ctrl+w", "alt+backspace"], "Delete word backward"),
-    ("tui.editor.deleteWordForward", &["alt+d", "alt+delete"], "Delete word forward"),
-    ("tui.editor.deleteToLineStart", &["ctrl+u"], "Delete to line start"),
-    ("tui.editor.deleteToLineEnd", &["ctrl+k"], "Delete to line end"),
+    (
+        "tui.editor.pageDown",
+        &["pageDown", "ctrl+pageDown"],
+        "Page down",
+    ),
+    (
+        "tui.editor.deleteCharBackward",
+        &["backspace"],
+        "Delete character backward",
+    ),
+    (
+        "tui.editor.deleteCharForward",
+        &["delete", "ctrl+d"],
+        "Delete character forward",
+    ),
+    (
+        "tui.editor.deleteWordBackward",
+        &["ctrl+w", "alt+backspace"],
+        "Delete word backward",
+    ),
+    (
+        "tui.editor.deleteWordForward",
+        &["alt+d", "alt+delete"],
+        "Delete word forward",
+    ),
+    (
+        "tui.editor.deleteToLineStart",
+        &["ctrl+u"],
+        "Delete to line start",
+    ),
+    (
+        "tui.editor.deleteToLineEnd",
+        &["ctrl+k"],
+        "Delete to line end",
+    ),
     ("tui.editor.yank", &["ctrl+y"], "Yank"),
     ("tui.editor.yankPop", &["alt+y"], "Yank pop"),
     ("tui.editor.undo", &["ctrl+-"], "Undo"),
-    ("tui.input.newLine", &["shift+enter", "ctrl+j"], "Insert newline"),
+    (
+        "tui.input.newLine",
+        &["shift+enter", "ctrl+j"],
+        "Insert newline",
+    ),
     ("tui.input.submit", &["enter"], "Submit input"),
     ("tui.input.tab", &["tab"], "Tab / autocomplete"),
     ("tui.input.copy", &["ctrl+c"], "Copy selection"),
@@ -57,21 +129,77 @@ const TUI_DEFS: &[(&str, &[&str], &str)] = &[
     ("tui.select.pageUp", &["pageUp"], "Selection page up"),
     ("tui.select.pageDown", &["pageDown"], "Selection page down"),
     ("tui.select.confirm", &["enter"], "Confirm selection"),
-    ("tui.select.cancel", &["escape", "ctrl+c"], "Cancel selection"),
-    ("tui.altScreen.pageUp", &["pageUp"], "Scroll viewport up one page"),
-    ("tui.altScreen.pageDown", &["pageDown"], "Scroll viewport down one page"),
-    ("tui.altScreen.halfPageUp", &[], "Scroll viewport up half a page"),
-    ("tui.altScreen.halfPageDown", &[], "Scroll viewport down half a page"),
+    (
+        "tui.select.cancel",
+        &["escape", "ctrl+c"],
+        "Cancel selection",
+    ),
+    (
+        "tui.altScreen.pageUp",
+        &["pageUp"],
+        "Scroll viewport up one page",
+    ),
+    (
+        "tui.altScreen.pageDown",
+        &["pageDown"],
+        "Scroll viewport down one page",
+    ),
+    (
+        "tui.altScreen.halfPageUp",
+        &[],
+        "Scroll viewport up half a page",
+    ),
+    (
+        "tui.altScreen.halfPageDown",
+        &[],
+        "Scroll viewport down half a page",
+    ),
     ("tui.altScreen.lineUp", &[], "Scroll viewport up one line"),
-    ("tui.altScreen.lineDown", &[], "Scroll viewport down one line"),
-    ("tui.altScreen.previousPrompt", &["ctrl+shift+up", "ctrl+up"], "Jump to previous semantic prompt"),
-    ("tui.altScreen.nextPrompt", &["ctrl+shift+down", "ctrl+down"], "Jump to next semantic prompt"),
-    ("tui.altScreen.search", &["ctrl+shift+f"], "Search the primary scroll view"),
-    ("tui.altScreen.searchNext", &["enter", "ctrl+g"], "Select the next search match"),
-    ("tui.altScreen.searchPrevious", &["shift+enter", "ctrl+shift+g"], "Select the previous search match"),
-    ("tui.altScreen.searchClose", &["escape"], "Close transcript search"),
-    ("tui.altScreen.top", &["ctrl+home"], "Scroll viewport to top"),
-    ("tui.altScreen.bottom", &["ctrl+end"], "Scroll viewport to bottom"),
+    (
+        "tui.altScreen.lineDown",
+        &[],
+        "Scroll viewport down one line",
+    ),
+    (
+        "tui.altScreen.previousPrompt",
+        &["ctrl+shift+up", "ctrl+up"],
+        "Jump to previous semantic prompt",
+    ),
+    (
+        "tui.altScreen.nextPrompt",
+        &["ctrl+shift+down", "ctrl+down"],
+        "Jump to next semantic prompt",
+    ),
+    (
+        "tui.altScreen.search",
+        &["ctrl+shift+f"],
+        "Search the primary scroll view",
+    ),
+    (
+        "tui.altScreen.searchNext",
+        &["enter", "ctrl+g"],
+        "Select the next search match",
+    ),
+    (
+        "tui.altScreen.searchPrevious",
+        &["shift+enter", "ctrl+shift+g"],
+        "Select the previous search match",
+    ),
+    (
+        "tui.altScreen.searchClose",
+        &["escape"],
+        "Close transcript search",
+    ),
+    (
+        "tui.altScreen.top",
+        &["ctrl+home"],
+        "Scroll viewport to top",
+    ),
+    (
+        "tui.altScreen.bottom",
+        &["ctrl+end"],
+        "Scroll viewport to bottom",
+    ),
 ];
 
 /// pi-tui's own keybindings.
@@ -79,7 +207,13 @@ pub fn tui_keybindings() -> KeybindingDefinitions {
     TUI_DEFS
         .iter()
         .map(|(id, keys, d)| {
-            (id.to_string(), KeybindingDefinition { default_keys: keys.iter().map(|k| k.to_string()).collect(), description: Some(d.to_string()) })
+            (
+                id.to_string(),
+                KeybindingDefinition {
+                    default_keys: keys.iter().map(|k| k.to_string()).collect(),
+                    description: Some(d.to_string()),
+                },
+            )
         })
         .collect()
 }
@@ -105,13 +239,21 @@ pub struct KeybindingsManager {
 
 impl KeybindingsManager {
     pub fn new(definitions: KeybindingDefinitions, user: KeybindingsConfig) -> Self {
-        let mut m = KeybindingsManager { definitions, user, keys: BTreeMap::new(), conflicts: Vec::new() };
+        let mut m = KeybindingsManager {
+            definitions,
+            user,
+            keys: BTreeMap::new(),
+            conflicts: Vec::new(),
+        };
         m.rebuild();
         m
     }
 
     fn definition(&self, id: &str) -> Option<&KeybindingDefinition> {
-        self.definitions.iter().find(|(i, _)| i == id).map(|(_, d)| d)
+        self.definitions
+            .iter()
+            .find(|(i, _)| i == id)
+            .map(|(_, d)| d)
     }
 
     fn rebuild(&mut self) {
@@ -136,7 +278,10 @@ impl KeybindingsManager {
         }
         for (key, ids) in claims {
             if ids.len() > 1 {
-                self.conflicts.push(KeybindingConflict { key, keybindings: ids });
+                self.conflicts.push(KeybindingConflict {
+                    key,
+                    keybindings: ids,
+                });
             }
         }
         for (id, def) in &self.definitions {
@@ -150,7 +295,9 @@ impl KeybindingsManager {
 
     /// Whether `data` is any key bound to `id`.
     pub fn matches(&self, data: &str, id: &str) -> bool {
-        self.keys.get(id).is_some_and(|ks| ks.iter().any(|k| matches_key(data, k)))
+        self.keys
+            .get(id)
+            .is_some_and(|ks| ks.iter().any(|k| matches_key(data, k)))
     }
 
     pub fn keys(&self, id: &str) -> Vec<String> {
@@ -176,7 +323,10 @@ impl KeybindingsManager {
 
     /// Every id with its resolved keys.
     pub fn resolved_bindings(&self) -> Vec<(String, Vec<String>)> {
-        self.definitions.iter().map(|(id, _)| (id.clone(), self.keys(id))).collect()
+        self.definitions
+            .iter()
+            .map(|(id, _)| (id.clone(), self.keys(id)))
+            .collect()
     }
 }
 
@@ -191,7 +341,16 @@ pub fn set_keybindings(kb: KeybindingsManager) {
 
 /// The global keybindings (pi-tui's defaults unless set).
 pub fn get_keybindings() -> Rc<KeybindingsManager> {
-    GLOBAL.with(|g| g.borrow_mut().get_or_insert_with(|| Rc::new(KeybindingsManager::new(tui_keybindings(), KeybindingsConfig::new()))).clone())
+    GLOBAL.with(|g| {
+        g.borrow_mut()
+            .get_or_insert_with(|| {
+                Rc::new(KeybindingsManager::new(
+                    tui_keybindings(),
+                    KeybindingsConfig::new(),
+                ))
+            })
+            .clone()
+    })
 }
 
 #[cfg(test)]
@@ -203,7 +362,10 @@ mod tests {
     }
 
     fn user(pairs: &[(&str, &[&str])]) -> KeybindingsConfig {
-        pairs.iter().map(|(id, k)| (id.to_string(), Some(s(k)))).collect()
+        pairs
+            .iter()
+            .map(|(id, k)| (id.to_string(), Some(s(k))))
+            .collect()
     }
 
     // Ported from upstream test/keybindings.test.ts.
@@ -218,10 +380,16 @@ mod tests {
     #[test]
     fn editor_viewport_navigation() {
         let kb = KeybindingsManager::new(tui_keybindings(), vec![]);
-        assert_eq!(kb.keys("tui.editor.cursorLineStart"), s(&["home", "ctrl+a"]));
+        assert_eq!(
+            kb.keys("tui.editor.cursorLineStart"),
+            s(&["home", "ctrl+a"])
+        );
         assert_eq!(kb.keys("tui.editor.cursorLineEnd"), s(&["end", "ctrl+e"]));
         assert_eq!(kb.keys("tui.editor.pageUp"), s(&["pageUp", "ctrl+pageUp"]));
-        assert_eq!(kb.keys("tui.editor.pageDown"), s(&["pageDown", "ctrl+pageDown"]));
+        assert_eq!(
+            kb.keys("tui.editor.pageDown"),
+            s(&["pageDown", "ctrl+pageDown"])
+        );
         assert!(kb.keys("tui.editor.historyPrevious").is_empty());
         assert!(kb.keys("tui.editor.historyNext").is_empty());
     }
@@ -231,17 +399,29 @@ mod tests {
         let kb = KeybindingsManager::new(tui_keybindings(), vec![]);
         assert_eq!(kb.keys("tui.altScreen.pageUp"), s(&["pageUp"]));
         assert!(kb.keys("tui.altScreen.halfPageUp").is_empty());
-        assert_eq!(kb.keys("tui.altScreen.previousPrompt"), s(&["ctrl+shift+up", "ctrl+up"]));
-        assert_eq!(kb.keys("tui.altScreen.searchPrevious"), s(&["shift+enter", "ctrl+shift+g"]));
+        assert_eq!(
+            kb.keys("tui.altScreen.previousPrompt"),
+            s(&["ctrl+shift+up", "ctrl+up"])
+        );
+        assert_eq!(
+            kb.keys("tui.altScreen.searchPrevious"),
+            s(&["shift+enter", "ctrl+shift+g"])
+        );
         assert_eq!(kb.keys("tui.altScreen.bottom"), s(&["ctrl+end"]));
     }
 
     #[test]
     fn rebinding_does_not_evict_other_actions() {
-        let kb = KeybindingsManager::new(tui_keybindings(), user(&[("tui.input.submit", &["enter", "ctrl+enter"])]));
+        let kb = KeybindingsManager::new(
+            tui_keybindings(),
+            user(&[("tui.input.submit", &["enter", "ctrl+enter"])]),
+        );
         assert_eq!(kb.keys("tui.input.submit"), s(&["enter", "ctrl+enter"]));
         assert_eq!(kb.keys("tui.select.confirm"), s(&["enter"]));
-        let kb = KeybindingsManager::new(tui_keybindings(), user(&[("tui.select.up", &["up", "ctrl+p"])]));
+        let kb = KeybindingsManager::new(
+            tui_keybindings(),
+            user(&[("tui.select.up", &["up", "ctrl+p"])]),
+        );
         assert_eq!(kb.keys("tui.editor.cursorUp"), s(&["up"]));
     }
 
@@ -249,11 +429,17 @@ mod tests {
     fn reports_conflicts_without_evicting_defaults() {
         let kb = KeybindingsManager::new(
             tui_keybindings(),
-            user(&[("tui.input.submit", &["ctrl+x"]), ("tui.select.confirm", &["ctrl+x"])]),
+            user(&[
+                ("tui.input.submit", &["ctrl+x"]),
+                ("tui.select.confirm", &["ctrl+x"]),
+            ]),
         );
         assert_eq!(
             kb.conflicts(),
-            vec![KeybindingConflict { key: "ctrl+x".into(), keybindings: s(&["tui.input.submit", "tui.select.confirm"]) }]
+            vec![KeybindingConflict {
+                key: "ctrl+x".into(),
+                keybindings: s(&["tui.input.submit", "tui.select.confirm"])
+            }]
         );
         assert_eq!(kb.keys("tui.editor.cursorLeft"), s(&["left", "ctrl+b"]));
     }

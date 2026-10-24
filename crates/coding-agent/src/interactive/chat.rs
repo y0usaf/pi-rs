@@ -5,7 +5,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use pi_durable::ai::types::{AssistantBlock, AssistantMessage, Message, StopReason, UserContent, UserBlock};
+use pi_durable::ai::types::{
+    AssistantBlock, AssistantMessage, Message, StopReason, UserBlock, UserContent,
+};
 use pi_durable::harness::events::{AgentEvent, MessageChange, SnapshotEvent, ToolOutput};
 use pi_durable::harness::usage::UsageState;
 use pi_durable::types::EntryRecord;
@@ -118,14 +120,28 @@ impl Chat {
         if !self.is_empty() {
             self.add(Rc::new(RefCell::new(Spacer::new(1))));
         }
-        self.add(Rc::new(RefCell::new(UserMessage::new(&text, self.output_pad))));
+        self.add(Rc::new(RefCell::new(UserMessage::new(
+            &text,
+            self.output_pad,
+        ))));
     }
 
-    fn row(&mut self, id: &str, name: &str, args: &serde_json::Map<String, Value>) -> Rc<RefCell<ToolRow>> {
+    fn row(
+        &mut self,
+        id: &str,
+        name: &str,
+        args: &serde_json::Map<String, Value>,
+    ) -> Rc<RefCell<ToolRow>> {
         if let Some(row) = self.rows.get(id) {
             return Rc::clone(row);
         }
-        let row = Rc::new(RefCell::new(ToolRow::new(name, id, args.clone(), &self.cwd, self.expanded)));
+        let row = Rc::new(RefCell::new(ToolRow::new(
+            name,
+            id,
+            args.clone(),
+            &self.cwd,
+            self.expanded,
+        )));
         self.add(row.clone());
         self.rows.insert(id.to_string(), Rc::clone(&row));
         self.all_rows.push(Rc::clone(&row));
@@ -146,7 +162,10 @@ impl Chat {
     }
 
     fn start_assistant(&mut self, message: &AssistantMessage) {
-        let view = Rc::new(RefCell::new(AssistantView::new(self.hide_thinking, self.output_pad)));
+        let view = Rc::new(RefCell::new(AssistantView::new(
+            self.hide_thinking,
+            self.output_pad,
+        )));
         self.add(view.clone());
         view.borrow_mut().update(message);
         self.streaming = Some((view, message.clone()));
@@ -157,7 +176,8 @@ impl Chat {
         match self.streaming.take() {
             Some((view, _)) => view.borrow_mut().update(message),
             None => {
-                let view = AssistantView::with_message(message, self.hide_thinking, self.output_pad);
+                let view =
+                    AssistantView::with_message(message, self.hide_thinking, self.output_pad);
                 self.add(Rc::new(RefCell::new(view)));
             }
         }
@@ -167,7 +187,10 @@ impl Chat {
             self.context_tokens = Some(u.input + u.output + u.cache_read + u.cache_write);
         }
         if matches!(message.stop_reason, StopReason::Aborted | StopReason::Error) {
-            let text = message.error_message.clone().unwrap_or_else(|| "Error".into());
+            let text = message
+                .error_message
+                .clone()
+                .unwrap_or_else(|| "Error".into());
             for block in &message.content {
                 if let AssistantBlock::ToolCall(call) = block
                     && let Some(row) = self.rows.remove(&call.id)
@@ -186,7 +209,8 @@ impl Chat {
         if let Message::ToolResult(result) = message
             && let Some(row) = self.rows.remove(&result.tool_call_id)
         {
-            row.borrow_mut().set_result(ShownResult::from_message(result));
+            row.borrow_mut()
+                .set_result(ShownResult::from_message(result));
         }
     }
 
@@ -224,7 +248,11 @@ impl Chat {
                 r.set_partial(output.clone());
             }
         }
-        if let Some(message) = snapshot.generation.as_ref().and_then(|g| g.message.as_ref()) {
+        if let Some(message) = snapshot
+            .generation
+            .as_ref()
+            .and_then(|g| g.message.as_ref())
+        {
             self.start_assistant(message);
         }
         self.working = snapshot.run.is_some();
@@ -234,28 +262,50 @@ impl Chat {
     fn apply_change(message: &mut AssistantMessage, change: &MessageChange) {
         let content = &mut message.content;
         match change {
-            MessageChange::TextStart { content_index, block }
-            | MessageChange::ThinkingStart { content_index, block }
-            | MessageChange::ToolcallStart { content_index, block } => {
+            MessageChange::TextStart {
+                content_index,
+                block,
+            }
+            | MessageChange::ThinkingStart {
+                content_index,
+                block,
+            }
+            | MessageChange::ToolcallStart {
+                content_index,
+                block,
+            } => {
                 let at = (*content_index).min(content.len());
                 content.insert(at, (**block).clone());
             }
-            MessageChange::TextDelta { content_index, delta } => {
+            MessageChange::TextDelta {
+                content_index,
+                delta,
+            } => {
                 if let Some(AssistantBlock::Text(t)) = content.get_mut(*content_index) {
                     t.text.push_str(delta);
                 }
             }
-            MessageChange::ThinkingDelta { content_index, delta } => {
+            MessageChange::ThinkingDelta {
+                content_index,
+                delta,
+            } => {
                 if let Some(AssistantBlock::Thinking(t)) = content.get_mut(*content_index) {
                     t.thinking.push_str(delta);
                 }
             }
-            MessageChange::ToolcallDelta { content_index, path, delta } => {
+            MessageChange::ToolcallDelta {
+                content_index,
+                path,
+                delta,
+            } => {
                 if let Some(AssistantBlock::ToolCall(call)) = content.get_mut(*content_index) {
                     append_at(&mut call.arguments, path, delta);
                 }
             }
-            MessageChange::Block { content_index, block } => {
+            MessageChange::Block {
+                content_index,
+                block,
+            } => {
                 if let Some(slot) = content.get_mut(*content_index) {
                     *slot = (**block).clone();
                 } else {
@@ -301,7 +351,11 @@ impl Chat {
                     }
                 }
             }
-            AgentEvent::ToolExecutionStart { tool_call_id, tool_name, args } => {
+            AgentEvent::ToolExecutionStart {
+                tool_call_id,
+                tool_name,
+                args,
+            } => {
                 let row = self.row(tool_call_id, tool_name, args);
                 let mut r = row.borrow_mut();
                 if !args.is_empty() {
@@ -309,7 +363,11 @@ impl Chat {
                 }
                 r.start();
             }
-            AgentEvent::ToolExecutionUpdate { tool_call_id, output: Some(output), .. } => {
+            AgentEvent::ToolExecutionUpdate {
+                tool_call_id,
+                output: Some(output),
+                ..
+            } => {
                 let Some(row) = self.rows.get(tool_call_id) else {
                     return false;
                 };
@@ -327,19 +385,31 @@ impl Chat {
                 };
                 r.set_partial(next);
             }
-            AgentEvent::ToolExecutionEnd { entry: Some(entry), .. } => {
+            AgentEvent::ToolExecutionEnd {
+                entry: Some(entry), ..
+            } => {
                 for message in Self::entry_messages(entry) {
                     self.tool_result(message);
                 }
             }
             AgentEvent::UsageChanged { usage } => self.totals = totals_of(usage),
-            AgentEvent::AutoRetryStart { attempt, error_message, .. } => {
-                self.status = Some(format!("Retrying (attempt {attempt}) after: {error_message}"));
+            AgentEvent::AutoRetryStart {
+                attempt,
+                error_message,
+                ..
+            } => {
+                self.status = Some(format!(
+                    "Retrying (attempt {attempt}) after: {error_message}"
+                ));
             }
             AgentEvent::AutoRetryEnd { .. } => self.status = None,
-            AgentEvent::CompactionStart { .. } => self.status = Some("Compacting context...".into()),
+            AgentEvent::CompactionStart { .. } => {
+                self.status = Some("Compacting context...".into())
+            }
             AgentEvent::CompactionEnd { .. } => self.status = None,
-            AgentEvent::TaskFailed { kind, message, .. } => self.notice("error", &format!("Error ({kind}): {message}")),
+            AgentEvent::TaskFailed { kind, message, .. } => {
+                self.notice("error", &format!("Error ({kind}): {message}"))
+            }
             _ => return false,
         }
         true
@@ -351,14 +421,20 @@ fn append_at(args: &mut serde_json::Map<String, Value>, path: &[Value], delta: &
     let Some((Value::String(first), rest)) = path.split_first() else {
         return;
     };
-    let mut node = args.entry(first.clone()).or_insert_with(|| Value::String(String::new()));
+    let mut node = args
+        .entry(first.clone())
+        .or_insert_with(|| Value::String(String::new()));
     for seg in rest {
         node = match (seg, node) {
-            (Value::String(k), Value::Object(o)) => o.entry(k.clone()).or_insert_with(|| Value::String(String::new())),
-            (Value::Number(i), Value::Array(a)) => match i.as_u64().and_then(|i| a.get_mut(i as usize)) {
-                Some(v) => v,
-                None => return,
-            },
+            (Value::String(k), Value::Object(o)) => o
+                .entry(k.clone())
+                .or_insert_with(|| Value::String(String::new())),
+            (Value::Number(i), Value::Array(a)) => {
+                match i.as_u64().and_then(|i| a.get_mut(i as usize)) {
+                    Some(v) => v,
+                    None => return,
+                }
+            }
             _ => return,
         };
     }

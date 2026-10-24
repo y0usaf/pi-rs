@@ -17,11 +17,14 @@ impl Editor {
         let mut data = data.to_string();
 
         if let Some(dir) = self.jump_mode {
-            if kb.matches(&data, "tui.editor.jumpForward") || kb.matches(&data, "tui.editor.jumpBackward") {
+            if kb.matches(&data, "tui.editor.jumpForward")
+                || kb.matches(&data, "tui.editor.jumpBackward")
+            {
                 self.jump_mode = None;
                 return;
             }
-            let printable = decode_printable_key(&data).or_else(|| (first_code(&data) >= 32).then(|| data.clone()));
+            let printable = decode_printable_key(&data)
+                .or_else(|| (first_code(&data) >= 32).then(|| data.clone()));
             self.jump_mode = None;
             if let Some(p) = printable {
                 self.jump_to_char(&p, dir);
@@ -73,33 +76,32 @@ impl Editor {
                 return;
             }
             if m("tui.input.tab") {
-                if let Some(item) = self.selected_autocomplete_item() {
-                    if self.autocomplete_provider.is_some() {
-                        self.push_undo_snapshot();
-                        self.last_action = None;
-                        let prefix = self.autocomplete_prefix.clone();
-                        self.apply_completion(&item, &prefix);
-                        self.cancel_autocomplete();
-                        self.emit_change();
-                    }
+                if let Some(item) = self.selected_autocomplete_item()
+                    && self.autocomplete_provider.is_some()
+                {
+                    self.push_undo_snapshot();
+                    self.last_action = None;
+                    let prefix = self.autocomplete_prefix.clone();
+                    self.apply_completion(&item, &prefix);
+                    self.cancel_autocomplete();
+                    self.emit_change();
                 }
                 return;
             }
-            if m("tui.select.confirm") {
-                if let Some(item) = self.selected_autocomplete_item() {
-                    if self.autocomplete_provider.is_some() {
-                        self.push_undo_snapshot();
-                        self.last_action = None;
-                        let prefix = self.autocomplete_prefix.clone();
-                        self.apply_completion(&item, &prefix);
-                        self.cancel_autocomplete();
-                        if !prefix.starts_with('/') {
-                            self.emit_change();
-                            return;
-                        }
-                        // Slash commands fall through to submit.
-                    }
+            if m("tui.select.confirm")
+                && let Some(item) = self.selected_autocomplete_item()
+                && self.autocomplete_provider.is_some()
+            {
+                self.push_undo_snapshot();
+                self.last_action = None;
+                let prefix = self.autocomplete_prefix.clone();
+                self.apply_completion(&item, &prefix);
+                self.cancel_autocomplete();
+                if !prefix.starts_with('/') {
+                    self.emit_change();
+                    return;
                 }
+                // Slash commands fall through to submit.
             }
         }
 
@@ -183,7 +185,9 @@ impl Editor {
 
         if m("tui.editor.cursorUp") {
             let first = self.is_on_first_visual_line();
-            if first && (self.is_editor_empty() || self.history_index > -1 || self.state.cursor_col == 0) {
+            if first
+                && (self.is_editor_empty() || self.history_index > -1 || self.state.cursor_col == 0)
+            {
                 self.navigate_history(-1);
             } else if first {
                 self.move_to_line_start();
@@ -243,7 +247,9 @@ impl Editor {
             return false;
         }
         let keys = get_keybindings().keys("tui.input.submit");
-        let shift_enter = keys.iter().any(|k| k == "shift+enter" || k == "shift+return");
+        let shift_enter = keys
+            .iter()
+            .any(|k| k == "shift+enter" || k == "shift+return");
         shift_enter && self.char_before_cursor_is_backslash()
     }
 }

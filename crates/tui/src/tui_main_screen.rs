@@ -7,7 +7,8 @@
 
 use crate::terminal::{Terminal, TerminalEvent};
 use crate::tui::{
-    ComponentRef, TuiCore, apply_line_resets, extract_cursor_position, is_image_line, resolve_fake_cursors,
+    ComponentRef, TuiCore, apply_line_resets, extract_cursor_position, is_image_line,
+    resolve_fake_cursors,
 };
 use crate::utils::visible_width;
 use std::collections::BTreeSet;
@@ -25,7 +26,10 @@ struct BoundedWriter<'a> {
 
 impl<'a> BoundedWriter<'a> {
     fn new(term: &'a mut dyn Terminal) -> Self {
-        BoundedWriter { buffer: String::new(), term }
+        BoundedWriter {
+            buffer: String::new(),
+            term,
+        }
     }
     fn append(&mut self, mut value: &str) {
         while !value.is_empty() {
@@ -63,9 +67,13 @@ fn kitty_image_header(line: &str) -> Option<(Vec<u64>, u64)> {
     let mut ids = Vec::new();
     let mut rows = 1;
     for param in line[start..end].split(',') {
-        let Some((k, v)) = param.split_once('=') else { continue };
+        let Some((k, v)) = param.split_once('=') else {
+            continue;
+        };
         let v = v.split('=').next().unwrap_or("");
-        let Some(n) = js_number_integer(v) else { continue };
+        let Some(n) = js_number_integer(v) else {
+            continue;
+        };
         if n == 0 || n > 0xffff_ffff {
             continue;
         }
@@ -188,7 +196,11 @@ impl<T: Terminal> TuiMainScreen<T> {
     }
 
     pub fn restore_render_state(&mut self, s: MainScreenRenderState) {
-        self.previous_lines = s.previous_lines.into_iter().map(|l| if is_image_line(&l) { String::new() } else { l }).collect();
+        self.previous_lines = s
+            .previous_lines
+            .into_iter()
+            .map(|l| if is_image_line(&l) { String::new() } else { l })
+            .collect();
         self.previous_kitty_ids.clear();
         self.previous_width = s.previous_width;
         self.previous_height = s.previous_height;
@@ -275,7 +287,8 @@ impl<T: Terminal> TuiMainScreen<T> {
         let due = if self.core.immediate {
             now
         } else {
-            self.last_render_at.map_or(now, |t| t + MIN_RENDER_INTERVAL_MS)
+            self.last_render_at
+                .map_or(now, |t| t + MIN_RENDER_INTERVAL_MS)
         };
         if now < due {
             return Some(due);
@@ -361,9 +374,23 @@ impl<T: Terminal> TuiMainScreen<T> {
         }
     }
 
-    fn full_render(&mut self, clear: bool, new_lines: Vec<String>, cursor: Option<(usize, usize)>, width: i64, height: i64) {
+    fn full_render(
+        &mut self,
+        clear: bool,
+        new_lines: Vec<String>,
+        cursor: Option<(usize, usize)>,
+        width: i64,
+        height: i64,
+    ) {
         self.full_redraw_count += 1;
-        let ids = if clear { self.previous_kitty_ids.iter().map(|&i| delete_kitty_image(i)).collect::<String>() } else { String::new() };
+        let ids = if clear {
+            self.previous_kitty_ids
+                .iter()
+                .map(|&i| delete_kitty_image(i))
+                .collect::<String>()
+        } else {
+            String::new()
+        };
         {
             let mut out = BoundedWriter::new(&mut self.terminal);
             out.append("\x1b[?2026h");
@@ -377,7 +404,11 @@ impl<T: Terminal> TuiMainScreen<T> {
                     out.append("\r\n");
                 }
                 let line = &new_lines[i];
-                let reserved = if is_image_line(line) { Self::reserved_rows(&new_lines, i, new_lines.len() - 1) } else { 1 };
+                let reserved = if is_image_line(line) {
+                    Self::reserved_rows(&new_lines, i, new_lines.len() - 1)
+                } else {
+                    1
+                };
                 if reserved > 1 && reserved as i64 <= height {
                     for _ in 1..reserved {
                         out.append("\r\n");
@@ -397,7 +428,11 @@ impl<T: Terminal> TuiMainScreen<T> {
         let n = new_lines.len() as i64;
         self.cursor_row = (n - 1).max(0);
         self.hardware_cursor_row = self.cursor_row;
-        self.max_lines_rendered = if clear { n } else { self.max_lines_rendered.max(n) };
+        self.max_lines_rendered = if clear {
+            n
+        } else {
+            self.max_lines_rendered.max(n)
+        };
         self.previous_viewport_top = (height.max(n) - height).max(0);
         self.position_hardware_cursor(cursor, new_lines.len());
         self.previous_kitty_ids = Self::collect_ids(&new_lines);
@@ -421,16 +456,33 @@ impl<T: Terminal> TuiMainScreen<T> {
         self.core.term_size = (width as usize, height as usize);
         let width_changed = self.previous_width != 0 && self.previous_width != width;
         let height_changed = self.previous_height != 0 && self.previous_height != height;
-        let prev_buffer_len = if self.previous_height > 0 { self.previous_viewport_top + self.previous_height } else { height };
-        let mut prev_top = if height_changed { (prev_buffer_len - height).max(0) } else { self.previous_viewport_top };
+        let prev_buffer_len = if self.previous_height > 0 {
+            self.previous_viewport_top + self.previous_height
+        } else {
+            height
+        };
+        let mut prev_top = if height_changed {
+            (prev_buffer_len - height).max(0)
+        } else {
+            self.previous_viewport_top
+        };
         let mut viewport_top = prev_top;
         let mut hw_row = self.hardware_cursor_row;
 
         let show_hw = self.core.show_hardware_cursor;
-        let rendered = self.core.root.children.clone().iter().flat_map(|c| c.borrow_mut().render(width as usize)).collect();
+        let rendered = self
+            .core
+            .root
+            .children
+            .clone()
+            .iter()
+            .flat_map(|c| c.borrow_mut().render(width as usize))
+            .collect();
         let mut new_lines = resolve_fake_cursors(rendered, show_hw);
         if !self.core.overlays.is_empty() {
-            new_lines = self.core.composite_overlays(new_lines, width as usize, height as usize);
+            new_lines = self
+                .core
+                .composite_overlays(new_lines, width as usize, height as usize);
         }
         let cursor = extract_cursor_position(&mut new_lines, height as usize);
         apply_line_resets(&mut new_lines);
@@ -446,7 +498,10 @@ impl<T: Terminal> TuiMainScreen<T> {
             return self.full_render(true, new_lines, cursor, width, height);
         }
         let has_overlays = !self.core.overlays.is_empty();
-        if self.core.clear_on_shrink && (new_lines.len() as i64) < self.max_lines_rendered && !has_overlays {
+        if self.core.clear_on_shrink
+            && (new_lines.len() as i64) < self.max_lines_rendered
+            && !has_overlays
+        {
             return self.full_render(true, new_lines, cursor, width, height);
         }
 
@@ -482,7 +537,9 @@ impl<T: Terminal> TuiMainScreen<T> {
             return;
         }
 
-        let line_diff = |hw_row: i64, prev_top: i64, viewport_top: i64, target: i64| (target - viewport_top) - (hw_row - prev_top);
+        let line_diff = |hw_row: i64, prev_top: i64, viewport_top: i64, target: i64| {
+            (target - viewport_top) - (hw_row - prev_top)
+        };
 
         if first >= new_len {
             if prev_len > new_len {
@@ -567,7 +624,11 @@ impl<T: Terminal> TuiMainScreen<T> {
             }
             let line = &new_lines[i as usize];
             let image = is_image_line(line);
-            let reserved = if image { Self::reserved_rows(&new_lines, i as usize, render_end as usize) as i64 } else { 1 };
+            let reserved = if image {
+                Self::reserved_rows(&new_lines, i as usize, render_end as usize) as i64
+            } else {
+                1
+            };
             if reserved > 1 {
                 let start_row = i - viewport_top;
                 if start_row < 0 || start_row + reserved > height {
@@ -639,6 +700,8 @@ impl<T: Terminal> TuiMainScreen<T> {
 }
 
 /// Convenience: a component handle as a [`ComponentRef`].
-pub fn as_ref<C: crate::tui::Component + 'static>(c: &std::rc::Rc<std::cell::RefCell<C>>) -> ComponentRef {
+pub fn as_ref<C: crate::tui::Component + 'static>(
+    c: &std::rc::Rc<std::cell::RefCell<C>>,
+) -> ComponentRef {
     c.clone()
 }

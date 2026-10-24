@@ -18,10 +18,16 @@ fn is_boundary(u: u16) -> bool {
 
 fn match_query(q: &[u16], text: &[u16]) -> FuzzyMatch {
     if q.is_empty() {
-        return FuzzyMatch { matches: true, score: 0.0 };
+        return FuzzyMatch {
+            matches: true,
+            score: 0.0,
+        };
     }
     if q.len() > text.len() {
-        return FuzzyMatch { matches: false, score: 0.0 };
+        return FuzzyMatch {
+            matches: false,
+            score: 0.0,
+        };
     }
     let mut qi = 0;
     let mut score = 0.0f64;
@@ -29,7 +35,12 @@ fn match_query(q: &[u16], text: &[u16]) -> FuzzyMatch {
     let mut consecutive = 0i64;
     while qi < q.len() {
         let from = (last + 1) as usize;
-        let Some(off) = text.get(from..).and_then(|t| t.iter().position(|&u| u == q[qi])) else { break };
+        let Some(off) = text
+            .get(from..)
+            .and_then(|t| t.iter().position(|&u| u == q[qi]))
+        else {
+            break;
+        };
         let i = (from + off) as i64;
         let boundary = i == 0 || is_boundary(text[i as usize - 1]);
         if last == i - 1 {
@@ -49,12 +60,18 @@ fn match_query(q: &[u16], text: &[u16]) -> FuzzyMatch {
         qi += 1;
     }
     if qi < q.len() {
-        return FuzzyMatch { matches: false, score: 0.0 };
+        return FuzzyMatch {
+            matches: false,
+            score: 0.0,
+        };
     }
     if q == text {
         score -= 100.0;
     }
-    FuzzyMatch { matches: true, score }
+    FuzzyMatch {
+        matches: true,
+        score,
+    }
 }
 
 /// Swap a trailing number to the front or a leading one to the back (`abc12` <-> `12abc`).
@@ -82,12 +99,17 @@ pub fn fuzzy_match(query: &str, text: &str) -> FuzzyMatch {
     if primary.matches {
         return primary;
     }
-    let Some(sw) = swapped(&ql) else { return primary };
+    let Some(sw) = swapped(&ql) else {
+        return primary;
+    };
     let m = match_query(&sw.encode_utf16().collect::<Vec<_>>(), &tl);
     if !m.matches {
         return primary;
     }
-    FuzzyMatch { matches: true, score: m.score + 5.0 }
+    FuzzyMatch {
+        matches: true,
+        score: m.score + 5.0,
+    }
 }
 
 /// Keep items matching every whitespace- or slash-separated token, best first (stable).
@@ -96,7 +118,10 @@ pub fn fuzzy_filter<T: Clone>(items: &[T], query: &str, text: impl Fn(&T) -> Str
     if q.is_empty() {
         return items.to_vec();
     }
-    let tokens: Vec<&str> = q.split(|c: char| is_js_whitespace(c) || c == '/').filter(|t| !t.is_empty()).collect();
+    let tokens: Vec<&str> = q
+        .split(|c: char| is_js_whitespace(c) || c == '/')
+        .filter(|t| !t.is_empty())
+        .collect();
     if tokens.is_empty() {
         return items.to_vec();
     }
