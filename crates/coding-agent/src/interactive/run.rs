@@ -108,6 +108,12 @@ pub struct Session {
     pub registry: Arc<ModelRegistry>,
     /// Where `trust.json` lives.
     pub agent_dir: String,
+    /// `--theme`: extra theme files or directories.
+    pub theme_paths: Vec<String>,
+    /// `--use-theme`: the theme to start with instead of the setting's.
+    pub use_theme: Option<String>,
+    /// `--no-themes`: the built-in themes only.
+    pub no_themes: bool,
     /// The first message from the command line, sent once the screen is up.
     pub initial: Option<(String, Vec<UserBlock>)>,
     pub messages: Vec<String>,
@@ -508,6 +514,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         settings,
         registry,
         agent_dir,
+        theme_paths,
+        use_theme,
+        no_themes,
         initial,
         messages,
         provider_count,
@@ -518,6 +527,21 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     } = session;
     let (mut model, mut thinking, mut cwd) = (model, thinking, cwd);
     keybindings::install();
+    let sources = theme::Sources {
+        agent_dir: agent_dir.clone(),
+        cwd: cwd.clone(),
+        trusted: settings.borrow().is_project_trusted(),
+        paths: {
+            let mut paths = settings.borrow().theme_paths();
+            paths.extend(theme_paths);
+            paths
+        },
+        no_themes,
+    };
+    let setting = use_theme.or_else(|| settings.borrow().theme_setting().map(str::to_owned));
+    if let Some(message) = theme::init(&sources, setting.as_deref()) {
+        eprintln!("Warning: {message}");
+    }
     let mut open = opener.open(session_path.as_deref())?;
     run_config::apply_agent(&open.root, &cancel, &model, thinking, &cwd)?;
     if let Some(name) = &initial_name {

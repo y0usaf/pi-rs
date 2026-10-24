@@ -86,8 +86,6 @@ fn unimplemented_flag(parsed: &Args) -> Option<&'static str> {
         (parsed.export.is_some(), "--export"),
         (parsed.extensions.is_some(), "--extension"),
         (parsed.prompt_templates.is_some(), "--prompt-template"),
-        (parsed.themes.is_some(), "--theme"),
-        (parsed.use_theme.is_some(), "--use-theme"),
         (parsed.tui_mode.is_some(), "--tui-mode"),
         (parsed.verbose, "--verbose"),
     ];
@@ -479,6 +477,9 @@ fn run() -> Result<ExitCode, String> {
             settings: std::rc::Rc::new(std::cell::RefCell::new(settings)),
             registry,
             agent_dir: agent_dir.clone(),
+            theme_paths: parsed.themes.clone().unwrap_or_default(),
+            use_theme: parsed.use_theme.clone(),
+            no_themes: parsed.no_themes,
             initial,
             messages,
             provider_count,
