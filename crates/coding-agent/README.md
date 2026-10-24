@@ -2,6 +2,8 @@
 
 Pi's coding agent ([`@earendil-works/pi-coding-agent`](https://github.com/earendil-works/pi)) as the `pi-rs` binary. It runs print mode (`pi-rs -p "..."`) and a first port of the interactive mode on [pi-durable](../durable)'s harness and reads the same files as `pi`: settings, `auth.json`, `models.json`, AGENTS.md / CLAUDE.md, SYSTEM.md, APPEND_SYSTEM.md and skills.
 
+Settings are upstream's own layer: the global `<agentDir>/settings.json` and the trusted project's `.pi/settings.json`, deep-merged with the project winning, every schema key with upstream's default, and setters that write back through a lock, replacing only the fields the session changed so keys this port does not know survive. pi-durable's auto-compaction follows them: `compaction.enabled`, `reserveTokens`, `keepRecentTokens` and the per-model overrides, with upstream's 16384 / 20000 when unset.
+
 It won't: show upstream's session picker, `/tree`, forking or settings screens, or any slash command but `/quit`; run `--mode json` or `--mode rpc`; load extensions, prompt templates, themes or MCP servers; log in (it reads the credentials `pi` stores, and refreshes Anthropic and OpenAI Codex OAuth tokens); compact a conversation on demand; fork or branch sessions; export a session as HTML.
 
 The flags for what it won't do, `--export`, `--fork`, `--resume`, `--name`, `--extension`, `--prompt-template`, `--theme`, `--use-theme`, `--tui-mode` and `--verbose`, are refused before anything starts: `pi-rs: --export is not implemented yet`, exit 1. The flags that turn a resource off — `--no-extensions`, `--no-mcp`, `--no-themes`, `--no-prompt-templates` — and `--offline`, which would skip a model-catalog refresh this port never makes, are accepted and change nothing. A flag no option or extension defines is `Error: Unknown option: --foo`.
@@ -23,7 +25,7 @@ Without `-p`, on a terminal, it opens the interactive mode (below). `--continue`
 
 `cargo run -p pi-coding-agent --bin pi-rs` (or `pi-rs -c` to go on with the last session) opens a first port of upstream's interactive mode on pi-tui: the editor, the user's messages on their blue background, the assistant's reply streamed as Markdown, thinking in italics, one row per tool call (pending, green or red, with the built-in tools' previews and the bash timer), the working spinner and the two-line footer (cwd and git branch; tokens, cost, context use and model). Keys: Enter sends (while a reply runs it steers), Escape aborts the reply, Ctrl+C clears the editor and twice quits, Ctrl+D quits on an empty editor, Ctrl+O expands tool output. The screen is built from pi-durable's agent events (`Conversation::events`), so a session killed mid-reply (even `kill -9`) reopens with `-c` showing what was stored, and the harness resumes the unfinished turn. Colors are upstream's dark theme, truecolor when `COLORTERM` says so.
 
-Not there yet: the session picker (`--resume`), `/tree`, forking, settings, model and thinking selectors, slash commands and autocomplete, `!` bash, image display, syntax highlighting in code blocks, the light theme, the editor's embedded status, and upstream's keybinding configuration.
+Not there yet: the session picker (`--resume`), `/tree`, forking, settings screens, model and thinking selectors, slash commands and autocomplete, `!` bash, image display, syntax highlighting in code blocks, the light theme, the editor's embedded status, and upstream's keybinding configuration.
 
 ## Sessions
 

@@ -13,11 +13,14 @@ use pi_coding_agent::models::ModelRegistry;
 use pi_coding_agent::paths::{PathInput, join, normalize_path, resolve_read_path};
 use pi_coding_agent::print::{self, RunInput, ToolSettings};
 use pi_coding_agent::run_config::{self, Diagnostic, level_name};
-use pi_coding_agent::settings::{self, Settings};
+use pi_coding_agent::settings::{
+    self, SettingsManager, collect_diagnostics, deduplicate_diagnostics,
+};
 use pi_coding_agent::system_prompt::{self, AssembleOptions};
 use pi_coding_agent::tools::mime;
 use pi_durable::ai::types::{ImageContent, ImageType, UserBlock};
 use pi_durable::cancel::CancelToken;
+use pi_durable::harness::types::CompactionOverrides;
 use pi_durable::storage::memory::MemoryStorage;
 use pi_durable::storage::sqlite::SqliteStorage;
 use pi_durable::types::Storage;
@@ -71,7 +74,7 @@ fn file_arguments(files: &[String], cwd: &str) -> Result<(String, Vec<UserBlock>
 }
 
 /// `<agentDir>/sessions/--<cwd with / as ->--`, upstream's session directory for a cwd.
-fn session_dir(agent_dir: &str, cwd: &str, args: &Args, settings: &Settings) -> String {
+fn session_dir(agent_dir: &str, cwd: &str, args: &Args, settings: &SettingsManager) -> String {
     if let Some(dir) = &args.session_dir {
         return normalize_path(dir, PathInput::default());
     }
@@ -80,8 +83,8 @@ fn session_dir(agent_dir: &str, cwd: &str, args: &Args, settings: &Settings) -> 
     {
         return normalize_path(&dir, PathInput::default());
     }
-    if let Some(dir) = settings.str("sessionDir") {
-        return normalize_path(dir, PathInput::default());
+    if let Some(dir) = settings.session_dir() {
+        return dir;
     }
     let safe = format!(
         "--{}--",
@@ -230,25 +233,19 @@ fn run() -> Result<ExitCode, String> {
         .to_string_lossy()
         .into_owned();
     let agent_dir = config::agent_dir();
-    let startup = Settings::load(&cwd, &agent_dir, false);
-    for w in &startup.warnings {
-        eprintln!("Warning: {w}");
-    }
+    let mut startup = SettingsManager::create(&cwd, &agent_dir, false);
+    let default_trust = startup.default_project_trust().to_owned();
     let trusted = settings::resolve_project_trust(
         &cwd,
         &agent_dir,
         parsed.project_trust_override,
-        startup.default_project_trust(),
+        &default_trust,
     )?;
-    let settings = Settings::load(&cwd, &agent_dir, trusted);
-    if trusted {
-        for w in settings
-            .warnings
-            .iter()
-            .filter(|w| !startup.warnings.contains(w))
-        {
-            eprintln!("Warning: {w}");
-        }
+    let mut settings = SettingsManager::create(&cwd, &agent_dir, trusted);
+    let mut reported = collect_diagnostics(&mut startup);
+    reported.extend(collect_diagnostics(&mut settings));
+    for diagnostic in deduplicate_diagnostics(&reported) {
+        eprintln!("Warning: {}", diagnostic.message);
     }
 
     let tools = run_config::select_tools(&parsed, &settings)?;
@@ -305,6 +302,7 @@ fn run() -> Result<ExitCode, String> {
                 storage,
                 print::providers(Arc::clone(&registry), &placeholder()),
                 print::extension(&[], Vec::new(), tool_settings(&cwd, &settings, &[])),
+                CompactionOverrides::default(),
             )
             .map_err(|e| e.to_string())?;
             let root = print::root(&probe, &cancel).map_err(|e| e.to_string())?;
@@ -370,6 +368,14 @@ fn run() -> Result<ExitCode, String> {
     if let Some(path) = &session_path {
         tool_env.push(("PI_SESSION_FILE".to_string(), path.clone()));
     }
+    let compaction_settings =
+        settings.compaction_settings(Some((model.provider.as_str(), model.id.as_str())))?;
+    let compaction = CompactionOverrides {
+        enabled: Some(compaction_settings.enabled),
+        reserve_tokens: Some(compaction_settings.reserve_tokens),
+        keep_recent_tokens: Some(compaction_settings.keep_recent_tokens),
+        background_tokens: None,
+    };
     let settings_for_tools = ToolSettings {
         model_takes_images: model.input.iter().any(|i| i == "image"),
         ..tool_settings(&cwd, &settings, &tool_env)
@@ -393,6 +399,7 @@ fn run() -> Result<ExitCode, String> {
             storage,
             print::providers(Arc::clone(&registry), &model),
             print::extension(&tools, sections, settings_for_tools),
+            compaction,
             Arc::new(move |error| {
                 if let Ok(s) = reports.lock() {
                     let _ = s.send(Incoming::Report(error.to_string()));
@@ -434,6 +441,7 @@ fn run() -> Result<ExitCode, String> {
         storage,
         print::providers(Arc::clone(&registry), &model),
         print::extension(&tools, sections, settings_for_tools),
+        compaction,
     )
     .map_err(|e| e.to_string())?;
     let root = print::root(&harness, &cancel).map_err(|e| e.to_string())?;
@@ -464,7 +472,7 @@ fn placeholder() -> pi_durable::ai::types::Model {
     pi_durable::ai::types::Model::new("pi-rs", "none", "none", 0, 0, false)
 }
 
-fn tool_settings(cwd: &str, settings: &Settings, env: &[(String, String)]) -> ToolSettings {
+fn tool_settings(cwd: &str, settings: &SettingsManager, env: &[(String, String)]) -> ToolSettings {
     let bin = config::bin_dir();
     let path = std::env::var("PATH").unwrap_or_default();
     let mut env = env.to_vec();

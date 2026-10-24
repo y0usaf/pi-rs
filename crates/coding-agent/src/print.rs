@@ -15,8 +15,8 @@ use pi_durable::harness::harness::{Conversation, Harness};
 use pi_durable::harness::registry::Registry;
 use pi_durable::harness::submissions::{SubmissionDraft, WhenBusy};
 use pi_durable::harness::types::{
-    Extension, HarnessOptions, HarnessSettings, ModelRef, OutputLimitsSpec, PrepareArguments,
-    PromptInput, PromptSection, Render, RootOptions, ToolErrorStyle, ToolExecute,
+    CompactionOverrides, Extension, HarnessOptions, HarnessSettings, ModelRef, OutputLimitsSpec,
+    PrepareArguments, PromptInput, PromptSection, Render, RootOptions, ToolErrorStyle, ToolExecute,
     ToolExecutionResult, ToolRegistration,
 };
 use pi_durable::types::{EntryQuery, ScanOrder};
@@ -293,11 +293,13 @@ pub fn open_harness(
     storage: Arc<dyn pi_durable::types::Storage>,
     providers: Providers,
     extension: Extension,
+    compaction: CompactionOverrides,
 ) -> Result<Harness, Error> {
     open_harness_with(
         storage,
         providers,
         extension,
+        compaction,
         Arc::new(|error| {
             if !CLOSING.load(std::sync::atomic::Ordering::SeqCst) {
                 eprintln!("{error}");
@@ -312,6 +314,7 @@ pub fn open_harness_with(
     storage: Arc<dyn pi_durable::types::Storage>,
     providers: Providers,
     extension: Extension,
+    compaction: CompactionOverrides,
     report: pi_durable::harness::types::ErrorReport,
 ) -> Result<Harness, Error> {
     let registry = Arc::new(Registry::default());
@@ -327,6 +330,7 @@ pub fn open_harness_with(
                 tool_errors: Some(ToolErrorStyle::Plain),
                 // A reply cut by the output limit is hidden and retried after compaction.
                 length_recovery: Some(true),
+                compaction: Some(compaction),
                 ..HarnessSettings::default()
             }),
             conversation_created: None,
