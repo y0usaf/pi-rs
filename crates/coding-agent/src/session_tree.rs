@@ -119,10 +119,24 @@ impl Tree {
 pub fn navigate(
     harness: &Harness,
     current: &Conversation,
-    target: EntryId,
+    target: Option<EntryId>,
     cancel: &CancelToken,
 ) -> Result<Option<Conversation>, Error> {
     let tree = Tree::build(current, cancel)?;
+    let Some(target) = target else {
+        if tree.leaf.is_none() {
+            return Ok(None);
+        }
+        let empty = harness.create_conversation(
+            ConversationCreateOptions {
+                ownership: ConversationOwnership::Ownerless,
+                agent: None,
+                init: None,
+            },
+            cancel,
+        )?;
+        return Ok(Some(empty));
+    };
     if tree.leaf == Some(target) {
         return Ok(None);
     }
@@ -144,6 +158,38 @@ pub fn navigate(
         cancel,
     )?;
     Ok(Some(branch))
+}
+
+/// The text of an entry that is a user message: navigating to one forks before it and puts this
+/// in the editor, as upstream's navigateTree does.
+pub fn user_message_text(entry: &EntryRecord) -> Option<String> {
+    if entry.kind != pi_durable::entries::user_entry().kind() {
+        return None;
+    }
+    let Some(pi_durable::ai::types::Message::User(user)) = entry.model.as_ref()?.first() else {
+        return None;
+    };
+    Some(match &user.content {
+        pi_durable::ai::types::UserContent::Text(text) => text.clone(),
+        pi_durable::ai::types::UserContent::Blocks(blocks) => blocks
+            .iter()
+            .filter_map(|block| match block {
+                pi_durable::ai::types::UserBlock::Text(content) => Some(content.text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(""),
+    })
+}
+
+/// The entry a navigation lands before: a user message is re-opened in the editor, so the leaf
+/// moves to its parent (nothing, at the first entry).
+pub fn fork_point(tree: &Tree, target: EntryId) -> Option<EntryId> {
+    let node = tree.node(target)?;
+    if user_message_text(&node.entry).is_none() {
+        return Some(target);
+    }
+    node.parent.map(|parent| tree.nodes[parent].entry.id)
 }
 
 /// The conversation holding the newest entry, which is where a session continues.

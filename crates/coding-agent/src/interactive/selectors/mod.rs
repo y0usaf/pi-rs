@@ -7,6 +7,7 @@ pub mod scoped_models;
 pub mod session;
 pub mod settings;
 pub mod thinking;
+pub mod tree;
 pub mod trust;
 
 use pi_durable::ai::types::ModelThinkingLevel;
@@ -45,6 +46,8 @@ pub enum OverlayAction {
     Setting { id: String, value: String },
     /// The session picker chose a file: switch the loop to it.
     Resume { path: String },
+    /// The session tree picked an entry to move the session's leaf to.
+    Navigate(pi_durable::ids::EntryId),
 }
 
 /// One project trust decision to write, `decision: None` clearing the entry.

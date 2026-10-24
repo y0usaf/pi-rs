@@ -140,6 +140,7 @@ pub enum Command {
     ScopedModels,
     Settings,
     Trust,
+    Tree,
     Unavailable(&'static str),
 }
 
@@ -188,6 +189,7 @@ pub fn dispatch(text: &str) -> Option<Command> {
         "scoped-models" => Command::ScopedModels,
         "settings" => Command::Settings,
         "trust" => Command::Trust,
+        "tree" => Command::Tree,
         _ => Command::Unavailable(builtin.name),
     })
 }

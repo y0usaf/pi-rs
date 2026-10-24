@@ -21,6 +21,7 @@ use pi_durable::harness::events::{AgentEvent, AgentEventStream};
 use pi_durable::harness::harness::{Conversation, Harness};
 use pi_durable::harness::submissions::{SubmissionDraft, WhenBusy};
 use pi_durable::harness::types::{CompactionOverrides, ModelRef};
+use pi_durable::ids::EntryId;
 use pi_durable::storage::memory::MemoryStorage;
 use pi_durable::storage::sqlite::SqliteStorage;
 use pi_durable::types::Storage;
@@ -39,7 +40,7 @@ use super::selectors::{
     ActionSlot, OverlayAction, action_slot, model::ModelSelector,
     scoped_models::ScopedModelsSelector, session::SessionSelector, settings::SettingsCallbacks,
     settings::SettingsConfig, settings::SettingsSelector, thinking::ThinkingSelector,
-    trust::TrustSelector,
+    tree::TreeSelector, trust::TrustSelector,
 };
 use super::slash_commands::{self, Command, Counts, SessionInfo};
 use super::status::{StatusArea, WORKING, header};
@@ -50,6 +51,7 @@ use crate::print::{self, ToolSettings};
 use crate::run_config::{level_name, parse_level};
 use crate::session_info;
 use crate::session_list;
+use crate::session_tree::{self, Tree};
 use crate::settings::{self as settings_mod, SettingsManager};
 
 /// What the loop hears from other threads.
@@ -497,6 +499,43 @@ fn replace_session(
     Ok(())
 }
 
+/// Upstream's `navigateTree`: move the session's leaf to a chosen entry, redraw the chat from
+/// the branch that forks, and hand back the text to re-open in the editor.
+fn navigate_session(
+    open: &mut Open,
+    chat: &mut Chat,
+    opener: &Opener,
+    target: EntryId,
+    cancel: &CancelToken,
+) -> Result<(bool, Option<String>), String> {
+    let tree = Tree::build(&open.root, cancel).map_err(|e| e.to_string())?;
+    if tree.leaf == Some(target) {
+        return Ok((false, None));
+    }
+    let point = session_tree::fork_point(&tree, target);
+    let editor_text = tree.entry(target).and_then(session_tree::user_message_text);
+    if point == tree.leaf {
+        return Ok((true, editor_text));
+    }
+    let branch = session_tree::navigate(&open.harness, &open.root, point, cancel)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "The session did not branch".to_owned())?;
+    open.stream.stop();
+    open.root = branch;
+    let stream = open.root.events(cancel).map_err(|e| e.to_string())?;
+    let feed = opener.sender.clone();
+    stream
+        .start(move |events, _| {
+            let _ = feed.send(Incoming::Events(events.to_vec()));
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+    open.stream = stream;
+    chat.clear();
+    chat.load(&open.stream.snapshot);
+    Ok((true, editor_text))
+}
+
 /// Point a session's agent at the loop's model, thinking level and cwd, as upstream does for a
 /// session it creates or switches to.
 fn apply_agent(
@@ -818,6 +857,28 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         Err(e) => chat.notice("error", &format!("Error: {e}")),
                     }
                 }
+                OverlayAction::Navigate(target) => {
+                    close = true;
+                    if chat.working {
+                        chat.notice(
+                            "error",
+                            "Wait for the current response to finish before navigating the session tree.",
+                        );
+                    } else {
+                        match navigate_session(&mut open, &mut chat, &opener, target, &cancel) {
+                            Ok((false, _)) => chat.notice("dim", "Already at this point"),
+                            Ok((true, text)) => {
+                                if let Some(text) = &text {
+                                    if editor.borrow().get_text().trim().is_empty() {
+                                        editor.borrow_mut().set_text(text);
+                                    }
+                                }
+                                chat.notice("accent", "Navigated to selected point");
+                            }
+                            Err(e) => chat.notice("error", &format!("Error: {e}")),
+                        }
+                    }
+                }
                 OverlayAction::Setting { id, value } => match id.as_str() {
                     "hide-thinking" => {
                         let hidden = value == "true";
@@ -1028,6 +1089,17 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         ));
                         selector = Some((built, slot));
                     }
+                    Command::Tree => match Tree::build(&open.root, &cancel) {
+                        Ok(tree) if tree.is_empty() => chat.notice("dim", "No entries in session"),
+                        Ok(tree) => {
+                            let slot = action_slot();
+                            let visible = (tui.terminal.rows() / 2).max(5);
+                            let built: ComponentRef =
+                                component(TreeSelector::new(tree, visible, slot.clone()));
+                            selector = Some((built, slot));
+                        }
+                        Err(e) => chat.notice("error", &format!("Error: {e}")),
+                    },
                     Command::Trust => {
                         let slot = action_slot();
                         let options = settings_mod::project_trust_options(&cwd, true);

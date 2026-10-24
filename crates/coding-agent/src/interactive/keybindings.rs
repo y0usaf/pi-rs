@@ -53,6 +53,51 @@ const APP_DEFS: &[(&str, &[&str], &str)] = &[
         &["ctrl+backspace"],
         "Delete session when query is empty",
     ),
+    (
+        "app.tree.foldOrUp",
+        &["ctrl+left", "alt+left"],
+        "Fold tree branch or move up",
+    ),
+    (
+        "app.tree.unfoldOrDown",
+        &["ctrl+right", "alt+right"],
+        "Unfold tree branch or move down",
+    ),
+    (
+        "app.tree.filter.default",
+        &["ctrl+d"],
+        "Tree filter: default view",
+    ),
+    (
+        "app.tree.filter.noTools",
+        &["ctrl+t"],
+        "Tree filter: hide tool results",
+    ),
+    (
+        "app.tree.filter.userOnly",
+        &["ctrl+u"],
+        "Tree filter: user messages only",
+    ),
+    (
+        "app.tree.filter.labeledOnly",
+        &["ctrl+l"],
+        "Tree filter: labeled entries only",
+    ),
+    (
+        "app.tree.filter.all",
+        &["ctrl+a"],
+        "Tree filter: show all entries",
+    ),
+    (
+        "app.tree.filter.cycleForward",
+        &["ctrl+o"],
+        "Tree filter: cycle forward",
+    ),
+    (
+        "app.tree.filter.cycleBackward",
+        &["shift+ctrl+o"],
+        "Tree filter: cycle backward",
+    ),
 ];
 
 /// The app bindings, in upstream's declaration order.
