@@ -7,6 +7,7 @@ pub mod config;
 pub mod config_value;
 pub mod interactive;
 pub mod json;
+pub mod list_models;
 pub mod model_config;
 pub mod model_resolver;
 pub mod models;

@@ -369,6 +369,19 @@ mod tests {
     }
 
     #[test]
+    fn session_id_with_help_list_models_and_no_session() {
+        let a = p(&["--session-id", "ephemeral-id", "--help"]);
+        assert_eq!(a.session_id.as_deref(), Some("ephemeral-id"));
+        assert!(a.help);
+        let b = p(&["--session-id", "ephemeral-id", "--list-models"]);
+        assert_eq!(b.session_id.as_deref(), Some("ephemeral-id"));
+        assert_eq!(b.list_models, Some(None));
+        let c = p(&["--session-id", "ephemeral-id", "--no-session"]);
+        assert_eq!(c.session_id.as_deref(), Some("ephemeral-id"));
+        assert!(c.no_session);
+    }
+
+    #[test]
     fn unknown_flags() {
         let a = p(&["--foo=1", "--bar", "v", "--baz", "--", "-q", "@a"]);
         assert_eq!(

@@ -2,7 +2,9 @@
 
 Pi's coding agent ([`@earendil-works/pi-coding-agent`](https://github.com/earendil-works/pi)) as the `pi-rs` binary. It runs print mode (`pi-rs -p "..."`) and a first port of the interactive mode on [pi-durable](../durable)'s harness and reads the same files as `pi`: settings, `auth.json`, `models.json`, AGENTS.md / CLAUDE.md, SYSTEM.md, APPEND_SYSTEM.md and skills.
 
-It won't: show upstream's session picker, `/tree`, forking or settings screens, or any slash command but `/quit`; run `--mode json` or `--mode rpc`; load extensions, prompt templates, themes or MCP servers; log in (it reads the credentials `pi` stores, and refreshes Anthropic and OpenAI Codex OAuth tokens); compact a conversation on demand; fork or branch sessions.
+It won't: show upstream's session picker, `/tree`, forking or settings screens, or any slash command but `/quit`; run `--mode json` or `--mode rpc`; load extensions, prompt templates, themes or MCP servers; log in (it reads the credentials `pi` stores, and refreshes Anthropic and OpenAI Codex OAuth tokens); compact a conversation on demand; fork or branch sessions; export a session as HTML.
+
+The flags for what it won't do, `--export`, `--fork`, `--resume`, `--name`, `--extension`, `--prompt-template`, `--theme`, `--use-theme`, `--tui-mode` and `--verbose`, are refused before anything starts: `pi-rs: --export is not implemented yet`, exit 1. The flags that turn a resource off — `--no-extensions`, `--no-mcp`, `--no-themes`, `--no-prompt-templates` — and `--offline`, which would skip a model-catalog refresh this port never makes, are accepted and change nothing. A flag no option or extension defines is `Error: Unknown option: --foo`.
 
 The behaviour follows the upstream TypeScript at `be14d9732`, and the parity scripts below compare the two on the same inputs.
 
@@ -13,7 +15,9 @@ cargo run -p pi-coding-agent --bin pi-rs -- -p --model anthropic/claude-sonnet-4
 echo "summarize this" | cargo run -p pi-coding-agent --bin pi-rs -- @notes.md
 ```
 
-Without `-p`, on a terminal, it opens the interactive mode (below). `--continue` (`-c`) goes on with the newest session for the working directory; `--no-session` keeps nothing.
+Without `-p`, on a terminal, it opens the interactive mode (below). `--continue` (`-c`) goes on with the newest session for the working directory; `--session-id NAME` names a new session `NAME.db` and reopens it when it is there; `--no-session` keeps nothing.
+
+`--list-models [search]` prints the models whose provider has auth, as `pi --list-models` does: provider, model, context, max-out, thinking and images, sorted by provider then model id, fuzzy-matched against the search pattern, then exits.
 
 ## Interactive mode
 
@@ -23,7 +27,7 @@ Not there yet: the session picker (`--resume`), `/tree`, forking, settings, mode
 
 ## Sessions
 
-Each run is one pi-durable conversation in a SQLite file, `<agentDir>/sessions/--<cwd>--/<uuidv7>.db` (or under `--session-dir`, `$PI_CODING_AGENT_SESSION_DIR`, or the `sessionDir` setting). `--session FILE` opens that file. These are not upstream's JSONL session files, and `pi` cannot open them.
+Each run is one pi-durable conversation in a SQLite file, `<agentDir>/sessions/--<cwd>--/<uuidv7>.db` (or under `--session-dir`, `$PI_CODING_AGENT_SESSION_DIR`, or the `sessionDir` setting). `--session FILE` opens that file, `--session-id NAME` writes to `NAME.db` next to it. These are not upstream's JSONL session files, and `pi` cannot open them.
 
 ## What matches upstream, and how it is checked
 
@@ -40,3 +44,4 @@ Each run is one pi-durable conversation in a SQLite file, `<agentDir>/sessions/-
 - Skill frontmatter is read by a small YAML reader covering what skills use (plain, quoted and block scalars, booleans); other YAML in a skill file is skipped rather than rejected.
 - The docs paths in the system prompt name `$PI_PACKAGE_DIR`, or the directory of the `pi-rs` binary, since there is no npm package.
 - `fd` and `rg` are used from the agent's bin directory or `PATH`; they are not downloaded.
+- `--list-models` prints the auth each provider has and the catalog pi-ai ships, so its rows for a model match `pi --list-models`'s only while both binaries carry the same catalog: a different `pi` version can list another context window, or a model this crate lacks.
