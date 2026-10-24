@@ -4,9 +4,7 @@ use std::sync::{Arc, Mutex};
 use crate::cancel::CancelToken;
 use crate::chord::delta::Op;
 use crate::chord::state::{Attached, Handle, Listener};
-use crate::chord::watch::{
-    Deliveries, Detach, Overflow, Watch as ChordWatch, WatchEnd, WatchError,
-};
+use crate::chord::watch::{Deliveries, Detach, Watch as ChordWatch, WatchEnd, WatchError};
 use crate::types::{JsonObject, JsonValue};
 
 const LOCK: &str = "session replica lock poisoned";
@@ -16,13 +14,6 @@ pub fn value_json(value: &Option<JsonObject>) -> JsonValue {
         Some(object) => JsonValue::Object(object.clone()),
         None => JsonValue::Null,
     }
-}
-
-pub fn replacing() -> Overflow<JsonObject> {
-    Arc::new(|value: &JsonObject| {
-        let value = value.clone();
-        Ok((value.clone(), vec![Op::Replace(JsonValue::Object(value))]))
-    })
 }
 
 pub struct AttachedState<G> {

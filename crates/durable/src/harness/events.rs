@@ -251,11 +251,12 @@ pub fn watch_events(
             let watch = NativeWatch::new(
                 Some(Vec::new()),
                 deliveries,
-                Arc::new(move |_events: &Vec<AgentEvent>| {
+                Some(Arc::new(move || {
                     let value = newest.lock().expect(LOCK).clone();
-                    let snapshot = snapshot_of(&value).map_err(watch_error)?;
-                    Ok((vec![AgentEvent::Snapshot(Box::new(snapshot))], Vec::new()))
-                }),
+                    snapshot_of(&value)
+                        .map(|snapshot| vec![AgentEvent::Snapshot(Box::new(snapshot))])
+                        .ok()
+                })),
             );
             let held = Mutex::new(held);
             let feed = watch.clone();

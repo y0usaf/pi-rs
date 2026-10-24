@@ -16,7 +16,7 @@ use crate::documents::{
 };
 use crate::errors::{Error, Result};
 use crate::ids::{ConversationId, DocumentId, EntryId, Seq};
-use crate::session::replica::{DocumentState, Sink, StateSource, observed_operations, replacing};
+use crate::session::replica::{DocumentState, Sink, StateSource, observed_operations};
 use crate::session::transaction::{LoadedDocument, Transaction, TransactionHost, TransactionScope};
 use crate::session::types::{
     CommitListener, DocRef, DocumentObserver, DocumentReader, DocumentWatch, Tx, Unsubscribe,
@@ -353,11 +353,7 @@ impl Session {
     ) -> Result<Watch<JsonObject>> {
         check_record_scope(definition, &loaded.record.create)?;
         check_record_version(definition, &loaded.record.create, loaded.stored_version)?;
-        let shared = Watch::new(
-            Some(tracked_object(loaded)?),
-            Arc::clone(&self.deliveries),
-            replacing(),
-        );
+        let shared = Watch::new(Some(tracked_object(loaded)?), Arc::clone(&self.deliveries));
         let detach = self.register(
             Sink::Watch(shared.clone()),
             loaded.record.create.id,

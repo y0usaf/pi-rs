@@ -17,7 +17,7 @@ use crate::harness::provider::provider_doc;
 use crate::harness::usage::usage_doc;
 use crate::ids::ConversationId;
 use crate::session::kernel::{Session, report_error};
-use crate::session::replica::{AttachedState, Sink, feeder, replacing};
+use crate::session::replica::{AttachedState, Sink, feeder};
 use crate::session::types::{DocumentWatch, WatchEnd};
 use crate::types::{
     CommitChange, CommitPublication, ConversationRecord, DocumentCommitChange, EntryRecord,
@@ -202,7 +202,7 @@ impl ConversationViews {
     ) -> Result<DocumentWatch> {
         let deliveries = session.deliveries();
         let (_, guard, shared) = self.attach_with(session, id, cancel, |value, _| {
-            let shared = Watch::new(value.as_object().cloned(), deliveries, replacing());
+            let shared = Watch::new(value.as_object().cloned(), deliveries);
             Ok((watch_observer(&shared), shared))
         })?;
         attached_watch(shared, guard, cancel)

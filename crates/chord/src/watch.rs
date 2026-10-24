@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use pi_rt::cancel::CancelToken;
 
-use crate::delta::Op;
+use crate::delta::{Op, PendingOps, PendingTake};
 use crate::error::Error;
 use crate::json::{JsonObject, JsonValue};
 
@@ -21,7 +21,9 @@ pub type FrameListener<T> =
 pub type ValueListener<T> =
     Box<dyn FnMut(Option<&T>, &CancelToken) -> Result<(), WatchError> + Send>;
 
-pub type Overflow<T> = Arc<dyn Fn(&T) -> Result<(T, Vec<Op>), WatchError> + Send + Sync>;
+pub type Replace<T> = Arc<dyn Fn() -> Option<T> + Send + Sync>;
+
+pub type Replacement<T> = Arc<dyn Fn(&T) -> Op + Send + Sync>;
 
 #[derive(Clone)]
 pub enum WatchEnd {
@@ -85,6 +87,17 @@ pub trait NativeWatchHandle<T> {
     fn closed(&self) -> Option<WatchEnd>;
 }
 
+pub trait NativeWatchable {
+    type Value: Clone + Send + 'static;
+
+    fn value(&self) -> Option<Self::Value>;
+
+    fn watch(
+        &self,
+        cancel: &CancelToken,
+    ) -> Result<Box<dyn NativeWatchHandle<Self::Value> + Send>, Error>;
+}
+
 pub fn retirement_operations() -> Vec<Op> {
     vec![Op::Replace(JsonValue::Null)]
 }
@@ -134,9 +147,89 @@ struct Frame<T> {
     ops: Vec<Op>,
 }
 
+struct Folded<T> {
+    ops: PendingOps,
+    newest: Option<Option<T>>,
+    replacement: Replacement<T>,
+}
+
+struct Exact<T> {
+    frames: VecDeque<Frame<T>>,
+    replace: Option<Replace<T>>,
+}
+
+enum Pending<T> {
+    Folded(Folded<T>),
+    Exact(Exact<T>),
+}
+
+impl<T: Clone> Pending<T> {
+    fn advance(&mut self, value: Option<T>, ops: Vec<Op>) {
+        match self {
+            Pending::Folded(folded) => {
+                folded.ops.push(match value.is_none() {
+                    true => retirement_operations(),
+                    false => ops,
+                });
+                folded.newest = Some(value);
+            }
+            Pending::Exact(exact) => exact.advance(value, ops),
+        }
+    }
+
+    fn next(&mut self) -> Option<Frame<T>> {
+        match self {
+            Pending::Folded(folded) => {
+                let value = folded.newest.take()?;
+                let ops = match folded.ops.take() {
+                    PendingTake::Ops(ops) => ops,
+                    PendingTake::Replace => match &value {
+                        Some(value) => vec![(folded.replacement)(value)],
+                        None => retirement_operations(),
+                    },
+                };
+                Some(Frame { value, ops })
+            }
+            Pending::Exact(exact) => exact.frames.pop_front(),
+        }
+    }
+
+    fn release(&mut self) {
+        match self {
+            Pending::Folded(folded) => {
+                folded.ops.take();
+                folded.newest = None;
+            }
+            Pending::Exact(exact) => exact.frames.clear(),
+        }
+    }
+}
+
+impl<T: Clone> Exact<T> {
+    fn advance(&mut self, value: Option<T>, ops: Vec<Op>) {
+        if self.frames.len() < MAX_PENDING_FRAMES {
+            self.frames.push_back(Frame { value, ops });
+            return;
+        }
+        self.frames.clear();
+        let value = match value {
+            None => None,
+            Some(newest) => Some(match &self.replace {
+                Some(replace) => replace().unwrap_or(newest),
+                None => newest,
+            }),
+        };
+        let ops = match value.is_none() {
+            true => retirement_operations(),
+            false => Vec::new(),
+        };
+        self.frames.push_back(Frame { value, ops });
+    }
+}
+
 struct Core<T> {
     value: Option<T>,
-    pending: VecDeque<Frame<T>>,
+    pending: Pending<T>,
     started: bool,
     retired: bool,
     listener: Option<FrameListener<T>>,
@@ -147,15 +240,14 @@ struct Core<T> {
 struct Inner<T> {
     core: Mutex<Core<T>>,
     deliveries: Arc<Deliveries>,
-    overflow: Overflow<T>,
 }
 
 impl<T: Clone + Send + 'static> Inner<T> {
-    fn new(value: Option<T>, deliveries: Arc<Deliveries>, overflow: Overflow<T>) -> Inner<T> {
+    fn new(value: Option<T>, deliveries: Arc<Deliveries>, pending: Pending<T>) -> Inner<T> {
         Inner {
             core: Mutex::new(Core {
                 value,
-                pending: VecDeque::new(),
+                pending,
                 started: false,
                 retired: false,
                 listener: None,
@@ -163,7 +255,6 @@ impl<T: Clone + Send + 'static> Inner<T> {
                 detach: None,
             }),
             deliveries,
-            overflow,
         }
     }
 
@@ -177,37 +268,9 @@ impl<T: Clone + Send + 'static> Inner<T> {
             return;
         }
         core.retired = value.is_none();
-        let failure = match core.pending.len() >= MAX_PENDING_FRAMES {
-            false => {
-                core.pending.push_back(Frame { value, ops });
-                None
-            }
-            true => match value.as_ref().map(|value| (self.overflow)(value)) {
-                None => {
-                    core.pending.clear();
-                    core.pending.push_back(Frame {
-                        value: None,
-                        ops: retirement_operations(),
-                    });
-                    None
-                }
-                Some(Ok((value, ops))) => {
-                    core.pending.clear();
-                    core.pending.push_back(Frame {
-                        value: Some(value),
-                        ops,
-                    });
-                    None
-                }
-                Some(Err(error)) => Some(error),
-            },
-        };
+        core.pending.advance(value, ops);
         let started = core.started;
         drop(core);
-        if let Some(error) = failure {
-            self.terminate(WatchEnd::ListenerError(error));
-            return;
-        }
         if started {
             self.schedule();
         }
@@ -243,7 +306,7 @@ impl<T: Clone + Send + 'static> Inner<T> {
                 let Some(listener) = core.listener.take() else {
                     return;
                 };
-                let Some(frame) = core.pending.pop_front() else {
+                let Some(frame) = core.pending.next() else {
                     core.listener = Some(listener);
                     return;
                 };
@@ -274,7 +337,7 @@ impl<T: Clone + Send + 'static> Inner<T> {
                 return existing.clone();
             }
             core.end = Some(end.clone());
-            core.pending.clear();
+            core.pending.release();
             core.listener = None;
             (end, core.detach.take())
         };
@@ -316,10 +379,6 @@ impl<T: Clone + Send + 'static> Clone for Watch<T> {
 }
 
 impl<T: Clone + Send + 'static> Watch<T> {
-    pub fn new(value: Option<T>, deliveries: Arc<Deliveries>, overflow: Overflow<T>) -> Watch<T> {
-        Watch(Arc::new(Inner::new(value, deliveries, overflow)))
-    }
-
     pub fn set_detach(&self, detach: Detach) {
         self.0.set_detach(detach);
     }
@@ -361,6 +420,20 @@ impl<T: Clone + Send + 'static> Watch<T> {
     }
 }
 
+impl<T: Clone + Send + Sync + 'static + Into<JsonValue>> Watch<T> {
+    pub fn new(value: Option<T>, deliveries: Arc<Deliveries>) -> Watch<T> {
+        Watch(Arc::new(Inner::new(
+            value,
+            deliveries,
+            Pending::Folded(Folded {
+                ops: PendingOps::default(),
+                newest: None,
+                replacement: Arc::new(|value: &T| Op::Replace(value.clone().into())),
+            }),
+        )))
+    }
+}
+
 impl WatchHandle<JsonObject> for Watch<JsonObject> {
     fn value(&self) -> Option<JsonObject> {
         Watch::value(self)
@@ -391,9 +464,16 @@ impl<T: Clone + Send + 'static> NativeWatch<T> {
     pub fn new(
         value: Option<T>,
         deliveries: Arc<Deliveries>,
-        overflow: Overflow<T>,
+        replace: Option<Replace<T>>,
     ) -> NativeWatch<T> {
-        NativeWatch(Watch::new(value, deliveries, overflow))
+        NativeWatch(Watch(Arc::new(Inner::new(
+            value,
+            deliveries,
+            Pending::Exact(Exact {
+                frames: VecDeque::new(),
+                replace,
+            }),
+        ))))
     }
 
     pub fn set_detach(&self, detach: Detach) {
@@ -429,17 +509,6 @@ impl<T: Clone + Send + 'static> NativeWatch<T> {
         self.0
             .start(Box::new(move |value, _ops, cancel| listener(value, cancel)))
     }
-}
-
-pub trait NativeWatchable {
-    type Value: Clone + Send + 'static;
-
-    fn value(&self) -> Option<Self::Value>;
-
-    fn watch(
-        &self,
-        cancel: &CancelToken,
-    ) -> Result<Box<dyn NativeWatchHandle<Self::Value> + Send>, Error>;
 }
 
 impl<T: Clone + Send + 'static> NativeWatchHandle<T> for NativeWatch<T> {
