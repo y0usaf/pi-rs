@@ -472,11 +472,11 @@ fn with_usage(
             Some(previous) => {
                 let cached = common_prefix(previous, &prompt);
                 cache_read = tokens_of(cached);
-                cache_write = tokens_of(prompt_length - cached);
-                input = prompt_tokens.saturating_sub(cache_read);
+                cache_write = prompt_tokens.saturating_sub(cache_read);
             }
             None => cache_write = prompt_tokens,
         }
+        input = 0;
         inner.prompt_cache.insert(session.to_owned(), prompt);
     }
     message.usage = Usage {
