@@ -384,12 +384,18 @@ impl Markdown {
             }
             Kind::List => lines.extend(self.render_list(token, 0, width, ctx)),
             Kind::Table => lines.extend(self.render_table(token, width, next, ctx)),
+            Kind::Blockquote if width < 3 => {
+                for (i, t) in token.tokens.iter().enumerate() {
+                    let n = token.tokens.get(i + 1).map(|t| t.kind);
+                    lines.extend(self.render_token(t, width, n, ctx));
+                }
+            }
             Kind::Blockquote => {
                 let theme = th.clone();
                 let quote_style: StyleFn =
                     Rc::new(move |t: &str| (theme.quote)(&(theme.italic)(t)));
                 let qprefix = style_prefix(&*quote_style);
-                let content_width = width.saturating_sub(2).max(1);
+                let content_width = width - 2;
                 let qctx = StyleContext {
                     apply: Rc::new(|t: &str| t.to_string()),
                     prefix: qprefix.clone(),

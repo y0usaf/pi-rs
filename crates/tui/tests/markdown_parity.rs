@@ -103,6 +103,43 @@ fn variant(v: u64, text: &str) -> Markdown {
 
 const WIDTHS: &[usize] = &[1, 3, 8, 20, 40, 80];
 
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::new();
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+        } else if chars.next() == Some('[') {
+            for d in chars.by_ref() {
+                if d.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn deeply_nested_quotes_render_without_exploding() {
+    let mut md = Markdown::new(
+        &format!("{}x", ">".repeat(60)),
+        1,
+        0,
+        theme(false),
+        None,
+        MarkdownOptions::default(),
+    );
+    let plain: Vec<String> = md
+        .render(80)
+        .iter()
+        .map(|l| strip_ansi(l).trim_end().to_string())
+        .collect();
+
+    assert_eq!(plain.len(), 1, "expected a single line: {plain:?}");
+    assert!(plain[0].ends_with('x'), "content lost: {plain:?}");
+}
+
 #[test]
 fn markdown_matches_upstream() {
     let f: Value = serde_json::from_str(include_str!("fixtures/markdown.json")).unwrap();
