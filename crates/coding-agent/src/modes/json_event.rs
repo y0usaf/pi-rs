@@ -151,21 +151,22 @@ impl Mapper {
                 details,
                 diagnostics,
             } => {
-                let mut line = json!({
+                let mut partial = serde_json::Map::new();
+                if let Some(output) = output {
+                    partial.insert("content".into(), value(output));
+                }
+                if let Some(details) = details {
+                    partial.insert("details".into(), details.clone());
+                }
+                if let Some(diagnostics) = diagnostics {
+                    partial.insert("diagnostics".into(), value(diagnostics));
+                }
+                vec![json!({
                     "type": "tool_execution_update",
                     "toolCallId": tool_call_id,
                     "toolName": tool_name,
-                });
-                if let Some(output) = output {
-                    line["output"] = value(output);
-                }
-                if let Some(details) = details {
-                    line["details"] = details.clone();
-                }
-                if let Some(diagnostics) = diagnostics {
-                    line["diagnostics"] = value(diagnostics);
-                }
-                vec![line]
+                    "partialResult": partial,
+                })]
             }
             AgentEvent::ToolExecutionEnd {
                 tool_call_id,
@@ -177,16 +178,15 @@ impl Mapper {
                     "toolCallId": tool_call_id,
                     "toolName": tool_name,
                 });
-                if let Some(entry) = entry {
-                    if let Some(Message::ToolResult(result)) = message_of(entry) {
-                        let mut result_line = json!({ "content": value(&result.content) });
-                        if let Some(details) = &result.details {
-                            result_line["details"] = details.clone();
-                        }
-                        line["result"] = result_line;
-                        line["isError"] = json!(result.is_error);
+                if let Some(entry) = entry
+                    && let Some(Message::ToolResult(result)) = message_of(entry)
+                {
+                    let mut result_line = json!({ "content": value(&result.content) });
+                    if let Some(details) = &result.details {
+                        result_line["structuredContent"] = details.clone();
                     }
-                    line["entry"] = value(entry);
+                    line["result"] = result_line;
+                    line["isError"] = json!(result.is_error);
                 }
                 vec![line]
             }
