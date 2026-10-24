@@ -136,11 +136,8 @@ fn assistant_parts(model: &Model, message: &AssistantMessage) -> Vec<Value> {
                 }
                 parts.push(part);
             }
-            AssistantBlock::Thinking(thinking) => {
-                if !trim_js(&thinking.thinking).is_empty() {
-                    parts.push(json!({"text": thinking.thinking}));
-                }
-            }
+            AssistantBlock::Thinking(_) => {}
+
             AssistantBlock::ToolCall(call) => {
                 let mut function = json!({"name": call.name, "args": call.arguments});
                 if requires_tool_call_id(&model.id) {

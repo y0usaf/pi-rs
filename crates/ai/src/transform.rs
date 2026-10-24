@@ -102,18 +102,14 @@ fn transform_assistant_content(
     for block in &message.content {
         match block {
             AssistantBlock::Thinking(thinking) => {
-                if thinking.redacted == Some(true) {
-                    if same_model {
-                        content.push(block.clone());
-                    }
-                } else if same_model && is_non_empty(thinking.thinking_signature.as_ref()) {
+                if !same_model {
+                    continue;
+                }
+                if thinking.redacted == Some(true)
+                    || is_non_empty(thinking.thinking_signature.as_ref())
+                    || !trim_js(&thinking.thinking).is_empty()
+                {
                     content.push(block.clone());
-                } else if !trim_js(&thinking.thinking).is_empty() {
-                    content.push(if same_model {
-                        block.clone()
-                    } else {
-                        plain_text(thinking.thinking.clone())
-                    });
                 }
             }
             AssistantBlock::Text(text) => {
@@ -177,9 +173,9 @@ impl PendingCalls {
 }
 
 /// Prepare a transcript for a request to `model`, like pi-ai's transformMessages.
-/// Unsupported images become text placeholders. Thinking and tool call ids from other
-/// models are converted, and redacted or signature-less thinking is dropped. Errored
-/// and aborted assistant turns are skipped. Tool calls without a result get a synthetic
+/// Unsupported images become text placeholders. Thinking from other models is dropped,
+/// tool call ids from other models are normalized, and redacted or unsigned empty
+/// thinking is dropped. Errored and aborted assistant turns are skipped. Tool calls without a result get a synthetic
 /// error result before the next user or assistant turn. System messages that fall
 /// between a tool call and its results are moved after those results.
 pub fn transform_messages(
