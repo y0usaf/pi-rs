@@ -25,8 +25,9 @@ pub struct Mapper {
     /// Whether an agent run is between its start and its end.
     running: bool,
     /// Messages a submission appended before its run started; upstream announces them inside the
-    /// turn, so they are held until `turn_start`.
+    /// turn, so their lines and messages are held until the run claims them.
     held: Vec<Value>,
+    held_messages: Vec<Message>,
 }
 
 fn message_of(entry: &pi_durable::types::EntryRecord) -> Option<Message> {
@@ -54,6 +55,7 @@ impl Mapper {
             }
             AgentEvent::RunEnd { .. } => {
                 self.running = false;
+                self.messages.append(&mut self.held_messages);
                 let mut lines = std::mem::take(&mut self.held);
                 lines.extend([
                     json!({
@@ -61,7 +63,11 @@ impl Mapper {
                         "messages": self.messages.iter().map(value).collect::<Vec<Value>>(),
                         "willRetry": false,
                     }),
-                    json!({ "type": "agent_settled", "aborted": self.aborted }),
+                    if self.aborted {
+                        json!({ "type": "agent_settled", "aborted": true })
+                    } else {
+                        json!({ "type": "agent_settled" })
+                    },
                 ]);
                 lines
             }
@@ -75,15 +81,14 @@ impl Mapper {
                 if let Some(turn) = &self.turn {
                     line["message"] = value(turn);
                 }
-                if !self.results.is_empty() {
-                    line["toolResults"] = self.results.iter().map(value).collect();
-                }
+                line["toolResults"] = self.results.iter().map(value).collect();
                 vec![line]
             }
 
             AgentEvent::MessageStart { message } => {
                 let line = json!({ "type": "message_start", "message": value(message) });
                 if matches!(message, Message::Assistant(_)) {
+                    self.messages.append(&mut self.held_messages);
                     let mut lines = std::mem::take(&mut self.held);
                     lines.push(line);
                     lines
@@ -118,12 +123,13 @@ impl Mapper {
                     Message::ToolResult(_) => self.results.push(message.clone()),
                     _ => {}
                 }
-                self.messages.push(message.clone());
                 let line = json!({ "type": "message_end", "message": value(&message) });
                 if self.running || matches!(message, Message::Assistant(_)) {
+                    self.messages.push(message);
                     vec![line]
                 } else {
                     self.held.push(line);
+                    self.held_messages.push(message);
                     Vec::new()
                 }
             }
