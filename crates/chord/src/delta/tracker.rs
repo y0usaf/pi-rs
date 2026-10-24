@@ -21,6 +21,7 @@ pub struct Change {
     base_revision: u64,
     base: JsonValue,
     draft: JsonValue,
+    appends: Vec<(Path, String)>,
 }
 
 pub struct Prepared {
@@ -53,6 +54,7 @@ impl Tracker {
             base_revision: self.revision,
             base: self.value.clone(),
             draft: self.value.clone(),
+            appends: Vec::new(),
         }
     }
 
@@ -90,12 +92,39 @@ impl Change {
         &mut self.draft
     }
 
-    pub fn prepare(self, tracker: &Tracker) -> Result<Prepared, Error> {
+    pub fn append_text(&mut self, path: &[Seg], text: &str) -> Result<(), Error> {
+        if text.is_empty() {
+            return Ok(());
+        }
+        if path.is_empty() {
+            return Err(Error::Path(Vec::new()));
+        }
+        let target = at(&mut self.draft, path).ok_or_else(|| Error::Path(path.to_vec()))?;
+        let JsonValue::String(current) = target else {
+            return Err(Error::State(format!(
+                "append_text needs a string at {path:?}"
+            )));
+        };
+        current.push_str(text);
+        match self.appends.iter_mut().find(|(known, _)| known == path) {
+            Some((_, appended)) => appended.push_str(text),
+            None => self.appends.push((path.to_vec(), text.to_string())),
+        }
+        Ok(())
+    }
+
+    pub fn prepare(mut self, tracker: &Tracker) -> Result<Prepared, Error> {
         if self.owner != tracker.owner {
             return Err(Error::ForeignPrepared);
         }
         let mut ops = Vec::new();
-        diff(&mut Vec::new(), &self.base, &self.draft, &mut ops);
+        diff(
+            &mut Vec::new(),
+            &self.base,
+            &self.draft,
+            &mut ops,
+            &mut self.appends,
+        );
         ops.iter().try_for_each(check)?;
         Ok(Prepared {
             owner: self.owner,
@@ -153,7 +182,34 @@ fn leaf(path: &Path, value: &JsonValue, ops: &mut Vec<Op>) {
     }
 }
 
-fn diff(path: &mut Path, base: &JsonValue, next: &JsonValue, ops: &mut Vec<Op>) {
+fn at<'a>(value: &'a mut JsonValue, path: &[Seg]) -> Option<&'a mut JsonValue> {
+    let mut cursor = value;
+    for seg in path {
+        cursor = match seg {
+            Seg::Key(key) => cursor.get_mut(key)?,
+            Seg::Index(index) => cursor.get_mut(*index)?,
+        };
+    }
+    Some(cursor)
+}
+
+fn diff(
+    path: &mut Path,
+    base: &JsonValue,
+    next: &JsonValue,
+    ops: &mut Vec<Op>,
+    appends: &mut Vec<(Path, String)>,
+) {
+    if let Some(position) = appends.iter().position(|(known, _)| known == path) {
+        let (_, appended) = appends.swap_remove(position);
+        if let (JsonValue::String(old), JsonValue::String(new)) = (base, next)
+            && new.len() == old.len() + appended.len()
+            && new.starts_with(old.as_str())
+        {
+            ops.push(Op::Append(path.clone(), appended));
+            return;
+        }
+    }
     if same(base, next) {
         return;
     }
@@ -173,7 +229,7 @@ fn diff(path: &mut Path, base: &JsonValue, next: &JsonValue, ops: &mut Vec<Op>) 
             }
             for key in retained {
                 path.push(Seg::Key(key.clone()));
-                diff(path, &old[key], &new[key], ops);
+                diff(path, &old[key], &new[key], ops, appends);
                 path.pop();
             }
             for key in added {
@@ -185,7 +241,7 @@ fn diff(path: &mut Path, base: &JsonValue, next: &JsonValue, ops: &mut Vec<Op>) 
         (JsonValue::Array(old), JsonValue::Array(new)) if old.len() == new.len() => {
             for (index, (before, after)) in old.iter().zip(new).enumerate() {
                 path.push(Seg::Index(index));
-                diff(path, before, after, ops);
+                diff(path, before, after, ops, appends);
                 path.pop();
             }
         }
