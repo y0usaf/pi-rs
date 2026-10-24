@@ -5,6 +5,7 @@ pub mod chat;
 pub mod footer;
 pub mod messages;
 pub mod run;
+pub mod slash_commands;
 pub mod status;
 pub mod theme;
 pub mod tool_row;

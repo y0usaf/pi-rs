@@ -427,6 +427,7 @@ fn run() -> Result<ExitCode, String> {
             initial,
             messages,
             provider_count,
+            session_path: session_path.clone(),
             incoming,
             sender,
         });
