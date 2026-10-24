@@ -212,14 +212,86 @@ fn tool_result(
     }
 }
 
-fn declarations(tools: &[Tool]) -> Vec<Value> {
+/// Schema keywords whose values map names to subschemas, so their keys are not schema keywords.
+const JSON_SCHEMA_NAME_MAPS: [&str; 6] = [
+    "properties",
+    "patternProperties",
+    "$defs",
+    "definitions",
+    "dependentSchemas",
+    "dependencies",
+];
+
+/// Keywords containing a subschema or an array of subschemas, not literal data.
+const JSON_SCHEMA_SUBSCHEMAS: [&str; 16] = [
+    "additionalProperties",
+    "unevaluatedProperties",
+    "propertyNames",
+    "items",
+    "prefixItems",
+    "additionalItems",
+    "unevaluatedItems",
+    "contains",
+    "allOf",
+    "anyOf",
+    "oneOf",
+    "not",
+    "if",
+    "then",
+    "else",
+    "contentSchema",
+];
+
+/// Rewrite string and number `const` values to single-value `enum`s: Gemini ignores `const` in
+/// `parametersJsonSchema` but honors `enum`.
+fn rewrite_const_as_enum(schema: &Value, is_name_map: bool) -> Value {
+    match schema {
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| rewrite_const_as_enum(item, false))
+                .collect(),
+        ),
+        Value::Object(members) => {
+            let mut result: Map<String, Value> = members
+                .iter()
+                .map(|(key, value)| {
+                    let key = key.as_str();
+                    let rewritten = if is_name_map || JSON_SCHEMA_SUBSCHEMAS.contains(&key) {
+                        rewrite_const_as_enum(value, false)
+                    } else if JSON_SCHEMA_NAME_MAPS.contains(&key) {
+                        rewrite_const_as_enum(value, true)
+                    } else {
+                        value.clone()
+                    };
+                    (key.to_owned(), rewritten)
+                })
+                .collect();
+            let constant = result.get("const").filter(|value| {
+                !is_name_map
+                    && !result.contains_key("enum")
+                    && (value.is_string() || value.is_number())
+            });
+            if let Some(constant) = constant.cloned() {
+                result.remove("const");
+                result.insert("enum".to_owned(), Value::Array(vec![constant]));
+            }
+            Value::Object(result)
+        }
+        other => other.clone(),
+    }
+}
+
+/// Convert tools to Gemini function declarations. `parametersJsonSchema` takes full JSON Schema, but
+/// Gemini ignores `const` there, so string and number `const` values are sent as single-value `enum`s.
+pub fn declarations(tools: &[Tool]) -> Vec<Value> {
     tools
         .iter()
         .map(|tool| {
             json!({
                 "name": tool.name,
                 "description": tool.description,
-                "parametersJsonSchema": tool.parameters,
+                "parametersJsonSchema": rewrite_const_as_enum(&tool.parameters, false),
             })
         })
         .collect()

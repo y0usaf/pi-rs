@@ -7,12 +7,12 @@ use super::derive_tool_call_id;
 use crate::cost::calculate_cost;
 use crate::event_stream::{ABORTED_TEXT, AssistantMessageEventStream};
 use crate::http::io_error;
-use crate::json_parse::parse_streaming_json;
 use crate::sse::SseReader;
 use crate::types::{
     AssistantBlock, AssistantMessage, AssistantMessageEvent, Model, StopReason, TextContent,
     TextType, ThinkingContent, ThinkingType, ToolCall, ToolCallType,
 };
+use crate::utils::streaming_json::ToolCallArgumentsStream;
 use pi_chord::json::JsonObject;
 use pi_rt::cancel::CancelToken;
 
@@ -33,7 +33,7 @@ struct Blocks {
     open: Option<Open>,
     tools: HashMap<ToolKey, usize>,
     tool_order: Vec<usize>,
-    tool_json: HashMap<usize, String>,
+    arguments: HashMap<usize, ToolCallArgumentsStream>,
 }
 
 pub fn consume(
@@ -354,12 +354,7 @@ impl Blocks {
                 }
             };
             let delta = arguments_delta(function.get("arguments"));
-            let json = self.tool_json.entry(index).or_default();
-            json.push_str(&delta);
-            let arguments = match parse_streaming_json(Some(json.as_str())) {
-                Value::Object(map) => map,
-                _ => JsonObject::new(),
-            };
+            let arguments = self.arguments.entry(index).or_default().append(&delta);
             if let Some(AssistantBlock::ToolCall(block)) = output.content.get_mut(index) {
                 block.arguments = arguments;
             }

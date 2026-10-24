@@ -7,19 +7,19 @@ use super::request::encode_text_signature;
 use crate::cost::calculate_cost;
 use crate::event_stream::AssistantMessageEventStream;
 use crate::http::io_error;
-use crate::json_parse::parse_streaming_json;
 use crate::sse::SseReader;
 use crate::types::{
     AssistantBlock, AssistantMessage, AssistantMessageEvent, Cost, Model, StopReason, TextContent,
     TextType, ThinkingContent, ThinkingType, ToolCall, ToolCallType, Usage,
 };
+use crate::utils::streaming_json::ToolCallArgumentsStream;
 use pi_chord::json::JsonObject;
 use pi_rt::cancel::CancelToken;
 
 enum Slot {
     Thinking(usize),
     Text(usize),
-    ToolCall { index: usize, partial: String },
+    ToolCall { index: usize },
 }
 
 struct Process<'a> {
@@ -27,6 +27,8 @@ struct Process<'a> {
     out: &'a AssistantMessageEventStream,
     output: &'a mut AssistantMessage,
     slots: HashMap<u64, Slot>,
+    /// Streamed tool-call arguments, kept off the slots so a slot stays small.
+    arguments: HashMap<u64, ToolCallArgumentsStream>,
     reasoning: HashMap<String, usize>,
     terminal: bool,
 }
@@ -43,6 +45,7 @@ pub fn process(
         out,
         output,
         slots: HashMap::new(),
+        arguments: HashMap::new(),
         reasoning: HashMap::new(),
         terminal: false,
     };
@@ -66,13 +69,6 @@ pub fn process(
 
 fn str_field(value: &Value) -> String {
     value.as_str().unwrap_or_default().to_owned()
-}
-
-fn parse_arguments(text: &str) -> JsonObject {
-    match parse_streaming_json(Some(text)) {
-        Value::Object(map) => map,
-        _ => JsonObject::new(),
-    }
 }
 
 fn usage_from(usage: &Value) -> Usage {
@@ -267,9 +263,13 @@ impl Process<'_> {
                     thought_signature: None,
                     namespace,
                 }));
-                let partial = str_field(&item["arguments"]);
-                self.slots
-                    .insert(output_index, Slot::ToolCall { index, partial });
+                let mut arguments = ToolCallArgumentsStream::new();
+                let initial = str_field(&item["arguments"]);
+                if !initial.is_empty() {
+                    self.set_arguments(index, arguments.append(&initial));
+                }
+                self.arguments.insert(output_index, arguments);
+                self.slots.insert(output_index, Slot::ToolCall { index });
                 self.out.push(AssistantMessageEvent::ToolcallStart {
                     content_index: index as u64,
                     partial: self.output.clone(),
@@ -308,13 +308,15 @@ impl Process<'_> {
     }
 
     fn arguments_delta(&mut self, output_index: u64, delta: &str) {
-        let Some(Slot::ToolCall { index, partial }) = self.slots.get_mut(&output_index) else {
+        let Some(Slot::ToolCall { index }) = self.slots.get(&output_index) else {
             return;
         };
-        partial.push_str(delta);
         let index = *index;
-        let arguments = parse_arguments(partial);
-        self.set_arguments(index, arguments);
+        let Some(arguments) = self.arguments.get_mut(&output_index) else {
+            return;
+        };
+        let partial = arguments.append(delta);
+        self.set_arguments(index, partial);
         self.out.push(AssistantMessageEvent::ToolcallDelta {
             content_index: index as u64,
             delta: delta.to_owned(),
@@ -323,19 +325,19 @@ impl Process<'_> {
     }
 
     fn arguments_done(&mut self, output_index: u64, arguments: &str) {
-        let Some(Slot::ToolCall { index, partial }) = self.slots.get_mut(&output_index) else {
+        let Some(Slot::ToolCall { index }) = self.slots.get(&output_index) else {
             return;
         };
-        let previous = std::mem::replace(partial, arguments.to_owned());
         let index = *index;
-        let parsed = parse_arguments(arguments);
-        self.set_arguments(index, parsed);
-        if let Some(rest) = arguments.strip_prefix(previous.as_str())
-            && !rest.is_empty()
-        {
+        let Some(stream) = self.arguments.get_mut(&output_index) else {
+            return;
+        };
+        let replaced = stream.replace(arguments);
+        self.set_arguments(index, replaced.arguments);
+        if let Some(delta) = replaced.delta {
             self.out.push(AssistantMessageEvent::ToolcallDelta {
                 content_index: index as u64,
-                delta: rest.to_owned(),
+                delta,
                 partial: self.output.clone(),
             });
         }
@@ -358,9 +360,9 @@ impl Process<'_> {
                 }
             }
             Some("function_call") => {
-                if let Some(Slot::ToolCall { index, partial }) = self.slots.get(&output_index) {
-                    let (index, partial) = (*index, partial.clone());
-                    self.finish_call(output_index, index, item, partial);
+                if let Some(Slot::ToolCall { index }) = self.slots.remove(&output_index) {
+                    let stream = self.arguments.remove(&output_index).unwrap_or_default();
+                    self.finish_call(output_index, index, item, stream);
                 }
             }
             _ => {}
@@ -433,13 +435,19 @@ impl Process<'_> {
         self.slots.remove(&output_index);
     }
 
-    fn finish_call(&mut self, output_index: u64, index: usize, item: &Value, partial: String) {
-        let raw = match item["arguments"].as_str() {
-            Some(arguments) if !arguments.is_empty() => arguments.to_owned(),
-            _ if !partial.is_empty() => partial,
-            _ => "{}".to_owned(),
-        };
-        let arguments = parse_arguments(&raw);
+    fn finish_call(
+        &mut self,
+        output_index: u64,
+        index: usize,
+        item: &Value,
+        mut stream: ToolCallArgumentsStream,
+    ) {
+        if let Some(arguments) = item["arguments"].as_str()
+            && !arguments.is_empty()
+        {
+            stream.replace(arguments);
+        }
+        let arguments = stream.finish();
         let namespace = item["namespace"].as_str().map(str::to_owned);
         let call = match self.output.content.get_mut(index) {
             Some(AssistantBlock::ToolCall(block)) => {

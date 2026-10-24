@@ -155,7 +155,7 @@ pub fn build(
             "display": "summarized",
             "block_binding": {"prefix_mismatch_behavior": "drop_block"},
         });
-        body["output_config"] = json!({"effort": "high"});
+        body["output_config"] = json!({"effort": "low"});
     } else if model.reasoning {
         match &reasoning {
             Some(Reasoning::Adaptive(effort)) if flag(model, "forceAdaptiveThinking", false) => {

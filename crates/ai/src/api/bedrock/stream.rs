@@ -5,11 +5,11 @@ use serde_json::{Map, Value};
 use super::eventstream::read_frame;
 use crate::cost::calculate_cost;
 use crate::event_stream::{ABORTED_TEXT, AssistantMessageEventStream};
-use crate::json_parse::parse_streaming_json;
 use crate::types::{
     AssistantBlock, AssistantMessage, AssistantMessageEvent, Model, StopReason, TextContent,
     TextType, ThinkingContent, ThinkingType, ToolCall, ToolCallType,
 };
+use crate::utils::streaming_json::ToolCallArgumentsStream;
 use pi_rt::cancel::CancelToken;
 
 const STREAM_EXCEPTIONS: [&str; 5] = [
@@ -23,7 +23,7 @@ const REDACTED_TEXT: &str = "[Reasoning redacted]";
 
 struct Slot {
     index: u64,
-    partial_json: String,
+    arguments: ToolCallArgumentsStream,
 }
 
 enum Finished {
@@ -96,7 +96,7 @@ fn handle(
                 }));
                 slots.push(Slot {
                     index,
-                    partial_json: String::new(),
+                    arguments: ToolCallArgumentsStream::new(),
                 });
                 out.push(AssistantMessageEvent::ToolcallStart {
                     content_index: last(output),
@@ -159,12 +159,8 @@ fn content_delta(
         let Some(position) = position(slots, index) else {
             return;
         };
-        slots[position].partial_json.push_str(input);
         if let AssistantBlock::ToolCall(call) = &mut output.content[position] {
-            call.arguments = match parse_streaming_json(Some(&slots[position].partial_json)) {
-                Value::Object(map) => map,
-                _ => Map::new(),
-            };
+            call.arguments = slots[position].arguments.append(input);
             out.push(AssistantMessageEvent::ToolcallDelta {
                 content_index: position as u64,
                 delta: input.to_owned(),
@@ -223,10 +219,7 @@ fn content_stop(
         AssistantBlock::Text(block) => Finished::Text(block.text.clone()),
         AssistantBlock::Thinking(block) => Finished::Thinking(block.thinking.clone()),
         AssistantBlock::ToolCall(call) => {
-            call.arguments = match parse_streaming_json(Some(&slots[position].partial_json)) {
-                Value::Object(map) => map,
-                _ => Map::new(),
-            };
+            call.arguments = slots[position].arguments.finish();
             Finished::Tool(call.clone())
         }
     };
@@ -306,7 +299,7 @@ fn ensure_block(
     output.content.push(created);
     slots.push(Slot {
         index,
-        partial_json: String::new(),
+        arguments: ToolCallArgumentsStream::new(),
     });
     out.push(started);
     output.content.len() - 1

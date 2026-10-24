@@ -16,6 +16,7 @@ use crate::types::{
     TranscriptContext, Usage, UserBlock, UserContent,
 };
 use crate::utils::js;
+use crate::utils::streaming_json::ToolCallArgumentsStream;
 use crate::utils::text::{system_message_text, utf16_len};
 use pi_rt::cancel::CancelToken;
 
@@ -472,11 +473,11 @@ fn with_usage(
             Some(previous) => {
                 let cached = common_prefix(previous, &prompt);
                 cache_read = tokens_of(cached);
-                cache_write = tokens_of(prompt_length - cached);
-                input = prompt_tokens.saturating_sub(cache_read);
+                cache_write = prompt_tokens.saturating_sub(cache_read);
             }
             None => cache_write = prompt_tokens,
         }
+        input = 0;
         inner.prompt_cache.insert(session.to_owned(), prompt);
     }
     message.usage = Usage {
@@ -742,11 +743,18 @@ fn stream_with_deltas(
                     partial: partial.clone(),
                 });
                 let encoded = js::stringify(&Value::Object(call.arguments.clone()));
+                // Partial arguments come from the same parser real providers use, so consumers see them
+                // grow.
+                let mut arguments = ToolCallArgumentsStream::new();
                 for chunk in split_by_token_size(&encoded, core) {
                     pause(core, &chunk);
                     if is_aborted(signal) {
                         out.abort(&partial);
                         return Ok(());
+                    }
+                    if let Some(AssistantBlock::ToolCall(current)) = partial.content.get_mut(index)
+                    {
+                        current.arguments = arguments.append(&chunk);
                     }
                     out.push(AssistantMessageEvent::ToolcallDelta {
                         content_index,

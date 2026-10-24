@@ -6,12 +6,12 @@ use serde_json::Value;
 use super::compat::Compat;
 use crate::cost::calculate_cost;
 use crate::event_stream::{ABORTED_TEXT, AssistantMessageEventStream};
-use crate::json_parse::parse_streaming_json;
 use crate::sse::SseReader;
 use crate::types::{
     AssistantBlock, AssistantMessage, AssistantMessageEvent, Model, StopReason, TextContent,
     TextType, ThinkingContent, ThinkingType, ToolCall, ToolCallType, Usage,
 };
+use crate::utils::streaming_json::ToolCallArgumentsStream;
 use pi_chord::json::JsonObject;
 use pi_rt::cancel::CancelToken;
 
@@ -23,7 +23,7 @@ struct Blocks {
     thinking: Option<usize>,
     by_stream_index: HashMap<u64, usize>,
     by_id: HashMap<String, usize>,
-    partial_args: HashMap<usize, String>,
+    arguments: HashMap<usize, ToolCallArgumentsStream>,
     has_finish_reason: bool,
 }
 
@@ -246,7 +246,7 @@ impl Blocks {
                     namespace: None,
                 }));
                 let index = output.content.len() - 1;
-                self.partial_args.insert(index, String::new());
+                self.arguments.insert(index, ToolCallArgumentsStream::new());
                 out.push(AssistantMessageEvent::ToolcallStart {
                     content_index: index as u64,
                     partial: output.clone(),
@@ -273,9 +273,7 @@ impl Blocks {
             .pointer("/function/arguments")
             .and_then(Value::as_str)
             .unwrap_or("");
-        let partial = self.partial_args.entry(index).or_default();
-        partial.push_str(arguments);
-        block.arguments = parse_arguments(partial);
+        block.arguments = self.arguments.entry(index).or_default().append(arguments);
         out.push(AssistantMessageEvent::ToolcallDelta {
             content_index: index as u64,
             delta: arguments.to_owned(),
@@ -309,11 +307,11 @@ impl Blocks {
                     });
                 }
                 AssistantBlock::ToolCall(_) => {
-                    let partial = self.partial_args.remove(&index).unwrap_or_default();
+                    let partial = self.arguments.remove(&index).unwrap_or_default();
                     let AssistantBlock::ToolCall(block) = &mut output.content[index] else {
                         return Err("tool call index points at a non-tool block".to_owned());
                     };
-                    block.arguments = parse_arguments(&partial);
+                    block.arguments = partial.finish();
                     let tool_call = block.clone();
                     out.push(AssistantMessageEvent::ToolcallEnd {
                         content_index,
@@ -325,13 +323,6 @@ impl Blocks {
         }
         Ok(())
     }
-}
-
-fn parse_arguments(partial: &str) -> JsonObject {
-    parse_streaming_json(Some(partial))
-        .as_object()
-        .cloned()
-        .unwrap_or_default()
 }
 
 fn map_stop_reason(reason: &str) -> (StopReason, Option<String>) {
