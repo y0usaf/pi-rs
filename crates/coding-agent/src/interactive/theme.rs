@@ -122,7 +122,7 @@ fn underline(text: &str) -> String {
     format!("\x1b[4m{text}\x1b[24m")
 }
 
-fn strikethrough(text: &str) -> String {
+pub fn strikethrough(text: &str) -> String {
     format!("\x1b[9m{text}\x1b[29m")
 }
 

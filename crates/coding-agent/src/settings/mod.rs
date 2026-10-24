@@ -65,22 +65,29 @@ pub fn has_trust_requiring_resources(cwd: &str) -> bool {
     }
 }
 
-/// The nearest decision in `<agentDir>/trust.json` for `cwd` or an ancestor.
-pub fn stored_trust(agent_dir: &str, cwd: &str) -> Result<Option<bool>, String> {
+fn read_trust_store(
+    agent_dir: &str,
+) -> Result<(String, serde_json::Map<String, serde_json::Value>), String> {
     let path = join(agent_dir, "trust.json");
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
-        Err(_) => return Ok(None),
+        Err(_) => return Ok((path, serde_json::Map::new())),
     };
     let parsed = crate::json::parse(text.strip_prefix('\u{feff}').unwrap_or(&text))
         .map_err(|error| format!("Failed to read trust store {path}: {error}"))?;
     let serde_json::Value::Object(data) = parsed else {
         return Err(format!("Invalid trust store {path}: expected an object"));
     };
+    Ok((path, data))
+}
+
+/// The nearest `(path, decision)` in `<agentDir>/trust.json` for `cwd` or an ancestor.
+pub fn stored_trust_entry(agent_dir: &str, cwd: &str) -> Result<Option<(String, bool)>, String> {
+    let (_, data) = read_trust_store(agent_dir)?;
     let mut current = canonicalize(&resolve("/", cwd));
     loop {
         if let Some(serde_json::Value::Bool(decision)) = data.get(&current) {
-            return Ok(Some(*decision));
+            return Ok(Some((current, *decision)));
         }
         let parent = crate::paths::dirname(&current);
         if parent == current {
@@ -88,6 +95,76 @@ pub fn stored_trust(agent_dir: &str, cwd: &str) -> Result<Option<bool>, String> 
         }
         current = parent;
     }
+}
+
+/// The nearest decision in `<agentDir>/trust.json` for `cwd` or an ancestor.
+pub fn stored_trust(agent_dir: &str, cwd: &str) -> Result<Option<bool>, String> {
+    Ok(stored_trust_entry(agent_dir, cwd)?.map(|(_, decision)| decision))
+}
+
+/// One choice in the /trust overlay: the paths it writes and the decision it stands for.
+pub struct TrustOption {
+    pub label: String,
+    pub trusted: bool,
+    /// `(path, decision)`; `None` clears the entry.
+    pub updates: Vec<(String, Option<bool>)>,
+    pub saved_path: Option<String>,
+}
+
+/// `getProjectTrustOptions`: trust this folder, trust its parent, or do not trust.
+pub fn project_trust_options(cwd: &str, include_parent: bool) -> Vec<TrustOption> {
+    let path = canonicalize(&resolve("/", cwd));
+    let mut options = vec![TrustOption {
+        label: "Trust".to_string(),
+        trusted: true,
+        updates: vec![(path.clone(), Some(true))],
+        saved_path: Some(path.clone()),
+    }];
+    let parent = crate::paths::dirname(&path);
+    if include_parent && parent != path {
+        options.push(TrustOption {
+            label: format!("Trust parent folder ({parent})"),
+            trusted: true,
+            updates: vec![(parent.clone(), Some(true)), (path.clone(), None)],
+            saved_path: Some(parent),
+        });
+    }
+    options.push(TrustOption {
+        label: "Do not trust".to_string(),
+        trusted: false,
+        updates: vec![(path.clone(), Some(false))],
+        saved_path: Some(path),
+    });
+    options
+}
+
+/// `ProjectTrustStore.setMany`: apply decisions, `None` clearing an entry, and write the store
+/// sorted by path.
+pub fn write_trust(agent_dir: &str, updates: &[(String, Option<bool>)]) -> Result<(), String> {
+    let (path, mut data) = read_trust_store(agent_dir)?;
+    for (entry, decision) in updates {
+        match decision {
+            Some(decision) => {
+                data.insert(entry.clone(), serde_json::Value::Bool(*decision));
+            }
+            None => {
+                data.remove(entry);
+            }
+        }
+    }
+    let sorted: serde_json::Map<String, serde_json::Value> = {
+        let mut keys: Vec<&String> = data.keys().collect();
+        keys.sort();
+        keys.into_iter()
+            .map(|key| (key.clone(), data[key].clone()))
+            .collect()
+    };
+    let text = serde_json::to_string_pretty(&serde_json::Value::Object(sorted))
+        .map_err(|e| e.to_string())?;
+    if let Some(dir) = std::path::Path::new(&path).parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, text).map_err(|e| format!("Failed to write trust store {path}: {e}"))
 }
 
 /// Whether project resources load, without a UI to ask (print mode): `--approve`/`--no-approve`,

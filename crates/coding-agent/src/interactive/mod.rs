@@ -3,8 +3,10 @@
 
 pub mod chat;
 pub mod footer;
+pub mod keybindings;
 pub mod messages;
 pub mod run;
+pub mod selectors;
 pub mod slash_commands;
 pub mod status;
 pub mod theme;

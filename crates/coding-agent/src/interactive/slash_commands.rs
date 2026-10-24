@@ -129,6 +129,13 @@ pub enum Command {
     Session,
     Hotkeys,
     Compact(Option<String>),
+    /// `/model [search]`: opens the selector, or picks an exact match.
+    Model(Option<String>),
+    /// `/thinking [level]`: opens the selector, or sets the level.
+    Thinking(Option<String>),
+    ScopedModels,
+    Settings,
+    Trust,
     Unavailable(&'static str),
 }
 
@@ -155,6 +162,21 @@ pub fn dispatch(text: &str) -> Option<Command> {
                 .filter(|a| !a.is_empty())
                 .map(str::to_owned),
         ),
+        "model" => Command::Model(
+            arguments
+                .map(str::trim)
+                .filter(|a| !a.is_empty())
+                .map(str::to_owned),
+        ),
+        "thinking" => Command::Thinking(
+            arguments
+                .map(str::trim)
+                .filter(|a| !a.is_empty())
+                .map(str::to_owned),
+        ),
+        "scoped-models" => Command::ScopedModels,
+        "settings" => Command::Settings,
+        "trust" => Command::Trust,
         _ => Command::Unavailable(builtin.name),
     })
 }
@@ -396,8 +418,16 @@ mod tests {
         assert_eq!(dispatch("/compact  "), Some(Command::Compact(None)));
         assert_eq!(
             dispatch("/model gpt-5"),
-            Some(Command::Unavailable("model"))
+            Some(Command::Model(Some("gpt-5".into())))
         );
+        assert_eq!(dispatch("/model"), Some(Command::Model(None)));
+        assert_eq!(
+            dispatch("/thinking high"),
+            Some(Command::Thinking(Some("high".into())))
+        );
+        assert_eq!(dispatch("/settings"), Some(Command::Settings));
+        assert_eq!(dispatch("/scoped-models"), Some(Command::ScopedModels));
+        assert_eq!(dispatch("/trust"), Some(Command::Trust));
         assert_eq!(dispatch("/quit now"), None);
         assert_eq!(dispatch("/session extra"), None);
         assert_eq!(dispatch("/nope"), None);
