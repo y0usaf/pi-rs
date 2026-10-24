@@ -67,6 +67,17 @@ pub trait WatchHandle<T> {
     fn closed(&self) -> Option<WatchEnd>;
 }
 
+pub trait Watchable {
+    type Value: Clone + Send + 'static;
+
+    fn value(&self) -> Option<Self::Value>;
+
+    fn watch(
+        &self,
+        cancel: &CancelToken,
+    ) -> Result<Box<dyn WatchHandle<Self::Value> + Send>, Error>;
+}
+
 pub trait NativeWatchHandle<T> {
     fn value(&self) -> Option<T>;
     fn start(&mut self, listener: ValueListener<T>) -> Result<(), Error>;
