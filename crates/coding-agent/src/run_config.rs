@@ -10,7 +10,7 @@ use crate::model_resolver::{
     resolve_cli_model, resolve_model_scope,
 };
 use crate::models::ModelRegistry;
-use crate::settings::{DEFAULT_TOOL_NAMES, Settings, apply_tool_modifiers};
+use crate::settings::{DEFAULT_TOOL_NAMES, SettingsManager, apply_tool_modifiers};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -60,7 +60,7 @@ fn tool_matches(entries: &[String], name: &str) -> bool {
 
 /// The tools a session starts with (sdk.ts): `--tools` (a list, or `+name`/`-name` changes to
 /// the default), else `defaultTools`, else read, bash, edit, write; minus `--exclude-tools`.
-pub fn select_tools(args: &Args, settings: &Settings) -> Result<Vec<String>, String> {
+pub fn select_tools(args: &Args, settings: &SettingsManager) -> Result<Vec<String>, String> {
     if let Some(tools) = &args.tools
         && let Some(error) = tool_list_error(tools)
     {
@@ -110,7 +110,7 @@ pub struct ModelChoice {
 /// per-model setting, `defaultThinkingLevel`, or medium, clamped to what the model supports.
 pub fn choose_model(
     args: &Args,
-    settings: &Settings,
+    settings: &SettingsManager,
     registry: &ModelRegistry,
     session_model: Option<Model>,
     session_thinking: Option<ModelThinkingLevel>,
