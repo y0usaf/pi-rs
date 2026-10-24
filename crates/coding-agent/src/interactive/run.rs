@@ -8,7 +8,8 @@ use std::sync::mpsc;
 use std::time::Instant;
 
 use pi_durable::ai::types::{
-    Model, ModelThinkingLevel, TextContent, TextType, UserBlock, UserContent,
+    AssistantBlock, Message, Model, ModelThinkingLevel, TextContent, TextType, UserBlock,
+    UserContent,
 };
 use pi_durable::cancel::CancelToken;
 use pi_durable::harness::agent::{AgentChange, Change};
@@ -16,6 +17,7 @@ use pi_durable::harness::events::AgentEvent;
 use pi_durable::harness::harness::{Conversation, Harness};
 use pi_durable::harness::submissions::{SubmissionDraft, WhenBusy};
 use pi_durable::harness::types::ModelRef;
+use pi_tui::autocomplete::CombinedAutocompleteProvider;
 use pi_tui::components::editor::{Editor, EditorOptions};
 use pi_tui::components::text::Text;
 use pi_tui::keys::{is_key_release, matches_key};
@@ -24,7 +26,8 @@ use pi_tui::tui::{InputListenerResult, component};
 use pi_tui::tui_main_screen::{TuiMainScreen, as_ref};
 
 use super::chat::Chat;
-use super::footer::{Footer, FooterState, git_branch};
+use super::footer::{Footer, FooterState, Totals, git_branch};
+use super::slash_commands::{self, Command, Counts, SessionInfo};
 use super::status::{StatusArea, WORKING, header};
 use super::theme;
 use crate::run_config::level_name;
@@ -45,6 +48,8 @@ pub struct Session<'a> {
     pub initial: Option<(String, Vec<UserBlock>)>,
     pub messages: Vec<String>,
     pub provider_count: usize,
+    /// The SQLite file the conversation lives in; `None` under `--no-session`.
+    pub session_path: Option<String>,
     pub incoming: mpsc::Receiver<Incoming>,
     pub sender: mpsc::Sender<Incoming>,
 }
@@ -90,6 +95,42 @@ fn submit(
     .map_err(|e| e.to_string())
 }
 
+/// `/session`: the file, the id, message counts over the stored conversation, and the totals the
+/// footer shows.
+fn session_info(
+    root: &Conversation,
+    cancel: &CancelToken,
+    path: Option<&str>,
+    totals: Totals,
+    context_tokens: Option<u64>,
+) -> Result<String, String> {
+    let messages = crate::print::transcript(root, cancel).map_err(|e| e.to_string())?;
+    let mut counts = Counts::default();
+    for message in &messages {
+        counts.total += 1;
+        match message {
+            Message::User(_) => counts.user += 1,
+            Message::Assistant(assistant) => {
+                counts.assistant += 1;
+                counts.tool_calls += assistant
+                    .content
+                    .iter()
+                    .filter(|block| matches!(block, AssistantBlock::ToolCall(_)))
+                    .count();
+            }
+            Message::ToolResult(_) => counts.tool_results += 1,
+            Message::System(_) => {}
+        }
+    }
+    Ok(slash_commands::session(&SessionInfo {
+        file: path.map(str::to_owned),
+        id: root.id().0,
+        counts,
+        totals,
+        context_tokens,
+    }))
+}
+
 pub fn run(session: Session<'_>) -> Result<(), String> {
     let cancel = CancelToken::new();
     let Session {
@@ -101,6 +142,7 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
         initial,
         messages,
         provider_count,
+        session_path,
         incoming,
         sender,
     } = session;
@@ -164,6 +206,11 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
         let (s, d) = (submitted.clone(), dirty.clone());
         e.on_submit = Some(Box::new(move |t: &str| s.borrow_mut().push(t.to_string())));
         e.request_render = Some(Rc::new(move || d.set(true)));
+        e.set_autocomplete_provider(Rc::new(CombinedAutocompleteProvider::new(
+            slash_commands::autocomplete_commands(),
+            &cwd,
+            crate::config::tool_path("fd").as_deref(),
+        )));
     }
     let actions: Rc<RefCell<Vec<Action>>> = Rc::new(RefCell::new(Vec::new()));
     let (acts, ed) = (actions.clone(), editor.clone());
@@ -171,13 +218,15 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
         if is_key_release(data) {
             return None;
         }
-        let action = if matches_key(data, "escape") && !ed.borrow().is_showing_autocomplete() {
+        let action = if matches_key(data, slash_commands::INTERRUPT)
+            && !ed.borrow().is_showing_autocomplete()
+        {
             Action::Interrupt
-        } else if matches_key(data, "ctrl+c") {
+        } else if matches_key(data, slash_commands::CLEAR) {
             Action::Clear
-        } else if matches_key(data, "ctrl+d") && ed.borrow().get_text().is_empty() {
+        } else if matches_key(data, slash_commands::EXIT) && ed.borrow().get_text().is_empty() {
             Action::Exit
-        } else if matches_key(data, "ctrl+o") {
+        } else if matches_key(data, slash_commands::EXPAND_TOOLS) {
             Action::Expand
         } else {
             return None;
@@ -273,8 +322,37 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
             if trimmed.is_empty() {
                 continue;
             }
-            if trimmed == "/quit" || trimmed == "/exit" {
-                quit = true;
+            if let Some(command) = slash_commands::dispatch(trimmed) {
+                match command {
+                    Command::Quit => quit = true,
+                    Command::New => match root.reset(None, &cancel) {
+                        Ok(()) => {
+                            chat.clear();
+                            chat.notice("accent", "✓ New session started");
+                        }
+                        Err(e) => chat.notice("error", &format!("Error: {e}")),
+                    },
+                    Command::Session => match session_info(
+                        root,
+                        &cancel,
+                        session_path.as_deref(),
+                        chat.totals,
+                        chat.context_tokens,
+                    ) {
+                        Ok(info) => chat.block(&info),
+                        Err(e) => chat.notice("error", &format!("Error: {e}")),
+                    },
+                    Command::Hotkeys => chat.block(&slash_commands::hotkeys()),
+                    Command::Compact(instructions) => {
+                        if let Err(e) = root.compact(instructions.as_deref(), &cancel) {
+                            chat.notice("error", &format!("Error: {e}"));
+                        }
+                    }
+                    Command::Unavailable(name) => {
+                        chat.notice("dim", &format!("/{name} is not available in pi-rs yet"))
+                    }
+                }
+                dirty.set(true);
                 continue;
             }
             editor.borrow_mut().add_to_history(&text);
@@ -290,11 +368,13 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
                 dirty.set(true);
             }
         }
-        status.borrow_mut().set(if chat.working {
-            Some(chat.status.as_deref().unwrap_or(WORKING))
-        } else {
-            None
-        });
+        status
+            .borrow_mut()
+            .set(if chat.working || chat.status.is_some() {
+                Some(chat.status.as_deref().unwrap_or(WORKING))
+            } else {
+                None
+            });
         {
             let mut f = footer.borrow_mut();
             f.state.totals = chat.totals;

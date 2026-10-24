@@ -11,6 +11,7 @@ use pi_durable::ai::types::{
 use pi_durable::harness::events::{AgentEvent, MessageChange, SnapshotEvent, ToolOutput};
 use pi_durable::harness::usage::UsageState;
 use pi_durable::types::EntryRecord;
+use pi_tui::components::markdown::{Markdown, MarkdownOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
 use pi_tui::tui::{ComponentRef, Container};
@@ -18,6 +19,7 @@ use serde_json::Value;
 
 use super::footer::Totals;
 use super::messages::{AssistantView, UserMessage};
+use super::theme;
 use super::theme::fg;
 use super::tool_row::{ShownResult, ToolRow};
 
@@ -90,6 +92,27 @@ impl Chat {
         self.add(Rc::new(RefCell::new(Spacer::new(1))));
         let line = Text::new(&fg(token, text), 1, 0);
         self.add(Rc::new(RefCell::new(line)));
+    }
+
+    /// A block of Markdown in the chat, as upstream's `/hotkeys` and `/session` add them.
+    pub fn block(&mut self, markdown: &str) {
+        self.add(Rc::new(RefCell::new(Spacer::new(1))));
+        self.add(Rc::new(RefCell::new(Markdown::new(
+            markdown,
+            self.output_pad,
+            1,
+            theme::markdown(),
+            None,
+            MarkdownOptions::default(),
+        ))));
+    }
+
+    /// Empties the transcript, for a new session.
+    pub fn clear(&mut self) {
+        self.container.borrow_mut().clear();
+        self.rows.clear();
+        self.all_rows.clear();
+        self.streaming = None;
     }
 
     pub fn set_expanded(&mut self, expanded: bool) {
