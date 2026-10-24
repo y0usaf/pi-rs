@@ -23,7 +23,7 @@
 		"contextWindow": 128000,
 		"maxTokens": 64000,
 		"compat": {
-			"supportsMidConvoSystemMessages": false
+			"supportsToolSearch": false
 		}
 	},
 	"context": {

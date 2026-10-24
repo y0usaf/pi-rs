@@ -22,7 +22,7 @@
 		"contextWindow": 200000,
 		"maxTokens": 4096,
 		"compat": {
-			"supportsStrictMode": false
+			"supportsMaxOutputTokens": false
 		}
 	},
 	"context": {

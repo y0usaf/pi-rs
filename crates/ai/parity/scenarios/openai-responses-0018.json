@@ -22,7 +22,7 @@
 		"contextWindow": 200000,
 		"maxTokens": 64000,
 		"compat": {
-			"supportsDeveloperRole": true
+			"supportsMidConvoEffort": true
 		}
 	},
 	"context": {

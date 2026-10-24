@@ -23,7 +23,7 @@
 		"contextWindow": 32000,
 		"maxTokens": 4096,
 		"compat": {
-			"supportsDeveloperRole": false
+			"supportsAdditionalTools": false
 		}
 	},
 	"context": {

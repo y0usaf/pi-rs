@@ -23,9 +23,9 @@
 		"contextWindow": 200000,
 		"maxTokens": 4096,
 		"compat": {
-			"supportsAdditionalTools": true,
-			"supportsMidConvoSystemMessages": true,
-			"supportsToolSearch": true
+			"supportsExplicitPromptCacheMode": true,
+			"supportsLongCacheRetention": true,
+			"supportsMidConvoSystemMessages": true
 		}
 	},
 	"context": {

@@ -22,7 +22,7 @@
 		"contextWindow": 1000000,
 		"maxTokens": 64000,
 		"compat": {
-			"supportsToolSearch": true
+			"supportsAdditionalTools": true
 		}
 	},
 	"context": {

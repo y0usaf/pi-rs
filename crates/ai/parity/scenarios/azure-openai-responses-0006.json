@@ -23,7 +23,7 @@
 		"contextWindow": 128000,
 		"maxTokens": 4096,
 		"compat": {
-			"supportsLongCacheRetention": false
+			"supportsStrictMode": false
 		}
 	},
 	"context": {

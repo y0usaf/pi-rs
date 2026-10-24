@@ -23,8 +23,8 @@
 		"contextWindow": 200000,
 		"maxTokens": 16384,
 		"compat": {
-			"supportsExplicitPromptCacheMode": true,
-			"supportsMidConvoSystemMessages": true
+			"supportsAdditionalTools": true,
+			"supportsDeveloperRole": true
 		}
 	},
 	"context": {

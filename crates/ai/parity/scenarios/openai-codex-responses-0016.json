@@ -23,8 +23,8 @@
 		"contextWindow": 32000,
 		"maxTokens": 64000,
 		"compat": {
-			"supportsOpenAIGrammarTools": false,
-			"supportsToolSearch": false
+			"supportsMidConvoSystemMessages": false,
+			"supportsStrictMode": false
 		}
 	},
 	"context": {

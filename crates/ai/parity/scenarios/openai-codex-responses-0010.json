@@ -23,8 +23,8 @@
 		"contextWindow": 32000,
 		"maxTokens": 4096,
 		"compat": {
-			"supportsDeveloperRole": false,
-			"supportsStrictMode": false
+			"sessionAffinityFormat": "openai",
+			"supportsDeveloperRole": false
 		}
 	},
 	"context": {

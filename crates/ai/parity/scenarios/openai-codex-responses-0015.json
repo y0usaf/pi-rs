@@ -23,7 +23,7 @@
 		"contextWindow": 128000,
 		"maxTokens": 4096,
 		"compat": {
-			"supportsDeveloperRole": false
+			"supportsOpenAIGrammarTools": false
 		}
 	},
 	"context": {

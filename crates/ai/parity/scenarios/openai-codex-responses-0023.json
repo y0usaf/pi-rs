@@ -23,9 +23,9 @@
 		"contextWindow": 1000000,
 		"maxTokens": 64000,
 		"compat": {
-			"sessionAffinityFormat": "openai",
+			"sessionAffinityFormat": "openai-nosession",
 			"supportsMaxOutputTokens": true,
-			"supportsMidConvoSystemMessages": true
+			"supportsStrictMode": true
 		}
 	},
 	"context": {

@@ -22,8 +22,8 @@
 		"contextWindow": 200000,
 		"maxTokens": 4096,
 		"compat": {
-			"supportsAdditionalTools": true,
-			"supportsMaxOutputTokens": false
+			"supportsMidConvoEffort": true,
+			"supportsToolSearch": false
 		}
 	},
 	"context": {

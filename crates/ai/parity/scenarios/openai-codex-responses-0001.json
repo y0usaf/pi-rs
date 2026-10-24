@@ -23,7 +23,7 @@
 		"maxTokens": 4096,
 		"compat": {
 			"supportsLongCacheRetention": false,
-			"supportsMaxOutputTokens": false
+			"supportsMidConvoSystemMessages": false
 		}
 	},
 	"context": {

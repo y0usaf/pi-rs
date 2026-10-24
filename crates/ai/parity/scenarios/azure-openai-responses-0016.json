@@ -23,9 +23,9 @@
 		"contextWindow": 1000000,
 		"maxTokens": 64000,
 		"compat": {
-			"supportsAdditionalTools": false,
-			"supportsDeveloperRole": true,
-			"supportsOpenAIGrammarTools": false
+			"sessionAffinityFormat": "openai-nosession",
+			"supportsExplicitPromptCacheMode": false,
+			"supportsStrictMode": true
 		}
 	},
 	"context": {

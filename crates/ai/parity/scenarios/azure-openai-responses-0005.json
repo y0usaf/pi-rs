@@ -23,7 +23,7 @@
 		"contextWindow": 1000000,
 		"maxTokens": 64000,
 		"compat": {
-			"sessionAffinityFormat": "openrouter"
+			"supportsOpenAIGrammarTools": true
 		}
 	},
 	"context": {

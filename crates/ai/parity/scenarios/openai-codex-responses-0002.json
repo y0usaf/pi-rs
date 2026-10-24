@@ -23,9 +23,9 @@
 		"contextWindow": 1000000,
 		"maxTokens": 16384,
 		"compat": {
-			"supportsDeveloperRole": true,
-			"supportsExplicitPromptCacheMode": true,
-			"supportsLongCacheRetention": true
+			"sessionAffinityFormat": "openai-nosession",
+			"supportsLongCacheRetention": true,
+			"supportsMaxOutputTokens": true
 		}
 	},
 	"context": {

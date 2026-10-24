@@ -24,7 +24,7 @@
 		"maxTokens": 16384,
 		"compat": {
 			"sessionAffinityFormat": "openrouter",
-			"supportsLongCacheRetention": true
+			"supportsAdditionalTools": true
 		}
 	},
 	"context": {

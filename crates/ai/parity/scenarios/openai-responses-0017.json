@@ -22,9 +22,9 @@
 		"contextWindow": 1000000,
 		"maxTokens": 4096,
 		"compat": {
-			"sessionAffinityFormat": "openai",
-			"supportsAdditionalTools": false,
-			"supportsDeveloperRole": false
+			"sessionAffinityFormat": "openai-nosession",
+			"supportsExplicitPromptCacheMode": false,
+			"supportsMidConvoSystemMessages": true
 		}
 	},
 	"context": {

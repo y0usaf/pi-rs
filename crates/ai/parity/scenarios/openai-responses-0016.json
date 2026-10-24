@@ -23,7 +23,7 @@
 		"contextWindow": 1000000,
 		"maxTokens": 16384,
 		"compat": {
-			"supportsExplicitPromptCacheMode": true,
+			"supportsDeveloperRole": true,
 			"supportsStrictMode": true
 		}
 	},

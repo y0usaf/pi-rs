@@ -23,9 +23,9 @@
 		"contextWindow": 200000,
 		"maxTokens": 64000,
 		"compat": {
-			"supportsAdditionalTools": false,
-			"supportsDeveloperRole": false,
-			"supportsOpenAIGrammarTools": true
+			"supportsMidConvoEffort": false,
+			"supportsMidConvoSystemMessages": false,
+			"supportsToolSearch": true
 		}
 	},
 	"context": {
