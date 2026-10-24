@@ -921,7 +921,52 @@ impl SqliteStorage {
             }
         }
     }
+}
 
+/// Copy a session database into \`to\` through SQLite's \`VACUUM INTO\`, which folds the
+/// write-ahead log into one file and refuses a destination that already exists.
+pub fn copy_database(from: &Path, to: &Path) -> Result<()> {
+    let destination = to
+        .to_str()
+        .ok_or_else(|| invalid("Destination path is not UTF-8"))?
+        .to_owned();
+    let connection = open_read_only(from)?;
+    database::run(&connection, "VACUUM INTO ?1", params![destination])
+        .and_then(|()| connection.close().map_err(|(_, error)| sql(error)))
+}
+
+/// A connection that leaves the file alone: no write-ahead-log switch and no checkpoint on close,
+/// so a copy cannot change the source's bytes.
+fn open_read_only(path: &Path) -> Result<Connection> {
+    let connection = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(sql)?;
+    connection
+        .busy_timeout(std::time::Duration::from_millis(5_000))
+        .map_err(sql)?;
+    Ok(connection)
+}
+
+/// Whether a run is still in flight in \`path\`: a task that has not finished, or a submission
+/// that no turn has picked up. A copy of such a session would resume that run.
+pub fn in_flight(path: &Path) -> Result<bool> {
+    let connection = open_read_only(path)?;
+    let tasks = database::get(
+        &connection,
+        "SELECT COUNT(*) FROM tasks WHERE status <> 'terminal'",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let submissions = database::get(
+        &connection,
+        "SELECT COUNT(*) FROM submissions WHERE status IN ('queued', 'placed')",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    connection.close().map_err(|(_, error)| sql(error))?;
+    Ok(tasks.unwrap_or(0) > 0 || submissions.unwrap_or(0) > 0)
+}
+
+impl SqliteStorage {
     fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().expect("sqlite storage lock poisoned")
     }

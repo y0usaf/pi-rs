@@ -14,6 +14,7 @@ use pi_coding_agent::modes;
 use pi_coding_agent::paths::{PathInput, join, normalize_path, resolve_read_path};
 use pi_coding_agent::print::{self, RunInput, ToolSettings};
 use pi_coding_agent::run_config::{self, Diagnostic, level_name};
+use pi_coding_agent::session_fork;
 use pi_coding_agent::session_list;
 use pi_coding_agent::session_tree;
 use pi_coding_agent::settings::{
@@ -81,7 +82,6 @@ fn file_arguments(files: &[String], cwd: &str) -> Result<(String, Vec<UserBlock>
 fn unimplemented_flag(parsed: &Args) -> Option<&'static str> {
     let flags = [
         (parsed.export.is_some(), "--export"),
-        (parsed.fork.is_some(), "--fork"),
         (parsed.extensions.is_some(), "--extension"),
         (parsed.prompt_templates.is_some(), "--prompt-template"),
         (parsed.themes.is_some(), "--theme"),
@@ -90,6 +90,31 @@ fn unimplemented_flag(parsed: &Args) -> Option<&'static str> {
         (parsed.verbose, "--verbose"),
     ];
     flags.iter().find(|(set, _)| *set).map(|(_, name)| *name)
+}
+
+/// `forkFrom`: the copy records the session file it came from (`parentSession`).
+fn record_parent(
+    path: &str,
+    source: &str,
+    registry: &Arc<ModelRegistry>,
+    cwd: &str,
+    settings: &SettingsManager,
+) -> Result<(), String> {
+    let cancel = CancelToken::new();
+    let storage: Arc<dyn Storage> = Arc::new(
+        SqliteStorage::open(path, &Default::default()).map_err(|e| format!("Error: {e}"))?,
+    );
+    let harness = print::open_harness(
+        storage,
+        print::providers(Arc::clone(registry), &placeholder()),
+        print::extension(&[], Vec::new(), tool_settings(cwd, settings, &[])),
+        CompactionOverrides::default(),
+    )
+    .map_err(|e| e.to_string())?;
+    let root = print::root(&harness, &cancel).map_err(|e| e.to_string())?;
+    pi_coding_agent::session_info::set_parent_session(&root, &cancel, source)
+        .map_err(|e| e.to_string())?;
+    print::close(&harness, &cancel).map_err(|e| e.to_string())
 }
 
 /// `assertValidSessionId`.
@@ -128,6 +153,29 @@ fn validate_session_id(parsed: &Args) -> Result<(), String> {
             "Error: Session id must be non-empty, contain only alphanumeric characters, '-', '_', and '.', and start and end with an alphanumeric character"
                 .into(),
         );
+    }
+    Ok(())
+}
+
+/// `validateForkFlags`.
+fn validate_fork(parsed: &Args) -> Result<(), String> {
+    if parsed.fork.is_none() {
+        return Ok(());
+    }
+    let conflicts: Vec<&str> = [
+        parsed.session.as_ref().map(|_| "--session"),
+        parsed.continue_.then_some("--continue"),
+        parsed.resume.then_some("--resume"),
+        parsed.no_session.then_some("--no-session"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if !conflicts.is_empty() {
+        return Err(format!(
+            "Error: --fork cannot be combined with {}",
+            conflicts.join(", ")
+        ));
     }
     Ok(())
 }
@@ -184,6 +232,7 @@ fn run() -> Result<ExitCode, String> {
     {
         return Err("Error: --name requires a non-empty value".into());
     }
+    validate_fork(&parsed)?;
     if let Some(flag) = unimplemented_flag(&parsed) {
         return Err(format!("pi-rs: {flag} is not implemented yet"));
     }
@@ -228,8 +277,15 @@ fn run() -> Result<ExitCode, String> {
         .filter(|name| !name.is_empty())
         .map(str::to_owned);
     let sessions = session_list::dir(&agent_dir, &cwd, &parsed, &settings);
+    let mut fork_source: Option<(String, String)> = None;
     let session_path = if parsed.no_session {
         None
+    } else if let Some(fork) = &parsed.fork {
+        let source = session_fork::resolve(&sessions, fork)
+            .ok_or_else(|| format!("No session found matching '{fork}'"))?;
+        let copy = session_fork::copy(&source, &sessions, parsed.session_id.as_deref())?;
+        fork_source = Some((copy.clone(), source));
+        Some(copy)
     } else if let Some(path) = &parsed.session {
         Some(normalize_path(path, PathInput::default()))
     } else if parsed.resume {
@@ -373,6 +429,9 @@ fn run() -> Result<ExitCode, String> {
         model_takes_images: model.input.iter().any(|i| i == "image"),
         ..tool_settings(&cwd, &settings, &tool_env)
     };
+    if let Some((path, source)) = &fork_source {
+        record_parent(path, source, &registry, &cwd, &settings)?;
+    }
     if interactive {
         let (sender, incoming) = std::sync::mpsc::channel();
         let provider_count = {
