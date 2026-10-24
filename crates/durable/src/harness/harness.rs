@@ -673,10 +673,12 @@ impl Conversation {
 
     /// Upstream's agent events for this conversation: a snapshot now, then message, tool and
     /// run events as the conversation's view changes. Call `start` on the stream to receive them.
-    pub fn events(
-        &self,
-        cancel: &CancelToken,
-    ) -> Result<crate::harness::events::AgentEventStream> {
-        crate::harness::events::watch_events(&self.inner.session, &self.inner.views, self.id, cancel)
+    pub fn events(&self, cancel: &CancelToken) -> Result<crate::harness::events::AgentEventStream> {
+        crate::harness::events::watch_events(
+            &self.inner.session,
+            &self.inner.views,
+            self.id,
+            cancel,
+        )
     }
 }

@@ -83,7 +83,11 @@ fn normalize_kitty_functional(cp: i64) -> i64 {
 
 fn normalize_shifted_letter(cp: i64, modifier: i64) -> i64 {
     let effective = and(modifier, !LOCK_MASK);
-    if and(effective, SHIFT) != 0 && (65..=90).contains(&cp) { cp + 32 } else { cp }
+    if and(effective, SHIFT) != 0 && (65..=90).contains(&cp) {
+        cp + 32
+    } else {
+        cp
+    }
 }
 
 fn logical_shifted_symbol(cp: Option<i64>, modifier: i64, allowed: &str) -> Option<(i64, i64)> {
@@ -237,7 +241,9 @@ fn has_event_marker(data: &str, n: char) -> bool {
     if data.contains("\x1b[200~") {
         return false;
     }
-    ['u', '~', 'A', 'B', 'C', 'D', 'H', 'F'].iter().any(|f| data.contains(&format!(":{n}{f}")))
+    ['u', '~', 'A', 'B', 'C', 'D', 'H', 'F']
+        .iter()
+        .any(|f| data.contains(&format!(":{n}{f}")))
 }
 
 /// Whether the input is a Kitty key release event.
@@ -258,7 +264,10 @@ struct Cur<'a> {
 
 impl<'a> Cur<'a> {
     fn new(s: &'a str) -> Self {
-        Cur { b: s.as_bytes(), i: 0 }
+        Cur {
+            b: s.as_bytes(),
+            i: 0,
+        }
     }
     fn lit(&mut self, s: &str) -> bool {
         if self.b[self.i..].starts_with(s.as_bytes()) {
@@ -284,10 +293,10 @@ impl<'a> Cur<'a> {
     /// `(?:<sep>(\d+))?`
     fn opt_num(&mut self, sep: &str) -> Option<&'a str> {
         let save = self.i;
-        if self.lit(sep) {
-            if let Some(d) = self.digits1() {
-                return Some(d);
-            }
+        if self.lit(sep)
+            && let Some(d) = self.digits1()
+        {
+            return Some(d);
         }
         self.i = save;
         None
@@ -305,8 +314,10 @@ fn num(s: &str) -> i64 {
 }
 
 /// `^\x1b\[(\d+)(?::(\d*))?(?::(\d+))?(?:;(\d+))?(?::(\d+))?u$`:
+type CsiU<'a> = (i64, Option<i64>, Option<i64>, Option<i64>, Option<&'a str>);
+
 /// codepoint, shifted, base, modifier, event.
-fn match_csi_u(data: &str) -> Option<(i64, Option<i64>, Option<i64>, Option<i64>, Option<&str>)> {
+fn match_csi_u(data: &str) -> Option<CsiU<'_>> {
     let mut c = Cur::new(data);
     if !c.lit("\x1b[") {
         return None;
@@ -350,51 +361,69 @@ fn event_type(s: Option<&str>) -> KeyEventType {
 
 fn parse_kitty(data: &str) -> Option<KittySeq> {
     if let Some((codepoint, shifted, base, modv, event)) = match_csi_u(data) {
-        return Some(KittySeq { codepoint, shifted, base, modifier: modv.unwrap_or(1) - 1, event: event_type(event) });
+        return Some(KittySeq {
+            codepoint,
+            shifted,
+            base,
+            modifier: modv.unwrap_or(1) - 1,
+            event: event_type(event),
+        });
     }
     // ESC [ 1 ; mod (:event)? (A|B|C|D|H|F)
     let mut c = Cur::new(data);
-    if c.lit("\x1b[1;") {
-        if let Some(m) = c.digits1() {
-            let event = c.opt_num(":");
-            if let Some(last) = c.peek() {
-                if c.i + 1 == c.b.len() {
-                    let cp = match last {
-                        b'A' => Some(UP),
-                        b'B' => Some(DOWN),
-                        b'C' => Some(RIGHT),
-                        b'D' => Some(LEFT),
-                        b'H' => Some(HOME),
-                        b'F' => Some(END),
-                        _ => None,
-                    };
-                    if let Some(codepoint) = cp {
-                        return Some(KittySeq { codepoint, shifted: None, base: None, modifier: num(m) - 1, event: event_type(event) });
-                    }
-                }
+    if c.lit("\x1b[1;")
+        && let Some(m) = c.digits1()
+    {
+        let event = c.opt_num(":");
+        if let Some(last) = c.peek()
+            && c.i + 1 == c.b.len()
+        {
+            let cp = match last {
+                b'A' => Some(UP),
+                b'B' => Some(DOWN),
+                b'C' => Some(RIGHT),
+                b'D' => Some(LEFT),
+                b'H' => Some(HOME),
+                b'F' => Some(END),
+                _ => None,
+            };
+            if let Some(codepoint) = cp {
+                return Some(KittySeq {
+                    codepoint,
+                    shifted: None,
+                    base: None,
+                    modifier: num(m) - 1,
+                    event: event_type(event),
+                });
             }
         }
     }
     // ESC [ num (;mod)? (:event)? ~
     let mut c = Cur::new(data);
-    if c.lit("\x1b[") {
-        if let Some(k) = c.digits1() {
-            let modv = c.opt_num(";");
-            let event = c.opt_num(":");
-            if c.end_with(b'~') {
-                let cp = match num(k) {
-                    2 => Some(INSERT),
-                    3 => Some(DELETE),
-                    5 => Some(PAGE_UP),
-                    6 => Some(PAGE_DOWN),
-                    7 => Some(HOME),
-                    8 => Some(END),
-                    _ => None,
-                };
-                if let Some(codepoint) = cp {
-                    let modifier = modv.map_or(1, num) - 1;
-                    return Some(KittySeq { codepoint, shifted: None, base: None, modifier, event: event_type(event) });
-                }
+    if c.lit("\x1b[")
+        && let Some(k) = c.digits1()
+    {
+        let modv = c.opt_num(";");
+        let event = c.opt_num(":");
+        if c.end_with(b'~') {
+            let cp = match num(k) {
+                2 => Some(INSERT),
+                3 => Some(DELETE),
+                5 => Some(PAGE_UP),
+                6 => Some(PAGE_DOWN),
+                7 => Some(HOME),
+                8 => Some(END),
+                _ => None,
+            };
+            if let Some(codepoint) = cp {
+                let modifier = modv.map_or(1, num) - 1;
+                return Some(KittySeq {
+                    codepoint,
+                    shifted: None,
+                    base: None,
+                    modifier,
+                    event: event_type(event),
+                });
             }
         }
     }
@@ -402,7 +431,9 @@ fn parse_kitty(data: &str) -> Option<KittySeq> {
 }
 
 fn matches_kitty(data: &str, expected_cp: i64, expected_mod: i64) -> bool {
-    let Some(p) = parse_kitty(data) else { return false };
+    let Some(p) = parse_kitty(data) else {
+        return false;
+    };
     let actual_mod = and(p.modifier, !LOCK_MASK);
     let expected = and(expected_mod, !LOCK_MASK);
     let cp = normalize_shifted_letter(normalize_kitty_functional(p.codepoint), p.modifier);
@@ -410,10 +441,11 @@ fn matches_kitty(data: &str, expected_cp: i64, expected_mod: i64) -> bool {
     if actual_mod == expected && cp == want {
         return true;
     }
-    if let Some((lcp, lmod)) = logical_shifted_symbol(p.shifted, actual_mod, SYMBOL_KEYS) {
-        if and(lmod, !LOCK_MASK) == expected && lcp == normalize_kitty_functional(expected_cp) {
-            return true;
-        }
+    if let Some((lcp, lmod)) = logical_shifted_symbol(p.shifted, actual_mod, SYMBOL_KEYS)
+        && and(lmod, !LOCK_MASK) == expected
+        && lcp == normalize_kitty_functional(expected_cp)
+    {
+        return true;
     }
     if actual_mod != expected {
         return false;
@@ -460,7 +492,11 @@ fn matches_raw_backspace(data: &str, modifier: i64) -> bool {
     if data != "\x08" {
         return false;
     }
-    if is_windows_terminal_session() { modifier == CTRL } else { modifier == 0 }
+    if is_windows_terminal_session() {
+        modifier == CTRL
+    } else {
+        modifier == 0
+    }
 }
 
 fn raw_ctrl_char(key: &str) -> Option<char> {
@@ -475,8 +511,12 @@ fn raw_ctrl_char(key: &str) -> Option<char> {
 }
 
 fn matches_printable_modify_other_keys(data: &str, keycode: i64, modifier: i64) -> bool {
-    let Some((cp, m)) = parse_modify_other_keys(data) else { return false };
-    if m == modifier && normalize_shifted_letter(cp, m) == normalize_shifted_letter(keycode, modifier) {
+    let Some((cp, m)) = parse_modify_other_keys(data) else {
+        return false;
+    };
+    if m == modifier
+        && normalize_shifted_letter(cp, m) == normalize_shifted_letter(keycode, modifier)
+    {
         return true;
     }
     logical_shifted_symbol(Some(cp), m, SHIFTED_SYMBOL_KEYS) == Some((keycode, modifier))
@@ -500,7 +540,11 @@ fn format_key_name(key: &str, modifier: i64) -> Option<String> {
     if effective & SUPER != 0 {
         mods.push("super");
     }
-    Some(if mods.is_empty() { key.to_string() } else { format!("{}+{key}", mods.join("+")) })
+    Some(if mods.is_empty() {
+        key.to_string()
+    } else {
+        format!("{}+{key}", mods.join("+"))
+    })
 }
 
 /// A key id split into its key and modifier bits.
@@ -508,9 +552,14 @@ fn parse_key_id(key_id: &str) -> Option<(String, i64)> {
     let mut key = key_id.to_lowercase();
     let mut seen = 0i64;
     loop {
-        let found = [("shift", SHIFT), ("alt", ALT), ("ctrl", CTRL), ("super", SUPER)]
-            .into_iter()
-            .find(|(name, _)| key.starts_with(&format!("{name}+")));
+        let found = [
+            ("shift", SHIFT),
+            ("alt", ALT),
+            ("ctrl", CTRL),
+            ("super", SUPER),
+        ]
+        .into_iter()
+        .find(|(name, _)| key.starts_with(&format!("{name}+")));
         let Some((name, bit)) = found else { break };
         if seen & bit != 0 {
             return None;
@@ -526,7 +575,9 @@ fn parse_key_id(key_id: &str) -> Option<(String, i64)> {
 
 /// Whether raw terminal input `data` is the key `key_id` (e.g. `"ctrl+c"`, `"shift+enter"`).
 pub fn matches_key(data: &str, key_id: &str) -> bool {
-    let Some((key, modifier)) = parse_key_id(key_id) else { return false };
+    let Some((key, modifier)) = parse_key_id(key_id) else {
+        return false;
+    };
     let kitty = is_kitty_protocol_active();
     let mk = |cp: i64, m: i64| matches_kitty(data, cp, m);
     let mo = |cp: i64, m: i64| matches_modify_other_keys(data, cp, m);
@@ -603,7 +654,9 @@ pub fn matches_key(data: &str, key_id: &str) -> bool {
                 return mk(CP_BACKSPACE, CTRL) || mo(CP_BACKSPACE, CTRL);
             }
             if modifier == 0 {
-                return matches_raw_backspace(data, 0) || mk(CP_BACKSPACE, 0) || mo(CP_BACKSPACE, 0);
+                return matches_raw_backspace(data, 0)
+                    || mk(CP_BACKSPACE, 0)
+                    || mo(CP_BACKSPACE, 0);
             }
             return mk(CP_BACKSPACE, modifier) || mo(CP_BACKSPACE, modifier);
         }
@@ -620,7 +673,11 @@ pub fn matches_key(data: &str, key_id: &str) -> bool {
         "pageup" => return functional("pageUp", PAGE_UP),
         "pagedown" => return functional("pageDown", PAGE_DOWN),
         "up" | "down" => {
-            let (cp, alt_seq) = if key == "up" { (UP, "\x1bp") } else { (DOWN, "\x1bn") };
+            let (cp, alt_seq) = if key == "up" {
+                (UP, "\x1bp")
+            } else {
+                (DOWN, "\x1bn")
+            };
             if modifier == ALT {
                 return data == alt_seq || mk(cp, ALT);
             }
@@ -635,10 +692,15 @@ pub fn matches_key(data: &str, key_id: &str) -> bool {
                 ("\x1b[1;3C", "\x1bF", "\x1bf", "\x1b[1;5C")
             };
             if modifier == ALT {
-                return data == csi_alt || (!kitty && data == legacy_alt) || data == esc_word || mk(cp, ALT);
+                return data == csi_alt
+                    || (!kitty && data == legacy_alt)
+                    || data == esc_word
+                    || mk(cp, ALT);
             }
             if modifier == CTRL {
-                return data == csi_ctrl || matches_legacy_modifier(data, &key, CTRL) || mk(cp, CTRL);
+                return data == csi_ctrl
+                    || matches_legacy_modifier(data, &key, CTRL)
+                    || mk(cp, CTRL);
             }
             return functional(&key, cp);
         }
@@ -648,7 +710,9 @@ pub fn matches_key(data: &str, key_id: &str) -> bool {
         _ => {}
     }
     let mut it = key.chars();
-    let (Some(kc), None) = (it.next(), it.next()) else { return false };
+    let (Some(kc), None) = (it.next(), it.next()) else {
+        return false;
+    };
     let is_letter = kc.is_ascii_lowercase();
     let is_digit = kc.is_ascii_digit();
     if !(is_letter || is_digit || SYMBOL_KEYS.contains(kc)) {
@@ -656,12 +720,12 @@ pub fn matches_key(data: &str, key_id: &str) -> bool {
     }
     let cp = kc as i64;
     let raw_ctrl = raw_ctrl_char(&key);
-    if modifier == CTRL + ALT && !kitty {
-        if let Some(rc) = raw_ctrl {
-            if data == format!("\x1b{rc}") {
-                return true;
-            }
-        }
+    if modifier == CTRL + ALT
+        && !kitty
+        && let Some(rc) = raw_ctrl
+        && data == format!("\x1b{rc}")
+    {
+        return true;
     }
     if modifier == ALT && !kitty && data == format!("\x1b{kc}") {
         return true;
@@ -691,7 +755,8 @@ pub fn matches_key(data: &str, key_id: &str) -> bool {
 fn format_parsed_key(codepoint: i64, modifier: i64, base: Option<i64>) -> Option<String> {
     let n = normalize_kitty_functional(codepoint);
     let id = normalize_shifted_letter(n, modifier);
-    let known = (97..=122).contains(&id) || (48..=57).contains(&id) || is_symbol_key_cp(id, SYMBOL_KEYS);
+    let known =
+        (97..=122).contains(&id) || (48..=57).contains(&id) || is_symbol_key_cp(id, SYMBOL_KEYS);
     let e = if known { id } else { base.unwrap_or(id) };
     let name: String = match e {
         CP_ESCAPE => "escape".into(),
@@ -724,7 +789,8 @@ pub fn parse_key(data: &str) -> Option<String> {
         return format_parsed_key(cp, m, k.base);
     }
     if let Some((cp0, m0)) = parse_modify_other_keys(data) {
-        let (cp, m) = logical_shifted_symbol(Some(cp0), m0, SHIFTED_SYMBOL_KEYS).unwrap_or((cp0, m0));
+        let (cp, m) =
+            logical_shifted_symbol(Some(cp0), m0, SHIFTED_SYMBOL_KEYS).unwrap_or((cp0, m0));
         return format_parsed_key(cp, m, None);
     }
     let kitty = is_kitty_protocol_active();
@@ -749,7 +815,11 @@ pub fn parse_key(data: &str) -> Option<String> {
         "\x00" => Some("ctrl+space"),
         " " => Some("space"),
         "\x7f" => Some("backspace"),
-        "\x08" => Some(if is_windows_terminal_session() { "ctrl+backspace" } else { "backspace" }),
+        "\x08" => Some(if is_windows_terminal_session() {
+            "ctrl+backspace"
+        } else {
+            "backspace"
+        }),
         "\x1b[Z" => Some("shift+tab"),
         "\x1b\r" if !kitty => Some("alt+enter"),
         "\x1b " if !kitty => Some("alt+space"),
@@ -767,7 +837,10 @@ pub fn parse_key(data: &str) -> Option<String> {
         if (1..=26).contains(&code) {
             return Some(format!("ctrl+alt+{}", from_char_code(code + 96)?));
         }
-        if (97..=122).contains(&code) || (48..=57).contains(&code) || is_symbol_key_cp(code, SYMBOL_KEYS) {
+        if (97..=122).contains(&code)
+            || (48..=57).contains(&code)
+            || is_symbol_key_cp(code, SYMBOL_KEYS)
+        {
             return Some(format!("alt+{}", from_char_code(code)?));
         }
     }
@@ -809,10 +882,10 @@ pub fn decode_kitty_printable(data: &str) -> Option<String> {
         return None;
     }
     let mut e = cp;
-    if modifier & SHIFT != 0 {
-        if let Some(s) = shifted {
-            e = s;
-        }
+    if modifier & SHIFT != 0
+        && let Some(s) = shifted
+    {
+        e = s;
     }
     e = normalize_kitty_functional(e);
     if e < 32 {

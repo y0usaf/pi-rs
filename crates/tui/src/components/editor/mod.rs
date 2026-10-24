@@ -1,13 +1,13 @@
 //! Multi-line editor (upstream `components/editor.ts`). Cursor columns are byte offsets.
 //! Autocomplete is synchronous: providers answer at once, so there is no debounce or abort.
 
-pub mod text;
 mod complete;
 mod edit;
 mod input;
 mod kill;
 mod nav;
 mod render;
+pub mod text;
 
 use crate::autocomplete::AutocompleteProvider;
 use crate::components::select_list::{SelectItem, SelectList, SelectListTheme};
@@ -108,8 +108,8 @@ pub struct Editor {
     pub(crate) preferred_visual_col: Option<usize>,
     pub(crate) snapped_from_cursor_col: Option<usize>,
     undo_stack: UndoStack<EditorSnapshot>,
-    pub on_submit: Option<Box<dyn FnMut(&str)>>,
-    pub on_change: Option<Box<dyn FnMut(&str)>>,
+    pub on_submit: Option<crate::components::TextCallback>,
+    pub on_change: Option<crate::components::TextCallback>,
     pub disable_submit: bool,
 }
 
@@ -120,7 +120,11 @@ fn clamp_max_visible(n: usize) -> usize {
 impl Editor {
     pub fn new(theme: EditorTheme, options: EditorOptions) -> Self {
         Editor {
-            state: EditorState { lines: vec![String::new()], cursor_line: 0, cursor_col: 0 },
+            state: EditorState {
+                lines: vec![String::new()],
+                cursor_line: 0,
+                cursor_col: 0,
+            },
             focused: false,
             border_color: theme.border_color.clone(),
             theme,
@@ -132,11 +136,16 @@ impl Editor {
             rendered_autocomplete_height: 0,
             scroll_offset: 0,
             autocomplete_provider: None,
-            autocomplete_trigger_characters: text::DEFAULT_TRIGGER_CHARACTERS.iter().map(|s| s.to_string()).collect(),
+            autocomplete_trigger_characters: text::DEFAULT_TRIGGER_CHARACTERS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             autocomplete_list: None,
             autocomplete_state: None,
             autocomplete_prefix: String::new(),
-            autocomplete_max_visible: clamp_max_visible(options.autocomplete_max_visible.unwrap_or(5)),
+            autocomplete_max_visible: clamp_max_visible(
+                options.autocomplete_max_visible.unwrap_or(5),
+            ),
             autocomplete_picked: Rc::new(RefCell::new(None)),
             pastes: BTreeMap::new(),
             paste_counter: 0,
@@ -175,13 +184,23 @@ impl Editor {
     /// Grapheme segments of `text`, with valid paste markers merged.
     pub(crate) fn seg_graphemes<'a>(&self, text: &'a str) -> Vec<WordSegment<'a>> {
         let p = &self.pastes;
-        text::segment_with_markers(text, text::grapheme_segments(text), &|id| p.contains_key(&id), !p.is_empty())
+        text::segment_with_markers(
+            text,
+            text::grapheme_segments(text),
+            &|id| p.contains_key(&id),
+            !p.is_empty(),
+        )
     }
 
     /// Word segments of `text`, with valid paste markers merged.
     pub(crate) fn seg_words<'a>(&self, text: &'a str) -> Vec<WordSegment<'a>> {
         let p = &self.pastes;
-        text::segment_with_markers(text, word_segments(text), &|id| p.contains_key(&id), !p.is_empty())
+        text::segment_with_markers(
+            text,
+            word_segments(text),
+            &|id| p.contains_key(&id),
+            !p.is_empty(),
+        )
     }
 
     pub fn padding_x(&self) -> usize {

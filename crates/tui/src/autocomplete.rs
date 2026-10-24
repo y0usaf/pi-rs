@@ -7,6 +7,9 @@ use crate::fuzzy::fuzzy_filter;
 use crate::utils::{is_autocomplete_separator, js_trim};
 use std::rc::Rc;
 
+/// Completions for a command's argument.
+pub type ArgumentCompletions = Rc<dyn Fn(&str) -> Option<Vec<AutocompleteItem>>>;
+
 const PATH_DELIMITERS: &[char] = &[' ', '\t', '\x22', '\'', '='];
 
 fn wrapper_closer(c: char) -> Option<char> {
@@ -51,7 +54,12 @@ fn build_fd_path_query(query: &str) -> String {
         return n;
     }
     let sep = "[\\\\/]";
-    let mut p = trimmed.split('/').filter(|s| !s.is_empty()).map(escape_regex).collect::<Vec<_>>().join(sep);
+    let mut p = trimmed
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .map(escape_regex)
+        .collect::<Vec<_>>()
+        .join(sep);
     if trailing {
         p.push_str(sep);
     }
@@ -100,7 +108,8 @@ fn is_token_start(text: &str, index: usize) -> bool {
     while start > 0 && wrapper_closer(b[start - 1] as char).is_some() {
         start -= 1;
     }
-    (start > 0 && PATH_DELIMITERS.contains(&(b[start - 1] as char))) || is_token_start_text(&text[..start])
+    (start > 0 && PATH_DELIMITERS.contains(&(b[start - 1] as char)))
+        || is_token_start_text(&text[..start])
 }
 
 fn extract_quoted_prefix(text: &str) -> Option<&str> {
@@ -119,21 +128,41 @@ struct PathPrefix<'a> {
 
 fn parse_path_prefix(p: &str) -> PathPrefix<'_> {
     if let Some(r) = p.strip_prefix("@\x22") {
-        return PathPrefix { raw: r, at: true, quoted: true };
+        return PathPrefix {
+            raw: r,
+            at: true,
+            quoted: true,
+        };
     }
     if let Some(r) = p.strip_prefix('\x22') {
-        return PathPrefix { raw: r, at: false, quoted: true };
+        return PathPrefix {
+            raw: r,
+            at: false,
+            quoted: true,
+        };
     }
     if let Some(r) = p.strip_prefix('@') {
-        return PathPrefix { raw: r, at: true, quoted: false };
+        return PathPrefix {
+            raw: r,
+            at: true,
+            quoted: false,
+        };
     }
-    PathPrefix { raw: p, at: false, quoted: false }
+    PathPrefix {
+        raw: p,
+        at: false,
+        quoted: false,
+    }
 }
 
 fn build_completion_value(path: &str, at: bool, quoted: bool) -> String {
     let needs_quotes = quoted || path.chars().any(is_autocomplete_separator);
     let prefix = if at { "@" } else { "" };
-    if needs_quotes { format!("{prefix}\x22{path}\x22") } else { format!("{prefix}{path}") }
+    if needs_quotes {
+        format!("{prefix}\x22{path}\x22")
+    } else {
+        format!("{prefix}{path}")
+    }
 }
 
 // POSIX path helpers with Node's semantics.
@@ -203,7 +232,11 @@ pub(crate) fn path_dirname(p: &str) -> String {
     }
     match end {
         None => {
-            if abs { "/".into() } else { ".".into() }
+            if abs {
+                "/".into()
+            } else {
+                ".".into()
+            }
         }
         Some(e) => p[..e].to_string(),
     }
@@ -238,7 +271,11 @@ pub(crate) fn locale_compare(a: &str, b: &str) -> std::cmp::Ordering {
     }
     for (x, y) in a.chars().zip(b.chars()) {
         if x != y {
-            return if x.is_lowercase() && y.is_uppercase() { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater };
+            return if x.is_lowercase() && y.is_uppercase() {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            };
         }
     }
     a.cmp(b)
@@ -257,7 +294,7 @@ pub struct SlashCommand {
     pub name: String,
     pub description: Option<String>,
     pub argument_hint: Option<String>,
-    pub argument_completions: Option<Rc<dyn Fn(&str) -> Option<Vec<AutocompleteItem>>>>,
+    pub argument_completions: Option<ArgumentCompletions>,
 }
 
 /// A command entry: a full slash command or a plain item (value = name).
@@ -297,9 +334,27 @@ pub trait AutocompleteProvider {
     fn trigger_characters(&self) -> Option<Vec<String>> {
         None
     }
-    fn get_suggestions(&self, lines: &[String], cursor_line: usize, cursor_col: usize, force: bool) -> Option<AutocompleteSuggestions>;
-    fn apply_completion(&self, lines: &[String], cursor_line: usize, cursor_col: usize, item: &AutocompleteItem, prefix: &str) -> Completion;
-    fn should_trigger_file_completion(&self, _lines: &[String], _cursor_line: usize, _cursor_col: usize) -> bool {
+    fn get_suggestions(
+        &self,
+        lines: &[String],
+        cursor_line: usize,
+        cursor_col: usize,
+        force: bool,
+    ) -> Option<AutocompleteSuggestions>;
+    fn apply_completion(
+        &self,
+        lines: &[String],
+        cursor_line: usize,
+        cursor_col: usize,
+        item: &AutocompleteItem,
+        prefix: &str,
+    ) -> Completion;
+    fn should_trigger_file_completion(
+        &self,
+        _lines: &[String],
+        _cursor_line: usize,
+        _cursor_col: usize,
+    ) -> bool {
         true
     }
 }
@@ -317,10 +372,34 @@ struct FdEntry {
     is_dir: bool,
 }
 
-fn walk_with_fd(base: &str, fd: &str, query: &str, max: usize, max_depth: Option<usize>) -> Vec<FdEntry> {
+fn walk_with_fd(
+    base: &str,
+    fd: &str,
+    query: &str,
+    max: usize,
+    max_depth: Option<usize>,
+) -> Vec<FdEntry> {
     let mut cmd = std::process::Command::new(fd);
-    cmd.args(["--base-directory", base, "--max-results", &max.to_string(), "--type", "f", "--type", "d", "--follow", "--hidden"]);
-    cmd.args(["--exclude", ".git", "--exclude", ".git/*", "--exclude", ".git/**"]);
+    cmd.args([
+        "--base-directory",
+        base,
+        "--max-results",
+        &max.to_string(),
+        "--type",
+        "f",
+        "--type",
+        "d",
+        "--follow",
+        "--hidden",
+    ]);
+    cmd.args([
+        "--exclude",
+        ".git",
+        "--exclude",
+        ".git/*",
+        "--exclude",
+        ".git/**",
+    ]);
     if let Some(d) = max_depth {
         cmd.args(["--max-depth", &d.to_string()]);
     }
@@ -330,7 +409,13 @@ fn walk_with_fd(base: &str, fd: &str, query: &str, max: usize, max_depth: Option
     if !query.is_empty() {
         cmd.arg(build_fd_path_query(query));
     }
-    let Ok(out) = cmd.stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output() else { return Vec::new() };
+    let Ok(out) = cmd
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+    else {
+        return Vec::new();
+    };
     if !out.status.success() || out.stdout.is_empty() {
         return Vec::new();
     }
@@ -343,7 +428,10 @@ fn walk_with_fd(base: &str, fd: &str, query: &str, max: usize, max_depth: Option
         if n == ".git" || n.starts_with(".git/") || n.contains("/.git/") {
             continue;
         }
-        res.push(FdEntry { is_dir: trailing, path: d });
+        res.push(FdEntry {
+            is_dir: trailing,
+            path: d,
+        });
     }
     res
 }
@@ -355,7 +443,12 @@ fn utf16_len(s: &str) -> usize {
 impl CombinedAutocompleteProvider {
     pub fn new(commands: Vec<CommandEntry>, base_path: &str, fd_path: Option<&str>) -> Self {
         let home = std::env::var("HOME").unwrap_or_default();
-        CombinedAutocompleteProvider { commands, base_path: base_path.into(), fd_path: fd_path.map(Into::into), home }
+        CombinedAutocompleteProvider {
+            commands,
+            base_path: base_path.into(),
+            fd_path: fd_path.map(Into::into),
+            home,
+        }
     }
 
     /// Override the home directory used for `~` (tests).
@@ -365,10 +458,10 @@ impl CombinedAutocompleteProvider {
     }
 
     fn extract_at_prefix<'a>(&self, text: &'a str) -> Option<&'a str> {
-        if let Some(q) = extract_quoted_prefix(text) {
-            if q.starts_with("@\x22") {
-                return Some(q);
-            }
+        if let Some(q) = extract_quoted_prefix(text)
+            && q.starts_with("@\x22")
+        {
+            return Some(q);
         }
         let token = strip_leading_wrappers(&text[after_last_delimiter(text).unwrap_or(0)..]);
         token.starts_with('@').then_some(token)
@@ -394,7 +487,11 @@ impl CombinedAutocompleteProvider {
     fn expand_home(&self, path: &str) -> String {
         if let Some(rest) = path.strip_prefix("~/") {
             let e = path_join(&[&self.home, rest]);
-            return if path.ends_with('/') && !e.ends_with('/') { format!("{e}/") } else { e };
+            return if path.ends_with('/') && !e.ends_with('/') {
+                format!("{e}/")
+            } else {
+                e
+            };
         }
         if path == "~" {
             return self.home.clone();
@@ -422,7 +519,11 @@ impl CombinedAutocompleteProvider {
 
     fn scoped_display(display_base: &str, rel: &str) -> String {
         let r = to_display_path(rel);
-        if display_base == "/" { format!("/{r}") } else { format!("{}{r}", to_display_path(display_base)) }
+        if display_base == "/" {
+            format!("/{r}")
+        } else {
+            format!("{}{r}", to_display_path(display_base))
+        }
     }
 
     fn file_suggestions(&self, prefix: &str) -> Vec<AutocompleteItem> {
@@ -432,15 +533,32 @@ impl CombinedAutocompleteProvider {
         if expanded.starts_with('~') {
             expanded = self.expand_home(&expanded);
         }
-        let is_root = matches!(raw, "" | "./" | "../" | "~" | "~/" | "/") || (pp.at && raw.is_empty());
+        let is_root =
+            matches!(raw, "" | "./" | "../" | "~" | "~/" | "/") || (pp.at && raw.is_empty());
         let from_root = raw.starts_with('~') || expanded.starts_with('/');
         let (search_dir, search_prefix) = if is_root || raw.ends_with('/') {
-            (if from_root { expanded.clone() } else { path_join(&[&self.base_path, &expanded]) }, String::new())
+            (
+                if from_root {
+                    expanded.clone()
+                } else {
+                    path_join(&[&self.base_path, &expanded])
+                },
+                String::new(),
+            )
         } else {
             let dir = path_dirname(&expanded);
-            (if from_root { dir } else { path_join(&[&self.base_path, &dir]) }, path_basename(&expanded))
+            (
+                if from_root {
+                    dir
+                } else {
+                    path_join(&[&self.base_path, &dir])
+                },
+                path_basename(&expanded),
+            )
         };
-        let Ok(rd) = std::fs::read_dir(&search_dir) else { return Vec::new() };
+        let Ok(rd) = std::fs::read_dir(&search_dir) else {
+            return Vec::new();
+        };
         let sp = search_prefix.to_lowercase();
         let mut out = Vec::new();
         for entry in rd.flatten() {
@@ -459,10 +577,21 @@ impl CombinedAutocompleteProvider {
             } else if dp.contains('/') || dp.contains('\\') {
                 if let Some(home_rel) = dp.strip_prefix("~/") {
                     let dir = path_dirname(home_rel);
-                    format!("~/{}", if dir == "." { name.clone() } else { path_join(&[&dir, &name]) })
+                    format!(
+                        "~/{}",
+                        if dir == "." {
+                            name.clone()
+                        } else {
+                            path_join(&[&dir, &name])
+                        }
+                    )
                 } else if dp.starts_with('/') {
                     let dir = path_dirname(dp);
-                    if dir == "/" { format!("/{name}") } else { format!("{dir}/{name}") }
+                    if dir == "/" {
+                        format!("/{name}")
+                    } else {
+                        format!("{dir}/{name}")
+                    }
                 } else {
                     let mut r = path_join(&[&path_dirname(dp), &name]);
                     if dp.starts_with("./") && !r.starts_with("./") {
@@ -511,13 +640,18 @@ impl CombinedAutocompleteProvider {
     }
 
     fn fuzzy_file_suggestions(&self, query: &str, quoted: bool) -> Vec<AutocompleteItem> {
-        let Some(fd) = &self.fd_path else { return Vec::new() };
+        let Some(fd) = &self.fd_path else {
+            return Vec::new();
+        };
         let scoped = self.resolve_scoped_query(query);
-        let base = scoped.as_ref().map_or(self.base_path.clone(), |s| s.0.clone());
+        let base = scoped
+            .as_ref()
+            .map_or(self.base_path.clone(), |s| s.0.clone());
         let fq = scoped.as_ref().map_or(query.to_string(), |s| s.1.clone());
         let base_entries = walk_with_fd(&base, fd, &fq, 100, Some(1));
         let recursive = walk_with_fd(&base, fd, &fq, 100, None);
-        let mut seen: std::collections::HashSet<String> = base_entries.iter().map(|e| e.path.clone()).collect();
+        let mut seen: std::collections::HashSet<String> =
+            base_entries.iter().map(|e| e.path.clone()).collect();
         let mut entries = base_entries;
         for e in recursive {
             if seen.insert(e.path.clone()) {
@@ -527,12 +661,21 @@ impl CombinedAutocompleteProvider {
         let mut scored: Vec<(FdEntry, i64)> = entries
             .into_iter()
             .map(|e| {
-                let s = if fq.is_empty() { 1 } else { Self::score_entry(&e.path, &fq, e.is_dir) };
+                let s = if fq.is_empty() {
+                    1
+                } else {
+                    Self::score_entry(&e.path, &fq, e.is_dir)
+                };
                 (e, s)
             })
             .filter(|(_, s)| *s > 0)
             .collect();
-        let depth = |p: &str| to_display_path(p).split('/').filter(|s| !s.is_empty()).count();
+        let depth = |p: &str| {
+            to_display_path(p)
+                .split('/')
+                .filter(|s| !s.is_empty())
+                .count()
+        };
         scored.sort_by(|(a, sa), (b, sb)| {
             sb.cmp(sa)
                 .then_with(|| depth(&a.path).cmp(&depth(&b.path)))
@@ -543,13 +686,21 @@ impl CombinedAutocompleteProvider {
             .into_iter()
             .take(20)
             .map(|(e, _)| {
-                let without = if e.is_dir { &e.path[..e.path.len() - 1] } else { &e.path[..] };
+                let without = if e.is_dir {
+                    &e.path[..e.path.len() - 1]
+                } else {
+                    &e.path[..]
+                };
                 let display = match &scoped {
                     Some(s) => Self::scoped_display(&s.2, without),
                     None => without.to_string(),
                 };
                 let name = path_basename(without);
-                let completion = if e.is_dir { format!("{display}/") } else { display.clone() };
+                let completion = if e.is_dir {
+                    format!("{display}/")
+                } else {
+                    display.clone()
+                };
                 AutocompleteItem {
                     value: build_completion_value(&completion, true, quoted),
                     label: format!("{name}{}", if e.is_dir { "/" } else { "" }),
@@ -561,7 +712,13 @@ impl CombinedAutocompleteProvider {
 }
 
 impl AutocompleteProvider for CombinedAutocompleteProvider {
-    fn get_suggestions(&self, lines: &[String], cursor_line: usize, cursor_col: usize, force: bool) -> Option<AutocompleteSuggestions> {
+    fn get_suggestions(
+        &self,
+        lines: &[String],
+        cursor_line: usize,
+        cursor_col: usize,
+        force: bool,
+    ) -> Option<AutocompleteSuggestions> {
         let line = lines.get(cursor_line).map_or("", |s| s);
         let before = &line[..cursor_col.min(line.len())];
         if let Some(at) = self.extract_at_prefix(before) {
@@ -570,9 +727,13 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
             if items.is_empty() {
                 return None;
             }
-            return Some(AutocompleteSuggestions { items, prefix: at.into() });
+            return Some(AutocompleteSuggestions {
+                items,
+                prefix: at.into(),
+            });
         }
-        let command_text = before.trim_start_matches(|c: char| crate::unicode::is_js_whitespace(c) || c == '\u{FEFF}');
+        let command_text = before
+            .trim_start_matches(|c: char| crate::unicode::is_js_whitespace(c) || c == '\u{FEFF}');
         if !force && command_text.starts_with('/') {
             let Some(space) = command_text.find(' ') else {
                 let prefix = &command_text[1..];
@@ -581,8 +742,13 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
                     .iter()
                     .map(|c| {
                         let (desc, hint) = match c {
-                            CommandEntry::Command(c) => (c.description.clone().unwrap_or_default(), c.argument_hint.clone().filter(|h| !h.is_empty())),
-                            CommandEntry::Item(i) => (i.description.clone().unwrap_or_default(), None),
+                            CommandEntry::Command(c) => (
+                                c.description.clone().unwrap_or_default(),
+                                c.argument_hint.clone().filter(|h| !h.is_empty()),
+                            ),
+                            CommandEntry::Item(i) => {
+                                (i.description.clone().unwrap_or_default(), None)
+                            }
                         };
                         let full = match hint {
                             Some(h) if !desc.is_empty() => format!("{h} — {desc}"),
@@ -597,63 +763,117 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
                     let n = &items[i].0;
                     n.strip_prefix("skill:").unwrap_or(n).to_string()
                 });
-                let rest: Vec<usize> = idx.iter().copied().filter(|i| items[*i].0.starts_with("skill:") && !bare.contains(i)).collect();
+                let rest: Vec<usize> = idx
+                    .iter()
+                    .copied()
+                    .filter(|i| items[*i].0.starts_with("skill:") && !bare.contains(i))
+                    .collect();
                 let full_only = fuzzy_filter(&rest, prefix, |&i| items[i].0.clone());
                 let filtered: Vec<AutocompleteItem> = bare
                     .into_iter()
                     .chain(full_only)
-                    .map(|i| AutocompleteItem { value: items[i].0.clone(), label: items[i].0.clone(), description: items[i].1.clone() })
+                    .map(|i| AutocompleteItem {
+                        value: items[i].0.clone(),
+                        label: items[i].0.clone(),
+                        description: items[i].1.clone(),
+                    })
                     .collect();
                 if filtered.is_empty() {
                     return None;
                 }
-                return Some(AutocompleteSuggestions { items: filtered, prefix: command_text.into() });
+                return Some(AutocompleteSuggestions {
+                    items: filtered,
+                    prefix: command_text.into(),
+                });
             };
             let name = &command_text[1..space];
             let arg = &command_text[space + 1..];
             let cmd = self.commands.iter().find(|c| c.name() == name)?;
-            let CommandEntry::Command(c) = cmd else { return None };
+            let CommandEntry::Command(c) = cmd else {
+                return None;
+            };
             let f = c.argument_completions.as_ref()?;
             let items = f(arg).filter(|i| !i.is_empty())?;
-            return Some(AutocompleteSuggestions { items, prefix: arg.into() });
+            return Some(AutocompleteSuggestions {
+                items,
+                prefix: arg.into(),
+            });
         }
         let path = self.extract_path_prefix(before, force)?;
         let items = self.file_suggestions(path);
         if items.is_empty() {
             return None;
         }
-        Some(AutocompleteSuggestions { items, prefix: path.into() })
+        Some(AutocompleteSuggestions {
+            items,
+            prefix: path.into(),
+        })
     }
 
-    fn apply_completion(&self, lines: &[String], cursor_line: usize, cursor_col: usize, item: &AutocompleteItem, prefix: &str) -> Completion {
+    fn apply_completion(
+        &self,
+        lines: &[String],
+        cursor_line: usize,
+        cursor_col: usize,
+        item: &AutocompleteItem,
+        prefix: &str,
+    ) -> Completion {
         let line = lines.get(cursor_line).map_or("", |s| s);
         let start = cursor_col.saturating_sub(prefix.len());
         let before_prefix = &line[..start];
         let after = &line[cursor_col..];
         let quoted_prefix = prefix.starts_with('\x22') || prefix.starts_with("@\x22");
-        let adj_after = if quoted_prefix && item.value.ends_with('\x22') && after.starts_with('\x22') { &after[1..] } else { after };
+        let adj_after =
+            if quoted_prefix && item.value.ends_with('\x22') && after.starts_with('\x22') {
+                &after[1..]
+            } else {
+                after
+            };
         let mut new_lines = lines.to_vec();
         if new_lines.len() <= cursor_line {
             new_lines.resize(cursor_line + 1, String::new());
         }
         let is_dir = item.label.ends_with('/');
         let trailing_quote = item.value.ends_with('\x22');
-        let offset = if is_dir && trailing_quote { item.value.len() - 1 } else { item.value.len() };
-        let is_slash = prefix.starts_with('/') && js_trim(before_prefix).is_empty() && !prefix[1..].contains('/');
+        let offset = if is_dir && trailing_quote {
+            item.value.len() - 1
+        } else {
+            item.value.len()
+        };
+        let is_slash = prefix.starts_with('/')
+            && js_trim(before_prefix).is_empty()
+            && !prefix[1..].contains('/');
         if is_slash {
             new_lines[cursor_line] = format!("{before_prefix}/{} {adj_after}", item.value);
-            return Completion { lines: new_lines, cursor_line, cursor_col: before_prefix.len() + item.value.len() + 2 };
+            return Completion {
+                lines: new_lines,
+                cursor_line,
+                cursor_col: before_prefix.len() + item.value.len() + 2,
+            };
         }
         if prefix.starts_with('@') {
             let suffix = if is_dir { "" } else { " " };
             new_lines[cursor_line] = format!("{before_prefix}{}{suffix}{adj_after}", item.value);
-            return Completion { lines: new_lines, cursor_line, cursor_col: before_prefix.len() + offset + suffix.len() };
+            return Completion {
+                lines: new_lines,
+                cursor_line,
+                cursor_col: before_prefix.len() + offset + suffix.len(),
+            };
         }
         new_lines[cursor_line] = format!("{before_prefix}{}{adj_after}", item.value);
-        Completion { lines: new_lines, cursor_line, cursor_col: before_prefix.len() + offset }
+        Completion {
+            lines: new_lines,
+            cursor_line,
+            cursor_col: before_prefix.len() + offset,
+        }
     }
 
-    fn should_trigger_file_completion(&self, lines: &[String], cursor_line: usize, cursor_col: usize) -> bool {
+    fn should_trigger_file_completion(
+        &self,
+        lines: &[String],
+        cursor_line: usize,
+        cursor_col: usize,
+    ) -> bool {
         let line = lines.get(cursor_line).map_or("", |s| s);
         let t = js_trim(&line[..cursor_col.min(line.len())]);
         !(t.starts_with('/') && !t.contains(' '))

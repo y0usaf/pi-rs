@@ -7,7 +7,9 @@ use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::Instant;
 
-use pi_durable::ai::types::{Model, ModelThinkingLevel, TextContent, TextType, UserBlock, UserContent};
+use pi_durable::ai::types::{
+    Model, ModelThinkingLevel, TextContent, TextType, UserBlock, UserContent,
+};
 use pi_durable::cancel::CancelToken;
 use pi_durable::harness::agent::{AgentChange, Change};
 use pi_durable::harness::events::AgentEvent;
@@ -66,12 +68,21 @@ fn text_input(text: &str, images: &[UserBlock]) -> UserContent {
     UserContent::Blocks(blocks)
 }
 
-fn submit(root: &Conversation, content: UserContent, busy: bool, cancel: &CancelToken) -> Result<(), String> {
+fn submit(
+    root: &Conversation,
+    content: UserContent,
+    busy: bool,
+    cancel: &CancelToken,
+) -> Result<(), String> {
     root.submit(
         SubmissionDraft::Input {
             request_id: None,
             content,
-            when_busy: if busy { WhenBusy::Steer } else { WhenBusy::FollowUp },
+            when_busy: if busy {
+                WhenBusy::Steer
+            } else {
+                WhenBusy::FollowUp
+            },
         },
         cancel,
     )
@@ -81,10 +92,24 @@ fn submit(root: &Conversation, content: UserContent, busy: bool, cancel: &Cancel
 
 pub fn run(session: Session<'_>) -> Result<(), String> {
     let cancel = CancelToken::new();
-    let Session { harness, root, model, thinking, cwd, initial, messages, provider_count, incoming, sender } = session;
+    let Session {
+        harness,
+        root,
+        model,
+        thinking,
+        cwd,
+        initial,
+        messages,
+        provider_count,
+        incoming,
+        sender,
+    } = session;
     root.configure(
         &AgentChange {
-            model: Change::Set(ModelRef { provider: model.provider.clone(), model_id: model.id.clone() }),
+            model: Change::Set(ModelRef {
+                provider: model.provider.clone(),
+                model_id: model.id.clone(),
+            }),
             thinking_level: Change::Set(thinking),
             cwd: Change::Set(cwd.clone()),
             ..AgentChange::default()
@@ -111,7 +136,13 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
     let mut tui = TuiMainScreen::new(ProcessTerminal::new());
     let header = component(Text::new(&header(), 1, 1));
     let status = component(StatusArea::new());
-    let editor = component(Editor::new(theme::editor(), EditorOptions { padding_x: Some(0), autocomplete_max_visible: None }));
+    let editor = component(Editor::new(
+        theme::editor(),
+        EditorOptions {
+            padding_x: Some(0),
+            autocomplete_max_visible: None,
+        },
+    ));
     let footer = component(Footer {
         state: FooterState {
             cwd: cwd.clone(),
@@ -152,7 +183,10 @@ pub fn run(session: Session<'_>) -> Result<(), String> {
             return None;
         };
         acts.borrow_mut().push(action);
-        Some(InputListenerResult { consume: true, data: None })
+        Some(InputListenerResult {
+            consume: true,
+            data: None,
+        })
     }));
     tui.add_child(as_ref(&header));
     tui.add_child(chat.container.clone());

@@ -112,7 +112,9 @@ impl Editor {
     }
 
     pub(crate) fn yank(&mut self) {
-        let Some(text) = self.kill_ring.peek().map(str::to_string) else { return };
+        let Some(text) = self.kill_ring.peek().map(str::to_string) else {
+            return;
+        };
         self.push_undo_snapshot();
         self.insert_yanked_text(&text);
         self.last_action = Some(LastAction::Yank);
@@ -155,7 +157,9 @@ impl Editor {
     }
 
     fn delete_yanked_text(&mut self) {
-        let Some(y) = self.kill_ring.peek().map(str::to_string) else { return };
+        let Some(y) = self.kill_ring.peek().map(str::to_string) else {
+            return;
+        };
         if y.is_empty() {
             return;
         }
@@ -172,7 +176,9 @@ impl Editor {
             let start_col = self.state.lines[start].len() - parts[0].len();
             let after = self.state.lines[cl][col..].to_string();
             let merged = format!("{}{after}", &self.state.lines[start][..start_col]);
-            self.state.lines.splice(start..start + parts.len(), [merged]);
+            self.state
+                .lines
+                .splice(start..start + parts.len(), [merged]);
             self.state.cursor_line = start;
             self.set_cursor_col(start_col);
         }

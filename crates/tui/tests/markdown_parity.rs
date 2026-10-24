@@ -1,7 +1,9 @@
 //! Golden parity for Markdown against upstream (fixtures from parity/gen-markdown-fixtures.mjs).
 //! Math renders through the ported latex.ts (`pi_tui::latex`), so cases with math run in every variant.
 
-use pi_tui::components::markdown::{DefaultTextStyle, Markdown, MarkdownOptions, MarkdownTheme, StyleFn};
+use pi_tui::components::markdown::{
+    DefaultTextStyle, Markdown, MarkdownOptions, MarkdownTheme, StyleFn,
+};
 use pi_tui::tui::Component;
 use serde_json::Value;
 use std::rc::Rc;
@@ -44,7 +46,11 @@ fn theme(indent: bool) -> MarkdownTheme {
 }
 
 fn variant(v: u64, text: &str) -> Markdown {
-    let gray = DefaultTextStyle { color: Some(sty(90, 39)), italic: true, ..Default::default() };
+    let gray = DefaultTextStyle {
+        color: Some(sty(90, 39)),
+        italic: true,
+        ..Default::default()
+    };
     let bg = DefaultTextStyle {
         color: Some(sty(33, 39)),
         bg_color: Some(Rc::new(|s: &str| format!("\x1b[48;5;236m{s}\x1b[49m"))),
@@ -58,16 +64,40 @@ fn variant(v: u64, text: &str) -> Markdown {
         0 => Markdown::new(text, 0, 0, theme(false), None, o),
         1 => Markdown::new(text, 1, 1, theme(false), Some(gray), o),
         2 => Markdown::new(text, 2, 0, theme(false), Some(bg), o),
-        3 => Markdown::new(text, 0, 0, theme(false), None, MarkdownOptions { hyperlinks: true, ..o }),
+        3 => Markdown::new(
+            text,
+            0,
+            0,
+            theme(false),
+            None,
+            MarkdownOptions {
+                hyperlinks: true,
+                ..o
+            },
+        ),
         4 => Markdown::new(
             text,
             0,
             0,
             theme(false),
             None,
-            MarkdownOptions { preserve_ordered_list_markers: true, preserve_backslash_escapes: true, ..o },
+            MarkdownOptions {
+                preserve_ordered_list_markers: true,
+                preserve_backslash_escapes: true,
+                ..o
+            },
         ),
-        _ => Markdown::new(text, 1, 0, theme(true), None, MarkdownOptions { render_latex: Some(false), ..o }),
+        _ => Markdown::new(
+            text,
+            1,
+            0,
+            theme(true),
+            None,
+            MarkdownOptions {
+                render_latex: Some(false),
+                ..o
+            },
+        ),
     }
 }
 
@@ -84,11 +114,19 @@ fn markdown_matches_upstream() {
             let v = r["v"].as_u64().unwrap();
             let mut md = variant(v, text);
             for (wi, want) in r["out"].as_array().unwrap().iter().enumerate() {
-                let want: Vec<String> = want.as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_string()).collect();
+                let want: Vec<String> = want
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|l| l.as_str().unwrap().to_string())
+                    .collect();
                 let got = md.render(WIDTHS[wi]);
                 checked += 1;
                 if got != want {
-                    failures.push(format!("case {ci} v{v} w{} {text:?}\n  got:  {got:?}\n  want: {want:?}", WIDTHS[wi]));
+                    failures.push(format!(
+                        "case {ci} v{v} w{} {text:?}\n  got:  {got:?}\n  want: {want:?}",
+                        WIDTHS[wi]
+                    ));
                 }
             }
         }

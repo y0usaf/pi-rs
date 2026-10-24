@@ -14,7 +14,10 @@ impl Editor {
     }
 
     pub(crate) fn current_line(&self) -> &str {
-        self.state.lines.get(self.state.cursor_line).map_or("", String::as_str)
+        self.state
+            .lines
+            .get(self.state.cursor_line)
+            .map_or("", String::as_str)
     }
 
     pub(crate) fn text_before_cursor(&self) -> String {
@@ -44,7 +47,12 @@ impl Editor {
         self.find_current_visual_line(&vls) + 1 == vls.len()
     }
 
-    fn compute_vertical_move_column(&mut self, cur: usize, source_max: usize, target_max: usize) -> usize {
+    fn compute_vertical_move_column(
+        &mut self,
+        cur: usize,
+        source_max: usize,
+        target_max: usize,
+    ) -> usize {
         let in_middle = cur < source_max;
         let too_short = target_max < cur;
         match self.preferred_visual_col {
@@ -68,7 +76,6 @@ impl Editor {
         }
     }
 
-
     /// Visual lines measured in UTF-16 units, as upstream measures columns.
     fn visual_lines_u16(&self, vls: &[VisualLine]) -> Vec<VisualLine> {
         vls.iter()
@@ -84,9 +91,16 @@ impl Editor {
     }
 
     /// Upstream `moveToVisualLine`; columns, the sticky column and the snap origin are UTF-16 units.
-    pub(crate) fn move_to_visual_line(&mut self, vls: &[VisualLine], cur_i: usize, target_i: usize) {
+    pub(crate) fn move_to_visual_line(
+        &mut self,
+        vls: &[VisualLine],
+        cur_i: usize,
+        target_i: usize,
+    ) {
         let u = self.visual_lines_u16(vls);
-        let (Some(&cur), Some(&target)) = (u.get(cur_i), u.get(target_i)) else { return };
+        let (Some(&cur), Some(&target)) = (u.get(cur_i), u.get(target_i)) else {
+            return;
+        };
         let cursor16 = utf16_len(&self.current_line()[..self.state.cursor_col]);
         let cur_col = match self.snapped_from_cursor_col {
             Some(s) => {
@@ -96,10 +110,25 @@ impl Editor {
             None => cursor16 as i64 - cur.start_col as i64,
         };
         let cur_col = cur_col.max(0) as usize;
-        let max_col = |i: usize, vl: VisualLine| if Self::is_last_segment(&u, i) { vl.length } else { vl.length.saturating_sub(1) };
-        let col = self.compute_vertical_move_column(cur_col, max_col(cur_i, cur), max_col(target_i, target));
+        let max_col = |i: usize, vl: VisualLine| {
+            if Self::is_last_segment(&u, i) {
+                vl.length
+            } else {
+                vl.length.saturating_sub(1)
+            }
+        };
+        let col = self.compute_vertical_move_column(
+            cur_col,
+            max_col(cur_i, cur),
+            max_col(target_i, target),
+        );
         self.state.cursor_line = target.logical_line;
-        let line = self.state.lines.get(target.logical_line).cloned().unwrap_or_default();
+        let line = self
+            .state
+            .lines
+            .get(target.logical_line)
+            .cloned()
+            .unwrap_or_default();
         let c16 = (target.start_col + col).min(utf16_len(&line));
         self.state.cursor_col = byte_floor(&line, c16);
         let mut pos16 = 0;
@@ -117,7 +146,10 @@ impl Editor {
                 if start16 < target.start_col && target_i > cur_i {
                     let seg_end = start16 + seg16;
                     let mut next = target_i + 1;
-                    while next < u.len() && u[next].logical_line == target.logical_line && u[next].start_col < seg_end {
+                    while next < u.len()
+                        && u[next].logical_line == target.logical_line
+                        && u[next].start_col < seg_end
+                    {
                         next += 1;
                     }
                     if next < u.len() {
@@ -132,7 +164,6 @@ impl Editor {
         }
         self.snapped_from_cursor_col = None;
     }
-
 
     pub(crate) fn move_cursor(&mut self, delta_line: i64, delta_col: i64) {
         self.last_action = None;
@@ -154,7 +185,8 @@ impl Editor {
                 self.set_cursor_col(0);
             } else if let Some(vl) = vls.get(cur) {
                 let line = self.current_line();
-                let col16 = utf16_len(&line[..self.state.cursor_col]) - utf16_len(&line[..vl.start_col.min(self.state.cursor_col)]);
+                let col16 = utf16_len(&line[..self.state.cursor_col])
+                    - utf16_len(&line[..vl.start_col.min(self.state.cursor_col)]);
                 self.preferred_visual_col = Some(col16);
             }
         } else if delta_col < 0 {
@@ -177,7 +209,9 @@ impl Editor {
         let page = self.max_visible_lines() as i64;
         let vls = self.build_visual_line_map(self.last_width);
         let cur = self.find_current_visual_line(&vls);
-        let t = (cur as i64 + direction * page).clamp(0, vls.len() as i64 - 1).max(0) as usize;
+        let t = (cur as i64 + direction * page)
+            .clamp(0, vls.len() as i64 - 1)
+            .max(0) as usize;
         self.move_to_visual_line(&vls, cur, t);
     }
 
@@ -194,8 +228,15 @@ impl Editor {
     fn word_target(&self, forward: bool) -> usize {
         let line = self.current_line();
         let seg = coerce(|t| self.seg_words(t));
-        let o = WordNavigationOptions { segment: Some(&seg), is_atomic_segment: Some(&is_paste_marker) };
-        if forward { find_word_forward(line, self.state.cursor_col, &o) } else { find_word_backward(line, self.state.cursor_col, &o) }
+        let o = WordNavigationOptions {
+            segment: Some(&seg),
+            is_atomic_segment: Some(&is_paste_marker),
+        };
+        if forward {
+            find_word_forward(line, self.state.cursor_col, &o)
+        } else {
+            find_word_backward(line, self.state.cursor_col, &o)
+        }
     }
 
     pub(crate) fn move_word_backwards(&mut self) {
@@ -234,8 +275,16 @@ impl Editor {
             let line = &self.state.lines[li as usize];
             let current = li as usize == self.state.cursor_line;
             let found = if forward {
-                let from = if current { self.state.cursor_col + 1 } else { 0 };
-                if from > line.len() { None } else { find_from(line, ch, from) }
+                let from = if current {
+                    self.state.cursor_col + 1
+                } else {
+                    0
+                };
+                if from > line.len() {
+                    None
+                } else {
+                    find_from(line, ch, from)
+                }
             } else if current {
                 // lastIndexOf with a negative start only matches at 0.
                 match self.state.cursor_col.checked_sub(1) {
@@ -293,8 +342,16 @@ impl Editor {
     /// Replace the text without touching history; cursor at the start or the end.
     pub(crate) fn set_text_internal(&mut self, text: &str, at_start: bool) {
         self.state.lines = text.split('\n').map(str::to_string).collect();
-        self.state.cursor_line = if at_start { 0 } else { self.state.lines.len() - 1 };
-        let col = if at_start { 0 } else { self.current_line().len() };
+        self.state.cursor_line = if at_start {
+            0
+        } else {
+            self.state.lines.len() - 1
+        };
+        let col = if at_start {
+            0
+        } else {
+            self.current_line().len()
+        };
         self.set_cursor_col(col);
         self.scroll_offset = 0;
         self.emit_change();
@@ -315,7 +372,10 @@ fn find_from(line: &str, ch: &str, mut from: usize) -> Option<usize> {
 
 /// `line.lastIndexOf(ch, from)`: the last match starting at or before `from`.
 fn rfind_upto(line: &str, ch: &str, from: usize) -> Option<usize> {
-    line.match_indices(ch).map(|(i, _)| i).take_while(|&i| i <= from).last()
+    line.match_indices(ch)
+        .map(|(i, _)| i)
+        .take_while(|&i| i <= from)
+        .last()
 }
 
 /// Byte offset of UTF-16 offset `u16_off`, rounded down to a char boundary.

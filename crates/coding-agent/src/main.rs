@@ -319,8 +319,11 @@ fn run() -> Result<ExitCode, String> {
         .map_err(|e| e.to_string())?;
         let root = print::root(&harness, &cancel).map_err(|e| e.to_string())?;
         let provider_count = {
-            let mut providers: Vec<&str> =
-                registry.available().iter().map(|m| m.provider.as_str()).collect();
+            let mut providers: Vec<&str> = registry
+                .available()
+                .iter()
+                .map(|m| m.provider.as_str())
+                .collect();
             providers.sort();
             providers.dedup();
             providers.len()

@@ -543,24 +543,24 @@ impl Lexer {
                 cut = &src[..idx + off];
             }
             if self.top
-                && let Some(t) = self.paragraph(cut) {
-                    let clipped_now = cut.len() != src.len();
-                    if last_paragraph_clipped
-                        && tokens.last().map(|t| t.kind) == Some(Kind::Paragraph)
-                    {
-                        let last = tokens.last_mut().unwrap();
-                        append_raw(last, &t.raw);
-                        last.text = format!("{}\n{}", last.text, t.text);
-                        let text = last.text.clone();
-                        self.queue.pop();
-                        self.set_last_queue(&text);
-                    } else {
-                        tokens.push(t.clone());
-                    }
-                    last_paragraph_clipped = clipped_now;
-                    src = &src[t.raw.len()..];
-                    continue;
+                && let Some(t) = self.paragraph(cut)
+            {
+                let clipped_now = cut.len() != src.len();
+                if last_paragraph_clipped && tokens.last().map(|t| t.kind) == Some(Kind::Paragraph)
+                {
+                    let last = tokens.last_mut().unwrap();
+                    append_raw(last, &t.raw);
+                    last.text = format!("{}\n{}", last.text, t.text);
+                    let text = last.text.clone();
+                    self.queue.pop();
+                    self.set_last_queue(&text);
+                } else {
+                    tokens.push(t.clone());
                 }
+                last_paragraph_clipped = clipped_now;
+                src = &src[t.raw.len()..];
+                continue;
+            }
             if let Some(t) = self.text(src) {
                 src = &src[t.raw.len()..];
                 if tokens.last().map(|t| t.kind) == Some(Kind::Text) {
@@ -1173,17 +1173,18 @@ fn tokenize_inline_latex(source: &str) -> Option<Token> {
     };
     let closing = find_closing_delimiter(source, close, open.len());
     if let Some(ci) = closing
-        && open == "$" {
-            let inner = &source[1..ci];
-            let after = &source[ci + 1..];
-            if test(&R_TRAILING_WS, inner)
-                || after.starts_with(|c: char| c.is_ascii_digit())
-                || (test(&R_ENV_LIKE, inner) && test(&R_IDENT_START, after))
-                || inner.contains('`')
-            {
-                return None;
-            }
+        && open == "$"
+    {
+        let inner = &source[1..ci];
+        let after = &source[ci + 1..];
+        if test(&R_TRAILING_WS, inner)
+            || after.starts_with(|c: char| c.is_ascii_digit())
+            || (test(&R_ENV_LIKE, inner) && test(&R_IDENT_START, after))
+            || inner.contains('`')
+        {
+            return None;
         }
+    }
     let Some(ci) = closing else {
         let pending = &source[open.len()..];
         if open.starts_with('\\') || looks_like_pending_dollar_math(pending) {

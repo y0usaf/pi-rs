@@ -9,9 +9,16 @@ use crate::utils::{is_whitespace_char, js_trim};
 
 impl Editor {
     pub(crate) fn set_autocomplete_trigger_characters(&mut self, chars: Vec<String>) {
-        let mut next: Vec<String> = DEFAULT_TRIGGER_CHARACTERS.iter().map(|s| s.to_string()).collect();
+        let mut next: Vec<String> = DEFAULT_TRIGGER_CHARACTERS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         for c in chars {
-            if c.chars().map(char::len_utf16).sum::<usize>() != 1 || c == "/" || is_whitespace_char(&c) || next.contains(&c) {
+            if c.chars().map(char::len_utf16).sum::<usize>() != 1
+                || c == "/"
+                || is_whitespace_char(&c)
+                || next.contains(&c)
+            {
                 continue;
             }
             next.push(c);
@@ -57,7 +64,9 @@ impl Editor {
     }
 
     fn request_autocomplete(&mut self, force: bool, explicit_tab: bool) {
-        let Some(p) = self.autocomplete_provider.clone() else { return };
+        let Some(p) = self.autocomplete_provider.clone() else {
+            return;
+        };
         let (cl, cc) = (self.state.cursor_line, self.state.cursor_col);
         if force && !p.should_trigger_file_completion(&self.state.lines, cl, cc) {
             return;
@@ -77,29 +86,59 @@ impl Editor {
             self.render_requested();
             return;
         }
-        self.apply_autocomplete_suggestions(s, if force { AutocompleteMode::Force } else { AutocompleteMode::Regular });
+        self.apply_autocomplete_suggestions(
+            s,
+            if force {
+                AutocompleteMode::Force
+            } else {
+                AutocompleteMode::Regular
+            },
+        );
         self.render_requested();
     }
 
     /// Replace text and cursor with the provider's completion of `item`.
     pub(crate) fn apply_completion(&mut self, item: &AutocompleteItem, prefix: &str) {
-        let Some(p) = self.autocomplete_provider.clone() else { return };
-        let r = p.apply_completion(&self.state.lines, self.state.cursor_line, self.state.cursor_col, item, prefix);
+        let Some(p) = self.autocomplete_provider.clone() else {
+            return;
+        };
+        let r = p.apply_completion(
+            &self.state.lines,
+            self.state.cursor_line,
+            self.state.cursor_col,
+            item,
+            prefix,
+        );
         self.state.lines = r.lines;
         self.state.cursor_line = r.cursor_line;
         self.set_cursor_col(r.cursor_col);
     }
 
-    fn apply_autocomplete_suggestions(&mut self, s: AutocompleteSuggestions, mode: AutocompleteMode) {
+    fn apply_autocomplete_suggestions(
+        &mut self,
+        s: AutocompleteSuggestions,
+        mode: AutocompleteMode,
+    ) {
         let layout = if s.prefix.starts_with('/') {
-            SelectListLayoutOptions { min_primary_column_width: Some(12), max_primary_column_width: Some(32), truncate_primary: None }
+            SelectListLayoutOptions {
+                min_primary_column_width: Some(12),
+                max_primary_column_width: Some(32),
+                truncate_primary: None,
+            }
         } else {
             SelectListLayoutOptions::default()
         };
         let items: Vec<SelectItem> = s.items.iter().map(to_select_item).collect();
-        let mut list = SelectList::new(items, self.autocomplete_max_visible, self.theme.select_list.clone(), layout);
+        let mut list = SelectList::new(
+            items,
+            self.autocomplete_max_visible,
+            self.theme.select_list.clone(),
+            layout,
+        );
         let slot = self.autocomplete_picked.clone();
-        list.on_select = Some(Box::new(move |it: &SelectItem| *slot.borrow_mut() = Some(it.clone())));
+        list.on_select = Some(Box::new(move |it: &SelectItem| {
+            *slot.borrow_mut() = Some(it.clone())
+        }));
         if let Some(i) = best_match_index(&s.items, &s.prefix) {
             list.set_selected_index(i);
         }
@@ -110,7 +149,9 @@ impl Editor {
 
     /// Apply an item the autocomplete list selected through `on_select` (upstream `list.onSelect`).
     pub(crate) fn apply_picked(&mut self) {
-        let Some(it) = self.autocomplete_picked.borrow_mut().take() else { return };
+        let Some(it) = self.autocomplete_picked.borrow_mut().take() else {
+            return;
+        };
         if self.autocomplete_provider.is_none() {
             return;
         }
@@ -124,7 +165,10 @@ impl Editor {
 
     /// The selected autocomplete item, if the list is open.
     pub(crate) fn selected_autocomplete_item(&self) -> Option<AutocompleteItem> {
-        self.autocomplete_list.as_ref()?.selected_item().map(from_select_item)
+        self.autocomplete_list
+            .as_ref()?
+            .selected_item()
+            .map(from_select_item)
     }
 
     pub(crate) fn cancel_autocomplete(&mut self) {
@@ -134,7 +178,9 @@ impl Editor {
     }
 
     pub(crate) fn update_autocomplete(&mut self) {
-        let Some(mode) = self.autocomplete_state else { return };
+        let Some(mode) = self.autocomplete_state else {
+            return;
+        };
         if self.autocomplete_provider.is_none() {
             return;
         }
@@ -143,11 +189,19 @@ impl Editor {
 }
 
 fn to_select_item(i: &AutocompleteItem) -> SelectItem {
-    SelectItem { value: i.value.clone(), label: i.label.clone(), description: i.description.clone() }
+    SelectItem {
+        value: i.value.clone(),
+        label: i.label.clone(),
+        description: i.description.clone(),
+    }
 }
 
 fn from_select_item(i: &SelectItem) -> AutocompleteItem {
-    AutocompleteItem { value: i.value.clone(), label: i.label.clone(), description: i.description.clone() }
+    AutocompleteItem {
+        value: i.value.clone(),
+        label: i.label.clone(),
+        description: i.description.clone(),
+    }
 }
 
 /// Exact value match wins, else the first value starting with the prefix.
@@ -155,5 +209,8 @@ fn best_match_index(items: &[AutocompleteItem], prefix: &str) -> Option<usize> {
     if prefix.is_empty() {
         return None;
     }
-    items.iter().position(|i| i.value == prefix).or_else(|| items.iter().position(|i| i.value.starts_with(prefix)))
+    items
+        .iter()
+        .position(|i| i.value == prefix)
+        .or_else(|| items.iter().position(|i| i.value.starts_with(prefix)))
 }

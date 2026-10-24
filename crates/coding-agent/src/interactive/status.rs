@@ -28,7 +28,10 @@ pub fn header() -> String {
         "{} {}\n{hints}\n\n{}",
         wordmark(),
         fg("dim", &format!("v{VERSION}")),
-        fg("dim", "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.")
+        fg(
+            "dim",
+            "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi."
+        )
     )
 }
 
@@ -42,7 +45,10 @@ pub struct StatusArea {
 
 impl StatusArea {
     pub fn new() -> Self {
-        StatusArea { loader: None, message: WORKING.into() }
+        StatusArea {
+            loader: None,
+            message: WORKING.into(),
+        }
     }
 
     /// Shows the spinner with `message`, or clears it with `None`.

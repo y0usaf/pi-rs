@@ -5,6 +5,7 @@ use crate::utils::{PUNCTUATION_CHARS, is_whitespace_char};
 
 /// Custom segmentation and atomic segments (such as paste markers).
 #[derive(Default)]
+#[allow(clippy::type_complexity)]
 pub struct WordNavigationOptions<'a> {
     pub segment: Option<&'a dyn Fn(&str) -> Vec<WordSegment<'_>>>,
     pub is_atomic_segment: Option<&'a dyn Fn(&str) -> bool>,
@@ -32,12 +33,17 @@ pub fn find_word_backward(text: &str, cursor: usize, o: &WordNavigationOptions) 
         c -= last.segment.len();
         segments.pop();
     }
-    let Some(last) = segments.last().copied() else { return c };
+    let Some(last) = segments.last().copied() else {
+        return c;
+    };
     if atomic(last.segment) {
         c -= last.segment.len();
     } else if last.is_word_like {
         let s = last.segment;
-        match s.char_indices().filter(|(_, ch)| PUNCTUATION_CHARS.contains(*ch)).last() {
+        match s
+            .char_indices()
+            .rfind(|(_, ch)| PUNCTUATION_CHARS.contains(*ch))
+        {
             None => c -= s.len(),
             Some((i, ch)) => c -= s.len() - (i + ch.len_utf8()),
         }
@@ -69,11 +75,16 @@ pub fn find_word_forward(text: &str, cursor: usize, o: &WordNavigationOptions) -
         c += s.segment.len();
         it.next();
     }
-    let Some(s) = it.peek().copied() else { return c };
+    let Some(s) = it.peek().copied() else {
+        return c;
+    };
     if atomic(s.segment) {
         c += s.segment.len();
     } else if s.is_word_like {
-        c += s.segment.find(|ch| PUNCTUATION_CHARS.contains(ch)).unwrap_or(s.segment.len());
+        c += s
+            .segment
+            .find(|ch| PUNCTUATION_CHARS.contains(ch))
+            .unwrap_or(s.segment.len());
     } else {
         while let Some(s) = it.peek() {
             if atomic(s.segment) || s.is_word_like || is_whitespace_char(s.segment) {

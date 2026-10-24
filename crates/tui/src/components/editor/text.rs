@@ -60,7 +60,8 @@ pub fn paste_markers(text: &str) -> Vec<(usize, usize, u64)> {
 
 /// Upstream `isPasteMarker`: the whole segment is one marker.
 pub fn is_paste_marker(segment: &str) -> bool {
-    utf16_len(segment) >= 10 && paste_marker_at(segment, 0).is_some_and(|(len, _)| len == segment.len())
+    utf16_len(segment) >= 10
+        && paste_marker_at(segment, 0).is_some_and(|(len, _)| len == segment.len())
 }
 
 /// Upstream `segmentWithMarkers`: merges the segments inside markers with valid ids into one.
@@ -73,7 +74,11 @@ pub fn segment_with_markers<'a>(
     if !any_valid || !text.contains(MARKER_OPEN) {
         return base;
     }
-    let markers: Vec<(usize, usize)> = paste_markers(text).into_iter().filter(|m| valid(m.2)).map(|m| (m.0, m.1)).collect();
+    let markers: Vec<(usize, usize)> = paste_markers(text)
+        .into_iter()
+        .filter(|m| valid(m.2))
+        .map(|m| (m.0, m.1))
+        .collect();
     if markers.is_empty() {
         return base;
     }
@@ -86,7 +91,11 @@ pub fn segment_with_markers<'a>(
         match markers.get(mi) {
             Some(&(s, e)) if seg.index >= s && seg.index < e => {
                 if seg.index == s {
-                    out.push(WordSegment { index: s, segment: &text[s..e], is_word_like: false });
+                    out.push(WordSegment {
+                        index: s,
+                        segment: &text[s..e],
+                        is_word_like: false,
+                    });
                 }
             }
             _ => out.push(seg),
@@ -97,7 +106,13 @@ pub fn segment_with_markers<'a>(
 
 /// Grapheme segments in the `WordSegment` shape.
 pub fn grapheme_segments(text: &str) -> Vec<WordSegment<'_>> {
-    grapheme_indices(text).map(|(index, segment)| WordSegment { index, segment, is_word_like: false }).collect()
+    grapheme_indices(text)
+        .map(|(index, segment)| WordSegment {
+            index,
+            segment,
+            is_word_like: false,
+        })
+        .collect()
 }
 
 /// A piece of a wrapped line.
@@ -109,7 +124,11 @@ pub struct TextChunk {
 }
 
 fn chunk(line: &str, s: usize, e: usize) -> TextChunk {
-    TextChunk { text: line[s..e].to_string(), start_index: s, end_index: e }
+    TextChunk {
+        text: line[s..e].to_string(),
+        start_index: s,
+        end_index: e,
+    }
 }
 
 fn is_cjk(s: &str) -> bool {
@@ -119,7 +138,11 @@ fn is_cjk(s: &str) -> bool {
 /// Upstream `wordWrapLine`.
 pub fn word_wrap_line(line: &str, max_width: usize, pre: Option<&[WordSegment]>) -> Vec<TextChunk> {
     if line.is_empty() || max_width == 0 {
-        return vec![TextChunk { text: String::new(), start_index: 0, end_index: 0 }];
+        return vec![TextChunk {
+            text: String::new(),
+            start_index: 0,
+            end_index: 0,
+        }];
     }
     if visible_width(line) <= max_width {
         return vec![chunk(line, 0, line.len())];
@@ -161,7 +184,11 @@ pub fn word_wrap_line(line: &str, max_width: usize, pre: Option<&[WordSegment]>)
         if gw > max_width {
             let sub = word_wrap_line(g, max_width, None);
             for sc in &sub[..sub.len() - 1] {
-                chunks.push(TextChunk { text: sc.text.clone(), start_index: ci + sc.start_index, end_index: ci + sc.end_index });
+                chunks.push(TextChunk {
+                    text: sc.text.clone(),
+                    start_index: ci + sc.start_index,
+                    end_index: ci + sc.end_index,
+                });
             }
             let last = &sub[sub.len() - 1];
             chunk_start = ci + last.start_index;
@@ -196,7 +223,11 @@ const TOKEN_OPENERS: &str = "\x28\x5b\x7b<\x60";
 /// Upstream `buildTriggerPattern(...).test(text)` (`debounce == false`) and
 /// `buildDebouncePattern(...).test(text)` (`debounce == true`), on the text before the cursor.
 pub fn matches_trigger(text: &str, triggers: &[String], debounce: bool) -> bool {
-    let is_trigger = |c: char| triggers.iter().any(|t| t.chars().count() == 1 && t.starts_with(c));
+    let is_trigger = |c: char| {
+        triggers
+            .iter()
+            .any(|t| t.chars().count() == 1 && t.starts_with(c))
+    };
     let unquoted = |s: &str| !s.chars().any(is_autocomplete_separator);
     let quoted = |s: &str| !s.contains(QUOTE);
     // Token starts: the beginning, or just after a separator.
@@ -216,7 +247,8 @@ pub fn matches_trigger(text: &str, triggers: &[String], debounce: bool) -> bool 
                 (c == '@' && (after.strip_prefix(QUOTE).is_some_and(quoted) || unquoted(after)))
                     || (c != '@' && is_trigger(c) && unquoted(after))
             } else {
-                (c == '@' && after.strip_prefix(QUOTE).is_some_and(quoted)) || (is_trigger(c) && unquoted(after))
+                (c == '@' && after.strip_prefix(QUOTE).is_some_and(quoted))
+                    || (is_trigger(c) && unquoted(after))
             };
             if ok {
                 return true;

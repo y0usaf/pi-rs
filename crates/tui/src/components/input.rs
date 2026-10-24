@@ -4,11 +4,17 @@
 use crate::keybindings::get_keybindings;
 use crate::keys::decode_kitty_printable;
 use crate::kill_ring::{KillRing, UndoStack};
-use crate::tui::{Component, CURSOR_MARKER, MouseButton, MouseEventType, TuiMouseEvent, TuiMouseEventResult, render_fake_cursor};
+use crate::tui::{
+    CURSOR_MARKER, Component, MouseButton, MouseEventType, TuiMouseEvent, TuiMouseEventResult,
+    render_fake_cursor,
+};
 use crate::unicode::{grapheme_indices, graphemes};
 use crate::utils::{is_whitespace_char, slice_by_column, truncate_to_width, visible_width};
 use crate::word_navigation::{WordNavigationOptions, find_word_backward, find_word_forward};
 use std::rc::Rc;
+
+/// Styles a piece of text.
+pub type StyleFn = Rc<dyn Fn(&str) -> String>;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct InputState {
@@ -28,7 +34,7 @@ enum LastAction {
 pub struct InputOptions {
     pub prompt: Option<String>,
     pub placeholder: Option<String>,
-    pub placeholder_style: Option<Rc<dyn Fn(&str) -> String>>,
+    pub placeholder_style: Option<StyleFn>,
 }
 
 pub struct Input {
@@ -38,7 +44,7 @@ pub struct Input {
     placeholder: String,
     placeholder_style: Rc<dyn Fn(&str) -> String>,
     rendered_start_column: usize,
-    pub on_submit: Option<Box<dyn FnMut(&str)>>,
+    pub on_submit: Option<crate::components::TextCallback>,
     pub on_escape: Option<Box<dyn FnMut()>>,
     pub focused: bool,
     paste_buffer: String,
@@ -69,7 +75,9 @@ impl Input {
             cursor: 0,
             prompt: o.prompt.unwrap_or_else(|| "> ".into()),
             placeholder: o.placeholder.unwrap_or_default(),
-            placeholder_style: o.placeholder_style.unwrap_or_else(|| Rc::new(|s: &str| s.to_string())),
+            placeholder_style: o
+                .placeholder_style
+                .unwrap_or_else(|| Rc::new(|s: &str| s.to_string())),
             rendered_start_column: 0,
             on_submit: None,
             on_escape: None,
@@ -99,7 +107,10 @@ impl Input {
     }
 
     fn push_undo(&mut self) {
-        self.undo.push(&InputState { value: self.value.clone(), cursor: self.cursor });
+        self.undo.push(&InputState {
+            value: self.value.clone(),
+            cursor: self.cursor,
+        });
     }
 
     fn insert(&mut self, text: &str) {
@@ -140,7 +151,8 @@ impl Input {
         }
         self.push_undo();
         let deleted = self.value[..self.cursor].to_string();
-        self.kill_ring.push(&deleted, true, self.last_action == Some(LastAction::Kill));
+        self.kill_ring
+            .push(&deleted, true, self.last_action == Some(LastAction::Kill));
         self.last_action = Some(LastAction::Kill);
         self.value.replace_range(..self.cursor, "");
         self.cursor = 0;
@@ -152,7 +164,8 @@ impl Input {
         }
         self.push_undo();
         let deleted = self.value[self.cursor..].to_string();
-        self.kill_ring.push(&deleted, false, self.last_action == Some(LastAction::Kill));
+        self.kill_ring
+            .push(&deleted, false, self.last_action == Some(LastAction::Kill));
         self.last_action = Some(LastAction::Kill);
         self.value.truncate(self.cursor);
     }
@@ -191,7 +204,9 @@ impl Input {
     }
 
     fn yank(&mut self) {
-        let Some(text) = self.kill_ring.peek().map(str::to_string) else { return };
+        let Some(text) = self.kill_ring.peek().map(str::to_string) else {
+            return;
+        };
         self.push_undo();
         self.insert(&text);
         self.last_action = Some(LastAction::Yank);
@@ -203,7 +218,8 @@ impl Input {
         }
         self.push_undo();
         let prev = self.kill_ring.peek().unwrap_or("").len();
-        self.value.replace_range(self.cursor - prev..self.cursor, "");
+        self.value
+            .replace_range(self.cursor - prev..self.cursor, "");
         self.cursor -= prev;
         self.kill_ring.rotate();
         let text = self.kill_ring.peek().unwrap_or("").to_string();
@@ -224,7 +240,8 @@ impl Input {
             return;
         }
         self.last_action = None;
-        self.cursor = find_word_backward(&self.value, self.cursor, &WordNavigationOptions::default());
+        self.cursor =
+            find_word_backward(&self.value, self.cursor, &WordNavigationOptions::default());
     }
 
     fn move_word_forwards(&mut self) {
@@ -232,13 +249,17 @@ impl Input {
             return;
         }
         self.last_action = None;
-        self.cursor = find_word_forward(&self.value, self.cursor, &WordNavigationOptions::default());
+        self.cursor =
+            find_word_forward(&self.value, self.cursor, &WordNavigationOptions::default());
     }
 
     fn handle_paste(&mut self, text: &str) {
         self.last_action = None;
         self.push_undo();
-        let clean = text.replace("\r\n", "").replace('\r', "").replace('\n', "").replace('\t', "    ");
+        let clean = text
+            .replace("\r\n", "")
+            .replace(['\r', '\n'], "")
+            .replace('\t', "    ");
         self.insert(&clean);
     }
 }
@@ -377,7 +398,11 @@ impl Component for Input {
             col = next;
         }
         self.last_action = None;
-        Some(TuiMouseEventResult { handled: true, focus: true, ..Default::default() })
+        Some(TuiMouseEventResult {
+            handled: true,
+            focus: true,
+            ..Default::default()
+        })
     }
 
     fn render(&mut self, width: usize) -> Vec<String> {
@@ -391,7 +416,11 @@ impl Component for Input {
             let ph = truncate_to_width(&self.placeholder, avail, "", false);
             let at = graphemes(&ph).next().unwrap_or(" ").to_string();
             let after = ph.get(at.len()..).unwrap_or("");
-            let text = format!("{marker}{}{}", render_fake_cursor(&(self.placeholder_style)(&at)), (self.placeholder_style)(after));
+            let text = format!(
+                "{marker}{}{}",
+                render_fake_cursor(&(self.placeholder_style)(&at)),
+                (self.placeholder_style)(after)
+            );
             let pad = " ".repeat(avail.saturating_sub(visible_width(&text)));
             return vec![format!("{}{text}{pad}", self.prompt)];
         }
@@ -402,7 +431,11 @@ impl Component for Input {
         if total < avail {
             visible = self.value.clone();
         } else {
-            let scroll = if self.cursor == self.value.len() { avail - 1 } else { avail };
+            let scroll = if self.cursor == self.value.len() {
+                avail - 1
+            } else {
+                avail
+            };
             let cursor_col = visible_width(&self.value[..self.cursor]);
             if scroll > 0 {
                 let half = scroll / 2;
@@ -415,7 +448,9 @@ impl Component for Input {
                 };
                 self.rendered_start_column = start;
                 visible = slice_by_column(&self.value, start, scroll, true);
-                cursor_display = slice_by_column(&self.value, start, cursor_col.saturating_sub(start), true).len();
+                cursor_display =
+                    slice_by_column(&self.value, start, cursor_col.saturating_sub(start), true)
+                        .len();
             } else {
                 cursor_display = 0;
             }

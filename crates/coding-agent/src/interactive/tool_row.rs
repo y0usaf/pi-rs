@@ -41,9 +41,9 @@ pub fn text_output(content: &[UserBlock]) -> String {
     let mut parts = Vec::new();
     for block in content {
         match block {
-            UserBlock::Text(t) => parts.push(
-                pi_tui::utils::strip_terminal_sequences(&t.text).replace('\r', ""),
-            ),
+            UserBlock::Text(t) => {
+                parts.push(pi_tui::utils::strip_terminal_sequences(&t.text).replace('\r', ""))
+            }
             UserBlock::Image(i) => parts.push(format!("[Image: {}]", i.mime_type)),
         }
     }
@@ -77,7 +77,10 @@ fn shorten_path(path: &str) -> String {
 }
 
 fn tool_path(raw: Option<&str>, fallback: &str) -> String {
-    match raw.filter(|p| !p.is_empty()).or(Some(fallback).filter(|f| !f.is_empty())) {
+    match raw
+        .filter(|p| !p.is_empty())
+        .or(Some(fallback).filter(|f| !f.is_empty()))
+    {
         Some(p) => fg("accent", &shorten_path(p)),
         None => fg("toolOutput", "..."),
     }
@@ -124,7 +127,12 @@ fn generic_call(name: &str, args: &Map<String, Value>, expanded: bool) -> String
                     Value::String(s) => s.clone(),
                     other => serde_json::to_string_pretty(other).unwrap_or_default(),
                 };
-                format!("  {k}: {}", text.replace('\t', "   ").replace('\r', "").replace('\n', "\n    "))
+                format!(
+                    "  {k}: {}",
+                    text.replace('\t', "   ")
+                        .replace('\r', "")
+                        .replace('\n', "\n    ")
+                )
             })
             .collect();
         return format!("{header}\n{}", fg("muted", &lines.join("\n")));
@@ -132,7 +140,13 @@ fn generic_call(name: &str, args: &Map<String, Value>, expanded: bool) -> String
     let pairs: Vec<String> = args.iter().map(|(k, v)| format!("{k}={v}")).collect();
     let pairs = pairs.join(" ");
     let preview = if pairs.chars().count() > COLLAPSED_ARGS_CHARS {
-        format!("{}...", pairs.chars().take(COLLAPSED_ARGS_CHARS - 3).collect::<String>())
+        format!(
+            "{}...",
+            pairs
+                .chars()
+                .take(COLLAPSED_ARGS_CHARS - 3)
+                .collect::<String>()
+        )
     } else {
         pairs
     };
@@ -142,10 +156,18 @@ fn generic_call(name: &str, args: &Map<String, Value>, expanded: bool) -> String
 /// The first `max` lines (or all when expanded) in `toolOutput`, with the "more lines" hint.
 fn head_preview(output: &str, max: usize, expanded: bool) -> String {
     let lines: Vec<&str> = output.split('\n').collect();
-    let shown = if expanded { lines.len() } else { max.min(lines.len()) };
+    let shown = if expanded {
+        lines.len()
+    } else {
+        max.min(lines.len())
+    };
     let mut text = format!(
         "\n{}",
-        lines[..shown].iter().map(|l| fg("toolOutput", &l.replace('\t', "   "))).collect::<Vec<_>>().join("\n")
+        lines[..shown]
+            .iter()
+            .map(|l| fg("toolOutput", &l.replace('\t', "   ")))
+            .collect::<Vec<_>>()
+            .join("\n")
     );
     if lines.len() > shown {
         text += &expand_hint(&format!("\n... ({} more lines,", lines.len() - shown));
@@ -154,7 +176,13 @@ fn head_preview(output: &str, max: usize, expanded: bool) -> String {
 }
 
 impl ToolRow {
-    pub fn new(name: &str, call_id: &str, args: Map<String, Value>, _cwd: &str, expanded: bool) -> Self {
+    pub fn new(
+        name: &str,
+        call_id: &str,
+        args: Map<String, Value>,
+        _cwd: &str,
+        expanded: bool,
+    ) -> Self {
         let mut row = ToolRow {
             name: name.to_string(),
             call_id: call_id.to_string(),
@@ -236,12 +264,27 @@ impl ToolRow {
             }
             "read" => {
                 let path = tool_path(s(a, "path").or(s(a, "file_path")), "");
-                let range = match (a.get("offset").and_then(Value::as_u64), a.get("limit").and_then(Value::as_u64)) {
+                let range = match (
+                    a.get("offset").and_then(Value::as_u64),
+                    a.get("limit").and_then(Value::as_u64),
+                ) {
                     (None, None) => String::new(),
                     (offset, limit) => {
                         let start = offset.unwrap_or(1);
-                        let end = limit.map(|l| (start + l - 1).to_string()).unwrap_or_default();
-                        fg("warning", &format!(":{start}{}", if end.is_empty() { String::new() } else { format!("-{end}") }))
+                        let end = limit
+                            .map(|l| (start + l - 1).to_string())
+                            .unwrap_or_default();
+                        fg(
+                            "warning",
+                            &format!(
+                                ":{start}{}",
+                                if end.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!("-{end}")
+                                }
+                            ),
+                        )
                     }
                 };
                 format!("{} {path}{range}", title("read"))
@@ -266,12 +309,19 @@ impl ToolRow {
             }
             "grep" | "find" => {
                 let pattern = s(a, "pattern").unwrap_or("");
-                let shown = if self.name == "grep" { format!("/{pattern}/") } else { pattern.to_string() };
+                let shown = if self.name == "grep" {
+                    format!("/{pattern}/")
+                } else {
+                    pattern.to_string()
+                };
                 let mut text = format!(
                     "{} {}{}",
                     title(&self.name),
                     fg("accent", &shown),
-                    fg("toolOutput", &format!(" in {}", s(a, "path").unwrap_or(".")))
+                    fg(
+                        "toolOutput",
+                        &format!(" in {}", s(a, "path").unwrap_or("."))
+                    )
                 );
                 if let Some(glob) = s(a, "glob") {
                     text += &fg("toolOutput", &format!(" ({glob})"));
@@ -310,7 +360,10 @@ fn truncation_limit(details: Option<&Value>) -> Option<String> {
     if t.get("truncated").and_then(Value::as_bool) != Some(true) {
         return None;
     }
-    let max = t.get("maxBytes").and_then(Value::as_u64).map_or(DEFAULT_MAX_BYTES, |m| m as usize);
+    let max = t
+        .get("maxBytes")
+        .and_then(Value::as_u64)
+        .map_or(DEFAULT_MAX_BYTES, |m| m as usize);
     Some(format!("{} limit", format_size(max)))
 }
 
@@ -326,7 +379,9 @@ impl ToolRow {
             "bash" => {
                 let mut text = String::new();
                 let mut out = output.trim().to_string();
-                let full = details.and_then(|d| d.get("fullOutputPath")).and_then(Value::as_str);
+                let full = details
+                    .and_then(|d| d.get("fullOutputPath"))
+                    .and_then(Value::as_str);
                 if self.result.is_some()
                     && let Some(path) = full
                     && let Some(cut) = out.rfind("\n\n[")
@@ -336,13 +391,22 @@ impl ToolRow {
                 }
                 if !out.is_empty() {
                     let lines: Vec<&str> = out.split('\n').collect();
-                    let keep = if expanded { lines.len() } else { 5.min(lines.len()) };
+                    let keep = if expanded {
+                        lines.len()
+                    } else {
+                        5.min(lines.len())
+                    };
                     text += "\n\n";
                     if lines.len() > keep {
-                        text += &expand_hint(&format!("... ({} earlier lines,", lines.len() - keep));
+                        text +=
+                            &expand_hint(&format!("... ({} earlier lines,", lines.len() - keep));
                         text += "\n";
                     }
-                    text += &lines[lines.len() - keep..].iter().map(|l| fg("toolOutput", l)).collect::<Vec<_>>().join("\n");
+                    text += &lines[lines.len() - keep..]
+                        .iter()
+                        .map(|l| fg("toolOutput", l))
+                        .collect::<Vec<_>>()
+                        .join("\n");
                 }
                 let mut warnings = Vec::new();
                 if let Some(path) = full {
@@ -353,14 +417,28 @@ impl ToolRow {
                 {
                     let n = |k: &str| t.get(k).and_then(Value::as_u64).unwrap_or(0);
                     if t.get("truncatedBy").and_then(Value::as_str) == Some("lines") {
-                        warnings.push(format!("Truncated: showing {} of {} lines", n("outputLines"), n("totalLines")));
+                        warnings.push(format!(
+                            "Truncated: showing {} of {} lines",
+                            n("outputLines"),
+                            n("totalLines")
+                        ));
                     } else {
-                        let max = t.get("maxBytes").and_then(Value::as_u64).map_or(DEFAULT_MAX_BYTES, |m| m as usize);
-                        warnings.push(format!("Truncated: {} lines shown ({} limit)", n("outputLines"), format_size(max)));
+                        let max = t
+                            .get("maxBytes")
+                            .and_then(Value::as_u64)
+                            .map_or(DEFAULT_MAX_BYTES, |m| m as usize);
+                        warnings.push(format!(
+                            "Truncated: {} lines shown ({} limit)",
+                            n("outputLines"),
+                            format_size(max)
+                        ));
                     }
                 }
                 if !warnings.is_empty() {
-                    text += &format!("\n\n{}", fg("warning", &format!("[{}]", warnings.join(". "))));
+                    text += &format!(
+                        "\n\n{}",
+                        fg("warning", &format!("[{}]", warnings.join(". ")))
+                    );
                 }
                 if let Some(timer) = self.timer() {
                     text += &format!("\n\n{}", fg("muted", &timer));
@@ -385,9 +463,17 @@ impl ToolRow {
                 if is_error {
                     return format!("\n{}", fg("error", out));
                 }
-                let mut text = if out.trim().is_empty() { String::new() } else { head_preview(out.trim(), max, expanded) };
+                let mut text = if out.trim().is_empty() {
+                    String::new()
+                } else {
+                    head_preview(out.trim(), max, expanded)
+                };
                 let mut warnings = Vec::new();
-                let detail = |k: &str| details.and_then(|d| d.get(k)).filter(|v| !v.is_null() && *v != &Value::Bool(false));
+                let detail = |k: &str| {
+                    details
+                        .and_then(|d| d.get(k))
+                        .filter(|v| !v.is_null() && *v != &Value::Bool(false))
+                };
                 match self.name.as_str() {
                     "ls" => {
                         if let Some(n) = detail("entryLimitReached") {
@@ -415,7 +501,10 @@ impl ToolRow {
                     warnings.push("some lines truncated".into());
                 }
                 if !warnings.is_empty() {
-                    text += &format!("\n{}", fg("warning", &format!("[Truncated: {}]", warnings.join(", "))));
+                    text += &format!(
+                        "\n{}",
+                        fg("warning", &format!("[Truncated: {}]", warnings.join(", ")))
+                    );
                 }
                 text
             }
@@ -435,7 +524,8 @@ impl ToolRow {
             Some(_) => "toolSuccessBg",
         };
         self.body.set_custom_bg_fn(Some(bg_fn(bg)));
-        self.body.set_text(&format!("{}{}", self.call_text(), self.result_text()));
+        self.body
+            .set_text(&format!("{}{}", self.call_text(), self.result_text()));
         self.dirty = false;
     }
 }
@@ -480,10 +570,28 @@ mod tests {
             duration_ms: Some(1200),
             ..ShownResult::default()
         });
-        let lines: Vec<String> = row.render(60).iter().map(|l| plain(l).trim_end().to_string()).collect();
+        let lines: Vec<String> = row
+            .render(60)
+            .iter()
+            .map(|l| plain(l).trim_end().to_string())
+            .collect();
         assert_eq!(
             lines,
-            ["", "", " $ seq 8", "", " ... (3 earlier lines, ctrl+o to expand)", " 4", " 5", " 6", " 7", " 8", "", " Took 1.2s", ""]
+            [
+                "",
+                "",
+                " $ seq 8",
+                "",
+                " ... (3 earlier lines, ctrl+o to expand)",
+                " 4",
+                " 5",
+                " 6",
+                " 7",
+                " 8",
+                "",
+                " Took 1.2s",
+                ""
+            ]
         );
     }
 

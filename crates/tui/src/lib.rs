@@ -4,19 +4,19 @@
 //! offset into UTF-8 where upstream uses UTF-16 code units. Widths, wrapping and rendered output
 //! are the same.
 
-mod unicode_tables;
-pub mod unicode;
-pub mod utils;
+pub mod autocomplete;
+pub mod components;
+pub mod fuzzy;
+pub mod keybindings;
 pub mod keys;
-pub mod stdin_buffer;
+pub mod kill_ring;
+pub mod latex;
 pub mod program_status;
+pub mod stdin_buffer;
 pub mod terminal;
 pub mod tui;
 pub mod tui_main_screen;
-pub mod keybindings;
-pub mod components;
-pub mod fuzzy;
-pub mod kill_ring;
+pub mod unicode;
+mod unicode_tables;
+pub mod utils;
 pub mod word_navigation;
-pub mod autocomplete;
-pub mod latex;

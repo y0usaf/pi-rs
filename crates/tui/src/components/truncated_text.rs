@@ -11,7 +11,11 @@ pub struct TruncatedText {
 
 impl TruncatedText {
     pub fn new(text: &str, padding_x: usize, padding_y: usize) -> Self {
-        TruncatedText { text: text.into(), padding_x, padding_y }
+        TruncatedText {
+            text: text.into(),
+            padding_x,
+            padding_y,
+        }
     }
 }
 

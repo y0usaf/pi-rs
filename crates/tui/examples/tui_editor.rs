@@ -30,7 +30,11 @@ fn main() {
     let now = || start.elapsed().as_millis() as u64;
     let mut tui = TuiMainScreen::new(ProcessTerminal::new());
 
-    let header = component(Text::new("pi-tui editor demo. Enter submits, Shift+Enter new line, / commands, Tab paths, Ctrl+C quits.", 1, 0));
+    let header = component(Text::new(
+        "pi-tui editor demo. Enter submits, Shift+Enter new line, / commands, Tab paths, Ctrl+C quits.",
+        1,
+        0,
+    ));
     let log = component(Text::new("", 1, 0));
     let theme = EditorTheme {
         border_color: sgr("90"),
@@ -42,14 +46,27 @@ fn main() {
             no_match: sgr("90"),
         },
     };
-    let editor = component(Editor::new(theme, EditorOptions { padding_x: Some(1), autocomplete_max_visible: None }));
-    let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_else(|_| ".".to_string());
-    let commands = vec![cmd("clear", "Clear the submitted log"), cmd("quit", "Leave the demo")];
+    let editor = component(Editor::new(
+        theme,
+        EditorOptions {
+            padding_x: Some(1),
+            autocomplete_max_visible: None,
+        },
+    ));
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| ".".to_string());
+    let commands = vec![
+        cmd("clear", "Clear the submitted log"),
+        cmd("quit", "Leave the demo"),
+    ];
     let submitted: Rc<RefCell<Vec<String>>> = Rc::default();
     let dirty = Rc::new(Cell::new(false));
     {
         let mut e = editor.borrow_mut();
-        e.set_autocomplete_provider(Rc::new(CombinedAutocompleteProvider::new(commands, &cwd, None)));
+        e.set_autocomplete_provider(Rc::new(CombinedAutocompleteProvider::new(
+            commands, &cwd, None,
+        )));
         let (s, d) = (submitted.clone(), dirty.clone());
         e.on_submit = Some(Box::new(move |t: &str| s.borrow_mut().push(t.to_string())));
         e.request_render = Some(Rc::new(move || d.set(true)));
@@ -60,7 +77,10 @@ fn main() {
     tui.add_input_listener(Box::new(move |data: &str| {
         if matches_key(data, "ctrl+c") {
             q.set(true);
-            return Some(InputListenerResult { consume: true, data: None });
+            return Some(InputListenerResult {
+                consume: true,
+                data: None,
+            });
         }
         None
     }));

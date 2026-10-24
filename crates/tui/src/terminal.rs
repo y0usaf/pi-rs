@@ -6,7 +6,9 @@
 //! lives in [`InputRouter`], which is pure and tested on its own.
 
 use crate::keys::set_kitty_protocol_active;
-use crate::program_status::{ProgramStatus, PROGRAM_STATUS_QUERY, format_program_status, is_program_status_reply};
+use crate::program_status::{
+    PROGRAM_STATUS_QUERY, ProgramStatus, format_program_status, is_program_status_reply,
+};
 use crate::stdin_buffer::{StdinBuffer, StdinEvent};
 
 const PROGRESS_KEEPALIVE_MS: u64 = 1000;
@@ -36,12 +38,16 @@ pub fn parse_keyboard_protocol_negotiation_sequence(seq: &str) -> Option<Negotia
         return None;
     }
     let d = body.strip_suffix('c')?;
-    d.bytes().all(|b| b.is_ascii_digit() || b == b';').then_some(NegotiationReply::DeviceAttributes)
+    d.bytes()
+        .all(|b| b.is_ascii_digit() || b == b';')
+        .then_some(NegotiationReply::DeviceAttributes)
 }
 
 fn is_negotiation_prefix(seq: &str) -> bool {
     seq == "\x1b["
-        || seq.strip_prefix("\x1b[?").is_some_and(|d| d.bytes().all(|b| b.is_ascii_digit() || b == b';'))
+        || seq
+            .strip_prefix("\x1b[?")
+            .is_some_and(|d| d.bytes().all(|b| b.is_ascii_digit() || b == b';'))
 }
 
 /// Apple Terminal on macOS (it sends plain CR for Shift+Enter).
@@ -51,20 +57,28 @@ pub fn is_apple_terminal_session() -> bool {
 
 /// Turn CR into the Kitty Shift+Enter sequence when native detection says Shift is held.
 pub fn normalize_native_shift_enter_input(data: &str, detect: bool, shift_pressed: bool) -> String {
-    if detect && data == "\r" && shift_pressed { NATIVE_SHIFT_ENTER.into() } else { data.into() }
+    if detect && data == "\r" && shift_pressed {
+        NATIVE_SHIFT_ENTER.into()
+    } else {
+        data.into()
+    }
 }
 
 /// How long to wait after ESC before it counts as Escape: `PI_TUI_ESC_TIMEOUT`, longer over SSH.
 pub fn resolve_escape_timeout_ms(env: &dyn Fn(&str) -> Option<String>) -> u64 {
-    if let Some(v) = env("PI_TUI_ESC_TIMEOUT") {
-        if let Ok(n) = v.trim().parse::<f64>() {
-            if n.is_finite() && n > 0.0 {
-                return n.ceil() as u64;
-            }
-        }
+    if let Some(v) = env("PI_TUI_ESC_TIMEOUT")
+        && let Ok(n) = v.trim().parse::<f64>()
+        && n.is_finite()
+        && n > 0.0
+    {
+        return n.ceil() as u64;
     }
     let set = |k: &str| env(k).is_some_and(|v| !v.is_empty());
-    if set("SSH_CONNECTION") || set("SSH_TTY") { DEFAULT_SSH_ESCAPE_TIMEOUT_MS } else { DEFAULT_ESCAPE_TIMEOUT_MS }
+    if set("SSH_CONNECTION") || set("SSH_TTY") {
+        DEFAULT_SSH_ESCAPE_TIMEOUT_MS
+    } else {
+        DEFAULT_ESCAPE_TIMEOUT_MS
+    }
 }
 
 fn process_env(k: &str) -> Option<String> {
@@ -104,8 +118,13 @@ impl InputRouter {
         self.pending_device_attributes += 1;
         self.clear_negotiation_buffer();
         self.program_status_supported = program_status_override == Some("1");
-        self.program_status_query_pending = !matches!(program_status_override, Some("1") | Some("0"));
-        let q = if self.program_status_query_pending { PROGRAM_STATUS_QUERY } else { "" };
+        self.program_status_query_pending =
+            !matches!(program_status_override, Some("1") | Some("0"));
+        let q = if self.program_status_query_pending {
+            PROGRAM_STATUS_QUERY
+        } else {
+            ""
+        };
         let mut out = format!("{KITTY_QUERY}{q}{DEVICE_ATTRIBUTES_QUERY}");
         out.push_str(&self.program_status_write());
         out
@@ -148,7 +167,8 @@ impl InputRouter {
                 reply = Some((r, buffered));
             } else if is_negotiation_prefix(&buffered) {
                 self.negotiation_buffer = buffered;
-                self.negotiation_deadline.get_or_insert(now + KEYBOARD_FRAGMENT_TIMEOUT_MS);
+                self.negotiation_deadline
+                    .get_or_insert(now + KEYBOARD_FRAGMENT_TIMEOUT_MS);
                 return;
             } else {
                 let b = std::mem::take(&mut self.negotiation_buffer);
@@ -302,7 +322,11 @@ pub trait Terminal {
         self.write(&format!("\x1b]0;{title}\x07"));
     }
     fn set_progress(&mut self, active: bool) {
-        self.write(if active { PROGRESS_ACTIVE } else { PROGRESS_CLEAR });
+        self.write(if active {
+            PROGRESS_ACTIVE
+        } else {
+            PROGRESS_CLEAR
+        });
     }
     fn set_program_status(&mut self, _status: ProgramStatus) {}
 }
@@ -325,7 +349,11 @@ mod sig {
         }
         for fd in fds {
             unsafe {
-                libc::fcntl(fd, libc::F_SETFL, libc::fcntl(fd, libc::F_GETFL) | libc::O_NONBLOCK);
+                libc::fcntl(
+                    fd,
+                    libc::F_SETFL,
+                    libc::fcntl(fd, libc::F_GETFL) | libc::O_NONBLOCK,
+                );
                 libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
             }
         }
@@ -378,18 +406,24 @@ impl ProcessTerminal {
         ProcessTerminal {
             saved: None,
             started: false,
-            buffer: StdinBuffer::new(crate::stdin_buffer::DEFAULT_SEQUENCE_TIMEOUT_MS, resolve_escape_timeout_ms(&process_env)),
+            buffer: StdinBuffer::new(
+                crate::stdin_buffer::DEFAULT_SEQUENCE_TIMEOUT_MS,
+                resolve_escape_timeout_ms(&process_env),
+            ),
             router: InputRouter::default(),
             winch_fd: None,
             progress_next: None,
             pending: Default::default(),
-            log_path: std::env::var("PI_TUI_WRITE_LOG").ok().filter(|s| !s.is_empty()).map(|p| {
-                if std::path::Path::new(&p).is_dir() {
-                    format!("{p}/tui-{}.log", std::process::id())
-                } else {
-                    p
-                }
-            }),
+            log_path: std::env::var("PI_TUI_WRITE_LOG")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(|p| {
+                    if std::path::Path::new(&p).is_dir() {
+                        format!("{p}/tui-{}.log", std::process::id())
+                    } else {
+                        p
+                    }
+                }),
         }
     }
 
@@ -407,9 +441,23 @@ impl ProcessTerminal {
     fn size(&self) -> (usize, usize) {
         let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
         let ok = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) } == 0;
-        let env = |k: &str, d: usize| std::env::var(k).ok().and_then(|v| v.parse().ok()).filter(|n| *n > 0).unwrap_or(d);
-        let cols = if ok && ws.ws_col > 0 { ws.ws_col as usize } else { env("COLUMNS", 80) };
-        let rows = if ok && ws.ws_row > 0 { ws.ws_row as usize } else { env("LINES", 24) };
+        let env = |k: &str, d: usize| {
+            std::env::var(k)
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .filter(|n| *n > 0)
+                .unwrap_or(d)
+        };
+        let cols = if ok && ws.ws_col > 0 {
+            ws.ws_col as usize
+        } else {
+            env("COLUMNS", 80)
+        };
+        let rows = if ok && ws.ws_row > 0 {
+            ws.ws_row as usize
+        } else {
+            env("LINES", 24)
+        };
         (cols, rows)
     }
 
@@ -433,11 +481,19 @@ impl ProcessTerminal {
         if !out.is_empty() {
             self.raw_write(&out);
         }
-        self.pending.extend(input.into_iter().map(TerminalEvent::Input));
+        self.pending
+            .extend(input.into_iter().map(TerminalEvent::Input));
     }
 
     fn next_deadline(&self) -> Option<u64> {
-        [self.buffer.deadline(), self.router.deadline(), self.progress_next].into_iter().flatten().min()
+        [
+            self.buffer.deadline(),
+            self.router.deadline(),
+            self.progress_next,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     fn run_timers(&mut self, now: u64) {
@@ -447,7 +503,8 @@ impl ProcessTerminal {
         }
         let mut input = Vec::new();
         self.router.tick(now, &mut input);
-        self.pending.extend(input.into_iter().map(TerminalEvent::Input));
+        self.pending
+            .extend(input.into_iter().map(TerminalEvent::Input));
         if self.progress_next.is_some_and(|d| now >= d) {
             self.raw_write(PROGRESS_ACTIVE);
             self.progress_next = Some(now + PROGRESS_KEEPALIVE_MS);
@@ -474,7 +531,10 @@ impl Terminal for ProcessTerminal {
         self.raw_write("\x1b[?2004h");
         self.winch_fd = sig::install();
         self.pending.push_back(TerminalEvent::Resize);
-        self.buffer = StdinBuffer::new(crate::stdin_buffer::DEFAULT_SEQUENCE_TIMEOUT_MS, resolve_escape_timeout_ms(&process_env));
+        self.buffer = StdinBuffer::new(
+            crate::stdin_buffer::DEFAULT_SEQUENCE_TIMEOUT_MS,
+            resolve_escape_timeout_ms(&process_env),
+        );
         let ov = std::env::var("PI_PROGRAM_STATUS").ok();
         let w = self.router.begin(ov.as_deref());
         self.raw_write(&w);
@@ -528,9 +588,17 @@ impl Terminal for ProcessTerminal {
             if timeout_ms.is_some_and(|t| now >= start + t) {
                 return Vec::new();
             }
-            let mut fds = vec![libc::pollfd { fd: libc::STDIN_FILENO, events: libc::POLLIN, revents: 0 }];
+            let mut fds = vec![libc::pollfd {
+                fd: libc::STDIN_FILENO,
+                events: libc::POLLIN,
+                revents: 0,
+            }];
             if let Some(w) = self.winch_fd {
-                fds.push(libc::pollfd { fd: w, events: libc::POLLIN, revents: 0 });
+                fds.push(libc::pollfd {
+                    fd: w,
+                    events: libc::POLLIN,
+                    revents: 0,
+                });
             }
             let t = wait.map_or(-1, |w| w.min(i32::MAX as u64) as i32);
             let r = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, t) };
@@ -560,11 +628,16 @@ impl Terminal for ProcessTerminal {
             if now >= end || now - last >= idle_ms {
                 break;
             }
-            let mut fd = libc::pollfd { fd: libc::STDIN_FILENO, events: libc::POLLIN, revents: 0 };
+            let mut fd = libc::pollfd {
+                fd: libc::STDIN_FILENO,
+                events: libc::POLLIN,
+                revents: 0,
+            };
             let t = idle_ms.min(end - now) as i32;
             if unsafe { libc::poll(&mut fd, 1, t) } > 0 {
                 let mut buf = [0u8; 4096];
-                if unsafe { libc::read(libc::STDIN_FILENO, buf.as_mut_ptr().cast(), buf.len()) } > 0 {
+                if unsafe { libc::read(libc::STDIN_FILENO, buf.as_mut_ptr().cast(), buf.len()) } > 0
+                {
                     last = now_ms();
                 }
             }
@@ -575,7 +648,11 @@ impl Terminal for ProcessTerminal {
         self.raw_write(data);
         if let Some(p) = &self.log_path {
             use std::io::Write;
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(p)
+            {
                 let _ = f.write_all(data.as_bytes());
             }
         }
@@ -703,11 +780,25 @@ mod tests {
     #[test]
     fn escape_timeout() {
         let env = |pairs: &'static [(&'static str, &'static str)]| {
-            move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+            move |k: &str| {
+                pairs
+                    .iter()
+                    .find(|(n, _)| *n == k)
+                    .map(|(_, v)| v.to_string())
+            }
         };
         assert_eq!(resolve_escape_timeout_ms(&env(&[])), 10);
-        assert_eq!(resolve_escape_timeout_ms(&env(&[("SSH_TTY", "/dev/pts/1")])), 100);
-        assert_eq!(resolve_escape_timeout_ms(&env(&[("PI_TUI_ESC_TIMEOUT", "25"), ("SSH_TTY", "x")])), 25);
-        assert_eq!(resolve_escape_timeout_ms(&env(&[("PI_TUI_ESC_TIMEOUT", "-1")])), 10);
+        assert_eq!(
+            resolve_escape_timeout_ms(&env(&[("SSH_TTY", "/dev/pts/1")])),
+            100
+        );
+        assert_eq!(
+            resolve_escape_timeout_ms(&env(&[("PI_TUI_ESC_TIMEOUT", "25"), ("SSH_TTY", "x")])),
+            25
+        );
+        assert_eq!(
+            resolve_escape_timeout_ms(&env(&[("PI_TUI_ESC_TIMEOUT", "-1")])),
+            10
+        );
     }
 }

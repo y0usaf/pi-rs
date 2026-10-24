@@ -7,7 +7,9 @@ use crate::utils::{is_whitespace_char, js_trim};
 
 /// Line endings to \n, tabs to four spaces.
 pub(crate) fn normalize_text(text: &str) -> String {
-    text.replace("\r\n", "\n").replace('\r', "\n").replace('\t', "    ")
+    text.replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .replace('\t', "    ")
 }
 
 /// Decode CSI-u Ctrl+letter sequences (ESC [ code ; 5 u) back to control bytes.
@@ -19,18 +21,19 @@ fn decode_ctrl_csi_u(text: &str) -> String {
         let after = &rest[p + 2..];
         let n = after.bytes().take_while(u8::is_ascii_digit).count();
         let mut done = false;
-        if n > 0 && after[n..].starts_with(";5u") {
-            if let Ok(cp) = after[..n].parse::<u32>() {
-                let c = match cp {
-                    97..=122 => Some(cp - 96),
-                    65..=90 => Some(cp - 64),
-                    _ => None,
-                };
-                if let Some(c) = c.and_then(char::from_u32) {
-                    out.push(c);
-                    rest = &after[n + 3..];
-                    done = true;
-                }
+        if n > 0
+            && after[n..].starts_with(";5u")
+            && let Ok(cp) = after[..n].parse::<u32>()
+        {
+            let c = match cp {
+                97..=122 => Some(cp - 96),
+                65..=90 => Some(cp - 64),
+                _ => None,
+            };
+            if let Some(c) = c.and_then(char::from_u32) {
+                out.push(c);
+                rest = &after[n + 3..];
+                done = true;
             }
         }
         if !done {
@@ -44,19 +47,28 @@ fn decode_ctrl_csi_u(text: &str) -> String {
 
 /// JS `trimStart`.
 pub(crate) fn trim_start(s: &str) -> &str {
-    let i = s.char_indices().find(|&(i, c)| !js_trim(&s[i..i + c.len_utf8()]).is_empty()).map_or(s.len(), |(i, _)| i);
+    let i = s
+        .char_indices()
+        .find(|&(i, c)| !js_trim(&s[i..i + c.len_utf8()]).is_empty())
+        .map_or(s.len(), |(i, _)| i);
     &s[i..]
 }
 
 impl Editor {
     pub(crate) fn push_undo_snapshot(&mut self) {
-        let snap = EditorSnapshot { state: self.state.clone(), pastes: self.pastes.clone(), paste_counter: self.paste_counter };
+        let snap = EditorSnapshot {
+            state: self.state.clone(),
+            pastes: self.pastes.clone(),
+            paste_counter: self.paste_counter,
+        };
         self.undo_stack.push(&snap);
     }
 
     pub(crate) fn undo(&mut self) {
         self.exit_history_browsing();
-        let Some(s) = self.undo_stack.pop() else { return };
+        let Some(s) = self.undo_stack.pop() else {
+            return;
+        };
         self.state = s.state;
         self.pastes = s.pastes;
         self.paste_counter = s.paste_counter;
@@ -108,7 +120,11 @@ impl Editor {
             let last = inserted[inserted.len() - 1];
             let mut new_lines: Vec<String> = self.state.lines[..cl].to_vec();
             new_lines.push(format!("{before}{}", inserted[0]));
-            new_lines.extend(inserted[1..inserted.len() - 1].iter().map(|s| s.to_string()));
+            new_lines.extend(
+                inserted[1..inserted.len() - 1]
+                    .iter()
+                    .map(|s| s.to_string()),
+            );
             new_lines.push(format!("{last}{after}"));
             new_lines.extend(self.state.lines[cl + 1..].iter().cloned());
             self.state.lines = new_lines;
@@ -144,7 +160,9 @@ impl Editor {
             if self.matches_trigger(&before) {
                 self.try_trigger_autocomplete(false);
             }
-        } else if ch.chars().any(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') || is_cjk_break(c))
+        } else if ch
+            .chars()
+            .any(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') || is_cjk_break(c))
             && (self.is_in_slash_command_context(&before) || self.matches_trigger(&before))
         {
             self.try_trigger_autocomplete(false);
@@ -211,7 +229,11 @@ impl Editor {
     pub(crate) fn submit_value(&mut self) {
         self.cancel_autocomplete();
         let result = js_trim(&self.get_expanded_text()).to_string();
-        self.state = EditorState { lines: vec![String::new()], cursor_line: 0, cursor_col: 0 };
+        self.state = EditorState {
+            lines: vec![String::new()],
+            cursor_line: 0,
+            cursor_col: 0,
+        };
         self.pastes.clear();
         self.paste_counter = 0;
         self.exit_history_browsing();
@@ -261,12 +283,15 @@ impl Editor {
             self.push_undo_snapshot();
             let before = self.text_before_cursor();
             let segs = self.seg_graphemes(&before);
-            let last = segs.last().map(|g| g.segment.to_string()).unwrap_or_default();
+            let last = segs
+                .last()
+                .map(|g| g.segment.to_string())
+                .unwrap_or_default();
             let glen = if last.is_empty() { 1 } else { last.len() };
-            if let Some((len, id)) = paste_marker_at(&last, 0) {
-                if len == last.len() {
-                    self.remove_paste(id);
-                }
+            if let Some((len, id)) = paste_marker_at(&last, 0)
+                && len == last.len()
+            {
+                self.remove_paste(id);
             }
             let line = self.current_line().to_string();
             let col = self.state.cursor_col;

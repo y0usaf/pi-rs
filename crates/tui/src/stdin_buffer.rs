@@ -26,7 +26,9 @@ pub enum StdinEvent {
 /// Upstream `TERMINAL_REPLY_HEADER_PATTERN`:
 /// `^\x1b(?:\](?:1[01];|4;\d{1,3};|7501;\?)|P>\||_G(?:[a-z]=\d+,)*[a-z]=\d+;)`.
 fn has_terminal_reply_header(s: &str) -> bool {
-    let Some(rest) = s.strip_prefix(ESC) else { return false };
+    let Some(rest) = s.strip_prefix(ESC) else {
+        return false;
+    };
     if let Some(osc) = rest.strip_prefix(']') {
         if osc.starts_with("10;") || osc.starts_with("11;") || osc.starts_with("7501;?") {
             return true;
@@ -82,11 +84,19 @@ enum Status {
 }
 
 fn is_complete_sequence(data: &str) -> Status {
-    let Some(after) = data.strip_prefix(ESC) else { return Status::NotEscape };
+    let Some(after) = data.strip_prefix(ESC) else {
+        return Status::NotEscape;
+    };
     if after.is_empty() {
         return Status::Incomplete;
     }
-    let done = |b: bool| if b { Status::Complete } else { Status::Incomplete };
+    let done = |b: bool| {
+        if b {
+            Status::Complete
+        } else {
+            Status::Incomplete
+        }
+    };
     if after.starts_with('[') {
         if after.starts_with("[M") {
             return done(data.chars().count() >= 6);
@@ -143,15 +153,15 @@ fn unmodified_kitty_printable(seq: &str) -> Option<u32> {
     if parts.next().is_some() {
         return None;
     }
-    if let Some(p) = p2 {
-        if !p.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
+    if let Some(p) = p2
+        && !p.bytes().all(|b| b.is_ascii_digit())
+    {
+        return None;
     }
-    if let Some(p) = p3 {
-        if !all_digits(p) {
-            return None;
-        }
+    if let Some(p) = p3
+        && !all_digits(p)
+    {
+        return None;
     }
     let cp: u64 = cp.parse().unwrap_or(u64::MAX);
     (cp >= 32).then(|| cp.min(u32::MAX as u64) as u32)
@@ -170,7 +180,12 @@ fn extract_complete_sequences(buffer: &str) -> (Vec<String>, String) {
         }
         let reply = is_control_string(remaining) && has_terminal_reply_header(remaining);
         // Char boundaries of `remaining`, so candidate lengths step one character at a time.
-        let bounds: Vec<usize> = remaining.char_indices().map(|(i, _)| i).skip(1).chain([remaining.len()]).collect();
+        let bounds: Vec<usize> = remaining
+            .char_indices()
+            .map(|(i, _)| i)
+            .skip(1)
+            .chain([remaining.len()])
+            .collect();
         let mut k = 0; // candidate = remaining[..bounds[k]]
         let mut finished = false;
         while k < bounds.len() {
@@ -307,7 +322,11 @@ impl StdinBuffer {
             if has_terminal_reply_header(&self.buffer) {
                 return;
             }
-            let wait = if self.buffer == ESC { self.escape_timeout_ms } else { self.timeout_ms };
+            let wait = if self.buffer == ESC {
+                self.escape_timeout_ms
+            } else {
+                self.timeout_ms
+            };
             self.deadline = Some(now + wait);
         }
     }
