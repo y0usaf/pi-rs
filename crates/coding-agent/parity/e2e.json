@@ -253,5 +253,50 @@
     "text": "k"
    }
   ]
+ },
+ {
+  "name": "prompt-template",
+  "files": {
+   "home/.pi/agent/prompts/greet.md": "---\ndescription: Greet someone by name in a place\n---\nHello $1, welcome to ${@:2}.\n"
+  },
+  "args": [
+   "/greet Ada Paris"
+  ],
+  "script": [
+   {
+    "text": "done"
+   }
+  ]
+ },
+ {
+  "name": "prompt-template-cli-path",
+  "files": {
+   "home/proj/tmpl/ask.md": "---\ndescription: Ask a question\nargument-hint: <topic>\n---\nTell me about $@.\n"
+  },
+  "args": [
+   "--prompt-template",
+   "tmpl",
+   "/ask the sea"
+  ],
+  "script": [
+   {
+    "text": "done"
+   }
+  ]
+ },
+ {
+  "name": "prompt-template-disabled",
+  "files": {
+   "home/.pi/agent/prompts/greet.md": "---\ndescription: Greet someone by name in a place\n---\nHello $1, welcome to ${@:2}.\n"
+  },
+  "args": [
+   "--no-prompt-templates",
+   "/greet Ada Paris"
+  ],
+  "script": [
+   {
+    "text": "done"
+   }
+  ]
  }
 ]

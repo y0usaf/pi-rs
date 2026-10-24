@@ -162,6 +162,8 @@ pub struct RunInput {
     pub model: Model,
     pub thinking: ModelThinkingLevel,
     pub cwd: String,
+    /// The prompt templates a message may invoke by name.
+    pub templates: Vec<crate::prompt_templates::PromptTemplate>,
     /// The first message (stdin, `@file`s and the first argument) and its images.
     pub initial: Option<(String, Vec<UserBlock>)>,
     /// The other message arguments, each sent after the previous one finishes.
@@ -235,16 +237,19 @@ pub fn run_turns(
     let mut prompts: Vec<UserContent> = Vec::new();
     // `session.prompt` sends `[{type: "text", text}, ...images]`, never a bare string.
     if let Some((text, images)) = &input.initial {
-        let mut blocks = vec![text_block(text.clone())];
+        let mut blocks = vec![text_block(crate::prompt_templates::expand(
+            text,
+            &input.templates,
+        ))];
         blocks.extend(images.iter().cloned());
         prompts.push(UserContent::Blocks(blocks));
     }
-    prompts.extend(
-        input
-            .messages
-            .iter()
-            .map(|m| UserContent::Blocks(vec![text_block(m.clone())])),
-    );
+    prompts.extend(input.messages.iter().map(|m| {
+        UserContent::Blocks(vec![text_block(crate::prompt_templates::expand(
+            m,
+            &input.templates,
+        ))])
+    }));
     let live = crate::extensions::live();
     if let Some(live) = live {
         live.event("session_start", serde_json::json!({}));

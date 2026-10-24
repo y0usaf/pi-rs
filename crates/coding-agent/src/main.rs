@@ -15,6 +15,7 @@ use pi_coding_agent::models::ModelRegistry;
 use pi_coding_agent::modes;
 use pi_coding_agent::paths::{PathInput, join, normalize_path, resolve_read_path};
 use pi_coding_agent::print::{self, RunInput, ToolSettings};
+use pi_coding_agent::prompt_templates;
 use pi_coding_agent::run_config::{self, Diagnostic, level_name};
 use pi_coding_agent::session_fork;
 use pi_coding_agent::session_list;
@@ -85,7 +86,6 @@ fn file_arguments(files: &[String], cwd: &str) -> Result<(String, Vec<UserBlock>
 fn unimplemented_flag(parsed: &Args) -> Option<&'static str> {
     let flags = [
         (parsed.export.is_some(), "--export"),
-        (parsed.prompt_templates.is_some(), "--prompt-template"),
         (parsed.tui_mode.is_some(), "--tui-mode"),
         (parsed.verbose, "--verbose"),
     ];
@@ -265,6 +265,18 @@ fn run() -> Result<ExitCode, String> {
     for diagnostic in deduplicate_diagnostics(&reported) {
         eprintln!("Warning: {}", diagnostic.message);
     }
+
+    let loaded_templates = prompt_templates::load(&prompt_templates::Input {
+        cwd: &cwd,
+        agent_dir: &agent_dir,
+        project_trusted: trusted,
+        no_defaults: parsed.no_prompt_templates,
+        cli_paths: parsed.prompt_templates.as_deref().unwrap_or(&[]),
+    });
+    for warning in &loaded_templates.warnings {
+        eprintln!("{warning}");
+    }
+    let templates = loaded_templates.templates;
 
     let tools = run_config::select_tools(&parsed, &settings)?;
     let registry = Arc::new(ModelRegistry::load(&agent_dir));
@@ -496,6 +508,7 @@ fn run() -> Result<ExitCode, String> {
             initial_name,
             mcp_problems: mcp_notices,
             extensions,
+            templates,
             incoming,
         })?;
         if let Some(path) = path {
@@ -537,6 +550,7 @@ fn run() -> Result<ExitCode, String> {
         model,
         thinking: choice.thinking,
         cwd: cwd.clone(),
+        templates: templates.clone(),
         initial,
         messages,
     };
@@ -547,7 +561,7 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
     if matches!(mode, Some(Mode::Rpc)) {
-        let commands: Vec<serde_json::Value> = extensions
+        let mut commands: Vec<serde_json::Value> = extensions
             .commands
             .iter()
             .map(|command| {
@@ -558,15 +572,23 @@ fn run() -> Result<ExitCode, String> {
                     "sourceInfo": { "path": command.path },
                 })
             })
-            .chain(assembled.input.skills.iter().map(|skill| {
+            .chain(templates.iter().map(|template| {
                 serde_json::json!({
-                    "name": format!("skill:{}", skill.name),
-                    "description": skill.description,
-                    "source": "skill",
-                    "sourceInfo": { "path": skill.file_path },
+                    "name": template.name,
+                    "description": template.description,
+                    "source": "prompt",
+                    "sourceInfo": { "path": template.file_path },
                 })
             }))
             .collect();
+        commands.extend(assembled.input.skills.iter().map(|skill| {
+            serde_json::json!({
+                "name": format!("skill:{}", skill.name),
+                "description": skill.description,
+                "source": "skill",
+                "sourceInfo": { "path": skill.file_path },
+            })
+        }));
         let options = modes::rpc::Options {
             model: input.model.clone(),
             thinking: input.thinking,
@@ -585,6 +607,7 @@ fn run() -> Result<ExitCode, String> {
                 compaction: compaction.clone(),
             },
             commands,
+            templates,
         };
         modes::rpc::run(harness, root, options, &cancel)?;
         return Ok(ExitCode::SUCCESS);

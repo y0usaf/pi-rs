@@ -238,6 +238,27 @@ pub fn autocomplete_commands(extensions: &[ExtensionCommand]) -> Vec<CommandEntr
         .collect()
 }
 
+/// The templates as autocomplete entries, after the builtins: `prefixAutocompleteDescription`
+/// tags each with where it came from, `[u]` for the agent directory, `[p]` for the project and
+/// `[t]` for a `--prompt-template` path.
+pub fn with_templates(
+    mut entries: Vec<CommandEntry>,
+    templates: &[crate::prompt_templates::PromptTemplate],
+) -> Vec<CommandEntry> {
+    entries.extend(templates.iter().map(|template| {
+        CommandEntry::Command(SlashCommand {
+            name: template.name.clone(),
+            description: Some(if template.description.is_empty() {
+                format!("[{}]", template.tag)
+            } else {
+                format!("[{}] {}", template.tag, template.description)
+            }),
+            argument_hint: template.argument_hint.clone(),
+            argument_completions: None,
+        })
+    }));
+    entries
+}
 const NAVIGATION: &[(&[&str], &str)] = &[
     (
         &[
@@ -284,6 +305,8 @@ const APP: &[(&[&str], &str)] = &[
     (&["app.clear"], "Clear editor (first) / exit (second)"),
     (&["app.exit"], "Exit (when editor is empty)"),
     (&["app.tools.expand"], "Toggle tool output expansion"),
+    (&["app.message.followUp"], "Queue follow-up message"),
+    (&["app.message.dequeue"], "Restore queued messages"),
 ];
 
 fn capitalize(part: &str) -> String {
@@ -293,11 +316,11 @@ fn capitalize(part: &str) -> String {
     }
 }
 
-fn capitalize_parts(key: &str) -> String {
+pub fn capitalize_parts(key: &str) -> String {
     key.split('+').map(capitalize).collect::<Vec<_>>().join("+")
 }
 
-fn bound_key(id: &str) -> String {
+pub fn bound_key(id: &str) -> String {
     get_keybindings()
         .keys(id)
         .iter()

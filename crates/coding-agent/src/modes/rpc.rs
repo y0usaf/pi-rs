@@ -53,6 +53,8 @@ pub struct Options {
     pub settings: Rc<RefCell<SettingsManager>>,
     /// The commands a `prompt` may invoke, as `get_commands` reports them.
     pub commands: Vec<Value>,
+    /// The prompt templates a `prompt` may invoke by name.
+    pub templates: Vec<crate::prompt_templates::PromptTemplate>,
 }
 
 /// What the session state is, kept from the events as they arrive.
@@ -110,12 +112,15 @@ fn response(id: Option<&Value>, command: &str, ok: bool) -> Value {
     Value::Object(line)
 }
 
-fn user_content(message: &Value) -> UserContent {
+fn user_content(
+    message: &Value,
+    templates: &[crate::prompt_templates::PromptTemplate],
+) -> UserContent {
     let mut blocks: Vec<UserBlock> = Vec::new();
     if let Some(text) = message["message"].as_str() {
         blocks.push(UserBlock::Text(TextContent {
             kind: TextType,
-            text: text.to_owned(),
+            text: crate::prompt_templates::expand(text, templates),
             text_signature: None,
         }));
     }
@@ -454,7 +459,7 @@ fn handle(
             };
             let draft = SubmissionDraft::Input {
                 request_id: id.map(|id| id.to_string()),
-                content: user_content(command),
+                content: user_content(command, &options.templates),
                 when_busy,
             };
             match root.submit(draft, cancel) {

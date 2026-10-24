@@ -10,6 +10,16 @@ const APP_DEFS: &[(&str, &[&str], &str)] = &[
     ("app.clear", &["ctrl+c"], "Clear editor"),
     ("app.exit", &["ctrl+d"], "Exit when editor is empty"),
     ("app.tools.expand", &["ctrl+o"], "Toggle tool output"),
+    (
+        "app.message.followUp",
+        &["alt+enter"],
+        "Queue follow-up message",
+    ),
+    (
+        "app.message.dequeue",
+        &["alt+up"],
+        "Restore queued messages",
+    ),
     ("app.thinking.cycle", &["shift+tab"], "Cycle thinking level"),
     ("app.thinking.save", &["ctrl+s"], "Save thinking level"),
     ("app.thinking.toggle", &["ctrl+t"], "Toggle thinking blocks"),

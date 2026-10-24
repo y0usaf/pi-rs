@@ -5,6 +5,7 @@ pub mod chat;
 pub mod footer;
 pub mod keybindings;
 pub mod messages;
+pub mod pending;
 pub mod run;
 pub mod selectors;
 pub mod slash_commands;

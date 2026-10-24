@@ -34,6 +34,7 @@ use serde_json::json;
 use super::chat::Chat;
 use super::footer::{Footer, FooterState, Totals, git_branch};
 use super::keybindings;
+use super::pending::PendingMessages;
 use super::selectors::{
     ActionSlot, OverlayAction, action_slot,
     confirm::Confirm,
@@ -140,6 +141,8 @@ pub struct Session {
     pub mcp_problems: Vec<String>,
     /// The commands the extensions registered, and what loading them had to say.
     pub extensions: crate::extensions::Extensions,
+    /// The prompt templates a typed line may invoke by name.
+    pub templates: Vec<crate::prompt_templates::PromptTemplate>,
     pub incoming: mpsc::Receiver<Incoming>,
 }
 
@@ -150,6 +153,8 @@ enum Action {
     Clear,
     Exit,
     Expand,
+    FollowUp,
+    Dequeue,
 }
 
 /// The components the loop swaps a selector in and out of.
@@ -157,20 +162,22 @@ struct Parts {
     /// None under quietStartup: true, which hides the startup header.
     header: Option<ComponentRef>,
     chat: ComponentRef,
+    pending: ComponentRef,
     status: ComponentRef,
     editor: ComponentRef,
     footer: ComponentRef,
 }
 
 impl Parts {
-    /// Draw the header, chat, status, footer and either the editor or `selector` in its place,
-    /// focused.
+    /// Draw the header, chat, the queued messages, status, footer and either the editor or
+    /// `selector` in its place, focused.
     fn mount(&self, tui: &mut TuiMainScreen<ProcessTerminal>, selector: Option<&ComponentRef>) {
         tui.clear();
         if let Some(header) = &self.header {
             tui.add_child(header.clone());
         }
         tui.add_child(self.chat.clone());
+        tui.add_child(self.pending.clone());
         tui.add_child(self.status.clone());
         let focus = match selector {
             Some(selector) => selector.clone(),
@@ -314,6 +321,75 @@ fn settings_callbacks(settings: Rc<RefCell<SettingsManager>>) -> Rc<RefCell<Sett
     }))
 }
 
+/// The text of a queued input, as `restoreQueuedMessagesToEditor` puts it back.
+fn input_text(content: &UserContent) -> String {
+    match content {
+        UserContent::Text(text) => text.clone(),
+        UserContent::Blocks(blocks) => blocks
+            .iter()
+            .filter_map(|block| match block {
+                UserBlock::Text(text) => Some(text.text.clone()),
+                UserBlock::Image(_) => None,
+            })
+            .collect::<Vec<String>>()
+            .join("\n"),
+    }
+}
+
+/// `getSteeringMessages` and `getFollowUpMessages`: what the inbox holds, in order.
+fn queued(conversation: &Conversation, cancel: &CancelToken) -> (Vec<String>, Vec<String>) {
+    use pi_durable::harness::inbox::{InboxItem, InboxState, inbox_doc};
+    let id = conversation.id();
+    let state = conversation.commit(
+        |tx| {
+            let token = inbox_doc()?;
+            pi_durable::harness::util::read_draft::<InboxState>(tx, &token, id)
+        },
+        cancel,
+    );
+    let mut steering = Vec::new();
+    let mut follow_up = Vec::new();
+    if let Ok(state) = state {
+        for item in &state.items {
+            match item {
+                InboxItem::Steer { content, .. } => steering.push(input_text(content)),
+                InboxItem::FollowUp { content, .. } => follow_up.push(input_text(content)),
+                InboxItem::Write { .. } => {}
+            }
+        }
+    }
+    (steering, follow_up)
+}
+
+/// `clearQueue`: the queued messages, taken out of the inbox so they can go back in the editor.
+fn take_queued(
+    conversation: &Conversation,
+    cancel: &CancelToken,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    use pi_durable::harness::inbox::{InboxItem, InboxState, inbox_doc, withdraw_queued_inputs};
+    let id = conversation.id();
+    conversation
+        .commit(
+            |tx| {
+                let token = inbox_doc()?;
+                let state = pi_durable::harness::util::read_draft::<InboxState>(tx, &token, id)?;
+                let mut steering = Vec::new();
+                let mut follow_up = Vec::new();
+                for item in &state.items {
+                    match item {
+                        InboxItem::Steer { content, .. } => steering.push(input_text(content)),
+                        InboxItem::FollowUp { content, .. } => follow_up.push(input_text(content)),
+                        InboxItem::Write { .. } => {}
+                    }
+                }
+                withdraw_queued_inputs(tx, id)?;
+                Ok((steering, follow_up))
+            },
+            cancel,
+        )
+        .map_err(|e| e.to_string())
+}
+
 fn text_input(text: &str, images: &[UserBlock]) -> UserContent {
     let mut blocks = vec![UserBlock::Text(TextContent {
         kind: TextType,
@@ -398,6 +474,16 @@ fn submit(
     )
     .map(|_| ())
     .map_err(|e| e.to_string())
+}
+
+/// `updatePendingMessagesDisplay`: redraw the queued lines; true when they changed.
+fn refresh_pending(
+    pending: &Rc<RefCell<PendingMessages>>,
+    root: &Conversation,
+    cancel: &CancelToken,
+) -> bool {
+    let (steering, follow_up) = queued(root, cancel);
+    pending.borrow_mut().set(&steering, &follow_up)
 }
 
 /// `JSON.stringify` of a string, as upstream quotes a name it warns about.
@@ -624,6 +710,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         initial_name,
         mcp_problems,
         extensions,
+        templates,
         incoming,
     } = session;
     let (mut model, mut thinking, mut cwd) = (model, thinking, cwd);
@@ -673,6 +760,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let header =
         header(settings.borrow().quiet_startup()).map(|text| component(Text::new(&text, 1, 1)));
     let status = component(StatusArea::new());
+    let pending_area = component(PendingMessages::new());
     let editor = component(Editor::new(
         theme::editor(),
         EditorOptions {
@@ -702,7 +790,10 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         e.on_submit = Some(Box::new(move |t: &str| s.borrow_mut().push(t.to_string())));
         e.request_render = Some(Rc::new(move || d.set(true)));
         e.set_autocomplete_provider(Rc::new(CombinedAutocompleteProvider::new(
-            slash_commands::autocomplete_commands(&extensions.commands),
+            slash_commands::with_templates(
+                slash_commands::autocomplete_commands(&extensions.commands),
+                &templates,
+            ),
             &cwd,
             crate::config::tool_path("fd").as_deref(),
         )));
@@ -727,6 +818,10 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             Action::Exit
         } else if kb.matches(data, "app.tools.expand") {
             Action::Expand
+        } else if kb.matches(data, "app.message.followUp") {
+            Action::FollowUp
+        } else if kb.matches(data, "app.message.dequeue") {
+            Action::Dequeue
         } else {
             return None;
         };
@@ -739,6 +834,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let parts = Parts {
         header: header.as_ref().map(as_ref),
         chat: chat.container.clone(),
+        pending: as_ref(&pending_area),
         status: as_ref(&status),
         editor: as_ref(&editor),
         footer: as_ref(&footer),
@@ -794,13 +890,20 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         while let Ok(message) = incoming.try_recv() {
             match message {
                 Incoming::Events(events) => {
+                    let mut queue_changed = false;
                     for event in &events {
                         if let Some(live) = live {
                             live.observe(event);
                         }
+                        if matches!(event, AgentEvent::InboxUpdate { .. }) {
+                            queue_changed = true;
+                        }
                         if chat.apply(event) {
                             dirty.set(true);
                         }
+                    }
+                    if queue_changed && refresh_pending(&pending_area, &open.root, &cancel) {
+                        dirty.set(true);
                     }
                 }
                 Incoming::Report(text) => {
@@ -826,12 +929,75 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         for action in actions.borrow_mut().drain(..) {
             match action {
                 Action::Interrupt => {
-                    if chat.working
-                        && let Err(e) = open.root.abort(false, &cancel)
-                    {
-                        chat.notice("error", &format!("Error: {e}"));
+                    if chat.working {
+                        // `restoreQueuedMessagesToEditor({abort: true})`: the queued lines go
+                        // back in the editor before the run is aborted.
+                        match take_queued(&open.root, &cancel) {
+                            Ok((steering, follow_up)) => {
+                                let queued: Vec<String> =
+                                    steering.into_iter().chain(follow_up).collect();
+                                if !queued.is_empty() {
+                                    let current = editor.borrow().get_text();
+                                    let combined = [queued.join("\n\n"), current]
+                                        .into_iter()
+                                        .filter(|text| !text.trim().is_empty())
+                                        .collect::<Vec<String>>()
+                                        .join("\n\n");
+                                    editor.borrow_mut().set_text(&combined);
+                                }
+                            }
+                            Err(e) => chat.notice("error", &format!("Error: {e}")),
+                        }
+                        refresh_pending(&pending_area, &open.root, &cancel);
+                        if let Err(e) = open.root.abort(false, &cancel) {
+                            chat.notice("error", &format!("Error: {e}"));
+                        }
                     }
                 }
+                Action::FollowUp => {
+                    let text = editor.borrow().get_text().trim().to_owned();
+                    if !text.is_empty() && chat.working {
+                        editor.borrow_mut().add_to_history(&text);
+                        editor.borrow_mut().set_text("");
+                        let expanded = crate::prompt_templates::expand(&text, &templates);
+                        if let Err(e) =
+                            submit(&open.root, text_input(&expanded, &[]), false, &cancel, live)
+                        {
+                            chat.notice("error", &format!("Error: {e}"));
+                        }
+                        refresh_pending(&pending_area, &open.root, &cancel);
+                    } else if !text.is_empty() {
+                        // Idle, it acts like Enter: the line is submitted as a prompt.
+                        editor.borrow_mut().set_text("");
+                        submitted.borrow_mut().push(text);
+                    }
+                }
+                Action::Dequeue => match take_queued(&open.root, &cancel) {
+                    Ok((steering, follow_up)) => {
+                        let queued: Vec<String> = steering.into_iter().chain(follow_up).collect();
+                        if queued.is_empty() {
+                            chat.notice("dim", "No queued messages to restore");
+                        } else {
+                            let restored = queued.len();
+                            let current = editor.borrow().get_text();
+                            let combined = [queued.join("\n\n"), current]
+                                .into_iter()
+                                .filter(|text| !text.trim().is_empty())
+                                .collect::<Vec<String>>()
+                                .join("\n\n");
+                            editor.borrow_mut().set_text(&combined);
+                            chat.notice(
+                                "dim",
+                                &format!(
+                                    "Restored {restored} queued message{} to editor",
+                                    if restored > 1 { "s" } else { "" }
+                                ),
+                            );
+                        }
+                        refresh_pending(&pending_area, &open.root, &cancel);
+                    }
+                    Err(e) => chat.notice("error", &format!("Error: {e}")),
+                },
                 Action::Clear => {
                     if last_clear.is_some_and(|t| t.elapsed().as_millis() < 500) {
                         quit = true;
@@ -1605,9 +1771,10 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 continue;
             }
             editor.borrow_mut().add_to_history(&text);
+            let expanded = crate::prompt_templates::expand(&text, &templates);
             if let Err(e) = submit(
                 &open.root,
-                text_input(&text, &[]),
+                text_input(&expanded, &[]),
                 chat.working,
                 &cancel,
                 live,
@@ -1615,6 +1782,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 chat.notice("error", &format!("Error: {e}"));
             }
             chat.working = true;
+            if refresh_pending(&pending_area, &open.root, &cancel) {
+                dirty.set(true);
+            }
             dirty.set(true);
         }
         if next_timer.elapsed().as_millis() >= 1000 {
