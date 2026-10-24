@@ -213,12 +213,33 @@ fn tool_result(
 }
 
 /// Schema keywords whose values map names to subschemas, so their keys are not schema keywords.
-const JSON_SCHEMA_NAME_MAPS: [&str; 5] = [
+const JSON_SCHEMA_NAME_MAPS: [&str; 6] = [
     "properties",
     "patternProperties",
     "$defs",
     "definitions",
     "dependentSchemas",
+    "dependencies",
+];
+
+/// Keywords containing a subschema or an array of subschemas, not literal data.
+const JSON_SCHEMA_SUBSCHEMAS: [&str; 16] = [
+    "additionalProperties",
+    "unevaluatedProperties",
+    "propertyNames",
+    "items",
+    "prefixItems",
+    "additionalItems",
+    "unevaluatedItems",
+    "contains",
+    "allOf",
+    "anyOf",
+    "oneOf",
+    "not",
+    "if",
+    "then",
+    "else",
+    "contentSchema",
 ];
 
 /// Rewrite string and number `const` values to single-value `enum`s: Gemini ignores `const` in
@@ -235,8 +256,15 @@ fn rewrite_const_as_enum(schema: &Value, is_name_map: bool) -> Value {
             let mut result: Map<String, Value> = members
                 .iter()
                 .map(|(key, value)| {
-                    let child_is_name_map = !is_name_map && JSON_SCHEMA_NAME_MAPS.contains(&key.as_str());
-                    (key.clone(), rewrite_const_as_enum(value, child_is_name_map))
+                    let key = key.as_str();
+                    let rewritten = if is_name_map || JSON_SCHEMA_SUBSCHEMAS.contains(&key) {
+                        rewrite_const_as_enum(value, false)
+                    } else if JSON_SCHEMA_NAME_MAPS.contains(&key) {
+                        rewrite_const_as_enum(value, true)
+                    } else {
+                        value.clone()
+                    };
+                    (key.to_owned(), rewritten)
                 })
                 .collect();
             let constant = result.get("const").filter(|value| {
