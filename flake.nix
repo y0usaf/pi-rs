@@ -6,12 +6,17 @@
     url = "github:earendil-works/pi/f1b2e77f5b13b2a199b1052cb79c235451afe7d7";
     flake = false;
   };
+  inputs.piAi = {
+    url = "github:earendil-works/pi/bdb151774ed6bef2b5676bbff4669f20a0c233fe";
+    flake = false;
+  };
 
   outputs =
     {
       self,
       nixpkgs,
       pi,
+      piAi,
     }:
     let
       systems = [
@@ -132,11 +137,15 @@
       oracleAi =
         pkgs:
         pkgs.runCommand "pi-ts-oracle-ai" { } ''
-          mkdir -p $out/packages/ai $out/node_modules/@earendil-works $out/parity-ai
-          cp -r ${pi}/packages/ai/src ${pi}/packages/ai/package.json $out/packages/ai
+          mkdir -p $out/packages $out/node_modules/@earendil-works $out/parity-ai
+          for p in ai telemetry; do
+            mkdir -p $out/packages/$p
+            cp -r ${piAi}/packages/$p/src ${piAi}/packages/$p/package.json $out/packages/$p
+          done
           chmod -R u+w $out
-          sed -i -E 's#\./dist/(.*)\.js"#./src/\1.ts"#' $out/packages/ai/package.json
+          sed -i -E 's#\./dist/(.*)\.js"#./src/\1.ts"#' $out/packages/*/package.json
           ln -s ../../packages/ai $out/node_modules/@earendil-works/pi-ai
+          ln -s ../../packages/telemetry $out/node_modules/@earendil-works/pi-telemetry
           mkdir $out/packages/ai/src/providers/data
           for f in $(grep -ho 'data/[a-z0-9-]*\.json' $out/packages/ai/src/providers/*.models.ts | sort -u) data/.manifest.json; do
             echo '{}' > $out/packages/ai/src/providers/$f
