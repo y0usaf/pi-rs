@@ -84,10 +84,11 @@ pub fn without_initial_system_message(messages: &[Message]) -> &[Message] {
     }
 }
 
-/// Tools available after applying every system message's additions and removals in order.
-pub fn get_current_tools(messages: &[Message]) -> Vec<Tool> {
+/// Tools available after applying the additions and removals of the first count
+/// system messages, in order.
+fn tools_after<'a>(systems: impl Iterator<Item = &'a SystemMessage>, count: usize) -> Vec<Tool> {
     let mut tools: Vec<Tool> = Vec::new();
-    for system in system_messages(messages) {
+    for system in systems.take(count) {
         for removed in system.tools_removed.iter().flatten() {
             tools.retain(|tool| tool.name != removed.name);
         }
@@ -96,6 +97,11 @@ pub fn get_current_tools(messages: &[Message]) -> Vec<Tool> {
         }
     }
     tools
+}
+
+/// Tools available after applying every system message's additions and removals in order.
+pub fn get_current_tools(messages: &[Message]) -> Vec<Tool> {
+    tools_after(system_messages(messages), usize::MAX)
 }
 
 /// Replay every system message into one leading system message with the current prompt,
@@ -202,33 +208,58 @@ pub fn has_non_additive_tool_changes(messages: &[Message]) -> bool {
     false
 }
 
-/// Tool declarations split between the top-level request field and in-place additions.
+/// How a transport can express tool changes after the first request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolSupport {
+    /// Only the top-level tool list exists; it always holds the current tools.
+    None,
+    /// Tools can be added at a later message, but not removed or redefined.
+    Additions,
+    /// Every tool is declared in place, and a later declaration under the same name
+    /// replaces the earlier one. Removals are announced as text.
+    Changes,
+}
+
+/// Tool declarations split between the top-level request field and in-place changes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TranscriptTools {
     /// Tools sent in the top-level request field.
     pub request_tools: Vec<Tool>,
-    /// Whether later system messages carry their own tool additions. When false,
-    /// request_tools already holds the complete current tool set.
-    pub anchors_additions: bool,
+    /// Number of leading system messages whose tool changes request_tools already holds.
+    /// Every later system message carries its own tool changes in place.
+    pub folded_system_messages: usize,
 }
 
-/// Choose the top-level tools. Transports that can anchor additions at a system message
-/// keep the initial tools at the top, but only when no tool was removed or redeclared.
-pub fn resolve_transcript_tools(
-    messages: &[Message],
-    supports_tool_additions: bool,
-) -> TranscriptTools {
-    let anchors_additions = supports_tool_additions && !has_non_additive_tool_changes(messages);
-    let request_tools = if anchors_additions {
-        get_initial_system_message(messages)
-            .and_then(|system| system.tools_added.clone())
-            .unwrap_or_default()
-    } else {
-        get_current_tools(messages)
-    };
-    TranscriptTools {
-        request_tools,
-        anchors_additions,
+/// Choose the top-level tools. With [ToolSupport::Changes] the top-level list stays empty
+/// and every system message declares its tools in place. With [ToolSupport::Additions] the
+/// top-level list holds the tool state after the last removal or redeclaration, so later
+/// additions stay anchored. With [ToolSupport::None] it is the current tool set.
+pub fn resolve_transcript_tools(messages: &[Message], support: ToolSupport) -> TranscriptTools {
+    match support {
+        ToolSupport::None => TranscriptTools {
+            request_tools: get_current_tools(messages),
+            folded_system_messages: system_messages(messages).count(),
+        },
+        ToolSupport::Changes => TranscriptTools {
+            request_tools: Vec::new(),
+            folded_system_messages: 0,
+        },
+        ToolSupport::Additions => {
+            let mut folded = usize::from(get_initial_system_message(messages).is_some());
+            let mut declared: Vec<String> = Vec::new();
+            for (index, system) in system_messages(messages).enumerate() {
+                let added = system.tools_added.as_deref().unwrap_or_default();
+                let removed = system.tools_removed.as_deref().unwrap_or_default();
+                if !removed.is_empty() || added.iter().any(|tool| declared.contains(&tool.name)) {
+                    folded = folded.max(index + 1);
+                }
+                declared.extend(added.iter().map(|tool| tool.name.clone()));
+            }
+            TranscriptTools {
+                request_tools: tools_after(system_messages(messages), folded),
+                folded_system_messages: folded,
+            }
+        }
     }
 }
 

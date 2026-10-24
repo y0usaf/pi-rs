@@ -8,7 +8,7 @@ use crate::types::{
     ModelThinkingLevel, SystemMessage, Tool, TranscriptContext, UserBlock, UserContent,
 };
 use crate::utils::text::{system_content_text, system_message_text, utf16_len};
-use crate::utils::transcript::get_current_tools;
+use crate::utils::transcript::{ToolSupport, resolve_transcript_tools};
 
 use super::codex::DEFAULT_INSTRUCTIONS;
 
@@ -25,6 +25,8 @@ pub struct Compat {
     max_output: bool,
     explicit_cache: bool,
     pub codex: bool,
+    additional_tools: bool,
+    tool_search: bool,
 }
 
 impl Compat {
@@ -52,7 +54,19 @@ impl Compat {
             max_output: flag("supportsMaxOutputTokens", true),
             explicit_cache: flag("supportsExplicitPromptCacheMode", false),
             codex: model.api == "openai-codex-responses",
+            additional_tools: flag("supportsAdditionalTools", false),
+            tool_search: flag("supportsToolSearch", false),
         }
+    }
+
+    pub fn tool_support(&self) -> ToolSupport {
+        if self.mid_convo_system && self.additional_tools {
+            return ToolSupport::Changes;
+        }
+        if self.tool_search {
+            return ToolSupport::Additions;
+        }
+        ToolSupport::None
     }
 
     pub fn openrouter_session(&self) -> bool {
@@ -76,9 +90,17 @@ pub fn build(
     turn: &Turn,
 ) -> Result<Value, String> {
     let plain = !turn.chatgpt_sign_in && !compat.codex;
+    let support = compat.tool_support();
+    let transcript_tools = resolve_transcript_tools(&context.messages, support);
     let mut params = json!({
         "model": turn.request_model.as_deref().unwrap_or(&model.id),
-        "input": input(model, context, compat)?,
+        "input": input(
+            model,
+            context,
+            compat,
+            support,
+            transcript_tools.folded_system_messages,
+        )?,
         "stream": true,
         "store": false,
     });
@@ -111,9 +133,8 @@ pub fn build(
         params["parallel_tool_calls"] = json!(true);
         params["include"] = json!(["reasoning.encrypted_content"]);
     }
-    let tools = get_current_tools(&context.messages);
-    if !tools.is_empty() {
-        params["tools"] = Value::Array(tool_items(&tools, compat));
+    if !transcript_tools.request_tools.is_empty() {
+        params["tools"] = Value::Array(tool_items(&transcript_tools.request_tools, compat, false));
     }
     if model.reasoning {
         reasoning(model, turn.effort, &mut params);
@@ -167,7 +188,7 @@ fn reasoning(model: &Model, effort: Option<ModelThinkingLevel>, params: &mut Val
     }
 }
 
-fn tool_items(tools: &[Tool], compat: &Compat) -> Vec<Value> {
+fn tool_items(tools: &[Tool], compat: &Compat, deferred: bool) -> Vec<Value> {
     tools
         .iter()
         .map(|tool| {
@@ -180,6 +201,9 @@ fn tool_items(tools: &[Tool], compat: &Compat) -> Vec<Value> {
             if compat.strict {
                 item["strict"] = json!(false);
             }
+            if deferred {
+                item["defer_loading"] = json!(true);
+            }
             item
         })
         .collect()
@@ -189,6 +213,8 @@ fn input(
     model: &Model,
     context: &TranscriptContext,
     compat: &Compat,
+    support: ToolSupport,
+    folded_system_messages: usize,
 ) -> Result<Vec<Value>, String> {
     let normalize =
         |id: &str, _target: &Model, source: &AssistantMessage| normalize_call_id(model, id, source);
@@ -201,18 +227,58 @@ fn input(
     };
     let mut items = Vec::new();
     let mut msg_index = 0usize;
+    let mut system_index = 0usize;
+    let mut declared_additional_tools = false;
+    let mut unavailable: Vec<String> = Vec::new();
     for (source_index, message) in messages.iter().enumerate() {
         let leading_system = source_index == 0 && matches!(message, Message::System(_));
         match message {
             Message::System(system) => {
+                let anchors = system_index >= folded_system_messages;
+                system_index += 1;
+                if anchors {
+                    append_tool_additions(
+                        compat,
+                        support,
+                        system,
+                        msg_index,
+                        &mut items,
+                        &mut declared_additional_tools,
+                        &mut unavailable,
+                    );
+                }
                 if leading_system && compat.codex {
                     continue;
                 }
-                let text = if leading_system {
+                let mut parts = vec![if leading_system {
                     system_message_text(system)
                 } else {
                     render_update(system)
-                };
+                }];
+                if anchors {
+                    let added: Vec<&str> = system
+                        .tools_added
+                        .iter()
+                        .flatten()
+                        .map(|tool| tool.name.as_str())
+                        .collect();
+                    let removed: Vec<&str> = system
+                        .tools_removed
+                        .iter()
+                        .flatten()
+                        .map(|tool| tool.name.as_str())
+                        .filter(|name| !added.contains(name))
+                        .collect();
+                    if !removed.is_empty() {
+                        parts.push(render_tool_removal_notice(&removed));
+                    }
+                    unavailable.extend(removed.into_iter().map(str::to_owned));
+                }
+                let text = parts
+                    .into_iter()
+                    .filter(|part| !part.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
                 if !text.is_empty() {
                     items.push(json!({"role": instruction_role, "content": text}));
                 }
@@ -248,6 +314,82 @@ fn input(
         }
     }
     Ok(items)
+}
+
+/// Declare a system message's tool additions the way the transport can: in place for
+/// [ToolSupport::Changes], as a synthetic tool search for [ToolSupport::Additions].
+fn append_tool_additions(
+    compat: &Compat,
+    support: ToolSupport,
+    system: &SystemMessage,
+    msg_index: usize,
+    items: &mut Vec<Value>,
+    declared_additional_tools: &mut bool,
+    unavailable: &mut Vec<String>,
+) {
+    let tools = system.tools_added.as_deref().unwrap_or_default();
+    unavailable.retain(|name| !tools.iter().any(|tool| tool.name == *name));
+    if tools.is_empty() {
+        return;
+    }
+    match support {
+        ToolSupport::Changes => {
+            if *declared_additional_tools {
+                items.push(json!({
+                    "role": "developer",
+                    "content": render_incremental_tools_notice(unavailable),
+                }));
+            }
+            *declared_additional_tools = true;
+            items.push(json!({
+                "type": "additional_tools",
+                "role": "developer",
+                "tools": tool_items(tools, compat, false),
+            }));
+        }
+        ToolSupport::Additions => {
+            let names: Vec<&str> = tools.iter().map(|tool| tool.name.as_str()).collect();
+            let call_id = format!(
+                "pi_tool_load_{}",
+                short_hash(&format!("system:{msg_index}:{}", names.join(",")))
+            );
+            items.push(json!({
+                "type": "tool_search_call",
+                "call_id": call_id,
+                "execution": "client",
+                "status": "completed",
+                "arguments": {"query": names.join(" "), "limit": names.len()},
+            }));
+            items.push(json!({
+                "type": "tool_search_output",
+                "call_id": call_id,
+                "execution": "client",
+                "status": "completed",
+                "tools": tool_items(tools, compat, true),
+            }));
+        }
+        ToolSupport::None => {}
+    }
+}
+
+fn render_incremental_tools_notice(unavailable: &[String]) -> String {
+    let notice = "This is an incremental tools update. Previously declared tools remain available unless explicitly marked unavailable. A tool declared again here is available again, and its latest definition replaces the earlier one.";
+    if unavailable.is_empty() {
+        notice.to_owned()
+    } else {
+        format!("{notice}\nStill unavailable: {}.", unavailable.join(", "))
+    }
+}
+
+fn render_tool_removal_notice(names: &[&str]) -> String {
+    format!(
+        "The following tools are no longer available. Do not call them:\n{}",
+        names
+            .iter()
+            .map(|name| format!("- {name}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
 }
 
 pub(crate) fn render_update(system: &SystemMessage) -> String {

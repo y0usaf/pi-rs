@@ -13,7 +13,7 @@ use crate::types::{
     TranscriptContext, UserBlock, UserContent,
 };
 use crate::utils::text::{system_content_text, system_message_text};
-use crate::utils::transcript::{resolve_transcript, resolve_transcript_tools};
+use crate::utils::transcript::{ToolSupport, resolve_transcript, resolve_transcript_tools};
 use pi_chord::json::{JsonObject, JsonValue};
 
 const PROCESSED_TOOL_RESULTS: &str = "I have processed the tool results.";
@@ -37,11 +37,12 @@ pub fn build(
     settings: &Settings,
 ) -> JsonObject {
     let transcript = resolve_transcript(context, compat.mid_convo_system_messages);
-    let tools = resolve_transcript_tools(
-        &transcript.messages,
-        compat.mid_convo_system_messages && compat.mid_convo_tool_additions,
-    )
-    .request_tools;
+    let support = if compat.mid_convo_system_messages && compat.mid_convo_tool_additions {
+        ToolSupport::Additions
+    } else {
+        ToolSupport::None
+    };
+    let tools = resolve_transcript_tools(&transcript.messages, support).request_tools;
     let max_tokens = clamp_max_tokens_to_context(model, &transcript.messages, settings.max_tokens);
     let mut body = JsonObject::new();
     body.insert("model".to_owned(), json!(model.id));
