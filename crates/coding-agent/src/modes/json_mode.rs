@@ -24,10 +24,11 @@ pub fn run(
     let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counted = std::sync::Arc::clone(&seen);
     let printer = output.clone();
+    let mut mapper = json_event::Mapper::default();
     stream
         .start(move |events, _| {
             for event in events {
-                for line in json_event::lines(event) {
+                for line in mapper.lines(event) {
                     printer.line(&line);
                     counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }

@@ -145,13 +145,14 @@ pub fn run(
     {
         let printer = output.clone();
         let shared = Arc::clone(&state);
+        let mut mapper = json_event::Mapper::default();
         stream
             .start(move |events, _| {
                 for event in events {
                     if let Ok(mut state) = shared.lock() {
                         state.apply(event);
                     }
-                    for line in json_event::lines(event) {
+                    for line in mapper.lines(event) {
                         printer.line(&line);
                     }
                 }

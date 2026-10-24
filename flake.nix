@@ -216,6 +216,10 @@
             ${examples}/bin/openai_completions_e2e
             touch $out
           '';
+          modes-e2e = pkgs.runCommand "${pname}-modes-e2e" { } ''
+            PI_RS_BIN=${self.packages.${system}.default}/bin/pi-rs ${examples}/bin/modes_e2e
+            touch $out
+          '';
           parity =
             pkgs.runCommand "${pname}-parity"
               {
