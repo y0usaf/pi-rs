@@ -61,10 +61,7 @@ impl State {
 }
 
 fn success(id: Option<&Value>, command: &str, data: Option<Value>) -> Value {
-    let mut line = json!({ "type": "response", "command": command, "success": true });
-    if let Some(id) = id {
-        line["id"] = id.clone();
-    }
+    let mut line = response(id, command, true);
     if let Some(data) = data {
         line["data"] = data;
     }
@@ -72,16 +69,21 @@ fn success(id: Option<&Value>, command: &str, data: Option<Value>) -> Value {
 }
 
 fn failure(id: Option<&Value>, command: &str, message: impl Into<String>) -> Value {
-    let mut line = json!({
-        "type": "response",
-        "command": command,
-        "success": false,
-        "error": message.into(),
-    });
-    if let Some(id) = id {
-        line["id"] = id.clone();
-    }
+    let mut line = response(id, command, false);
+    line["error"] = json!(message.into());
     line
+}
+
+/// Upstream writes a response's `id` first, then `type`, `command` and `success`.
+fn response(id: Option<&Value>, command: &str, ok: bool) -> Value {
+    let mut line = serde_json::Map::new();
+    if let Some(id) = id {
+        line.insert("id".into(), id.clone());
+    }
+    line.insert("type".into(), json!("response"));
+    line.insert("command".into(), json!(command));
+    line.insert("success".into(), json!(ok));
+    Value::Object(line)
 }
 
 fn user_content(message: &Value) -> UserContent {
@@ -403,7 +405,10 @@ fn handle(
                     ),
                     _ => None,
                 });
-                success(id, kind, Some(json!({ "text": text })))
+                match text {
+                    Some(text) => success(id, kind, Some(json!({ "text": text }))),
+                    None => success(id, kind, Some(json!({}))),
+                }
             }
             Err(error) => failure(id, kind, error),
         },
