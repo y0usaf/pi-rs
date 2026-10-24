@@ -33,6 +33,8 @@ pub struct Options {
     pub session_path: Option<String>,
     pub cwd: String,
     pub auto_compaction: bool,
+    pub steering_mode: String,
+    pub follow_up_mode: String,
     /// The commands a `prompt` may invoke, as `get_commands` reports them.
     pub commands: Vec<Value>,
 }
@@ -276,24 +278,25 @@ fn handle(
                     None => (None, json!("off"), false, false, 0, None, Ok(0)),
                 };
             let count = messages.unwrap_or(0);
-            success(
-                id,
-                kind,
-                Some(json!({
-                    "model": model,
-                    "thinkingLevel": thinking,
-                    "isStreaming": streaming,
-                    "isCompacting": compacting,
-                    "steeringMode": "all",
-                    "followUpMode": "all",
-                    "sessionFile": options.session_path,
-                    "sessionId": root.id().0,
-                    "sessionName": name,
-                    "autoCompactionEnabled": options.auto_compaction,
-                    "messageCount": count,
-                    "pendingMessageCount": pending,
-                })),
-            )
+            let mut state = json!({
+                "model": model,
+                "thinkingLevel": thinking,
+                "isStreaming": streaming,
+                "isCompacting": compacting,
+                "steeringMode": options.steering_mode.as_str(),
+                "followUpMode": options.follow_up_mode.as_str(),
+                "sessionId": root.id().0,
+                "autoCompactionEnabled": options.auto_compaction,
+                "messageCount": count,
+                "pendingMessageCount": pending,
+            });
+            if let Some(path) = &options.session_path {
+                state["sessionFile"] = json!(path);
+            }
+            if let Some(name) = name {
+                state["sessionName"] = json!(name);
+            }
+            success(id, kind, Some(state))
         }
 
         "set_model" => {

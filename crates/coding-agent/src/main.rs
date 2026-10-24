@@ -488,6 +488,8 @@ fn run() -> Result<ExitCode, String> {
             session_path: session_path.clone(),
             cwd: input.cwd.clone(),
             auto_compaction: compaction_enabled,
+            steering_mode: settings.steering_mode().to_owned(),
+            follow_up_mode: settings.follow_up_mode().to_owned(),
             commands,
         };
         let outcome = modes::rpc::run(&harness, &root, options, &cancel);

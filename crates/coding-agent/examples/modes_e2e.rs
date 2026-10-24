@@ -371,6 +371,9 @@ fn rpc_run(bin: &Path, scratch: &Scratch) -> Result<()> {
         || state["data"]["thinkingLevel"] != "off"
         || state["data"]["isStreaming"] != false
         || !state["data"]["autoCompactionEnabled"].is_boolean()
+        || state["data"]["steeringMode"] != "one-at-a-time"
+        || state["data"]["followUpMode"] != "one-at-a-time"
+        || state["data"]["sessionFile"].as_str().is_some()
     {
         return fail(format!("get_state answered {}", state));
     }
