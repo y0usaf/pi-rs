@@ -101,12 +101,12 @@ impl Mapper {
             }
             AgentEvent::MessageUpdate { usage, changes } => changes
                 .iter()
-                .map(|change| {
-                    json!({
+                .filter_map(|change| {
+                    Some(json!({
                         "type": "message_update",
                         "usage": value(usage),
-                        "assistantMessageEvent": assistant_event(change),
-                    })
+                        "assistantMessageEvent": assistant_event(change)?,
+                    }))
                 })
                 .collect(),
             AgentEvent::MessageEnd { entry } => {
@@ -262,8 +262,8 @@ impl Mapper {
 
 /// One durable assistant delta as the `AssistantMessageEvent` upstream streams, without the
 /// cumulative `partial` upstream's own JSON events strip.
-fn assistant_event(change: &MessageChange) -> Value {
-    match change {
+fn assistant_event(change: &MessageChange) -> Option<Value> {
+    Some(match change {
         MessageChange::TextStart { content_index, .. } => json!({
             "type": "text_start",
             "contentIndex": content_index,
@@ -332,11 +332,8 @@ fn assistant_event(change: &MessageChange) -> Value {
                 "toolCall": value(call),
             }),
         },
-        // The fallback change: the whole message, as the stream's last word on it.
-        MessageChange::Message { message } => json!({
-            "type": "done",
-            "reason": value(&message.stop_reason),
-            "message": value(message),
-        }),
-    }
+        // The whole-message fallback: `message_end` carries that message authoritatively, and
+        // upstream's streamed events never carry it.
+        MessageChange::Message { .. } => return None,
+    })
 }
