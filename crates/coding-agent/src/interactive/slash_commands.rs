@@ -127,6 +127,8 @@ pub enum Command {
     Quit,
     New,
     Session,
+    /// `/name [text]`: sets the session's display name, or shows it.
+    Name(Option<String>),
     Hotkeys,
     Compact(Option<String>),
     /// `/model [search]`: opens the selector, or picks an exact match.
@@ -155,6 +157,12 @@ pub fn dispatch(text: &str) -> Option<Command> {
         "quit" => Command::Quit,
         "new" => Command::New,
         "session" => Command::Session,
+        "name" => Command::Name(
+            arguments
+                .map(str::trim)
+                .filter(|a| !a.is_empty())
+                .map(str::to_owned),
+        ),
         "hotkeys" => Command::Hotkeys,
         "compact" => Command::Compact(
             arguments
@@ -311,6 +319,7 @@ pub struct Counts {
 
 /// What `/session` prints.
 pub struct SessionInfo {
+    pub name: Option<String>,
     pub file: Option<String>,
     pub id: u64,
     pub counts: Counts,
@@ -336,6 +345,9 @@ pub fn session(info: &SessionInfo) -> String {
     let counts = &info.counts;
     let totals = &info.totals;
     let mut out = String::from("**Session Info**\n\n");
+    if let Some(name) = &info.name {
+        out.push_str(&format!("Name: {name}\n"));
+    }
     out.push_str(&format!(
         "File: {}\nID: {}\n\n",
         info.file.as_deref().unwrap_or("In-memory"),
@@ -409,6 +421,11 @@ mod tests {
         assert_eq!(dispatch("/quit"), Some(Command::Quit));
         assert_eq!(dispatch("/new"), Some(Command::New));
         assert_eq!(dispatch("/session"), Some(Command::Session));
+        assert_eq!(dispatch("/name"), Some(Command::Name(None)));
+        assert_eq!(
+            dispatch("/name night shift"),
+            Some(Command::Name(Some("night shift".into())))
+        );
         assert_eq!(dispatch("/hotkeys"), Some(Command::Hotkeys));
         assert_eq!(dispatch("/compact"), Some(Command::Compact(None)));
         assert_eq!(
@@ -465,6 +482,7 @@ mod tests {
     #[test]
     fn session_prints_totals_with_grouped_digits() {
         let info = SessionInfo {
+            name: Some("night shift".into()),
             file: None,
             id: 7,
             counts: Counts {
@@ -484,6 +502,7 @@ mod tests {
             context_tokens: Some(2250),
         };
         let text = session(&info);
+        assert!(text.contains("Name: night shift"));
         assert!(text.contains("File: In-memory"));
         assert!(text.contains("ID: 7"));
         assert!(text.contains("Tools: 3 calls, 3 results"));

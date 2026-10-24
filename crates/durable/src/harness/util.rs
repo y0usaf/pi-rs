@@ -205,6 +205,29 @@ pub fn conversation_doc(definition: &DocDefinition, owner: ConversationId) -> Do
     }
 }
 
+/// A document every session in the file shares, owning no conversation: the session's own
+/// metadata (its name, the session it was forked from).
+pub fn session_doc(definition: &DocDefinition) -> DocRef<'_> {
+    DocRef {
+        definition,
+        owner: None,
+        key: None,
+    }
+}
+
+pub fn edit_session_doc<T: Serialize + DeserializeOwned, R>(
+    tx: &mut dyn Tx,
+    token: &DocToken<T>,
+    edit: impl FnOnce(&mut T) -> R,
+) -> Result<R> {
+    let draft = tx.doc(session_doc(token.definition()), None)?;
+    let slot = tx.draft(draft)?;
+    let mut typed: T = serde_json::from_value(slot.clone())?;
+    let outcome = edit(&mut typed);
+    assign_value(slot, serde_json::to_value(&typed)?);
+    Ok(outcome)
+}
+
 pub fn read_draft<T: DeserializeOwned>(
     tx: &mut dyn Tx,
     token: &DocToken<T>,

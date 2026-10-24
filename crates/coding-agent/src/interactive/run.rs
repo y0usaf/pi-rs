@@ -47,6 +47,7 @@ use crate::model_resolver;
 use crate::models::ModelRegistry;
 use crate::print::{self, ToolSettings};
 use crate::run_config::{level_name, parse_level};
+use crate::session_info;
 use crate::session_list;
 use crate::settings::{self as settings_mod, SettingsManager};
 
@@ -164,6 +165,8 @@ pub struct Session {
     pub provider_count: usize,
     /// The SQLite file the loop starts in; `None` under `--no-session`.
     pub session_path: Option<String>,
+    /// `--name`: the name the session starts with.
+    pub initial_name: Option<String>,
     pub incoming: mpsc::Receiver<Incoming>,
 }
 
@@ -395,11 +398,17 @@ fn submit(
     .map_err(|e| e.to_string())
 }
 
+/// `JSON.stringify` of a string, as upstream quotes a name it warns about.
+fn quoted(text: &str) -> String {
+    pi_durable::types::JsonValue::String(text.to_owned()).to_string()
+}
+
 /// `/session`: the file, the id, message counts over the stored conversation, and the totals the
 /// footer shows.
 fn session_info(
     root: &Conversation,
     cancel: &CancelToken,
+    name: Option<String>,
     path: Option<&str>,
     totals: Totals,
     context_tokens: Option<u64>,
@@ -423,6 +432,7 @@ fn session_info(
         }
     }
     Ok(slash_commands::session(&SessionInfo {
+        name,
         file: path.map(str::to_owned),
         id: root.id().0,
         counts,
@@ -493,12 +503,16 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         messages,
         provider_count,
         session_path,
+        initial_name,
         incoming,
     } = session;
     let (mut model, mut thinking) = (model, thinking);
     keybindings::install();
     let mut open = opener.open(session_path.as_deref())?;
     apply_agent(&open.root, &cancel, &model, thinking, &cwd)?;
+    if let Some(name) = &initial_name {
+        session_info::set_name(&open.root, &cancel, name).map_err(|e| e.to_string())?;
+    }
 
     let mut chat = Chat::new(&cwd);
     chat.hide_thinking = settings.borrow().hide_thinking_block();
@@ -816,9 +830,40 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                             Err(e) => chat.notice("error", &format!("Error: {e}")),
                         }
                     }
+                    Command::Name(name) => match name {
+                        None => match session_info::name(&open.harness, &cancel) {
+                            Some(current) => {
+                                chat.notice("dim", &format!("Session name: {current}"))
+                            }
+                            None => chat.notice("warning", "Usage: /name <name>"),
+                        },
+                        Some(name) => match session_info::set_name(&open.root, &cancel, &name) {
+                            Ok(()) => {
+                                let stored = session_info::name(&open.harness, &cancel);
+                                if let Some(stored) = &stored
+                                    && stored != &name
+                                {
+                                    chat.notice(
+                                        "warning",
+                                        &format!(
+                                            "Session name was normalized from {} to {}",
+                                            quoted(&name),
+                                            quoted(stored)
+                                        ),
+                                    );
+                                }
+                                chat.notice(
+                                    "dim",
+                                    &format!("Session name set: {}", stored.unwrap_or(name)),
+                                );
+                            }
+                            Err(e) => chat.notice("error", &format!("Error: {e}")),
+                        },
+                    },
                     Command::Session => match session_info(
                         &open.root,
                         &cancel,
+                        session_info::name(&open.harness, &cancel),
                         open.path.as_deref(),
                         chat.totals,
                         chat.context_tokens,

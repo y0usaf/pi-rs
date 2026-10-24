@@ -82,7 +82,6 @@ fn unimplemented_flag(parsed: &Args) -> Option<&'static str> {
         (parsed.export.is_some(), "--export"),
         (parsed.fork.is_some(), "--fork"),
         (parsed.resume, "--resume"),
-        (parsed.name.is_some(), "--name"),
         (parsed.extensions.is_some(), "--extension"),
         (parsed.prompt_templates.is_some(), "--prompt-template"),
         (parsed.themes.is_some(), "--theme"),
@@ -178,6 +177,13 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
     validate_session_id(&parsed)?;
+    if parsed
+        .name
+        .as_deref()
+        .is_some_and(|name| name.trim().is_empty())
+    {
+        return Err("Error: --name requires a non-empty value".into());
+    }
     if let Some(flag) = unimplemented_flag(&parsed) {
         return Err(format!("pi-rs: {flag} is not implemented yet"));
     }
@@ -215,6 +221,12 @@ fn run() -> Result<ExitCode, String> {
     let registry = Arc::new(ModelRegistry::load(&agent_dir));
 
     // The session: a durable sqlite file, or memory with --no-session.
+    let initial_name = parsed
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned);
     let sessions = session_list::dir(&agent_dir, &cwd, &parsed, &settings);
     let session_path = if parsed.no_session {
         None
@@ -385,6 +397,7 @@ fn run() -> Result<ExitCode, String> {
             messages,
             provider_count,
             session_path,
+            initial_name,
             incoming,
         })?;
         if let Some(path) = path {
@@ -411,6 +424,9 @@ fn run() -> Result<ExitCode, String> {
     )
     .map_err(|e| e.to_string())?;
     let root = print::root(&harness, &cancel).map_err(|e| e.to_string())?;
+    if let Some(name) = &initial_name {
+        pi_coding_agent::session_info::set_name(&root, &cancel, name).map_err(|e| e.to_string())?;
+    }
     let input = RunInput {
         model,
         thinking: choice.thinking,
