@@ -614,8 +614,13 @@ fn convert(
             }
             Message::ToolResult(_) => {
                 let mut results = Vec::new();
+                let mut error_images: Vec<Value> = Vec::new();
                 while let Some(Message::ToolResult(result)) = messages.get(index) {
                     let mut value = tool_result(result);
+                    if let Some((content, extra)) = split_error_tool_result_images(result) {
+                        value["content"] = content;
+                        error_images.extend(extra);
+                    }
                     if let Some(cache) = cache {
                         for mark in marks_for(targets, sources[index]) {
                             if matches!(mark, None | Some(0)) {
@@ -626,6 +631,7 @@ fn convert(
                     results.push(value);
                     index += 1;
                 }
+                results.extend(error_images);
                 params.push(json!({"role": "user", "content": results}));
                 continue;
             }
@@ -738,8 +744,50 @@ fn tool_result(result: &ToolResultMessage) -> Value {
     })
 }
 
-const OMITTED_ERROR_IMAGE: &str =
-    "(image omitted: this tool result is an error, and Anthropic requires text-only content)";
+const ERROR_TOOL_IMAGE_PLACEHOLDER: &str = "(image attached after the tool results)";
+
+/// Split the images out of an error tool result, which Anthropic rejects: the result keeps
+/// a note per run of images, and the images go after all tool results of the turn.
+fn split_error_tool_result_images(result: &ToolResultMessage) -> Option<(Value, Vec<Value>)> {
+    if !result.is_error {
+        return None;
+    }
+    let images: Vec<&ImageContent> = result
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            UserBlock::Image(image) => Some(image),
+            UserBlock::Text(_) => None,
+        })
+        .collect();
+    if images.is_empty() {
+        return None;
+    }
+    let mut text: Vec<&str> = Vec::new();
+    let mut placeholder = false;
+    for block in &result.content {
+        match block {
+            UserBlock::Image(_) if placeholder => {}
+            UserBlock::Image(_) => {
+                text.push(ERROR_TOOL_IMAGE_PLACEHOLDER);
+                placeholder = true;
+            }
+            UserBlock::Text(block) => {
+                placeholder = block.text == ERROR_TOOL_IMAGE_PLACEHOLDER;
+                text.push(&block.text);
+            }
+        }
+    }
+    let mut extra = vec![json!({
+        "type": "text",
+        "text": format!(
+            "Images from the error result of tool call {} ({}):",
+            result.tool_call_id, result.tool_name
+        ),
+    })];
+    extra.extend(images.into_iter().map(image_block));
+    Some((Value::String(text.join("\n")), extra))
+}
 
 fn result_content(content: &[UserBlock], is_error: bool) -> Value {
     if !content
@@ -760,7 +808,7 @@ fn result_content(content: &[UserBlock], is_error: bool) -> Value {
         .map(|block| match block {
             UserBlock::Text(text) => json!({"type": "text", "text": text.text}),
             UserBlock::Image(image) if !is_error => image_block(image),
-            UserBlock::Image(_) => json!({"type": "text", "text": OMITTED_ERROR_IMAGE}),
+            UserBlock::Image(_) => json!({"type": "text", "text": ERROR_TOOL_IMAGE_PLACEHOLDER}),
         })
         .collect();
     if !blocks.iter().any(|block| block["type"] == "text") {
