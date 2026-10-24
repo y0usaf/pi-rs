@@ -220,6 +220,10 @@
             PI_RS_BIN=${self.packages.${system}.default}/bin/pi-rs ${examples}/bin/modes_e2e
             touch $out
           '';
+          mcp-e2e = pkgs.runCommand "${pname}-mcp-e2e" { } ''
+            PI_RS_BIN=${self.packages.${system}.default}/bin/pi-rs ${examples}/bin/mcp_e2e
+            touch $out
+          '';
           parity =
             pkgs.runCommand "${pname}-parity"
               {
