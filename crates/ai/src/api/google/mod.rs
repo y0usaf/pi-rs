@@ -1,5 +1,7 @@
 mod adc;
 mod request;
+
+pub use request::declarations;
 mod stream;
 mod vertex;
 
