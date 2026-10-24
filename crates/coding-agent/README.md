@@ -8,7 +8,7 @@ It won't: show upstream's session picker, `/tree`, forking or settings screens, 
 
 The flags for what it won't do, `--export`, `--fork`, `--resume`, `--name`, `--extension`, `--prompt-template`, `--theme`, `--use-theme`, `--tui-mode` and `--verbose`, are refused before anything starts: `pi-rs: --export is not implemented yet`, exit 1. The flags that turn a resource off — `--no-extensions`, `--no-mcp`, `--no-themes`, `--no-prompt-templates` — and `--offline`, which would skip a model-catalog refresh this port never makes, are accepted and change nothing. A flag no option or extension defines is `Error: Unknown option: --foo`.
 
-The behaviour follows the upstream TypeScript at `bdb1517`, and the parity scripts below compare the two on the same inputs.
+Its behaviour and `pi-ai`'s follow the upstream TypeScript at `bdb1517`; `pi-durable`'s follows `f1b2e77f` ([its README](../durable/README.md)). The parity scripts below compare the two on the same inputs.
 
 ## Try it
 

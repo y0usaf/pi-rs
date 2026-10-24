@@ -6,7 +6,7 @@ It won't: ship a CLI or a UI; bring an async runtime; follow redirects or speak 
 
 ## Why it exists
 
-Pi's TypeScript package [`@earendil-works/pi-durable`](https://github.com/earendil-works/pi) 1.1.0 already does this job well. This crate is the same design for programs that are written in Rust and don't want a Node process next to them. It is a port, not a redesign: behaviour is translated from the TypeScript at one pinned commit (`f1b2e77f5b13b2a199b1052cb79c235451afe7d7`, a flake input in `flake.nix`), together with the parts of `pi-ai` its harness needs. A flake check runs both implementations on the same scripted conversations and compares what they wrote down (see [What the parity check covers](#what-the-parity-check-covers)).
+Pi's TypeScript package [`@earendil-works/pi-durable`](https://github.com/earendil-works/pi) 1.1.0 already does this job well. This crate is the same design for programs that are written in Rust and don't want a Node process next to them. It is a port, not a redesign: behaviour is translated from the TypeScript at one pinned commit (`f1b2e77f5b13b2a199b1052cb79c235451afe7d7`, the `pi` flake input), together with the parts of `pi-ai` its harness needs, which follow the newer `bdb151774ed6bef2b5676bbff4669f20a0c233fe` (the `piAi` input). A flake check runs both implementations on the same scripted conversations and compares what they wrote down (see [What the parity check covers](#what-the-parity-check-covers)).
 
 The two can share a SQLite file: the check kills a TypeScript or Rust writer mid-tool-call and lets the other implementation finish the turn (`parity/run.sh`, the `cross` cells).
 
