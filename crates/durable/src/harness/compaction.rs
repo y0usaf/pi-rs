@@ -37,8 +37,8 @@ pub const COMPACTION_VERSION: u64 = 1;
 
 const TOOL_RESULT_MAX_CHARS: usize = 2000;
 
-const SUMMARY_PREFIX: &str = "The conversation history before this point was compacted into the following summary:\n\n<summary>\n";
-const SUMMARY_SUFFIX: &str = "\n</summary>";
+pub const SUMMARY_PREFIX: &str = "The conversation history before this point was compacted into the following summary:\n\n<summary>\n";
+pub const SUMMARY_SUFFIX: &str = "\n</summary>";
 
 const SUMMARIZATION_SYSTEM_PROMPT: &str = r#"You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.
 

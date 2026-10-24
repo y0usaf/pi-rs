@@ -37,10 +37,10 @@ use super::chat::Chat;
 use super::footer::{Footer, FooterState, Totals, git_branch};
 use super::keybindings;
 use super::selectors::{
-    ActionSlot, OverlayAction, action_slot, fork::ForkSelector, model::ModelSelector,
-    scoped_models::ScopedModelsSelector, session::SessionSelector, settings::SettingsCallbacks,
-    settings::SettingsConfig, settings::SettingsSelector, thinking::ThinkingSelector,
-    tree::TreeSelector, trust::TrustSelector,
+    ActionSlot, OverlayAction, action_slot, confirm::Confirm, fork::ForkSelector,
+    model::ModelSelector, scoped_models::ScopedModelsSelector, session::SessionSelector,
+    settings::SettingsCallbacks, settings::SettingsConfig, settings::SettingsSelector,
+    thinking::ThinkingSelector, tree::TreeSelector, trust::TrustSelector,
 };
 use super::slash_commands::{self, Command, Counts, SessionInfo};
 use super::status::{StatusArea, WORKING, header};
@@ -62,6 +62,7 @@ pub enum Incoming {
 
 /// Opens a session's harness and root conversation. The loop owns what an open returns, and
 /// opens another one when it switches session, so nothing here borrows the session it replaces.
+#[derive(Clone)]
 pub struct Opener {
     pub registry: Arc<ModelRegistry>,
     /// A model the catalog lacks (a --model id) is still callable.
@@ -656,7 +657,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         initial_name,
         incoming,
     } = session;
-    let (mut model, mut thinking) = (model, thinking);
+    let (mut model, mut thinking, mut cwd) = (model, thinking, cwd);
     keybindings::install();
     let mut open = opener.open(session_path.as_deref())?;
     apply_agent(&open.root, &cancel, &model, thinking, &cwd)?;
@@ -748,6 +749,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         footer: as_ref(&footer),
     };
     let mut selector: Option<(ComponentRef, ActionSlot)> = None;
+    // The `/import` a confirmation dialog is asking about.
+    let mut import_request: Option<String> = None;
     parts.mount(&mut tui, None);
     tui.start();
 
@@ -829,6 +832,80 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             let mut close = false;
             match action {
                 OverlayAction::Close => close = true,
+                OverlayAction::Confirmed(confirmed) => {
+                    close = true;
+                    if let Some(argument) = import_request.take() {
+                        if !confirmed {
+                            chat.notice("accent", "Import cancelled");
+                        } else {
+                            match crate::sessions::import::run(
+                                &argument,
+                                &session_dir,
+                                &cwd,
+                                &cancel,
+                            ) {
+                                Err(e) => {
+                                    chat.notice("error", &format!("Failed to import session: {e}"))
+                                }
+                                Ok(imported) => {
+                                    let opener = Opener {
+                                        tool_settings: ToolSettings {
+                                            cwd: imported.cwd.clone(),
+                                            ..opener.tool_settings.clone()
+                                        },
+                                        ..opener.clone()
+                                    };
+                                    match replace_session(
+                                        &mut open,
+                                        &opener,
+                                        &mut chat,
+                                        Some(&imported.path),
+                                        &cancel,
+                                    ) {
+                                        Err(e) => chat.notice(
+                                            "error",
+                                            &format!("Failed to import session: {e}"),
+                                        ),
+                                        Ok(()) => {
+                                            cwd = imported.cwd.clone();
+                                            {
+                                                let mut footer = footer.borrow_mut();
+                                                footer.state.cwd = cwd.clone();
+                                                footer.state.branch = git_branch(&cwd);
+                                            }
+                                            chat.cwd = cwd.clone();
+                                            editor.borrow_mut().set_autocomplete_provider(Rc::new(
+                                                CombinedAutocompleteProvider::new(
+                                                    slash_commands::autocomplete_commands(),
+                                                    &cwd,
+                                                    crate::config::tool_path("fd").as_deref(),
+                                                ),
+                                            ));
+                                            match adopt_or_apply(
+                                                &open.root,
+                                                &cancel,
+                                                &registry,
+                                                &footer,
+                                                &mut model,
+                                                &mut thinking,
+                                                &cwd,
+                                            ) {
+                                                Ok(()) => chat.notice(
+                                                    "accent",
+                                                    &format!("Session imported from: {argument}"),
+                                                ),
+                                                Err(e) => chat.notice(
+                                                    "error",
+                                                    &format!("Failed to import session: {e}"),
+                                                ),
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 OverlayAction::SetModel {
                     provider,
                     id,
@@ -1286,6 +1363,40 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                             slot.clone(),
                         ));
                         selector = Some((built, slot));
+                    }
+                    Command::Import => {
+                        let argument = crate::sessions::export::path_argument(trimmed, "/import");
+                        match argument {
+                            None => chat.notice("error", "Usage: /import <path.jsonl>"),
+                            Some(argument) => {
+                                import_request = Some(argument.clone());
+                                let slot = action_slot();
+                                let built: ComponentRef = component(Confirm::new(
+                                    "Import session",
+                                    &format!("Replace current session with {argument}?"),
+                                    slot.clone(),
+                                ));
+                                selector = Some((built, slot));
+                            }
+                        }
+                    }
+                    Command::Export => {
+                        let argument = crate::sessions::export::path_argument(trimmed, "/export");
+                        let session_id = crate::sessions::export::session_id(open.path.as_deref());
+                        match crate::sessions::export::write(
+                            &open.root,
+                            &cancel,
+                            &session_id,
+                            &cwd,
+                            argument.as_deref(),
+                        ) {
+                            Ok(path) => {
+                                chat.notice("accent", &format!("Session exported to: {path}"))
+                            }
+                            Err(e) => {
+                                chat.notice("error", &format!("Failed to export session: {e}"))
+                            }
+                        }
                     }
                     Command::Unavailable(name) => {
                         chat.notice("dim", &format!("/{name} is not available in pi-rs yet"))

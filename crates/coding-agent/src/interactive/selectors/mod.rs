@@ -2,6 +2,7 @@
 //! the model, thinking level, scoped model, settings and project trust selectors, on
 //! `pi_tui`'s select list and settings list.
 
+pub mod confirm;
 pub mod fork;
 pub mod model;
 pub mod scoped_models;
@@ -51,6 +52,8 @@ pub enum OverlayAction {
     Navigate(pi_durable::ids::EntryId),
     /// `/fork` picked a user message to fork the session before.
     Fork(pi_durable::ids::EntryId),
+    /// A yes/no dialog's answer, yes when the first option was chosen.
+    Confirmed(bool),
 }
 
 /// One project trust decision to write, `decision: None` clearing the entry.

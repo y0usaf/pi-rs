@@ -143,6 +143,10 @@ pub enum Command {
     Tree,
     Fork,
     Clone,
+    /// /export <path>.jsonl: the branch as upstream's session JSONL.
+    Export,
+    /// /import <path.jsonl>: a session file into a new session.
+    Import,
     Unavailable(&'static str),
 }
 
@@ -194,6 +198,8 @@ pub fn dispatch(text: &str) -> Option<Command> {
         "tree" => Command::Tree,
         "fork" => Command::Fork,
         "clone" => Command::Clone,
+        "export" => Command::Export,
+        "import" => Command::Import,
         _ => Command::Unavailable(builtin.name),
     })
 }
