@@ -19,6 +19,7 @@ pub mod print;
 pub mod run_config;
 pub mod session_info;
 pub mod session_list;
+pub mod session_tree;
 pub mod settings;
 pub mod skills;
 pub mod stdout;
