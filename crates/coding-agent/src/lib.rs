@@ -11,6 +11,7 @@ pub mod list_models;
 pub mod model_config;
 pub mod model_resolver;
 pub mod models;
+pub mod modes;
 pub mod node_fs;
 pub mod output_files;
 pub mod paths;

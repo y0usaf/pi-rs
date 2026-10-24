@@ -10,6 +10,7 @@ use pi_coding_agent::config::{self, VERSION};
 use pi_coding_agent::interactive::{self, run::Incoming};
 use pi_coding_agent::list_models;
 use pi_coding_agent::models::ModelRegistry;
+use pi_coding_agent::modes;
 use pi_coding_agent::paths::{PathInput, join, normalize_path, resolve_read_path};
 use pi_coding_agent::print::{self, RunInput, ToolSettings};
 use pi_coding_agent::run_config::{self, Diagnostic, level_name};
@@ -222,11 +223,8 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
     let mode = parsed.mode;
-    if matches!(mode, Some(Mode::Rpc)) {
-        return Err("Error: --mode rpc is not supported by pi-rs".into());
-    }
-    if matches!(mode, Some(Mode::Json)) {
-        return Err("Error: --mode json is not supported by pi-rs yet".into());
+    if matches!(mode, Some(Mode::Rpc)) && !parsed.file_args.is_empty() {
+        return Err("Error: @file arguments are not supported in RPC mode".into());
     }
 
     let cwd = std::env::current_dir()
@@ -333,7 +331,12 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::from(1));
     }
 
-    let stdin = piped_stdin();
+    // RPC mode reads its commands from stdin, as upstream does.
+    let stdin = if matches!(mode, Some(Mode::Rpc)) {
+        None
+    } else {
+        piped_stdin()
+    };
     // Upstream starts the TUI without -p or --mode when stdin and stdout are terminals.
     let interactive = !parsed.print
         && mode.is_none()
@@ -371,6 +374,7 @@ fn run() -> Result<ExitCode, String> {
     }
     let compaction_settings =
         settings.compaction_settings(Some((model.provider.as_str(), model.id.as_str())))?;
+    let compaction_enabled = compaction_settings.enabled;
     let compaction = CompactionOverrides {
         enabled: Some(compaction_settings.enabled),
         reserve_tokens: Some(compaction_settings.reserve_tokens),
@@ -457,6 +461,39 @@ fn run() -> Result<ExitCode, String> {
         initial,
         messages,
     };
+    if matches!(mode, Some(Mode::Json)) {
+        let outcome = modes::json_mode::run(&harness, &root, &input, &cancel);
+        print::close(&harness, &cancel).map_err(|e| e.to_string())?;
+        outcome?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    if matches!(mode, Some(Mode::Rpc)) {
+        let commands: Vec<serde_json::Value> = assembled
+            .input
+            .skills
+            .iter()
+            .map(|skill| {
+                serde_json::json!({
+                    "name": format!("skill:{}", skill.name),
+                    "description": skill.description,
+                    "source": "skill",
+                    "sourceInfo": { "path": skill.file_path },
+                })
+            })
+            .collect();
+        let options = modes::rpc::Options {
+            model: input.model.clone(),
+            thinking: input.thinking,
+            registry: Arc::clone(&registry),
+            session_path: session_path.clone(),
+            auto_compaction: compaction_enabled,
+            commands,
+        };
+        let outcome = modes::rpc::run(&harness, &root, options, &cancel);
+        print::close(&harness, &cancel).map_err(|e| e.to_string())?;
+        outcome?;
+        return Ok(ExitCode::SUCCESS);
+    }
     let outcome = print::run_turns(&harness, &root, &input, &cancel);
     let transcript = print::transcript(&root, &cancel).map_err(|e| e.to_string())?;
     print::close(&harness, &cancel).map_err(|e| e.to_string())?;
