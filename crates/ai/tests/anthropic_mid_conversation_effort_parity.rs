@@ -35,7 +35,14 @@ const STREAM: [(&str, &str); 5] = [
 ];
 
 fn model(server: &FakeServer) -> Model {
-    let mut model = Model::new("anthropic", "claude-fable-5-1", "anthropic-messages", 200_000, 32_000, true);
+    let mut model = Model::new(
+        "anthropic",
+        "claude-fable-5-1",
+        "anthropic-messages",
+        200_000,
+        32_000,
+        true,
+    );
     model.name = "Claude Fable 5.1".to_owned();
     model.base_url = server.base_url.clone();
     model.thinking_level_map = json!({

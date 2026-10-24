@@ -66,7 +66,8 @@ fn preserves_literal_data_under_non_schema_keywords() {
         } else {
             literal.clone()
         };
-        let parameters = json!({"type": "object", "properties": {"value": {"type": "object", key: value}}});
+        let parameters =
+            json!({"type": "object", "properties": {"value": {"type": "object", key: value}}});
         assert_eq!(
             declaration(parameters.clone()),
             parameters,

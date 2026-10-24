@@ -268,7 +268,9 @@ fn rewrite_const_as_enum(schema: &Value, is_name_map: bool) -> Value {
                 })
                 .collect();
             let constant = result.get("const").filter(|value| {
-                !is_name_map && !result.contains_key("enum") && (value.is_string() || value.is_number())
+                !is_name_map
+                    && !result.contains_key("enum")
+                    && (value.is_string() || value.is_number())
             });
             if let Some(constant) = constant.cloned() {
                 result.remove("const");

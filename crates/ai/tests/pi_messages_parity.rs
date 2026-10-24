@@ -58,7 +58,8 @@ fn carries_the_response_model_of_a_done_event() {
 
 #[test]
 fn leaves_the_response_model_absent_when_the_event_omits_it() {
-    let done = format!(r#"{{"type":"done","reason":"stop","usage":{USAGE},"responseId":"resp_1"}}"#);
+    let done =
+        format!(r#"{{"type":"done","reason":"stop","usage":{USAGE},"responseId":"resp_1"}}"#);
     let server = FakeServer::start(vec![("", r#"{"type":"start"}"#), ("", &done)]);
     let message = run(&server).expect("the stream ends with a message");
     assert_eq!(message.response_model, None);

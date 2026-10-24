@@ -31,23 +31,8 @@ impl Random {
 }
 
 const STRING_PIECES: [&str; 17] = [
-    "a",
-    "b",
-    "x y",
-    " ",
-    "\n",
-    "\t",
-    "\\",
-    "\"",
-    "/",
-    "é",
-    "😀",
-    "\u{1}",
-    "\u{1f}",
-    "\u{2028}",
-    "{",
-    "]",
-    ",",
+    "a", "b", "x y", " ", "\n", "\t", "\\", "\"", "/", "é", "😀", "\u{1}", "\u{1f}", "\u{2028}",
+    "{", "]", ",",
 ];
 
 fn random_string(rand: &mut Random) -> String {
@@ -105,7 +90,10 @@ fn render(value: &Value, rand: &mut Random, spaced: bool) -> String {
         Value::Array(items) => {
             let head = space(rand, spaced);
             let separator = format!("{},{}", space(rand, spaced), space(rand, spaced));
-            let parts: Vec<String> = items.iter().map(|item| render(item, rand, spaced)).collect();
+            let parts: Vec<String> = items
+                .iter()
+                .map(|item| render(item, rand, spaced))
+                .collect();
             let tail = space(rand, spaced);
             format!("[{head}{}{tail}]", parts.join(&separator))
         }
@@ -452,8 +440,14 @@ fn stream_random(text: &str, seed: u64) -> Vec<Step> {
 }
 
 fn final_snapshot(text: &str, chunk_size: usize) -> Option<Value> {
-    let chunk = if chunk_size == 0 { text.len().max(1) } else { chunk_size };
-    stream(text, chunk).last().and_then(|step| step.snapshot.clone())
+    let chunk = if chunk_size == 0 {
+        text.len().max(1)
+    } else {
+        chunk_size
+    };
+    stream(text, chunk)
+        .last()
+        .and_then(|step| step.snapshot.clone())
 }
 
 /// A stable seed from the text, so random chunk sizes differ per document.
@@ -462,7 +456,7 @@ fn read32(text: &str) -> u64 {
     for unit in text.encode_utf16() {
         hash = (hash.wrapping_mul(31).wrapping_add(unit as i64)) & 0xffff_ffff;
     }
-    (hash.abs() as u64) + 1
+    hash.unsigned_abs() + 1
 }
 
 const CHUNK_SIZES: [usize; 5] = [1, 2, 3, 7, 0];
@@ -605,7 +599,11 @@ fn reads_complete_documents_exactly_like_a_full_parse() {
     {
         let expected: Value = serde_json::from_str(&text).expect("the generator writes valid JSON");
         for size in CHUNK_SIZES {
-            assert_eq!(final_snapshot(&text, size).unwrap_or(Value::Null), expected, "{text}");
+            assert_eq!(
+                final_snapshot(&text, size).unwrap_or(Value::Null),
+                expected,
+                "{text}"
+            );
         }
     }
 }
@@ -706,30 +704,46 @@ fn joins_surrogate_pairs_split_across_pieces() {
             }
             let mut parser = StreamingJsonParser::new();
             parser.append(&text[..split]);
-            parser.snapshot().cloned();
+            parser.snapshot();
             parser.append(&text[split..]);
             let mut members = Map::new();
             members.insert("a".to_owned(), Value::String("😀!".to_owned()));
-            assert_eq!(parser.snapshot().cloned(), Some(Value::Object(members)), "{text:?}");
+            assert_eq!(
+                parser.snapshot().cloned(),
+                Some(Value::Object(members)),
+                "{text:?}"
+            );
         }
     }
     // A lone high surrogate cannot live in a Rust String: it is held back like an unterminated
     // escape and shows as U+FFFD once the string ends.
     let mut parser = StreamingJsonParser::new();
     parser.append(r#"{"a":"\ud83d"#);
-    assert_eq!(parser.snapshot().cloned(), Some(serde_json::json!({"a": ""})));
+    assert_eq!(
+        parser.snapshot().cloned(),
+        Some(serde_json::json!({"a": ""}))
+    );
     parser.append(r#"\ude00""#);
-    assert_eq!(parser.snapshot().cloned(), Some(serde_json::json!({"a": "😀"})));
+    assert_eq!(
+        parser.snapshot().cloned(),
+        Some(serde_json::json!({"a": "😀"}))
+    );
     let mut lone = StreamingJsonParser::new();
     lone.append(r#"{"a":"\ud83d\uZZZZ"}"#);
-    assert_eq!(lone.snapshot().cloned(), Some(serde_json::json!({"a": "\u{fffd}\\uZZZZ"})));
+    assert_eq!(
+        lone.snapshot().cloned(),
+        Some(serde_json::json!({"a": "\u{fffd}\\uZZZZ"}))
+    );
 }
 
 #[test]
 fn keeps_trailing_whitespace_of_an_unterminated_string() {
     let mut parser = StreamingJsonParser::new();
     parser.append("{\"code\":\"x\t\t  ");
-    assert_eq!(parser.snapshot().cloned(), Some(serde_json::json!({"code": "x\t\t  "})));
+    assert_eq!(
+        parser.snapshot().cloned(),
+        Some(serde_json::json!({"code": "x\t\t  "}))
+    );
 }
 
 #[test]
@@ -745,7 +759,10 @@ fn keeps_raw_control_characters_and_invalid_escapes_visible() {
 #[test]
 fn keeps_invalid_escapes_literal_without_dropping_fields() {
     assert_eq!(
-        final_snapshot(r#"{"path":"a.tex","content":"\usepackage{x}","mode":"w"}"#, 1),
+        final_snapshot(
+            r#"{"path":"a.tex","content":"\usepackage{x}","mode":"w"}"#,
+            1
+        ),
         Some(serde_json::json!({"path": "a.tex", "content": "\\usepackage{x}", "mode": "w"}))
     );
     assert_eq!(
@@ -754,7 +771,10 @@ fn keeps_invalid_escapes_literal_without_dropping_fields() {
     );
     let mut parser = StreamingJsonParser::new();
     parser.append(r#"{"text":"ab\u00"#);
-    assert_eq!(parser.snapshot().cloned(), Some(serde_json::json!({"text": "ab"})));
+    assert_eq!(
+        parser.snapshot().cloned(),
+        Some(serde_json::json!({"text": "ab"}))
+    );
 }
 
 #[test]
@@ -763,7 +783,14 @@ fn keeps_the_last_value_of_a_duplicate_key_in_the_first_keys_position() {
     let parsed: Value = serde_json::from_str(text).expect("valid JSON");
     let snapshot = final_snapshot(text, 1).expect("a value");
     assert_eq!(snapshot, parsed);
-    let keys = |value: &Value| value.as_object().expect("object").keys().cloned().collect::<Vec<_>>();
+    let keys = |value: &Value| {
+        value
+            .as_object()
+            .expect("object")
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+    };
     assert_eq!(keys(&snapshot), keys(&parsed));
 }
 
@@ -903,7 +930,11 @@ fn vectors() -> Vec<(&'static str, Option<Value>)> {
 fn reads_the_ported_test_vectors() {
     for (input, expected) in vectors() {
         for size in [0, 1, 2] {
-            assert_eq!(final_snapshot(input, size), expected, "{input:?} (size {size})");
+            assert_eq!(
+                final_snapshot(input, size),
+                expected,
+                "{input:?} (size {size})"
+            );
         }
     }
 }
@@ -942,7 +973,9 @@ fn reads_every_json_test_suite_document_a_full_parse_accepts_and_never_fails_on_
         for size in [0, 1, 3] {
             let snapshot = final_snapshot(&text, size);
             match &expected {
-                Some(expected) => assert_eq!(snapshot.as_ref(), Some(expected), "{name} (size {size})"),
+                Some(expected) => {
+                    assert_eq!(snapshot.as_ref(), Some(expected), "{name} (size {size})")
+                }
                 None => expect_json(&snapshot, name),
             }
         }
@@ -1153,12 +1186,18 @@ fn changes_report_nested_objects_and_arrays_as_empty_containers_then_their_membe
             set(vec![key("a"), index(0)], Value::from(1)),
             set(vec![key("a"), index(1)], serde_json::json!({})),
             set(vec![key("a"), index(1), key("b")], serde_json::json!([])),
-            set(vec![key("a"), index(1), key("b"), index(0)], Value::from("x")),
+            set(
+                vec![key("a"), index(1), key("b"), index(0)],
+                Value::from("x")
+            ),
         ]
     );
     assert_eq!(
         parser.append(r#","y"#),
-        vec![set(vec![key("a"), index(1), key("b"), index(1)], Value::from("y"))]
+        vec![set(
+            vec![key("a"), index(1), key("b"), index(1)],
+            Value::from("y")
+        )]
     );
     assert_eq!(
         parser.append(r#"z"]}],"a":"again"}"#),
@@ -1172,8 +1211,8 @@ fn changes_report_nested_objects_and_arrays_as_empty_containers_then_their_membe
 #[test]
 fn changes_hold_split_escapes_back_and_report_their_decoded_text_once_complete() {
     let text = r#"{"a":"x\u00e9\n\\\"\ud83d\ude00\q"}"#;
-    let expected: Value = serde_json::from_str(r#"{"a":"x\u00e9\n\\\"\ud83d\ude00\\q"}"#)
-        .expect("valid JSON");
+    let expected: Value =
+        serde_json::from_str(r#"{"a":"x\u00e9\n\\\"\ud83d\ude00\\q"}"#).expect("valid JSON");
     for first in 1..text.len() {
         for second in first..text.len() {
             if !text.is_char_boundary(first) || !text.is_char_boundary(second) {
@@ -1190,16 +1229,18 @@ fn changes_hold_split_escapes_back_and_report_their_decoded_text_once_complete()
     let mut parser = StreamingJsonParser::new();
     parser.append(r#"{"a":"x"#);
     assert_eq!(parser.append(r#"\u00"#), Vec::new());
-    assert_eq!(
-        parser.append("e9"),
-        vec![append(vec![key("a")], "é")]
-    );
+    assert_eq!(parser.append("e9"), vec![append(vec![key("a")], "é")]);
 }
 
 #[test]
 fn changes_report_a_container_nested_deeper_than_32_levels_once_whole_when_it_closes() {
     let depth = 40;
-    let text = format!("{}{}{}", "{\"a\":".repeat(depth), "\"deep\"", "}".repeat(depth));
+    let text = format!(
+        "{}{}{}",
+        "{\"a\":".repeat(depth),
+        "\"deep\"",
+        "}".repeat(depth)
+    );
     let mut parser = StreamingJsonParser::new();
     let mut mirror = Mirror::default();
     let mut index = 0;
@@ -1208,7 +1249,10 @@ fn changes_report_a_container_nested_deeper_than_32_levels_once_whole_when_it_cl
         mirror.apply(parser.append(&text[index..end]));
         index = end;
     }
-    assert_eq!(mirror.value, Some(serde_json::from_str(&text).expect("valid JSON")));
+    assert_eq!(
+        mirror.value,
+        Some(serde_json::from_str(&text).expect("valid JSON"))
+    );
 
     let changes = StreamingJsonParser::new().append(&text);
     assert_eq!(changes.len(), 34);
@@ -1216,7 +1260,8 @@ fn changes_report_a_container_nested_deeper_than_32_levels_once_whole_when_it_cl
     match last {
         JsonChange::Set { path, value } => {
             assert_eq!(path.len(), 32);
-            let inner: Value = serde_json::from_str(&text[32 * 5..text.len() - 32]).expect("valid JSON");
+            let inner: Value =
+                serde_json::from_str(&text[32 * 5..text.len() - 32]).expect("valid JSON");
             assert_eq!(value, &inner);
         }
         other => panic!("expected a set, got {other:?}"),

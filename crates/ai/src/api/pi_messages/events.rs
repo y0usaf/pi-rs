@@ -3,17 +3,17 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use crate::event_stream::{AssistantMessageEventStream, now_ms};
-use crate::json_parse::parse_streaming_json;
 use crate::types::{
     AssistantBlock, AssistantMessage, AssistantMessageDiagnostic, AssistantMessageEvent,
     StopReason, TextContent, TextType, ThinkingContent, ThinkingType, ToolCall, ToolCallType,
     Usage,
 };
+use crate::utils::streaming_json::ToolCallArgumentsStream;
 use pi_chord::json::JsonObject;
 
 #[derive(Default)]
 pub struct Converter {
-    tool_json: HashMap<usize, String>,
+    arguments: HashMap<usize, ToolCallArgumentsStream>,
 }
 
 impl Converter {
@@ -81,7 +81,7 @@ impl Converter {
                 redacted: None,
             }),
             _ => {
-                self.tool_json.insert(index, String::new());
+                self.arguments.insert(index, ToolCallArgumentsStream::new());
                 AssistantBlock::ToolCall(ToolCall {
                     kind: ToolCallType,
                     id: event["id"].as_str().unwrap_or_default().to_owned(),
@@ -144,12 +144,9 @@ impl Converter {
                 }
             }
             AssistantBlock::ToolCall(block) => {
-                let json = self.tool_json.entry(index).or_default();
-                json.push_str(&delta);
-                block.arguments = match parse_streaming_json(Some(json.as_str())) {
-                    Value::Object(map) => map,
-                    _ => JsonObject::new(),
-                };
+                if let Some(arguments) = self.arguments.get_mut(&index) {
+                    block.arguments = arguments.append(&delta);
+                }
                 AssistantMessageEvent::ToolcallDelta {
                     content_index,
                     delta,
@@ -203,7 +200,7 @@ impl Converter {
                 if let Some(incoming) = event.get("toolCall").filter(|call| call.is_object()) {
                     merge_tool_call(&mut call, incoming);
                 }
-                self.tool_json.remove(&index);
+                self.arguments.remove(&index);
                 output.content[index] = AssistantBlock::ToolCall(call.clone());
                 AssistantMessageEvent::ToolcallEnd {
                     content_index,

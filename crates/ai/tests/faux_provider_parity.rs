@@ -65,15 +65,11 @@ fn complete(faux: &Faux, model: &Model, messages: Vec<Message>) -> AssistantMess
         cache_retention: Some(CacheRetention::Short),
         ..SimpleStreamOptions::default()
     };
-    let stream = faux.stream(
-        model,
-        TranscriptContext {
-            messages,
-        },
-        options,
-    );
+    let stream = faux.stream(model, TranscriptContext { messages }, options);
     while stream.next_event().is_some() {}
-    stream.result().expect("the faux stream ends with a message")
+    stream
+        .result()
+        .expect("the faux stream ends with a message")
 }
 
 #[test]
@@ -89,7 +85,11 @@ fn counts_cached_characters_up_to_the_first_difference() {
     // Prompt texts: "user:hello world" (16 characters), then 16 + 2 + "user:next" (9) = 27.
     let first = complete(&faux, &model, vec![user("hello world")]);
     assert_eq!(
-        (first.usage.input, first.usage.cache_read, first.usage.cache_write),
+        (
+            first.usage.input,
+            first.usage.cache_read,
+            first.usage.cache_write
+        ),
         (0, 0, 4),
         "first prompt: {:?}",
         first.usage
@@ -97,7 +97,11 @@ fn counts_cached_characters_up_to_the_first_difference() {
 
     let extended = complete(&faux, &model, vec![user("hello world"), user("next")]);
     assert_eq!(
-        (extended.usage.input, extended.usage.cache_read, extended.usage.cache_write),
+        (
+            extended.usage.input,
+            extended.usage.cache_read,
+            extended.usage.cache_write
+        ),
         (0, 4, 3),
         "extended prompt: {:?}",
         extended.usage
@@ -106,7 +110,11 @@ fn counts_cached_characters_up_to_the_first_difference() {
     // The first message now differs after "user:hello w" (12 characters): "user:hello wide" + 2 + 9 = 26.
     let edited = complete(&faux, &model, vec![user("hello wide"), user("next")]);
     assert_eq!(
-        (edited.usage.input, edited.usage.cache_read, edited.usage.cache_write),
+        (
+            edited.usage.input,
+            edited.usage.cache_read,
+            edited.usage.cache_write
+        ),
         (0, 3, 4),
         "edited prompt: {:?}",
         edited.usage

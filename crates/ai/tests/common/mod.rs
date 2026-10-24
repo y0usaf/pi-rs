@@ -17,7 +17,10 @@ impl FakeServer {
     /// Serve `events`, a list of `(event name, JSON data)`; an empty name writes a data-only event.
     pub fn start(events: Vec<(&str, &str)>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("the fake server binds");
-        let port = listener.local_addr().expect("the fake server has an address").port();
+        let port = listener
+            .local_addr()
+            .expect("the fake server has an address")
+            .port();
         let bodies: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
         let script: Vec<(String, String)> = events
             .into_iter()
@@ -42,7 +45,10 @@ impl FakeServer {
     }
 
     pub fn bodies(&self) -> Vec<Value> {
-        self.bodies.lock().expect("the fake server records bodies").clone()
+        self.bodies
+            .lock()
+            .expect("the fake server records bodies")
+            .clone()
     }
 }
 
@@ -52,7 +58,10 @@ fn serve(
     script: &[(String, String)],
 ) -> std::io::Result<()> {
     let body = read_request(&mut stream)?;
-    bodies.lock().expect("the fake server records bodies").push(body);
+    bodies
+        .lock()
+        .expect("the fake server records bodies")
+        .push(body);
     let mut events = String::new();
     for (name, data) in script {
         if !name.is_empty() {

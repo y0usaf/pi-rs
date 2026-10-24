@@ -51,7 +51,9 @@ fn file_content(size: usize) -> String {
     let mut text = String::new();
     let mut line = 0;
     while text.len() < size {
-        text.push_str(&format!("const line{line} = \"value {line}\"; // \\\\ done\\n"));
+        text.push_str(&format!(
+            "const line{line} = \"value {line}\"; // \\\\ done\\n"
+        ));
         line += 1;
     }
     text.truncate(size);
@@ -172,5 +174,10 @@ fn parser_cost_is_linear_in_the_streamed_text() {
         parser.append(&large);
         parser.snapshot();
     });
-    assert!(bytes / large.len() < 100, "{} bytes for {}", bytes, large.len());
+    assert!(
+        bytes / large.len() < 100,
+        "{} bytes for {}",
+        bytes,
+        large.len()
+    );
 }

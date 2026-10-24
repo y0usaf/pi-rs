@@ -124,11 +124,15 @@ const CREDIT_PER_CHARACTER: usize = 8;
 // An unterminated number longer than this is not shown until it ends, so snapshot() stays cheap.
 const MAX_PENDING_SCALAR_LENGTH: usize = 64;
 
-const LITERALS: [(&str, fn() -> Value); 3] = [
-    ("true", || Value::Bool(true)),
-    ("false", || Value::Bool(false)),
-    ("null", || Value::Null),
-];
+const LITERALS: [&str; 3] = ["true", "false", "null"];
+
+fn literal_value(literal: &str) -> Value {
+    match literal {
+        "true" => Value::Bool(true),
+        "false" => Value::Bool(false),
+        _ => Value::Null,
+    }
+}
 
 const REPLACEMENT_CHARACTER: char = '\u{fffd}';
 
@@ -870,10 +874,8 @@ fn json_number(token: &str) -> Option<Value> {
 
 /// The value of a complete number or literal token; None for anything else, which is dropped.
 fn scalar_value(token: &str) -> Option<Value> {
-    for (literal, value) in LITERALS {
-        if token == literal {
-            return Some(value());
-        }
+    if let Some(literal) = LITERALS.iter().find(|literal| **literal == token) {
+        return Some(literal_value(literal));
     }
     if is_number(token) {
         return json_number(token);
@@ -883,10 +885,8 @@ fn scalar_value(token: &str) -> Option<Value> {
 
 /// The value an unterminated number or literal token shows.
 fn pending_scalar_value(token: &str) -> Option<Value> {
-    for (literal, value) in LITERALS {
-        if literal.starts_with(token) {
-            return Some(value());
-        }
+    if let Some(literal) = LITERALS.iter().find(|literal| literal.starts_with(token)) {
+        return Some(literal_value(literal));
     }
     if is_number(token) {
         return json_number(token);
@@ -899,12 +899,14 @@ fn value_cost(value: Option<&Value>, depth: usize) -> usize {
     match value {
         None => 0,
         Some(Value::String(text)) => text.len(),
-        Some(Value::Array(items)) if depth < 32 => {
-            items.iter().map(|item| value_cost(Some(item), depth + 1)).sum()
-        }
-        Some(Value::Object(members)) if depth < 32 => {
-            members.values().map(|item| value_cost(Some(item), depth + 1)).sum()
-        }
+        Some(Value::Array(items)) if depth < 32 => items
+            .iter()
+            .map(|item| value_cost(Some(item), depth + 1))
+            .sum(),
+        Some(Value::Object(members)) if depth < 32 => members
+            .values()
+            .map(|item| value_cost(Some(item), depth + 1))
+            .sum(),
         Some(_) => 8,
     }
 }

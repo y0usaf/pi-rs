@@ -8,17 +8,17 @@ use serde_json::{Map, Value};
 use super::request::from_claude_code_name;
 use crate::cost::calculate_cost;
 use crate::event_stream::{ABORTED_TEXT, AssistantMessageEventStream};
-use crate::json_parse::parse_streaming_json;
 use crate::sse::SseReader;
 use crate::types::{
     AssistantBlock, AssistantMessage, AssistantMessageEvent, Model, ModelCost, StopReason,
     TextContent, TextType, ThinkingContent, ThinkingType, Tool, ToolCall, ToolCallType, Usage,
 };
+use crate::utils::streaming_json::ToolCallArgumentsStream;
 use pi_rt::cancel::CancelToken;
 
 struct Scratch {
     index: Option<u64>,
-    partial_json: String,
+    arguments: ToolCallArgumentsStream,
 }
 
 pub fn read(
@@ -101,7 +101,7 @@ pub fn read(
                         }));
                         scratch.push(Scratch {
                             index,
-                            partial_json: String::new(),
+                            arguments: ToolCallArgumentsStream::new(),
                         });
                         out.push(AssistantMessageEvent::TextStart {
                             content_index: last(output),
@@ -121,7 +121,7 @@ pub fn read(
                             }));
                         scratch.push(Scratch {
                             index,
-                            partial_json: String::new(),
+                            arguments: ToolCallArgumentsStream::new(),
                         });
                         out.push(AssistantMessageEvent::ThinkingStart {
                             content_index: last(output),
@@ -141,7 +141,7 @@ pub fn read(
                             }));
                         scratch.push(Scratch {
                             index,
-                            partial_json: String::new(),
+                            arguments: ToolCallArgumentsStream::new(),
                         });
                         out.push(AssistantMessageEvent::ThinkingStart {
                             content_index: last(output),
@@ -168,7 +168,7 @@ pub fn read(
                         }));
                         scratch.push(Scratch {
                             index,
-                            partial_json: String::new(),
+                            arguments: ToolCallArgumentsStream::new(),
                         });
                         out.push(AssistantMessageEvent::ToolcallStart {
                             content_index: last(output),
@@ -213,9 +213,7 @@ pub fn read(
                             .as_str()
                             .unwrap_or_default()
                             .to_owned();
-                        scratch[position].partial_json.push_str(&piece);
-                        call.arguments =
-                            object(parse_streaming_json(Some(&scratch[position].partial_json)));
+                        call.arguments = scratch[position].arguments.append(&piece);
                         out.push(AssistantMessageEvent::ToolcallDelta {
                             content_index: position as u64,
                             delta: piece,
@@ -249,8 +247,7 @@ pub fn read(
                         });
                     }
                     AssistantBlock::ToolCall(call) => {
-                        call.arguments =
-                            object(parse_streaming_json(Some(&scratch[position].partial_json)));
+                        call.arguments = scratch[position].arguments.finish();
                         let tool_call = call.clone();
                         out.push(AssistantMessageEvent::ToolcallEnd {
                             content_index,
@@ -337,13 +334,6 @@ fn count(value: &Value) -> u64 {
 fn set_if(value: &Value, slot: &mut u64) {
     if let Some(tokens) = value.as_u64() {
         *slot = tokens;
-    }
-}
-
-fn object(value: pi_chord::json::JsonValue) -> Map<String, Value> {
-    match value {
-        Value::Object(map) => map,
-        _ => Map::new(),
     }
 }
 
