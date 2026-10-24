@@ -37,8 +37,9 @@ use super::footer::{Footer, FooterState, Totals, git_branch};
 use super::keybindings;
 use super::selectors::{
     ActionSlot, OverlayAction, action_slot, model::ModelSelector,
-    scoped_models::ScopedModelsSelector, settings::SettingsCallbacks, settings::SettingsConfig,
-    settings::SettingsSelector, thinking::ThinkingSelector, trust::TrustSelector,
+    scoped_models::ScopedModelsSelector, session::SessionSelector, settings::SettingsCallbacks,
+    settings::SettingsConfig, settings::SettingsSelector, thinking::ThinkingSelector,
+    trust::TrustSelector,
 };
 use super::slash_commands::{self, Command, Counts, SessionInfo};
 use super::status::{StatusArea, WORKING, header};
@@ -1044,6 +1045,16 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         selector = Some((built, slot));
                     }
 
+                    Command::Resume => {
+                        let slot = action_slot();
+                        let built: ComponentRef = component(SessionSelector::new(
+                            &session_dir,
+                            &agent_dir,
+                            open.path.as_deref(),
+                            slot.clone(),
+                        ));
+                        selector = Some((built, slot));
+                    }
                     Command::Unavailable(name) => {
                         chat.notice("dim", &format!("/{name} is not available in pi-rs yet"))
                     }

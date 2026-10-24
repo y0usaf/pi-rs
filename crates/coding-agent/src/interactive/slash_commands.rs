@@ -129,6 +129,8 @@ pub enum Command {
     Session,
     /// `/name [text]`: sets the session's display name, or shows it.
     Name(Option<String>),
+    /// `/resume`: opens the session picker.
+    Resume,
     Hotkeys,
     Compact(Option<String>),
     /// `/model [search]`: opens the selector, or picks an exact match.
@@ -182,6 +184,7 @@ pub fn dispatch(text: &str) -> Option<Command> {
                 .filter(|a| !a.is_empty())
                 .map(str::to_owned),
         ),
+        "resume" => Command::Resume,
         "scoped-models" => Command::ScopedModels,
         "settings" => Command::Settings,
         "trust" => Command::Trust,
