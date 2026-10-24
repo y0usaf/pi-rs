@@ -18,5 +18,6 @@ pub mod print;
 pub mod run_config;
 pub mod settings;
 pub mod skills;
+pub mod stdout;
 pub mod system_prompt;
 pub mod tools;

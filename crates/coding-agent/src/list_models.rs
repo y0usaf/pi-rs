@@ -2,6 +2,7 @@
 
 use crate::models::ModelRegistry;
 use crate::paths::join;
+use crate::stdout;
 use crate::system_prompt;
 use pi_durable::ai::types::Model;
 use pi_tui::fuzzy::fuzzy_filter;
@@ -40,22 +41,21 @@ const HEADERS: [&str; 6] = [
 ];
 
 /// `listModels`: the table on stdout, sorted by provider then model id.
-pub fn list(registry: &ModelRegistry, search: Option<&str>) {
+pub fn list(registry: &ModelRegistry, search: Option<&str>) -> Result<(), String> {
     if let Some(error) = registry.error() {
         eprintln!("Warning: errors loading models.json:\n{error}");
     }
     let models = registry.available();
     if models.is_empty() {
-        println!("{}", no_models_available());
-        return;
+        return stdout::write(&format!("{}\n", no_models_available()));
     }
     let mut models: Vec<&Model> = match search {
         Some(pattern) => fuzzy_filter(&models, pattern, |m| format!("{} {}", m.provider, m.id)),
         None => models,
     };
     if models.is_empty() {
-        println!("No models matching \"{}\"", search.unwrap_or_default());
-        return;
+        let message = format!("No models matching \"{}\"\n", search.unwrap_or_default());
+        return stdout::write(&message);
     }
     models.sort_by(|a, b| a.provider.cmp(&b.provider).then_with(|| a.id.cmp(&b.id)));
     let yes_no = |value: bool| if value { "yes" } else { "no" };
@@ -89,11 +89,13 @@ pub fn list(registry: &ModelRegistry, search: Option<&str>) {
             .collect::<Vec<String>>()
             .join("  ")
     };
-    println!("{}", line(HEADERS));
+    let mut out = line(HEADERS);
+    out.push('\n');
     for row in &rows {
-        println!(
-            "{}",
-            line([&row[0], &row[1], &row[2], &row[3], &row[4], &row[5]])
-        );
+        out.push_str(&line([
+            &row[0], &row[1], &row[2], &row[3], &row[4], &row[5],
+        ]));
+        out.push('\n');
     }
+    stdout::write(&out)
 }

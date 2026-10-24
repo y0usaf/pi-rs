@@ -1,7 +1,7 @@
 //! `pi-rs`: pi's coding agent. On a terminal it opens the interactive mode; `-p` (or piped
 //! input) runs print mode; `--mode json` is not supported yet. Sessions are pi-durable sqlite files.
 
-use std::io::{IsTerminal, Read, Write};
+use std::io::{IsTerminal, Read};
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -16,6 +16,7 @@ use pi_coding_agent::run_config::{self, Diagnostic, level_name};
 use pi_coding_agent::settings::{
     self, SettingsManager, collect_diagnostics, deduplicate_diagnostics,
 };
+use pi_coding_agent::stdout;
 use pi_coding_agent::system_prompt::{self, AssembleOptions};
 use pi_coding_agent::tools::mime;
 use pi_durable::ai::types::{ImageContent, ImageType, UserBlock};
@@ -217,7 +218,7 @@ fn run() -> Result<ExitCode, String> {
     }
     if let Some(search) = &parsed.list_models {
         let registry = ModelRegistry::load(&config::agent_dir());
-        list_models::list(&registry, search.as_deref());
+        list_models::list(&registry, search.as_deref())?;
         return Ok(ExitCode::SUCCESS);
     }
     let mode = parsed.mode;
@@ -460,11 +461,7 @@ fn run() -> Result<ExitCode, String> {
         return Err(e.to_string());
     }
     let (out, err, code) = print::text_result(&transcript);
-    let mut stdout = std::io::stdout().lock();
-    stdout
-        .write_all(out.as_bytes())
-        .map_err(|e| e.to_string())?;
-    stdout.flush().map_err(|e| e.to_string())?;
+    stdout::write(&out)?;
     eprint!("{err}");
     Ok(ExitCode::from(code as u8))
 }
