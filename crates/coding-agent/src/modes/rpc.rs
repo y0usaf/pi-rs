@@ -31,6 +31,7 @@ pub struct Options {
     pub registry: Arc<ModelRegistry>,
     /// The SQLite file, or `None` under `--no-session`.
     pub session_path: Option<String>,
+    pub cwd: String,
     pub auto_compaction: bool,
     /// The commands a `prompt` may invoke, as `get_commands` reports them.
     pub commands: Vec<Value>,
@@ -124,6 +125,21 @@ pub fn run(
         pending: 0,
         session_name: None,
     }));
+
+    // The conversation's agent starts with no model; the run's settings are the session's.
+    root.configure(
+        &AgentChange {
+            model: Change::Set(ModelRef {
+                provider: options.model.provider.clone(),
+                model_id: options.model.id.clone(),
+            }),
+            thinking_level: Change::Set(options.thinking),
+            cwd: Change::Set(options.cwd.clone()),
+            ..AgentChange::default()
+        },
+        cancel,
+    )
+    .map_err(|e| e.to_string())?;
 
     let stream = root.events(cancel).map_err(|e| e.to_string())?;
     {

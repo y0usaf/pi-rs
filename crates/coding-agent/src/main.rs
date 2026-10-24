@@ -486,6 +486,7 @@ fn run() -> Result<ExitCode, String> {
             thinking: input.thinking,
             registry: Arc::clone(&registry),
             session_path: session_path.clone(),
+            cwd: input.cwd.clone(),
             auto_compaction: compaction_enabled,
             commands,
         };
