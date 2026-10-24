@@ -39,6 +39,10 @@
         pkgs: features:
         pkgs.rustPlatform.buildRustPackage {
           inherit pname version src;
+          outputs = [
+            "out"
+            "examples"
+          ];
           cargoLock.lockFile = ./Cargo.lock;
           doCheck = false;
           buildPhase = ''
@@ -48,9 +52,9 @@
           '';
           installPhase = ''
             runHook preInstall
-            mkdir -p $out/lib $out/bin
+            mkdir -p $out/lib $out/bin $examples/bin
             cp target/release/lib*.rlib $out/lib/
-            find target/release/examples -maxdepth 1 -type f -executable -exec cp {} $out/bin/ \;
+            find target/release/examples -maxdepth 1 -type f -executable -exec cp {} $examples/bin/ \;
             find target/release -maxdepth 1 -type f -executable -exec cp {} $out/bin/ \;
             runHook postInstall
           '';
@@ -171,7 +175,7 @@
         };
         tui = {
           type = "app";
-          program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/tui_editor";
+          program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.default.examples}/bin/tui_editor";
         };
       });
 
@@ -179,6 +183,7 @@
         pkgs:
         let
           system = pkgs.stdenv.hostPlatform.system;
+          examples = self.packages.${system}.default.examples;
         in
         {
           build = self.packages.${system}.default;
@@ -188,27 +193,27 @@
             pname = "${pname}-clippy";
             nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.clippy ];
             buildPhase = "cargo clippy --workspace --all-targets --frozen --features pi-durable/providers -- -D warnings";
-            installPhase = "touch $out";
+            installPhase = "mkdir -p $out $examples";
           });
           tests = self.packages.${system}.default.overrideAttrs (old: {
             pname = "${pname}-tests";
             buildPhase = "cargo test --release --workspace --frozen --features pi-durable/providers";
-            installPhase = "touch $out";
+            installPhase = "mkdir -p $out $examples";
           });
           oauth-flow = pkgs.runCommand "${pname}-oauth-flow" { } ''
-            ${self.packages.${system}.default}/bin/oauth_flow
+            ${examples}/bin/oauth_flow
             touch $out
           '';
           provider-e2e = pkgs.runCommand "${pname}-provider-e2e" { } ''
-            ${self.packages.${system}.default}/bin/provider_e2e
+            ${examples}/bin/provider_e2e
             touch $out
           '';
           openai-responses-e2e = pkgs.runCommand "${pname}-openai-responses-e2e" { } ''
-            ${self.packages.${system}.default}/bin/openai_responses_e2e
+            ${examples}/bin/openai_responses_e2e
             touch $out
           '';
           openai-completions-e2e = pkgs.runCommand "${pname}-openai-completions-e2e" { } ''
-            ${self.packages.${system}.default}/bin/openai_completions_e2e
+            ${examples}/bin/openai_completions_e2e
             touch $out
           '';
           parity =
@@ -219,7 +224,7 @@
                   pkgs.gnugrep
                 ];
                 PARITY_TS = "${oracle pkgs}/parity";
-                PARITY_RS = "${self.packages.${system}.default}/bin/parity";
+                PARITY_RS = "${examples}/bin/parity";
               }
               ''
                 bash ${./crates/durable/parity}/run.sh
@@ -233,7 +238,7 @@
                   pkgs.diffutils
                 ];
                 PARITY_AI_TS = "${oracleAi pkgs}";
-                PARITY_AI_RS = "${self.packages.${system}.default}/bin/parity_ai";
+                PARITY_AI_RS = "${examples}/bin/parity_ai";
                 passthru.oracle = oracleAi pkgs;
               }
               ''
