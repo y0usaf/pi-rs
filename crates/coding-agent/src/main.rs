@@ -15,6 +15,7 @@ use pi_coding_agent::paths::{PathInput, join, normalize_path, resolve_read_path}
 use pi_coding_agent::print::{self, RunInput, ToolSettings};
 use pi_coding_agent::run_config::{self, Diagnostic, level_name};
 use pi_coding_agent::session_list;
+use pi_coding_agent::session_tree;
 use pi_coding_agent::settings::{
     self, SettingsManager, collect_diagnostics, deduplicate_diagnostics,
 };
@@ -290,7 +291,8 @@ fn run() -> Result<ExitCode, String> {
                 CompactionOverrides::default(),
             )
             .map_err(|e| e.to_string())?;
-            let root = print::root(&probe, &cancel).map_err(|e| e.to_string())?;
+            let root =
+                session_tree::active_conversation(&probe, &cancel).map_err(|e| e.to_string())?;
             let agent = root.agent(&cancel).map_err(|e| e.to_string())?;
             let has_messages = !print::transcript(&root, &cancel)
                 .map_err(|e| e.to_string())?
@@ -433,7 +435,7 @@ fn run() -> Result<ExitCode, String> {
         compaction,
     )
     .map_err(|e| e.to_string())?;
-    let root = print::root(&harness, &cancel).map_err(|e| e.to_string())?;
+    let root = session_tree::active_conversation(&harness, &cancel).map_err(|e| e.to_string())?;
     if let Some(name) = &initial_name {
         pi_coding_agent::session_info::set_name(&root, &cancel, name).map_err(|e| e.to_string())?;
     }

@@ -13,7 +13,7 @@ use pi_tui::tui::Component;
 use pi_tui::utils::{slice_by_column, truncate_to_width, visible_width};
 use serde_json::Value;
 
-use super::{ActionSlot, OverlayAction, border, fit, key_display, push, wrap};
+use super::{ActionSlot, OverlayAction, border, fit, push, wrap};
 use crate::interactive::theme::{bold, fg};
 use crate::session_tree::Tree;
 
@@ -63,6 +63,7 @@ pub struct TreeSelector {
     leaf: Option<EntryId>,
     action: ActionSlot,
     max_visible: usize,
+    multiple_roots: bool,
     tool_calls: HashMap<String, (String, serde_json::Map<String, Value>)>,
 }
 
@@ -95,6 +96,7 @@ impl TreeSelector {
             leaf,
             action,
             max_visible: max_visible.max(5),
+            multiple_roots: false,
             tool_calls,
         };
         selector.refresh();
@@ -213,9 +215,9 @@ impl TreeSelector {
             .collect()
     }
 
-    fn arrange(&self, visible: &[usize]) -> Vec<Row> {
+    fn arrange(&self, visible: &[usize]) -> (Vec<Row>, bool) {
         if visible.is_empty() {
-            return Vec::new();
+            return (Vec::new(), false);
         }
         let visible_set: BTreeSet<usize> = visible.iter().copied().collect();
         let nearest = |mut index: usize| -> Option<usize> {
@@ -292,7 +294,7 @@ impl TreeSelector {
             }
         }
         rows.extend(ordered.into_iter().flatten());
-        rows
+        (rows, multiple_roots)
     }
 
     fn refresh(&mut self) {
@@ -302,7 +304,9 @@ impl TreeSelector {
             .map(|row| self.tree.nodes[row.node].entry.id)
             .or(self.leaf);
         let visible = self.visible();
-        self.rows = self.arrange(&visible);
+        let (rows, multiple_roots) = self.arrange(&visible);
+        self.rows = rows;
+        self.multiple_roots = multiple_roots;
         self.selected = self.nearest_index(previous);
     }
 
@@ -386,7 +390,7 @@ impl TreeSelector {
     }
 
     fn row_text(&self, row: &Row, selected: bool, width: usize) -> String {
-        let display_indent = if self.rows.iter().any(|r| r.virtual_child) {
+        let display_indent = if self.multiple_roots {
             row.indent.saturating_sub(1)
         } else {
             row.indent
@@ -403,7 +407,14 @@ impl TreeSelector {
                 if within == 0 {
                     prefix.push(if row.is_last { '└' } else { '├' });
                 } else if within == 1 {
-                    prefix.push('─');
+                    let id = self.tree.nodes[row.node].entry.id;
+                    if self.folded.contains(&id) {
+                        prefix.push('⊞');
+                    } else if self.foldable(row.node) {
+                        prefix.push('⊟');
+                    } else {
+                        prefix.push('─');
+                    }
                 } else {
                     prefix.push(' ');
                 }
@@ -666,41 +677,116 @@ fn shorten_path(path: &str) -> String {
     }
 }
 
+/// `formatHelpKeys`: the first key of each binding, arrows for the arrow keys, a shared prefix
+/// written once.
+fn help_keys(ids: &[&str]) -> String {
+    let kb = get_keybindings();
+    let keys: Vec<String> = ids
+        .iter()
+        .filter_map(|id| kb.keys(id).first().cloned())
+        .collect();
+    if keys.is_empty() {
+        return String::new();
+    }
+    let text = if keys.len() == 1 {
+        keys[0].clone()
+    } else {
+        let split: Vec<(String, String)> = keys
+            .iter()
+            .map(|key| match key.rfind('+') {
+                Some(at) => (key[..at + 1].to_owned(), key[at + 1..].to_owned()),
+                None => (String::new(), key.clone()),
+            })
+            .collect();
+        let prefix = split[0].0.clone();
+        if !prefix.is_empty() && split.iter().all(|(head, _)| *head == prefix) {
+            format!(
+                "{prefix}{}",
+                split
+                    .iter()
+                    .map(|(_, tail)| tail.as_str())
+                    .collect::<Vec<_>>()
+                    .join("/")
+            )
+        } else {
+            keys.join("/")
+        }
+    };
+    text.replace("pageUp", "pgup")
+        .replace("pageDown", "pgdn")
+        .replace("up", "↑")
+        .replace("down", "↓")
+        .replace("left", "←")
+        .replace("right", "→")
+}
+
+fn help_item(ids: &[&str], label: &str, label_first: bool) -> String {
+    let keys = help_keys(ids);
+    if keys.is_empty() {
+        return label.to_owned();
+    }
+    match label_first {
+        true => format!("{label} {keys}"),
+        false => format!("{keys} {label}"),
+    }
+}
+
+fn help_line(width: usize) -> Vec<String> {
+    let items = [
+        help_item(&["tui.select.up", "tui.select.down"], "move", false),
+        help_item(
+            &["tui.editor.cursorLeft", "tui.editor.cursorRight"],
+            "page",
+            false,
+        ),
+        help_item(
+            &["app.tree.foldOrUp", "app.tree.unfoldOrDown"],
+            "branch",
+            false,
+        ),
+        help_item(
+            &[
+                "app.tree.filter.default",
+                "app.tree.filter.noTools",
+                "app.tree.filter.userOnly",
+                "app.tree.filter.labeledOnly",
+                "app.tree.filter.all",
+            ],
+            "filters",
+            true,
+        ),
+        help_item(
+            &[
+                "app.tree.filter.cycleForward",
+                "app.tree.filter.cycleBackward",
+            ],
+            "cycle",
+            true,
+        ),
+    ];
+    let line = format!("  {}", items.join(" · "));
+    wrap(&line, width)
+        .into_iter()
+        .map(|part| fg("muted", &part))
+        .collect()
+}
+
 impl Component for TreeSelector {
     fn render(&mut self, width: usize) -> Vec<String> {
-        let mut lines = vec![
-            String::new(),
-            border(width),
-            bold("  Session Tree"),
-            wrap(
-                &format!(
-                    "  {} · {} · {} · {}",
-                    key_display("tui.select.up") + "/" + &key_display("tui.select.down"),
-                    key_display("tui.editor.pageUp") + "/" + &key_display("tui.editor.pageDown"),
-                    key_display("app.tree.foldOrUp") + "/" + &key_display("app.tree.unfoldOrDown"),
-                    key_display("app.tree.filter.cycleForward")
-                        + "/"
-                        + &key_display("app.tree.filter.cycleBackward"),
-                ),
-                width,
-            )
-            .into_iter()
-            .map(|line| fg("muted", &line))
-            .collect::<Vec<_>>()
-            .concat(),
-            truncate_to_width(
-                &format!(
-                    "  {} {}",
-                    fg("muted", "Type to search:"),
-                    fg("accent", self.search.value())
-                ),
-                width,
-                "",
-                false,
+        let mut lines = vec![String::new(), border(width), bold("  Session Tree")];
+        lines.extend(help_line(width));
+        lines.push(truncate_to_width(
+            &format!(
+                "  {} {}",
+                fg("muted", "Type to search:"),
+                fg("accent", self.search.value())
             ),
-            border(width),
-            String::new(),
-        ];
+            width,
+            "",
+            false,
+        ));
+        lines.push(border(width));
+        lines.push(String::new());
         if self.rows.is_empty() {
             lines.push(fg("muted", "  No entries found"));
             lines.push(fg("muted", &format!("  (0/0){}", self.status_labels())));
