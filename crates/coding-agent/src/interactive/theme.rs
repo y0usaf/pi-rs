@@ -1161,8 +1161,11 @@ pub fn markdown() -> MarkdownTheme {
         italic: Rc::new(italic),
         strikethrough: Rc::new(strikethrough),
         underline: Rc::new(underline),
-        highlight_code: Some(Rc::new(|code: &str, _lang: Option<&str>| {
-            code.split('\n').map(|l| fg("mdCodeBlock", l)).collect()
+        highlight_code: Some(Rc::new(|code: &str, lang: Option<&str>| {
+            match lang.filter(|lang| super::syntax::supports(lang)) {
+                Some(lang) => super::syntax::highlight(code, lang),
+                None => code.split('\n').map(|l| fg("mdCodeBlock", l)).collect(),
+            }
         })),
         code_block_indent: None,
     }

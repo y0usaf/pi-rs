@@ -33,10 +33,18 @@ use super::chat::Chat;
 use super::footer::{Footer, FooterState, Totals, git_branch};
 use super::keybindings;
 use super::selectors::{
-    ActionSlot, OverlayAction, action_slot, confirm::Confirm, fork::ForkSelector,
-    model::ModelSelector, scoped_models::ScopedModelsSelector, session::SessionSelector,
-    settings::SettingsCallbacks, settings::SettingsConfig, settings::SettingsSelector,
-    thinking::ThinkingSelector, tree::{Filter, TreeSelector}, trust::TrustSelector,
+    ActionSlot, OverlayAction, action_slot,
+    confirm::Confirm,
+    fork::ForkSelector,
+    model::ModelSelector,
+    scoped_models::ScopedModelsSelector,
+    session::SessionSelector,
+    settings::SettingsCallbacks,
+    settings::SettingsConfig,
+    settings::SettingsSelector,
+    thinking::ThinkingSelector,
+    tree::{Filter, TreeSelector},
+    trust::TrustSelector,
 };
 use super::slash_commands::{self, Command, Counts, SessionInfo};
 use super::status::{StatusArea, WORKING, header};
