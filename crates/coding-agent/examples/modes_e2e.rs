@@ -168,6 +168,40 @@ fn stdout_of(bin: &Path, scratch: &Scratch, args: &[&str]) -> Result<(Vec<Value>
     Ok((parse_lines(&out.stdout)?, stderr))
 }
 
+/// A prompt template from the agent directory expands in a print-mode prompt, as upstream's
+/// `loadPromptTemplates` and `expandPromptTemplate` do.
+fn template_run(bin: &Path, scratch: &Scratch) -> Result<()> {
+    let prompts = scratch.root.join("agent").join("prompts");
+    std::fs::create_dir_all(&prompts)?;
+    std::fs::write(
+        prompts.join("demo.md"),
+        "---\ndescription: Demo template\nargument-hint: <name>\n---\nfirst=$1 second=$2 rest-from-2=${@:2} all=$@\n",
+    )?;
+    let (lines, _) = stdout_of(
+        bin,
+        scratch,
+        &[
+            "--provider",
+            "fake",
+            "--model",
+            "fake-test",
+            "--no-session",
+            "--mode",
+            "json",
+            "-p",
+            "/demo one two three",
+        ],
+    )?;
+    need(&lines, "the expanded prompt", |line| {
+        line["type"] == "message_start"
+            && line["message"]["role"] == "user"
+            && line["message"]["content"][0]["text"]
+                == "first=one second=two rest-from-2=two three all=one two three"
+    })?;
+    println!("prompt templates ok");
+    Ok(())
+}
+
 struct Scratch {
     root: PathBuf,
 }
@@ -795,6 +829,7 @@ fn main() -> Result<()> {
     )?;
 
     json_run(&bin, &scratch, &written)?;
+    template_run(&bin, &scratch)?;
     rpc_run(&bin, &scratch)?;
     rpc_session_run(&bin, &scratch)?;
     std::fs::remove_dir_all(&scratch.root)?;
