@@ -28,7 +28,7 @@ const OAUTH_PROVIDERS: [&str; 9] = [
     "radius",
 ];
 /// Of those, the ones whose token refresh this port has (pi-ai's Rust OAuth flows).
-const OAUTH_REFRESH: [&str; 2] = ["anthropic", "openai-codex"];
+const OAUTH_REFRESH: [&str; 3] = ["anthropic", "openai-codex", "xai"];
 
 pub struct ModelRegistry {
     pub config: ModelConfig,
@@ -337,9 +337,10 @@ impl ModelRegistry {
 }
 
 fn refresh_oauth(provider: &str, refresh_token: &str) -> Result<Map<String, Value>, String> {
-    use pi_durable::ai::oauth::{anthropic, openai_codex};
+    use pi_durable::ai::oauth::{anthropic, openai_codex, xai};
     let credentials = match provider {
         "anthropic" => anthropic::refresh(&anthropic::Endpoints::from_env(), refresh_token, None)?,
+        "xai" => xai::refresh(&xai::Endpoints::from_env(), refresh_token, None)?,
         _ => openai_codex::refresh(&openai_codex::Endpoints::from_env(), refresh_token, None)?,
     };
     pi_durable::ai::oauth::stored(provider, &credentials)

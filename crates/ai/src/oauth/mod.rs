@@ -4,6 +4,7 @@ pub mod device_code;
 pub mod interaction;
 pub mod openai_codex;
 pub mod pkce;
+pub mod xai;
 
 use pi_rt::cancel::CancelToken;
 use serde_json::{Map, Value};

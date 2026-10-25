@@ -13,7 +13,7 @@ use std::time::Duration;
 use pi_durable::ai::oauth::anthropic;
 use pi_durable::ai::oauth::interaction::{Event, Interaction, Prompt};
 use pi_durable::ai::oauth::openai_codex;
-use pi_durable::ai::oauth::{self};
+use pi_durable::ai::oauth::{self, xai};
 use pi_durable::cancel::CancelToken;
 use serde_json::json;
 
@@ -105,6 +105,8 @@ static PROVIDERS: &[Provider] = &[
         "OpenAI (ChatGPT Plus/Pro)",
         Some(true),
     ),
+    oauth("xai", "xAI", "xAI (Grok/X subscription)", Some(true)),
+    api_key("xai", "xAI", "xAI API key", "Enter xAI API key"),
 ];
 
 /// The providers a selector shows for one auth type, or every one when `auth` is `None`.
@@ -274,6 +276,10 @@ fn authenticate(
         ("openai-codex", AuthType::Oauth) => {
             let credentials =
                 openai_codex::login(interaction, &openai_codex::Endpoints::from_env(), cancel)?;
+            oauth::stored(provider, &credentials)
+        }
+        ("xai", AuthType::Oauth) => {
+            let credentials = xai::login(interaction, &xai::Endpoints::from_env(), cancel)?;
             oauth::stored(provider, &credentials)
         }
         (_, AuthType::ApiKey) => {
