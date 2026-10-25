@@ -28,7 +28,7 @@ const OAUTH_PROVIDERS: [&str; 9] = [
     "radius",
 ];
 /// Of those, the ones whose token refresh this port has (pi-ai's Rust OAuth flows).
-const OAUTH_REFRESH: [&str; 3] = ["anthropic", "openai-codex", "xai"];
+const OAUTH_REFRESH: [&str; 4] = ["anthropic", "kimi-coding", "openai-codex", "xai"];
 
 pub struct ModelRegistry {
     pub config: ModelConfig,
@@ -323,11 +323,7 @@ impl ModelRegistry {
                     "refreshing {provider} OAuth tokens is not supported by pi-rs; log in again with pi"
                 ));
             }
-            let token = current
-                .get("refresh")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            refresh_oauth(provider, token)
+            refresh_oauth(provider, current)
         };
         let fresh = self.auth.lock().unwrap().fresh_oauth(provider, &refresh)?;
         fresh
@@ -336,12 +332,16 @@ impl ModelRegistry {
     }
 }
 
-fn refresh_oauth(provider: &str, refresh_token: &str) -> Result<Map<String, Value>, String> {
-    use pi_durable::ai::oauth::{anthropic, openai_codex, xai};
+fn refresh_oauth(
+    provider: &str,
+    stored: &Map<String, Value>,
+) -> Result<Map<String, Value>, String> {
+    use pi_durable::ai::oauth::{anthropic, kimi_coding, openai_codex, xai};
     let credentials = match provider {
-        "anthropic" => anthropic::refresh(&anthropic::Endpoints::from_env(), refresh_token, None)?,
-        "xai" => xai::refresh(&xai::Endpoints::from_env(), refresh_token, None)?,
-        _ => openai_codex::refresh(&openai_codex::Endpoints::from_env(), refresh_token, None)?,
+        "anthropic" => anthropic::refresh(&anthropic::Endpoints::from_env(), stored, None)?,
+        "kimi-coding" => kimi_coding::refresh(&kimi_coding::Endpoints::from_env(), stored, None)?,
+        "xai" => xai::refresh(&xai::Endpoints::from_env(), stored, None)?,
+        _ => openai_codex::refresh(&openai_codex::Endpoints::from_env(), stored, None)?,
     };
     pi_durable::ai::oauth::stored(provider, &credentials)
         .as_object()

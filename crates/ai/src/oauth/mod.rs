@@ -2,6 +2,7 @@ pub mod anthropic;
 pub mod callback;
 pub mod device_code;
 pub mod interaction;
+pub mod kimi_coding;
 pub mod openai_codex;
 pub mod openrouter;
 pub mod pkce;
