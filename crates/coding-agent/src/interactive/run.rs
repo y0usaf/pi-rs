@@ -24,7 +24,7 @@ use pi_durable::ids::EntryId;
 use pi_tui::autocomplete::CombinedAutocompleteProvider;
 use pi_tui::components::editor::{Editor, EditorOptions};
 use pi_tui::components::text::Text;
-use pi_tui::keys::{is_key_release, matches_key};
+use pi_tui::keys::is_key_release;
 use pi_tui::terminal::{ProcessTerminal, Terminal};
 use pi_tui::tui::{ComponentRef, InputListenerResult, component};
 use pi_tui::tui_main_screen::{TuiMainScreen, as_ref};
@@ -532,7 +532,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         incoming,
     } = session;
     let (mut model, mut thinking, mut cwd) = (model, thinking, cwd);
-    keybindings::install();
+    keybindings::install(&agent_dir);
     let sources = theme::Sources {
         agent_dir: agent_dir.clone(),
         cwd: cwd.clone(),
@@ -618,15 +618,15 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         if sel_open.get() {
             return None;
         }
-        let action = if matches_key(data, slash_commands::INTERRUPT)
-            && !ed.borrow().is_showing_autocomplete()
+        let kb = pi_tui::keybindings::get_keybindings();
+        let action = if kb.matches(data, "app.interrupt") && !ed.borrow().is_showing_autocomplete()
         {
             Action::Interrupt
-        } else if matches_key(data, slash_commands::CLEAR) {
+        } else if kb.matches(data, "app.clear") {
             Action::Clear
-        } else if matches_key(data, slash_commands::EXIT) && ed.borrow().get_text().is_empty() {
+        } else if kb.matches(data, "app.exit") && ed.borrow().get_text().is_empty() {
             Action::Exit
-        } else if matches_key(data, slash_commands::EXPAND_TOOLS) {
+        } else if kb.matches(data, "app.tools.expand") {
             Action::Expand
         } else {
             return None;

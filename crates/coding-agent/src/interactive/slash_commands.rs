@@ -219,12 +219,6 @@ pub fn autocomplete_commands() -> Vec<CommandEntry> {
         .collect()
 }
 
-/// The keys the loop itself acts on: upstream's `app.*` bindings.
-pub const INTERRUPT: &str = "escape";
-pub const CLEAR: &str = "ctrl+c";
-pub const EXIT: &str = "ctrl+d";
-pub const EXPAND_TOOLS: &str = "ctrl+o";
-
 const NAVIGATION: &[(&[&str], &str)] = &[
     (
         &[
@@ -267,10 +261,10 @@ const EDITING: &[(&[&str], &str)] = &[
 const OTHER: &[(&[&str], &str)] = &[(&["tui.input.tab"], "Path completion / accept autocomplete")];
 
 const APP: &[(&[&str], &str)] = &[
-    (&[INTERRUPT], "Cancel autocomplete / abort streaming"),
-    (&[CLEAR], "Clear editor (first) / exit (second)"),
-    (&[EXIT], "Exit (when editor is empty)"),
-    (&[EXPAND_TOOLS], "Toggle tool output expansion"),
+    (&["app.interrupt"], "Cancel autocomplete / abort streaming"),
+    (&["app.clear"], "Clear editor (first) / exit (second)"),
+    (&["app.exit"], "Exit (when editor is empty)"),
+    (&["app.tools.expand"], "Toggle tool output expansion"),
 ];
 
 fn capitalize(part: &str) -> String {
@@ -313,8 +307,7 @@ fn section(title: &str, body: &str) -> String {
 
 /// `handleHotkeysCommand`, over the keybindings this mode actually reads.
 pub fn hotkeys() -> String {
-    let other =
-        rows(OTHER, bound_key) + &rows(APP, capitalize_parts) + "| `/` | Slash commands |\n";
+    let other = rows(OTHER, bound_key) + &rows(APP, bound_key) + "| `/` | Slash commands |\n";
     let mut out = String::from("**Keyboard Shortcuts**\n\n");
     out.push_str(&section("Navigation", &rows(NAVIGATION, bound_key)));
     out.push_str(&section("Editing", &rows(EDITING, bound_key)));
@@ -487,6 +480,7 @@ mod tests {
 
     #[test]
     fn hotkeys_lists_the_modes_own_keys() {
+        crate::interactive::keybindings::install("/nonexistent-pi-look-keybindings");
         let table = hotkeys();
         assert!(table.contains("**Navigation**"));
         assert!(table.contains("| `Enter` | Send message |"));

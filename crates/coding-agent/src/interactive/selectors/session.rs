@@ -820,7 +820,7 @@ pub fn select_session(session_dir: &str, agent_dir: &str) -> Result<Option<Strin
     use pi_tui::tui::component;
     use pi_tui::tui_main_screen::{TuiMainScreen, as_ref};
 
-    super::super::keybindings::install();
+    super::super::keybindings::install(agent_dir);
     let slot: ActionSlot = super::action_slot();
     let selector = component(SessionSelector::new(
         session_dir,
