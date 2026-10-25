@@ -3,6 +3,10 @@
 
 use pi_durable::ai::thinking::clamp_thinking_level;
 use pi_durable::ai::types::{Model, ModelThinkingLevel};
+use pi_durable::cancel::CancelToken;
+use pi_durable::harness::agent::{AgentChange, Change};
+use pi_durable::harness::harness::Conversation;
+use pi_durable::harness::types::ModelRef;
 
 use crate::args::{Args, tool_list_error};
 use crate::model_resolver::{
@@ -237,4 +241,111 @@ pub fn choose_model(
         thinking,
         diagnostics,
     }
+}
+
+/// The models a session may switch to: every model the catalog has.
+pub fn available(registry: &ModelRegistry) -> Vec<Model> {
+    registry.available().into_iter().cloned().collect()
+}
+
+/// The session's scoped models: `enabledModels` resolved over the available models, or none when
+/// every model is enabled.
+pub fn scope(settings: &SettingsManager, available: &[Model]) -> Vec<Model> {
+    match settings.enabled_models() {
+        Some(patterns) if !patterns.is_empty() => resolve_model_scope(&patterns, available)
+            .0
+            .into_iter()
+            .map(|scoped| scoped.model)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Point the session at `model`, clamping the thinking level to what it accepts: the per-model
+/// setting, else `thinking`. Hands back the level in effect.
+pub fn set_model(
+    root: &Conversation,
+    cancel: &CancelToken,
+    settings: &SettingsManager,
+    model: &Model,
+    thinking: ModelThinkingLevel,
+) -> Result<ModelThinkingLevel, String> {
+    let override_level = settings
+        .model_thinking_level(&model.provider, &model.id)
+        .and_then(parse_level);
+    let level = clamp_thinking_level(model, override_level.unwrap_or(thinking));
+    root.configure(
+        &AgentChange {
+            model: Change::Set(ModelRef {
+                provider: model.provider.clone(),
+                model_id: model.id.clone(),
+            }),
+            thinking_level: Change::Set(level),
+            ..AgentChange::default()
+        },
+        cancel,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(level)
+}
+
+/// The model and thinking level a session recorded for itself, so switching to it does not
+/// rewrite what it stored. None when it recorded none, or recorded a model the catalog lacks.
+pub fn recorded_agent(
+    root: &Conversation,
+    cancel: &CancelToken,
+    registry: &ModelRegistry,
+) -> Result<Option<(Model, ModelThinkingLevel)>, String> {
+    let agent = root.agent(cancel).map_err(|e| e.to_string())?;
+    let Some(reference) = agent.model else {
+        return Ok(None);
+    };
+    let Some(found) = registry
+        .get_model(&reference.provider, &reference.model_id)
+        .cloned()
+    else {
+        return Ok(None);
+    };
+    let level = clamp_thinking_level(&found, agent.thinking_level);
+    Ok(Some((found, level)))
+}
+
+/// Point the session's thinking level at `level`.
+pub fn set_thinking(
+    root: &Conversation,
+    cancel: &CancelToken,
+    level: ModelThinkingLevel,
+) -> Result<(), String> {
+    root.configure(
+        &AgentChange {
+            thinking_level: Change::Set(level),
+            ..AgentChange::default()
+        },
+        cancel,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Point a session's agent at the loop's model, thinking level and cwd, as upstream does for a
+/// session it creates or switches to.
+pub fn apply_agent(
+    root: &Conversation,
+    cancel: &CancelToken,
+    model: &Model,
+    thinking: ModelThinkingLevel,
+    cwd: &str,
+) -> Result<(), String> {
+    root.configure(
+        &AgentChange {
+            model: Change::Set(ModelRef {
+                provider: model.provider.clone(),
+                model_id: model.id.clone(),
+            }),
+            thinking_level: Change::Set(clamp_thinking_level(model, thinking)),
+            cwd: Change::Set(cwd.to_owned()),
+            ..AgentChange::default()
+        },
+        cancel,
+    )
+    .map_err(|e| e.to_string())
 }

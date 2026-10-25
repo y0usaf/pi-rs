@@ -10,21 +10,17 @@ use std::time::Instant;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use pi_durable::ai::thinking::{clamp_thinking_level, supported_thinking_levels};
+use pi_durable::ai::thinking::supported_thinking_levels;
 use pi_durable::ai::types::{
     AssistantBlock, Message, Model, ModelThinkingLevel, TextContent, TextType, UserBlock,
     UserContent,
 };
 use pi_durable::cancel::CancelToken;
-use pi_durable::harness::agent::{AgentChange, Change};
-use pi_durable::harness::events::{AgentEvent, AgentEventStream};
-use pi_durable::harness::harness::{Conversation, Harness};
+use pi_durable::harness::events::AgentEvent;
+use pi_durable::harness::harness::Conversation;
 use pi_durable::harness::submissions::{SubmissionDraft, WhenBusy};
-use pi_durable::harness::types::{CompactionOverrides, ModelRef};
+use pi_durable::harness::types::ErrorReport;
 use pi_durable::ids::EntryId;
-use pi_durable::storage::memory::MemoryStorage;
-use pi_durable::storage::sqlite::SqliteStorage;
-use pi_durable::types::Storage;
 use pi_tui::autocomplete::CombinedAutocompleteProvider;
 use pi_tui::components::editor::{Editor, EditorOptions};
 use pi_tui::components::text::Text;
@@ -47,10 +43,11 @@ use super::status::{StatusArea, WORKING, header};
 use super::theme;
 use crate::model_resolver;
 use crate::models::ModelRegistry;
-use crate::print::{self, ToolSettings};
-use crate::run_config::{level_name, parse_level};
+use crate::print::ToolSettings;
+use crate::run_config::{self, level_name, parse_level};
 use crate::session_info;
 use crate::session_list;
+use crate::session_open::{Open, Sink, Source};
 use crate::session_tree::{self, Tree};
 use crate::settings::{self as settings_mod, SettingsManager};
 
@@ -64,95 +61,36 @@ pub enum Incoming {
 /// opens another one when it switches session, so nothing here borrows the session it replaces.
 #[derive(Clone)]
 pub struct Opener {
-    pub registry: Arc<ModelRegistry>,
-    /// A model the catalog lacks (a --model id) is still callable.
-    pub model: Model,
-    pub tools: Vec<String>,
-    /// Tools other parts add beside the built-in ones (MCP's servers').
-    pub extra_tools: Vec<pi_durable::harness::types::ToolRegistration>,
-    pub sections: Vec<(String, String)>,
-    /// The tool environment without PI_SESSION_FILE, which depends on the session.
-    pub tool_settings: ToolSettings,
-    pub compaction: CompactionOverrides,
+    pub source: Source,
     pub sender: mpsc::Sender<Incoming>,
     pub reports: Arc<Mutex<mpsc::Sender<Incoming>>>,
 }
 
-/// A session open in the loop: its harness, its root conversation and the subscription that
-/// feeds the loop its events.
-pub struct Open {
-    pub harness: Harness,
-    pub root: Conversation,
-    pub stream: AgentEventStream,
-    /// The sqlite file it lives in; None under --no-session.
-    pub path: Option<String>,
-}
-
 impl Opener {
-    /// Open the session at path, or a fresh in-memory one for None: the harness, its root
-    /// conversation, and a subscription whose events arrive as Incoming::Events.
-    pub fn open(&self, path: Option<&str>) -> Result<Open, String> {
-        let cancel = CancelToken::new();
-        let storage: Arc<dyn Storage> = match path {
-            Some(path) => {
-                std::fs::create_dir_all(crate::paths::dirname(path)).map_err(|e| e.to_string())?;
-                Arc::new(
-                    SqliteStorage::open(path, &Default::default())
-                        .map_err(|e| format!("Error: {e}"))?,
-                )
-            }
-            None => Arc::new(MemoryStorage::new()),
-        };
-        let mut settings = self.tool_settings.clone();
-        settings.env.retain(|(key, _)| key != "PI_SESSION_FILE");
-        if let Some(path) = path {
-            settings
-                .env
-                .push(("PI_SESSION_FILE".to_owned(), path.to_owned()));
-        }
+    /// Where a session's scheduler errors go: the chat, under the TUI.
+    fn report(&self) -> ErrorReport {
         let reports = Arc::clone(&self.reports);
-        let harness = print::open_harness_with(
-            storage,
-            print::providers(Arc::clone(&self.registry), &self.model),
-            print::extension_with(
-                &self.tools,
-                self.sections.clone(),
-                settings,
-                self.extra_tools.clone(),
-            ),
-            self.compaction.clone(),
-            Arc::new(move |error| {
-                if let Ok(sender) = reports.lock() {
-                    let _ = sender.send(Incoming::Report(error.to_string()));
-                }
-            }),
-        )
-        .map_err(|e| e.to_string())?;
-        let root = print::root(&harness, &cancel).map_err(|e| e.to_string())?;
-        let stream = root.events(&cancel).map_err(|e| e.to_string())?;
-        let feed = self.sender.clone();
-        stream
-            .start(move |events, _| {
-                let _ = feed.send(Incoming::Events(events.to_vec()));
-                Ok(())
-            })
-            .map_err(|e| e.to_string())?;
-        // Picks up a run a killed process left behind.
-        harness.resume().map_err(|e| e.to_string())?;
-        Ok(Open {
-            harness,
-            root,
-            stream,
-            path: path.map(str::to_owned),
+        Arc::new(move |error| {
+            if let Ok(sender) = reports.lock() {
+                let _ = sender.send(Incoming::Report(error.to_string()));
+            }
         })
     }
-}
 
-impl Open {
-    /// Stop the event feed and close the harness, which settles its transaction and the file.
-    pub fn shutdown(&mut self, cancel: &CancelToken) -> Result<(), String> {
-        self.stream.stop();
-        print::close(&self.harness, cancel).map_err(|e| e.to_string())
+    /// The loop's event feed, for a session opened now.
+    fn sink(&self) -> Sink {
+        let feed = self.sender.clone();
+        Box::new(move |events, _| {
+            let _ = feed.send(Incoming::Events(events.to_vec()));
+            Ok(())
+        })
+    }
+
+    /// Open the session at path, or a fresh in-memory one for None, with its events arriving as
+    /// Incoming::Events.
+    pub fn open(&self, path: Option<&str>) -> Result<Open, String> {
+        self.source
+            .open(path, self.report(), self.sink(), &CancelToken::new())
     }
 }
 
@@ -220,25 +158,6 @@ impl Parts {
     }
 }
 
-fn available_models(registry: &ModelRegistry) -> Vec<Model> {
-    registry.available().into_iter().cloned().collect()
-}
-
-/// The session's scoped models: `enabledModels` resolved over the available models, or none when
-/// every model is enabled.
-fn session_scope(settings: &SettingsManager, available: &[Model]) -> Vec<Model> {
-    match settings.enabled_models() {
-        Some(patterns) if !patterns.is_empty() => {
-            model_resolver::resolve_model_scope(&patterns, available)
-                .0
-                .into_iter()
-                .map(|scoped| scoped.model)
-                .collect()
-        }
-        _ => Vec::new(),
-    }
-}
-
 /// Set the session's model, clamping the thinking level to what the model accepts, and save it as
 /// the default when asked.
 fn apply_model(
@@ -250,22 +169,7 @@ fn apply_model(
     persist: bool,
     thinking: &mut ModelThinkingLevel,
 ) -> Result<String, String> {
-    let override_level = settings
-        .model_thinking_level(&model.provider, &model.id)
-        .and_then(parse_level);
-    let level = clamp_thinking_level(model, override_level.unwrap_or(*thinking));
-    root.configure(
-        &AgentChange {
-            model: Change::Set(ModelRef {
-                provider: model.provider.clone(),
-                model_id: model.id.clone(),
-            }),
-            thinking_level: Change::Set(level),
-            ..AgentChange::default()
-        },
-        cancel,
-    )
-    .map_err(|e| e.to_string())?;
+    let level = run_config::set_model(root, cancel, settings, model, *thinking)?;
     *thinking = level;
     {
         let mut footer = footer.borrow_mut();
@@ -294,14 +198,7 @@ fn apply_thinking(
     level: ModelThinkingLevel,
     persist: bool,
 ) -> Result<String, String> {
-    root.configure(
-        &AgentChange {
-            thinking_level: Change::Set(level),
-            ..AgentChange::default()
-        },
-        cancel,
-    )
-    .map_err(|e| e.to_string())?;
+    run_config::set_thinking(root, cancel, level)?;
     footer.borrow_mut().state.thinking = level_name(level);
     if persist {
         settings.set_default_thinking_level(level);
@@ -343,7 +240,7 @@ fn settings_config(
             .into_iter()
             .filter_map(|(key, value)| value.as_str().map(|level| (key, level.to_string())))
             .collect::<BTreeMap<String, String>>(),
-        available_models: available_models(registry),
+        available_models: run_config::available(registry),
         current_model: Some((model.provider.clone(), model.id.clone())),
         default_model: default_model_ref(settings),
     }
@@ -467,17 +364,10 @@ fn adopt_session_agent(
     model: &mut Model,
     thinking: &mut ModelThinkingLevel,
 ) -> Result<bool, String> {
-    let agent = root.agent(cancel).map_err(|e| e.to_string())?;
-    let Some(reference) = agent.model else {
+    let Some((found, level)) = run_config::recorded_agent(root, cancel, registry)? else {
         return Ok(false);
     };
-    let Some(found) = registry
-        .get_model(&reference.provider, &reference.model_id)
-        .cloned()
-    else {
-        return Ok(false);
-    };
-    *thinking = clamp_thinking_level(&found, agent.thinking_level);
+    *thinking = level;
     *model = found.clone();
     {
         let mut footer = footer.borrow_mut();
@@ -500,15 +390,15 @@ fn replace_session(
     target: Option<&str>,
     cancel: &CancelToken,
 ) -> Result<(), String> {
-    if chat.working {
-        let _ = open.root.abort(false, cancel);
-    }
-    let _ = open.root.wait_for_idle(cancel);
-    open.shutdown(cancel)?;
-    let next = opener.open(target)?;
+    open.swap(
+        &opener.source,
+        target,
+        opener.report(),
+        opener.sink(),
+        cancel,
+    )?;
     chat.clear();
-    chat.load(&next.stream.snapshot);
-    *open = next;
+    chat.load(&open.stream.snapshot);
     Ok(())
 }
 
@@ -523,7 +413,7 @@ fn branch_and_switch(
     cancel: &CancelToken,
 ) -> Result<String, String> {
     let tree = Tree::build(&open.root, cancel).map_err(|e| e.to_string())?;
-    let path = branch_session(open.path.as_deref(), &tree, point)?;
+    let path = crate::session_fork::branch_from(open.path.as_deref(), &tree, point)?;
     replace_session(open, opener, chat, Some(&path), cancel)?;
     Ok(path)
 }
@@ -556,7 +446,7 @@ fn adopt_or_apply(
 ) -> Result<(), String> {
     match adopt_session_agent(root, cancel, registry, footer, model, thinking)? {
         true => Ok(()),
-        false => apply_agent(root, cancel, model, *thinking, cwd),
+        false => run_config::apply_agent(root, cancel, model, *thinking, cwd),
     }
 }
 
@@ -597,56 +487,6 @@ fn navigate_session(
     Ok((true, editor_text))
 }
 
-/// Point a session's agent at the loop's model, thinking level and cwd, as upstream does for a
-/// session it creates or switches to.
-fn apply_agent(
-    root: &Conversation,
-    cancel: &CancelToken,
-    model: &Model,
-    thinking: ModelThinkingLevel,
-    cwd: &str,
-) -> Result<(), String> {
-    root.configure(
-        &AgentChange {
-            model: Change::Set(ModelRef {
-                provider: model.provider.clone(),
-                model_id: model.id.clone(),
-            }),
-            thinking_level: Change::Set(clamp_thinking_level(model, thinking)),
-            cwd: Change::Set(cwd.to_owned()),
-            ..AgentChange::default()
-        },
-        cancel,
-    )
-    .map_err(|e| e.to_string())
-}
-
-/// Where `/fork` and `/clone` write their copy: a new session file holding the path up to
-/// `point`, beside the session it came from. With nothing to attach after, it is a new empty
-/// session.
-fn branch_session(
-    source: Option<&str>,
-    tree: &Tree,
-    point: Option<pi_durable::ids::EntryId>,
-) -> Result<String, String> {
-    let source = source.ok_or_else(|| {
-        "This session has not been saved yet. Send a message before cloning or forking it."
-            .to_owned()
-    })?;
-    let dir = std::path::Path::new(source)
-        .parent()
-        .and_then(std::path::Path::to_str)
-        .map(str::to_owned)
-        .unwrap_or_else(|| ".".to_owned());
-    let path: Vec<pi_durable::types::EntryRecord> = point
-        .map(|at| tree.path_to(at))
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|id| tree.entry(id).cloned())
-        .collect();
-    crate::session_fork::branch(&dir, &path)
-}
-
 /// `MCP servers need attention`, with one line per server, as upstream reports them once at startup.
 pub fn mcp_report(problems: &[String]) -> String {
     let lines: Vec<String> = problems
@@ -679,7 +519,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let (mut model, mut thinking, mut cwd) = (model, thinking, cwd);
     keybindings::install();
     let mut open = opener.open(session_path.as_deref())?;
-    apply_agent(&open.root, &cancel, &model, thinking, &cwd)?;
+    run_config::apply_agent(&open.root, &cancel, &model, thinking, &cwd)?;
     if let Some(name) = &initial_name {
         session_info::set_name(&open.root, &cancel, name).map_err(|e| e.to_string())?;
     }
@@ -687,7 +527,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let mut chat = Chat::new(&cwd);
     chat.hide_thinking = settings.borrow().hide_thinking_block();
     chat.output_pad = settings.borrow().output_pad() as usize;
-    let mut scope = session_scope(&settings.borrow(), &available_models(&registry));
+    let mut scope = run_config::scope(&settings.borrow(), &run_config::available(&registry));
     chat.load(&open.stream.snapshot);
     if !mcp_problems.is_empty() {
         chat.notice("warning", &mcp_report(&mcp_problems));
@@ -871,9 +711,12 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                                 }
                                 Ok(imported) => {
                                     let opener = Opener {
-                                        tool_settings: ToolSettings {
-                                            cwd: imported.cwd.clone(),
-                                            ..opener.tool_settings.clone()
+                                        source: Source {
+                                            tool_settings: ToolSettings {
+                                                cwd: imported.cwd.clone(),
+                                                ..opener.source.tool_settings.clone()
+                                            },
+                                            ..opener.source.clone()
                                         },
                                         ..opener.clone()
                                     };
@@ -970,7 +813,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 }
                 OverlayAction::SetEnabledModels { ids, persist } => match ids {
                     Some(ids) => {
-                        let available = available_models(&registry);
+                        let available = run_config::available(&registry);
                         scope = model_resolver::resolve_model_scope(&ids, &available)
                             .0
                             .into_iter()
@@ -1020,9 +863,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                             );
                             let configured = match adopted {
                                 Ok(true) => Ok(()),
-                                Ok(false) => {
-                                    apply_agent(&open.root, &cancel, &model, thinking, &cwd)
-                                }
+                                Ok(false) => run_config::apply_agent(
+                                    &open.root, &cancel, &model, thinking, &cwd,
+                                ),
                                 Err(e) => Err(e),
                             };
                             match configured {
@@ -1149,8 +992,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                             target.as_deref(),
                             &cancel,
                         )
-                        .and_then(|()| apply_agent(&open.root, &cancel, &model, thinking, &cwd))
-                        {
+                        .and_then(|()| {
+                            run_config::apply_agent(&open.root, &cancel, &model, thinking, &cwd)
+                        }) {
                             Ok(()) => chat.notice("accent", "✓ New session started"),
                             Err(e) => chat.notice("error", &format!("Error: {e}")),
                         }
@@ -1203,7 +1047,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         }
                     }
                     Command::Model(term) => {
-                        let available = available_models(&registry);
+                        let available = run_config::available(&registry);
                         let exact = term.as_deref().and_then(|term| {
                             model_resolver::find_exact_model_reference_match(term, &available)
                                 .cloned()
@@ -1272,7 +1116,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         let slot = action_slot();
                         let enabled = settings.borrow().enabled_models();
                         let built: ComponentRef = component(ScopedModelsSelector::new(
-                            available_models(&registry),
+                            run_config::available(&registry),
                             enabled,
                             slot.clone(),
                         ));

@@ -4,26 +4,39 @@
 //! `"<type> is not implemented"`; a type no mode has answers `"Unknown command: <type>"`, as
 //! upstream does.
 
+use std::cell::RefCell;
 use std::io::BufRead;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
+use pi_durable::ai::thinking::supported_thinking_levels;
 use pi_durable::ai::types::{
-    AssistantBlock, ImageContent, Message, TextContent, TextType, UserBlock, UserContent,
+    AssistantBlock, ImageContent, Message, Model, ModelThinkingLevel, TextContent, TextType,
+    UserBlock, UserContent,
 };
 use pi_durable::cancel::CancelToken;
 use pi_durable::harness::agent::{AgentChange, Change};
-use pi_durable::harness::events::AgentEvent;
+use pi_durable::harness::compaction::estimate_context;
+use pi_durable::harness::events::{AgentEvent, AgentEventStream};
 use pi_durable::harness::harness::{Conversation, Harness};
+use pi_durable::harness::inbox::{InboxItem, InboxState, inbox_doc, withdraw_queued_inputs};
 use pi_durable::harness::submissions::{SubmissionDraft, WhenBusy};
-use pi_durable::harness::types::ModelRef;
+use pi_durable::harness::types::{ErrorReport, ModelRef};
+use pi_durable::harness::util::read_draft;
 use pi_durable::types::{EntryQuery, ScanOrder};
 use serde_json::{Value, json};
 
 use super::{Output, json_event, value};
-use crate::args::{VALID_THINKING_LEVELS, is_valid_thinking_level};
+use crate::args::is_valid_thinking_level;
 use crate::models::ModelRegistry;
 use crate::print;
-use crate::run_config::level_name;
+use crate::run_config::{self, level_name};
+use crate::session_fork;
+use crate::session_info;
+use crate::session_list;
+use crate::session_open::{Open, Sink, Source};
+use crate::session_tree::{self, Tree};
+use crate::settings::SettingsManager;
 
 pub struct Options {
     pub model: pi_durable::ai::types::Model,
@@ -31,10 +44,13 @@ pub struct Options {
     pub registry: Arc<ModelRegistry>,
     /// The SQLite file, or `None` under `--no-session`.
     pub session_path: Option<String>,
+    /// Where a new session file goes (`/new`).
+    pub session_dir: String,
+    /// How a session is opened, for the commands that replace it.
+    pub source: Source,
     pub cwd: String,
-    pub auto_compaction: bool,
-    pub steering_mode: String,
-    pub follow_up_mode: String,
+    /// The settings the queue modes, the compaction and retry toggles are saved to.
+    pub settings: Rc<RefCell<SettingsManager>>,
     /// The commands a `prompt` may invoke, as `get_commands` reports them.
     pub commands: Vec<Value>,
 }
@@ -46,7 +62,11 @@ struct State {
     streaming: bool,
     compacting: u32,
     pending: usize,
-    session_name: Option<String>,
+    retrying: bool,
+    steering_mode: String,
+    follow_up_mode: String,
+    auto_compaction: bool,
+    auto_retry: bool,
 }
 
 impl State {
@@ -57,6 +77,8 @@ impl State {
             AgentEvent::CompactionStart { .. } => self.compacting += 1,
             AgentEvent::CompactionEnd { .. } => self.compacting = self.compacting.saturating_sub(1),
             AgentEvent::InboxUpdate { items } => self.pending = items.len(),
+            AgentEvent::AutoRetryStart { .. } => self.retrying = true,
+            AgentEvent::AutoRetryEnd { .. } => self.retrying = false,
             _ => {}
         }
     }
@@ -114,9 +136,139 @@ fn commands(options: &Options) -> Value {
     json!({ "commands": options.commands })
 }
 
-pub fn run(
+/// The text of a queued message, which `clear_queue` hands back to the host.
+fn queued_text(content: &UserContent) -> String {
+    match content {
+        UserContent::Text(text) => text.clone(),
+        UserContent::Blocks(blocks) => blocks
+            .iter()
+            .filter_map(|block| match block {
+                UserBlock::Text(text) => Some(text.text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<String>>()
+            .join(""),
+    }
+}
+
+/// Empty the inbox of the messages waiting behind the run and hand back their text: upstream's
+/// `clearQueue`. A queued write stays, as it is not user input.
+fn clear_queue(
+    root: &Conversation,
+    cancel: &CancelToken,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let items: Vec<InboxItem> = root
+        .commit(
+            |tx| {
+                let token = inbox_doc()?;
+                let state: InboxState = read_draft(tx, &token, root.id())?;
+                withdraw_queued_inputs(tx, root.id())?;
+                Ok(state.items)
+            },
+            cancel,
+        )
+        .map_err(|e| e.to_string())?;
+    let mut steering = Vec::new();
+    let mut follow_up = Vec::new();
+    for item in items {
+        match item {
+            InboxItem::Steer { content, .. } => steering.push(queued_text(&content)),
+            InboxItem::FollowUp { content, .. } => follow_up.push(queued_text(&content)),
+            InboxItem::Write { .. } => {}
+        }
+    }
+    Ok((steering, follow_up))
+}
+
+/// Upstream's `getTree`: every entry of the session, nested by the branch it sits on.
+fn tree_node(tree: &Tree, index: usize) -> Value {
+    json!({
+        "entry": value(&tree.nodes[index].entry),
+        "children": tree.nodes[index]
+            .children
+            .iter()
+            .map(|child| tree_node(tree, *child))
+            .collect::<Vec<Value>>(),
+    })
+}
+
+/// Upstream's `getSessionStats`: counts over every entry the session holds, the usage recorded for
+/// it, and what its context costs now.
+fn session_stats(
     harness: &Harness,
     root: &Conversation,
+    cancel: &CancelToken,
+    model: &Model,
+    session_path: Option<&str>,
+) -> Result<Value, String> {
+    let tree = Tree::build(root, cancel).map_err(|e| e.to_string())?;
+    let (mut user, mut assistant, mut tool_calls, mut tool_results, mut system) = (0, 0, 0, 0, 0);
+    for node in &tree.nodes {
+        let entry = &node.entry;
+        let kind = entry.kind.as_str();
+        if kind == pi_durable::entries::user_entry().kind() {
+            user += 1;
+        } else if kind == pi_durable::entries::assistant_entry().kind() {
+            assistant += 1;
+            for message in entry.model.iter().flatten() {
+                if let Message::Assistant(message) = message {
+                    tool_calls += message
+                        .content
+                        .iter()
+                        .filter(|block| matches!(block, AssistantBlock::ToolCall(_)))
+                        .count();
+                }
+            }
+        } else if kind == pi_durable::entries::tool_result_entry().kind() {
+            tool_results += 1;
+        } else if kind == pi_durable::entries::system_entry().kind() {
+            system += 1;
+        }
+    }
+    let usage = harness.usage(cancel).map_err(|e| e.to_string())?;
+    let (mut input, mut output, mut cache_read, mut cache_write) = (0u64, 0u64, 0u64, 0u64);
+    let mut cost = 0.0f64;
+    for recorded in usage.models.values().chain(usage.tools.values()) {
+        input += recorded.input;
+        output += recorded.output;
+        cache_read += recorded.cache_read;
+        cache_write += recorded.cache_write;
+        cost += recorded.cost.total;
+    }
+    let mut stats = json!({
+        "sessionId": root.id().0,
+        "userMessages": user,
+        "assistantMessages": assistant,
+        "toolCalls": tool_calls,
+        "toolResults": tool_results,
+        "totalMessages": user + assistant + tool_results + system,
+        "tokens": {
+            "input": input,
+            "output": output,
+            "cacheRead": cache_read,
+            "cacheWrite": cache_write,
+            "total": input + output + cache_read + cache_write,
+        },
+        "cost": cost,
+    });
+    if let Some(path) = session_path {
+        stats["sessionFile"] = json!(path);
+    }
+    if model.context_window > 0 {
+        let view = root.context(None, cancel).map_err(|e| e.to_string())?;
+        let tokens = estimate_context(&view, &[]);
+        stats["contextUsage"] = json!({
+            "tokens": tokens,
+            "contextWindow": model.context_window,
+            "percent": tokens as f64 * 100.0 / model.context_window as f64,
+        });
+    }
+    Ok(stats)
+}
+
+pub fn run(
+    harness: Harness,
+    root: Conversation,
     options: Options,
     cancel: &CancelToken,
 ) -> Result<(), String> {
@@ -127,7 +279,11 @@ pub fn run(
         streaming: false,
         compacting: 0,
         pending: 0,
-        session_name: None,
+        retrying: false,
+        steering_mode: options.settings.borrow().steering_mode().to_owned(),
+        follow_up_mode: options.settings.borrow().follow_up_mode().to_owned(),
+        auto_compaction: options.settings.borrow().compaction_enabled(),
+        auto_retry: options.settings.borrow().retry_enabled(),
     }));
 
     // The conversation's agent starts with no model; the run's settings are the session's.
@@ -145,25 +301,12 @@ pub fn run(
     )
     .map_err(|e| e.to_string())?;
 
-    let stream = root.events(cancel).map_err(|e| e.to_string())?;
-    {
-        let printer = output.clone();
-        let shared = Arc::clone(&state);
-        let mut mapper = json_event::Mapper::default();
-        stream
-            .start(move |events, _| {
-                for event in events {
-                    if let Ok(mut state) = shared.lock() {
-                        state.apply(event);
-                    }
-                    for line in mapper.lines(event) {
-                        printer.line(&line);
-                    }
-                }
-                Ok(())
-            })
-            .map_err(|e| e.to_string())?;
-    }
+    let mut open = Open {
+        path: options.session_path.clone(),
+        stream: attach(&root, &output, &state, cancel)?,
+        harness,
+        root,
+    };
 
     let stdin = std::io::stdin();
     let mut reader = std::io::BufReader::new(stdin.lock());
@@ -194,18 +337,102 @@ pub fn run(
         if parsed["type"] == "extension_ui_response" {
             continue;
         }
-        if let Some(response) = handle(root, &options, &state, &parsed, cancel) {
+        if let Some(response) = handle(&mut open, &output, &options, &state, &parsed, cancel) {
             output.line(&response);
         }
     }
 
-    stream.stop();
-    let _ = harness.wait_for_idle(cancel);
+    open.stream.stop();
+    let _ = open.root.wait_for_idle(cancel);
+    open.shutdown(cancel)
+}
+
+/// Where a session's scheduler errors go: RPC has no chat to show them in.
+fn report() -> ErrorReport {
+    Arc::new(|error| eprintln!("{error}"))
+}
+
+/// Where a session's events go: one JSON line each, as --mode json prints them.
+fn sink(output: &Output, state: &Arc<Mutex<State>>) -> Sink {
+    let printer = output.clone();
+    let shared = Arc::clone(state);
+    let mut mapper = json_event::Mapper::default();
+    Box::new(move |events, _| {
+        for event in events {
+            if let Ok(mut state) = shared.lock() {
+                state.apply(event);
+            }
+            for line in mapper.lines(event) {
+                printer.line(&line);
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Subscribe to a session's events, printing them as they arrive.
+fn attach(
+    root: &Conversation,
+    output: &Output,
+    state: &Arc<Mutex<State>>,
+    cancel: &CancelToken,
+) -> Result<AgentEventStream, String> {
+    let stream = root.events(cancel).map_err(|e| e.to_string())?;
+    stream
+        .start(sink(output, state))
+        .map_err(|e| e.to_string())?;
+    Ok(stream)
+}
+
+/// Replace the session with the one at target, then point it at the model and thinking level it
+/// recorded for itself, or at this run's when it recorded none: upstream's switchSession,
+/// newSession, fork and clone.
+fn switch(
+    open: &mut Open,
+    output: &Output,
+    options: &Options,
+    state: &Arc<Mutex<State>>,
+    target: Option<&str>,
+    cancel: &CancelToken,
+) -> Result<(), String> {
+    let next = sink(output, state);
+    open.swap(&options.source, target, report(), next, cancel)?;
+    let recorded = run_config::recorded_agent(&open.root, cancel, &options.registry)?;
+    let (model, thinking) = match recorded {
+        Some(recorded) => recorded,
+        None => {
+            let shared = state
+                .lock()
+                .map_err(|_| "the session state is poisoned".to_owned())?;
+            (shared.model.clone(), shared.thinking)
+        }
+    };
+    let cwd = open
+        .root
+        .agent(cancel)
+        .ok()
+        .and_then(|agent| agent.cwd)
+        .unwrap_or_else(|| options.cwd.clone());
+    run_config::apply_agent(&open.root, cancel, &model, thinking, &cwd)?;
+    let mut shared = state
+        .lock()
+        .map_err(|_| "the session state is poisoned".to_owned())?;
+    shared.model = model;
+    shared.thinking = thinking;
     Ok(())
 }
 
+/// The thinking level the session is at, for the model switches that keep it.
+fn thinking_of(state: &Arc<Mutex<State>>) -> ModelThinkingLevel {
+    state
+        .lock()
+        .map(|state| state.thinking)
+        .unwrap_or(ModelThinkingLevel::Off)
+}
+
 fn handle(
-    root: &Conversation,
+    open: &mut Open,
+    output: &Output,
     options: &Options,
     state: &Arc<Mutex<State>>,
     command: &Value,
@@ -214,6 +441,8 @@ fn handle(
     let id = command.get("id").cloned();
     let id = id.as_ref();
     let kind = command["type"].as_str().unwrap_or_default();
+    let harness = &open.harness;
+    let root = &open.root;
     let response = match kind {
         "prompt" | "steer" | "follow_up" => {
             let when_busy = match kind {
@@ -257,14 +486,108 @@ fn handle(
             Err(error) => failure(id, kind, error.to_string()),
         },
 
-        "new_session" => match root.reset(None, cancel) {
-            Ok(()) => success(id, kind, Some(json!({ "cancelled": false }))),
-            Err(error) => failure(id, kind, error.to_string()),
+        "clear_queue" => match clear_queue(root, cancel) {
+            Ok((steering, follow_up)) => success(
+                id,
+                kind,
+                Some(json!({ "steering": steering, "followUp": follow_up })),
+            ),
+            Err(error) => failure(id, kind, error),
         },
+
+        "new_session" => {
+            let target = open
+                .path
+                .as_ref()
+                .map(|_| session_list::new_path(&options.session_dir));
+            match switch(open, output, options, state, target.as_deref(), cancel) {
+                Err(error) => failure(id, kind, error),
+                Ok(()) => {
+                    if let Some(parent) = command["parentSession"].as_str()
+                        && let Err(error) =
+                            session_info::set_parent_session(&open.root, cancel, parent)
+                    {
+                        return Some(failure(id, kind, error.to_string()));
+                    }
+                    success(id, kind, Some(json!({ "cancelled": false })))
+                }
+            }
+        }
+
+        "switch_session" => {
+            let session_path = command["sessionPath"].as_str().unwrap_or_default();
+            if !std::path::Path::new(session_path).is_file() {
+                return Some(failure(
+                    id,
+                    kind,
+                    format!("Session not found: {session_path}"),
+                ));
+            }
+            match switch(open, output, options, state, Some(session_path), cancel) {
+                Ok(()) => success(id, kind, Some(json!({ "cancelled": false }))),
+                Err(error) => failure(id, kind, error),
+            }
+        }
+
+        "fork" => {
+            let tree = match Tree::build(&open.root, cancel) {
+                Err(error) => return Some(failure(id, kind, error.to_string())),
+                Ok(tree) => tree,
+            };
+            let entry = command["entryId"].as_u64().or_else(|| {
+                command["entryId"]
+                    .as_str()
+                    .and_then(|entry| entry.parse().ok())
+            });
+            let found = entry
+                .map(pi_durable::ids::EntryId)
+                .and_then(|entry| tree.entry(entry).map(|record| (entry, record)));
+            let Some((entry, record)) = found else {
+                return Some(failure(id, kind, "Invalid entry ID for forking"));
+            };
+            let Some(text) = session_tree::user_message_text(record) else {
+                return Some(failure(id, kind, "Invalid entry ID for forking"));
+            };
+            let point = tree
+                .node(entry)
+                .and_then(|node| node.parent)
+                .map(|parent| tree.nodes[parent].entry.id);
+            let path = match session_fork::branch_from(open.path.as_deref(), &tree, point) {
+                Err(error) => return Some(failure(id, kind, error)),
+                Ok(path) => path,
+            };
+            let (text, path) = (text, path);
+            match switch(open, output, options, state, Some(&path), cancel) {
+                Err(error) => failure(id, kind, error),
+                Ok(()) => success(id, kind, Some(json!({ "text": text, "cancelled": false }))),
+            }
+        }
+
+        "clone" => {
+            let tree = match Tree::build(&open.root, cancel) {
+                Err(error) => return Some(failure(id, kind, error.to_string())),
+                Ok(tree) => tree,
+            };
+            let Some(leaf) = tree.leaf else {
+                return Some(failure(
+                    id,
+                    kind,
+                    "Cannot clone session: no current entry selected",
+                ));
+            };
+            let path = match session_fork::branch_from(open.path.as_deref(), &tree, Some(leaf)) {
+                Err(error) => return Some(failure(id, kind, error)),
+                Ok(path) => path,
+            };
+            match switch(open, output, options, state, Some(&path), cancel) {
+                Ok(()) => success(id, kind, Some(json!({ "cancelled": false }))),
+                Err(error) => failure(id, kind, error),
+            }
+        }
 
         "get_state" => {
             let mut shared = state.lock().map_err(|_| ()).ok();
-            let (model, thinking, streaming, compacting, pending, name, messages) =
+            let (model, thinking, streaming, compacting, pending, steering, follow_up, compaction) =
                 match &mut shared {
                     Some(state) => (
                         Some(value(&state.model)),
@@ -272,28 +595,38 @@ fn handle(
                         state.streaming,
                         state.compacting > 0,
                         state.pending,
-                        state.session_name.clone(),
-                        transcript(root, cancel).map(|m| m.len()),
+                        state.steering_mode.clone(),
+                        state.follow_up_mode.clone(),
+                        state.auto_compaction,
                     ),
-                    None => (None, json!("off"), false, false, 0, None, Ok(0)),
+                    None => (
+                        None,
+                        json!("off"),
+                        false,
+                        false,
+                        0,
+                        String::new(),
+                        String::new(),
+                        false,
+                    ),
                 };
-            let count = messages.unwrap_or(0);
+            let count = transcript(root, cancel).map(|m| m.len()).unwrap_or(0);
             let mut state = json!({
                 "model": model,
                 "thinkingLevel": thinking,
                 "isStreaming": streaming,
                 "isCompacting": compacting,
-                "steeringMode": options.steering_mode.as_str(),
-                "followUpMode": options.follow_up_mode.as_str(),
+                "steeringMode": steering,
+                "followUpMode": follow_up,
                 "sessionId": root.id().0,
-                "autoCompactionEnabled": options.auto_compaction,
+                "autoCompactionEnabled": compaction,
                 "messageCount": count,
                 "pendingMessageCount": pending,
             });
-            if let Some(path) = &options.session_path {
+            if let Some(path) = &open.path {
                 state["sessionFile"] = json!(path);
             }
-            if let Some(name) = name {
+            if let Some(name) = session_info::name(harness, cancel) {
                 state["sessionName"] = json!(name);
             }
             success(id, kind, Some(state))
@@ -302,24 +635,59 @@ fn handle(
         "set_model" => {
             let provider = command["provider"].as_str().unwrap_or_default();
             let model_id = command["modelId"].as_str().unwrap_or_default();
-            match options.registry.get_model(provider, model_id) {
+            match options.registry.get_model(provider, model_id).cloned() {
                 None => failure(id, kind, format!("Model not found: {provider}/{model_id}")),
                 Some(model) => {
-                    let model = model.clone();
-                    let change = AgentChange {
-                        model: Change::Set(ModelRef {
-                            provider: model.provider.clone(),
-                            model_id: model.id.clone(),
-                        }),
-                        ..AgentChange::default()
-                    };
-                    match root.configure(&change, cancel) {
-                        Err(error) => failure(id, kind, error.to_string()),
-                        Ok(()) => {
+                    let thinking = thinking_of(state);
+                    let settings = options.settings.borrow();
+                    match run_config::set_model(root, cancel, &settings, &model, thinking) {
+                        Err(error) => failure(id, kind, error),
+                        Ok(level) => {
                             if let Ok(mut state) = state.lock() {
                                 state.model = model.clone();
+                                state.thinking = level;
                             }
                             success(id, kind, Some(value(&model)))
+                        }
+                    }
+                }
+            }
+        }
+
+        "cycle_model" => {
+            let available = run_config::available(&options.registry);
+            let scoped = run_config::scope(&options.settings.borrow(), &available);
+            let is_scoped = !scoped.is_empty();
+            let models = if is_scoped { scoped } else { available };
+            match state.lock().ok().map(|state| state.model.clone()) {
+                None => failure(id, kind, "No model selected"),
+                Some(_) if models.len() <= 1 => success(id, kind, Some(Value::Null)),
+                Some(current) => {
+                    let index = models
+                        .iter()
+                        .position(|model| {
+                            model.provider == current.provider && model.id == current.id
+                        })
+                        .unwrap_or(0);
+                    let next = models[(index + 1) % models.len()].clone();
+                    let thinking = thinking_of(state);
+                    let settings = options.settings.borrow();
+                    match run_config::set_model(root, cancel, &settings, &next, thinking) {
+                        Err(error) => failure(id, kind, error),
+                        Ok(level) => {
+                            if let Ok(mut state) = state.lock() {
+                                state.model = next.clone();
+                                state.thinking = level;
+                            }
+                            success(
+                                id,
+                                kind,
+                                Some(json!({
+                                    "model": value(&next),
+                                    "thinkingLevel": level_name(level),
+                                    "isScoped": is_scoped,
+                                })),
+                            )
                         }
                     }
                 }
@@ -338,25 +706,17 @@ fn handle(
 
         "set_thinking_level" => match command["level"].as_str() {
             Some(level) if is_valid_thinking_level(level) => {
-                match serde_json::from_value::<pi_durable::ai::types::ModelThinkingLevel>(json!(
-                    level
-                )) {
+                match serde_json::from_value::<ModelThinkingLevel>(json!(level)) {
                     Err(error) => failure(id, kind, error.to_string()),
-                    Ok(level) => {
-                        let change = AgentChange {
-                            thinking_level: Change::Set(level),
-                            ..AgentChange::default()
-                        };
-                        match root.configure(&change, cancel) {
-                            Err(error) => failure(id, kind, error.to_string()),
-                            Ok(()) => {
-                                if let Ok(mut state) = state.lock() {
-                                    state.thinking = level;
-                                }
-                                success(id, kind, None)
+                    Ok(level) => match run_config::set_thinking(root, cancel, level) {
+                        Err(error) => failure(id, kind, error),
+                        Ok(()) => {
+                            if let Ok(mut state) = state.lock() {
+                                state.thinking = level;
                             }
+                            success(id, kind, None)
                         }
-                    }
+                    },
                 }
             }
             _ => failure(
@@ -366,17 +726,57 @@ fn handle(
             ),
         },
 
+        "cycle_thinking_level" => match state.lock().ok().map(|s| (s.model.clone(), s.thinking)) {
+            None => failure(id, kind, "No model selected"),
+            Some((model, _)) if !model.reasoning => success(id, kind, Some(Value::Null)),
+            Some((model, thinking)) => {
+                let levels = supported_thinking_levels(&model);
+                let index = levels
+                    .iter()
+                    .position(|level| *level == thinking)
+                    .unwrap_or(0);
+                let next = levels[(index + 1) % levels.len()];
+                match run_config::set_thinking(root, cancel, next) {
+                    Err(error) => failure(id, kind, error),
+                    Ok(()) => {
+                        if let Ok(mut state) = state.lock() {
+                            state.thinking = next;
+                        }
+                        success(id, kind, Some(json!({ "level": level_name(next) })))
+                    }
+                }
+            }
+        },
+
         "get_available_thinking_levels" => {
-            let reasoning = state
+            let levels: Vec<String> = state
                 .lock()
-                .map(|state| state.model.reasoning)
-                .unwrap_or(false);
-            let levels: Vec<&str> = if reasoning {
-                VALID_THINKING_LEVELS.to_vec()
-            } else {
-                vec!["off"]
-            };
+                .map(|state| {
+                    supported_thinking_levels(&state.model)
+                        .into_iter()
+                        .map(level_name)
+                        .collect()
+                })
+                .unwrap_or_else(|_| vec!["off".to_owned()]);
             success(id, kind, Some(json!({ "levels": levels })))
+        }
+
+        "set_steering_mode" => {
+            let mode = command["mode"].as_str().unwrap_or_default();
+            options.settings.borrow_mut().set_steering_mode(mode);
+            if let Ok(mut state) = state.lock() {
+                state.steering_mode = mode.to_owned();
+            }
+            success(id, kind, None)
+        }
+
+        "set_follow_up_mode" => {
+            let mode = command["mode"].as_str().unwrap_or_default();
+            options.settings.borrow_mut().set_follow_up_mode(mode);
+            if let Ok(mut state) = state.lock() {
+                state.follow_up_mode = mode.to_owned();
+            }
+            success(id, kind, None)
         }
 
         "compact" => {
@@ -384,6 +784,39 @@ fn handle(
             match root.compact(instructions, cancel) {
                 Ok(task) => success(id, kind, Some(json!({ "taskId": value(&task) }))),
                 Err(error) => failure(id, kind, error.to_string()),
+            }
+        }
+
+        "set_auto_compaction" => {
+            let enabled = command["enabled"].as_bool().unwrap_or(false);
+            options
+                .settings
+                .borrow_mut()
+                .set_compaction_enabled(enabled);
+            if let Ok(mut state) = state.lock() {
+                state.auto_compaction = enabled;
+            }
+            success(id, kind, None)
+        }
+
+        "set_auto_retry" => {
+            let enabled = command["enabled"].as_bool().unwrap_or(false);
+            options.settings.borrow_mut().set_retry_enabled(enabled);
+            if let Ok(mut state) = state.lock() {
+                state.auto_retry = enabled;
+            }
+            success(id, kind, None)
+        }
+
+        "abort_retry" => {
+            let retrying = state.lock().map(|state| state.retrying).unwrap_or(false);
+            if retrying {
+                match root.abort(false, cancel) {
+                    Ok(()) => success(id, kind, None),
+                    Err(error) => failure(id, kind, error.to_string()),
+                }
+            } else {
+                success(id, kind, None)
             }
         }
 
@@ -410,6 +843,7 @@ fn handle(
                 });
                 match text {
                     Some(text) => success(id, kind, Some(json!({ "text": text }))),
+                    // Upstream answers the key with a null text.
                     None => success(id, kind, Some(json!({}))),
                 }
             }
@@ -461,6 +895,47 @@ fn handle(
             }
         }
 
+        "get_tree" => match Tree::build(root, cancel) {
+            Err(error) => failure(id, kind, error.to_string()),
+            Ok(tree) => {
+                let nodes: Vec<Value> = tree
+                    .roots
+                    .iter()
+                    .map(|index| tree_node(&tree, *index))
+                    .collect();
+                success(
+                    id,
+                    kind,
+                    Some(json!({ "tree": nodes, "leafId": tree.leaf.map(|id| id.0) })),
+                )
+            }
+        },
+
+        "get_fork_messages" => match Tree::build(root, cancel) {
+            Err(error) => failure(id, kind, error.to_string()),
+            Ok(tree) => {
+                let messages: Vec<Value> = tree
+                    .nodes
+                    .iter()
+                    .filter_map(|node| {
+                        let text = session_tree::user_message_text(&node.entry)?;
+                        (!text.is_empty())
+                            .then(|| json!({ "entryId": node.entry.id.0, "text": text }))
+                    })
+                    .collect();
+                success(id, kind, Some(json!({ "messages": messages })))
+            }
+        },
+
+        "get_session_stats" => match state.lock().ok().map(|state| state.model.clone()) {
+            None => failure(id, kind, "No model selected"),
+            Some(model) => match session_stats(harness, root, cancel, &model, open.path.as_deref())
+            {
+                Err(error) => failure(id, kind, error),
+                Ok(stats) => success(id, kind, Some(stats)),
+            },
+        },
+
         "get_commands" => success(id, kind, Some(commands(options))),
 
         "set_session_name" => {
@@ -468,30 +943,14 @@ fn handle(
             if name.is_empty() {
                 failure(id, kind, "Session name cannot be empty")
             } else {
-                if let Ok(mut state) = state.lock() {
-                    state.session_name = Some(name.to_owned());
+                match session_info::set_name(root, cancel, name) {
+                    Err(error) => failure(id, kind, error.to_string()),
+                    Ok(()) => success(id, kind, None),
                 }
-                success(id, kind, None)
             }
         }
 
-        "cycle_model"
-        | "cycle_thinking_level"
-        | "clear_queue"
-        | "switch_session"
-        | "fork"
-        | "clone"
-        | "get_fork_messages"
-        | "get_tree"
-        | "set_steering_mode"
-        | "set_follow_up_mode"
-        | "set_auto_compaction"
-        | "set_auto_retry"
-        | "abort_retry"
-        | "bash"
-        | "abort_bash"
-        | "get_session_stats"
-        | "export_html" => failure(
+        "bash" | "abort_bash" | "export_html" => failure(
             id,
             kind,
             format!("pi-rs: {kind} is not implemented in RPC mode"),

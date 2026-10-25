@@ -17,6 +17,7 @@ use pi_coding_agent::print::{self, RunInput, ToolSettings};
 use pi_coding_agent::run_config::{self, Diagnostic, level_name};
 use pi_coding_agent::session_fork;
 use pi_coding_agent::session_list;
+use pi_coding_agent::session_open;
 use pi_coding_agent::session_tree;
 use pi_coding_agent::settings::{
     self, SettingsManager, collect_diagnostics, deduplicate_diagnostics,
@@ -430,7 +431,6 @@ fn run() -> Result<ExitCode, String> {
     }
     let compaction_settings =
         settings.compaction_settings(Some((model.provider.as_str(), model.id.as_str())))?;
-    let compaction_enabled = compaction_settings.enabled;
     let compaction = CompactionOverrides {
         enabled: Some(compaction_settings.enabled),
         reserve_tokens: Some(compaction_settings.reserve_tokens),
@@ -457,13 +457,15 @@ fn run() -> Result<ExitCode, String> {
             providers.len()
         };
         let opener = interactive::run::Opener {
-            registry: Arc::clone(&registry),
-            model: model.clone(),
-            tools: tools.clone(),
-            extra_tools: mcp_tools,
-            sections: sections.clone(),
-            tool_settings: settings_for_tools.clone(),
-            compaction: compaction.clone(),
+            source: session_open::Source {
+                registry: Arc::clone(&registry),
+                model: model.clone(),
+                tools: tools.clone(),
+                extra_tools: mcp_tools.clone(),
+                sections: sections.clone(),
+                tool_settings: settings_for_tools.clone(),
+                compaction: compaction.clone(),
+            },
             sender: sender.clone(),
             reports: Arc::new(std::sync::Mutex::new(sender)),
         };
@@ -504,8 +506,13 @@ fn run() -> Result<ExitCode, String> {
     let harness = print::open_harness(
         storage,
         print::providers(Arc::clone(&registry), &model),
-        print::extension_with(&tools, sections, settings_for_tools, mcp_tools),
-        compaction,
+        print::extension_with(
+            &tools,
+            sections.clone(),
+            settings_for_tools.clone(),
+            mcp_tools.clone(),
+        ),
+        compaction.clone(),
     )
     .map_err(|e| e.to_string())?;
     let root = session_tree::active_conversation(&harness, &cancel).map_err(|e| e.to_string())?;
@@ -544,15 +551,21 @@ fn run() -> Result<ExitCode, String> {
             thinking: input.thinking,
             registry: Arc::clone(&registry),
             session_path: session_path.clone(),
+            session_dir: sessions.clone(),
             cwd: input.cwd.clone(),
-            auto_compaction: compaction_enabled,
-            steering_mode: settings.steering_mode().to_owned(),
-            follow_up_mode: settings.follow_up_mode().to_owned(),
+            settings: std::rc::Rc::new(std::cell::RefCell::new(settings)),
+            source: session_open::Source {
+                registry: Arc::clone(&registry),
+                model: input.model.clone(),
+                tools: tools.clone(),
+                extra_tools: mcp_tools.clone(),
+                sections: sections.clone(),
+                tool_settings: settings_for_tools.clone(),
+                compaction: compaction.clone(),
+            },
             commands,
         };
-        let outcome = modes::rpc::run(&harness, &root, options, &cancel);
-        print::close(&harness, &cancel).map_err(|e| e.to_string())?;
-        outcome?;
+        modes::rpc::run(harness, root, options, &cancel)?;
         return Ok(ExitCode::SUCCESS);
     }
     let outcome = print::run_turns(&harness, &root, &input, &cancel);

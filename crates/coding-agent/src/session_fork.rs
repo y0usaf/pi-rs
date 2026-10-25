@@ -87,6 +87,32 @@ pub fn branch(dir: &str, path: &[EntryRecord]) -> Result<String, String> {
     Ok(target)
 }
 
+/// Where `/fork`, `/clone` and RPC's `fork` write their copy: a new session file holding the
+/// active path up to `point`, beside the session it came from. With nothing to attach after, it
+/// is a new empty session.
+pub fn branch_from(
+    source: Option<&str>,
+    tree: &crate::session_tree::Tree,
+    point: Option<EntryId>,
+) -> Result<String, String> {
+    let source = source.ok_or_else(|| {
+        "This session has not been saved yet. Send a message before cloning or forking it."
+            .to_owned()
+    })?;
+    let dir = Path::new(source)
+        .parent()
+        .and_then(Path::to_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| ".".to_owned());
+    let path: Vec<EntryRecord> = point
+        .map(|at| tree.path_to(at))
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|id| tree.entry(id).cloned())
+        .collect();
+    branch(&dir, &path)
+}
+
 fn replay(path_out: &str, path: &[EntryRecord]) -> Result<(), String> {
     let storage = SqliteStorage::open(path_out, &Default::default()).map_err(|e| e.to_string())?;
     let session = open_session(Arc::new(storage), None, None);
