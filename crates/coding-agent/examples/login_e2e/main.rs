@@ -11,6 +11,7 @@ use pi_durable::ai::oauth::interaction::Prompt;
 use pi_durable::ai::types::Model;
 
 mod kimi;
+mod meta;
 mod openrouter;
 mod xai;
 
@@ -62,12 +63,13 @@ fn main() {
     codex_device(&agent_dir);
     cancel(&agent_dir);
     kimi::run(&agent_dir);
+    meta::run(&agent_dir);
     openrouter::run(&agent_dir);
     xai::run(&agent_dir);
 
     let _ = std::fs::remove_dir_all(&dir);
     println!(
-        "login ok: anthropic copy code, api key, logout, codex device code, cancel, kimi, openrouter, xai"
+        "login ok: anthropic copy code, api key, logout, codex device code, cancel, kimi, meta, openrouter, xai"
     );
 }
 

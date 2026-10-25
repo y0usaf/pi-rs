@@ -3,6 +3,7 @@ pub mod callback;
 pub mod device_code;
 pub mod interaction;
 pub mod kimi_coding;
+pub mod meta;
 pub mod openai_codex;
 pub mod openrouter;
 pub mod pkce;

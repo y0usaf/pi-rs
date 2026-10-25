@@ -13,7 +13,7 @@ use std::time::Duration;
 use pi_durable::ai::oauth::anthropic;
 use pi_durable::ai::oauth::interaction::{Event, Interaction, Prompt};
 use pi_durable::ai::oauth::openai_codex;
-use pi_durable::ai::oauth::{self, kimi_coding, openrouter, xai};
+use pi_durable::ai::oauth::{self, kimi_coding, meta, openrouter, xai};
 use pi_durable::cancel::CancelToken;
 use serde_json::json;
 
@@ -110,6 +110,13 @@ static PROVIDERS: &[Provider] = &[
         "Kimi For Coding",
         "Kimi API key",
         "Enter Kimi API key",
+    ),
+    oauth("meta", "Meta", "Meta (Muse subscription)", Some(true)),
+    api_key(
+        "meta",
+        "Meta",
+        "Meta Model API key",
+        "Enter Meta Model API key",
     ),
     oauth(
         "openai-codex",
@@ -300,6 +307,10 @@ fn authenticate(
         ("kimi-coding", AuthType::Oauth) => {
             let credentials =
                 kimi_coding::login(interaction, &kimi_coding::Endpoints::from_env(), cancel)?;
+            oauth::stored(provider, &credentials)
+        }
+        ("meta", AuthType::Oauth) => {
+            let credentials = meta::login(interaction, &meta::Endpoints::from_env(), cancel)?;
             oauth::stored(provider, &credentials)
         }
         ("openrouter", AuthType::Oauth) => {
