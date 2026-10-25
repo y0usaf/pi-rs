@@ -10,6 +10,7 @@ use pi_coding_agent::login::{self, AuthType, Login, LoginRequest, UiEvent};
 use pi_durable::ai::oauth::interaction::Prompt;
 use pi_durable::ai::types::Model;
 
+mod openrouter;
 mod xai;
 
 const ACCESS: &str = "sk-ant-oat01-login-access";
@@ -59,10 +60,13 @@ fn main() {
     logout(&agent_dir);
     codex_device(&agent_dir);
     cancel(&agent_dir);
+    openrouter::run(&agent_dir);
     xai::run(&agent_dir);
 
     let _ = std::fs::remove_dir_all(&dir);
-    println!("login ok: anthropic copy code, api key, logout, codex device code, cancel, xai");
+    println!(
+        "login ok: anthropic copy code, api key, logout, codex device code, cancel, openrouter, xai"
+    );
 }
 
 /// A stored credential's keys in the order auth.json holds them.

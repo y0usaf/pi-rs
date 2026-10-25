@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::http::{Request, send};
 use crate::oauth::anthropic::parse_authorization_input;
@@ -191,9 +191,13 @@ pub fn exchange_code(
 
 pub fn refresh(
     endpoints: &Endpoints,
-    refresh_token: &str,
+    stored: &Map<String, Value>,
     cancel: Option<&CancelToken>,
 ) -> Result<Credentials, String> {
+    let refresh_token = stored
+        .get("refresh")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let text = post_form(
         &endpoints.token_url,
         &[
@@ -268,7 +272,7 @@ pub fn login_browser_with_interaction(
         listener,
         "OpenAI",
         CALLBACK_PATH,
-        &state,
+        Some(state.as_str()),
         Prompt::ManualCode {
             message: MANUAL_PROMPT.to_owned(),
             placeholder: endpoints.redirect_uri.clone(),
@@ -305,7 +309,7 @@ pub fn login_browser(
     state: &str,
     cancel: &CancelToken,
 ) -> Result<Credentials, String> {
-    let code = listener.wait_code("OpenAI", CALLBACK_PATH, state, cancel)?;
+    let code = listener.wait_code("OpenAI", CALLBACK_PATH, Some(state), cancel)?;
     exchange_code(endpoints, &code, &pkce.verifier, Some(cancel))
 }
 

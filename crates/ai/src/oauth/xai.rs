@@ -255,9 +255,13 @@ pub fn login(
 /// Exchanges a stored refresh token for a new access token.
 pub fn refresh(
     endpoints: &Endpoints,
-    refresh_token: &str,
+    stored: &Map<String, Value>,
     cancel: Option<&CancelToken>,
 ) -> Result<Credentials, String> {
+    let refresh_token = stored
+        .get("refresh")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let response = post(
         &endpoints.token_url,
         &[

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::http::{Request, send};
 use crate::oauth::callback::{Code, Listener, wait_for_code};
@@ -204,9 +204,13 @@ pub fn exchange_code(
 /// Trades a refresh token for a new access token and refresh token.
 pub fn refresh(
     endpoints: &Endpoints,
-    refresh_token: &str,
+    stored: &Map<String, Value>,
     cancel: Option<&CancelToken>,
 ) -> Result<Credentials, String> {
+    let refresh_token = stored
+        .get("refresh")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let body = json!({
         "grant_type": "refresh_token",
         "client_id": endpoints.client_id,
@@ -287,7 +291,7 @@ pub fn login_browser(
         listener,
         PROVIDER,
         &endpoints.callback_path,
-        &pkce.verifier,
+        Some(&pkce.verifier),
         Prompt::ManualCode {
             message: MANUAL_PROMPT.to_owned(),
             placeholder: redirect_uri.clone(),

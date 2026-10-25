@@ -13,7 +13,7 @@ use std::time::Duration;
 use pi_durable::ai::oauth::anthropic;
 use pi_durable::ai::oauth::interaction::{Event, Interaction, Prompt};
 use pi_durable::ai::oauth::openai_codex;
-use pi_durable::ai::oauth::{self, xai};
+use pi_durable::ai::oauth::{self, openrouter, xai};
 use pi_durable::cancel::CancelToken;
 use serde_json::json;
 
@@ -104,6 +104,13 @@ static PROVIDERS: &[Provider] = &[
         "OpenAI Codex (legacy)",
         "OpenAI (ChatGPT Plus/Pro)",
         Some(true),
+    ),
+    oauth("openrouter", "OpenRouter", "OpenRouter OAuth", Some(false)),
+    api_key(
+        "openrouter",
+        "OpenRouter",
+        "OpenRouter API key",
+        "Enter OpenRouter API key",
     ),
     oauth("xai", "xAI", "xAI (Grok/X subscription)", Some(true)),
     api_key("xai", "xAI", "xAI API key", "Enter xAI API key"),
@@ -276,6 +283,11 @@ fn authenticate(
         ("openai-codex", AuthType::Oauth) => {
             let credentials =
                 openai_codex::login(interaction, &openai_codex::Endpoints::from_env(), cancel)?;
+            oauth::stored(provider, &credentials)
+        }
+        ("openrouter", AuthType::Oauth) => {
+            let credentials =
+                openrouter::login(interaction, &openrouter::Endpoints::from_env(), cancel)?;
             oauth::stored(provider, &credentials)
         }
         ("xai", AuthType::Oauth) => {

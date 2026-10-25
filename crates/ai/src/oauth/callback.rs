@@ -42,12 +42,13 @@ impl Listener {
     /// Serves until a request on `path` carries `state` and a `code`, and returns the code.
     /// A request with the wrong state or no code gets an error page and the wait goes on; a provider
     /// `error` ends the wait with its description. Cancelling ends the wait within about one poll.
+    /// A provider that sends no state passes `None`, and then the code alone completes the wait.
     /// The listener is closed when this returns.
     pub fn wait_code(
         self,
         provider: &str,
         path: &str,
-        state: &str,
+        state: Option<&str>,
         cancel: &CancelToken,
     ) -> Result<String, String> {
         loop {
@@ -84,7 +85,7 @@ pub fn wait_for_code(
     listener: Option<Listener>,
     provider: &str,
     path: &str,
-    state: &str,
+    state: Option<&str>,
     prompt: Prompt,
     cancel: &CancelToken,
 ) -> Result<Code, String> {
@@ -102,10 +103,10 @@ pub fn wait_for_code(
         stop.clone(),
         provider.to_owned(),
         path.to_owned(),
-        state.to_owned(),
+        state.map(str::to_owned),
     );
     let waiter = std::thread::spawn(move || {
-        let result = listener.wait_code(&provider, &path, &state, &stop_in_thread);
+        let result = listener.wait_code(&provider, &path, state.as_deref(), &stop_in_thread);
         *shared.lock().unwrap() = Some(result);
         wake.cancel();
     });
@@ -123,7 +124,12 @@ pub fn wait_for_code(
     }
 }
 
-fn serve(mut stream: TcpStream, provider: &str, path: &str, state: &str) -> io::Result<Step> {
+fn serve(
+    mut stream: TcpStream,
+    provider: &str,
+    path: &str,
+    state: Option<&str>,
+) -> io::Result<Step> {
     stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(READ_TIMEOUT))?;
     let head = read_head(&mut stream)?;
@@ -140,7 +146,7 @@ fn serve(mut stream: TcpStream, provider: &str, path: &str, state: &str) -> io::
         )?;
         return Ok(Step::Wait);
     }
-    if query_param(query, "state").as_deref() != Some(state) {
+    if state.is_some_and(|state| query_param(query, "state").as_deref() != Some(state)) {
         respond(
             &mut stream,
             "400 Bad Request",

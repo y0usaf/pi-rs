@@ -26,6 +26,12 @@ struct Expect {
     redirect_uri: String,
 }
 
+fn stored(refresh: &str) -> serde_json::Map<String, serde_json::Value> {
+    let mut map = serde_json::Map::new();
+    map.insert("refresh".to_owned(), refresh.into());
+    map
+}
+
 fn check<T: PartialEq + std::fmt::Debug>(label: &str, got: T, want: T) {
     assert!(got == want, "{label}: got {got:?}, want {want:?}");
 }
@@ -110,7 +116,12 @@ fn main() {
         (bad, good)
     });
     let code = listener
-        .wait_code(PROVIDER, "/callback", &pair.verifier, &CancelToken::new())
+        .wait_code(
+            PROVIDER,
+            "/callback",
+            Some(&pair.verifier),
+            &CancelToken::new(),
+        )
         .expect("callback yields the code");
     let (bad, good) = browser.join().expect("browser thread");
     check("bad state page", bad.as_str(), "HTTP/1.1 400 Bad Request");
@@ -139,7 +150,7 @@ fn main() {
         after + margin
     );
 
-    let second = refresh(&endpoints, &first.refresh, None).expect("refresh");
+    let second = refresh(&endpoints, &stored(&first.refresh), None).expect("refresh");
     check("refresh access", second.access.as_str(), ACCESS_2);
     check("refresh refresh", second.refresh.as_str(), REFRESH_2);
 
@@ -157,7 +168,7 @@ fn main() {
         "{wrong}"
     );
     assert!(wrong.contains("status=400"), "{wrong}");
-    let unknown = refresh(&endpoints, "sk-ant-ort01-never-issued", None)
+    let unknown = refresh(&endpoints, &stored("sk-ant-ort01-never-issued"), None)
         .expect_err("an unknown refresh token is refused");
     assert!(
         unknown.starts_with("Anthropic token refresh request failed."),
@@ -176,7 +187,7 @@ fn main() {
         );
     });
     let denied_error = error_listener
-        .wait_code(PROVIDER, "/callback", "x", &CancelToken::new())
+        .wait_code(PROVIDER, "/callback", Some("x"), &CancelToken::new())
         .expect_err("provider error ends the wait");
     denied.join().expect("denied thread");
     check(
@@ -194,7 +205,7 @@ fn main() {
     });
     let started = Instant::now();
     let cancelled = cancel_listener
-        .wait_code(PROVIDER, "/callback", "x", &cancel)
+        .wait_code(PROVIDER, "/callback", Some("x"), &cancel)
         .expect_err("cancel ends the wait");
     let elapsed = started.elapsed();
     check("cancel error", cancelled.as_str(), "Login cancelled");
