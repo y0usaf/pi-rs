@@ -6,7 +6,7 @@
 //! `apiKey`, else the provider's environment variables. models.json `headers` and `authHeader`
 //! apply on top, then the model's own headers.
 
-use crate::auth::{AuthStore, Credential};
+use crate::auth::{AuthStore, Credential, OAUTH_MINIMUM_VALIDITY_MS};
 use crate::config_value::{self, Env};
 use crate::model_config::{self, ModelConfig};
 use pi_durable::ai::registry::Auth;
@@ -109,6 +109,46 @@ impl ModelRegistry {
 
     pub fn models(&self) -> &[Model] {
         &self.models
+    }
+
+    /// `AuthStorage.read`: the provider's stored credential.
+    pub fn credential(&self, provider: &str) -> Option<Credential> {
+        self.auth.lock().unwrap().read(provider)
+    }
+
+    /// `AuthStorage.list`: the providers with a stored credential, and its type.
+    pub fn stored_credentials(&self) -> Vec<(String, &'static str)> {
+        let auth = self.auth.lock().unwrap();
+        auth.providers()
+            .into_iter()
+            .map(|provider| {
+                let kind = match auth.read(&provider) {
+                    Some(Credential::OAuth(_)) => "oauth",
+                    _ => "api_key",
+                };
+                (provider, kind)
+            })
+            .collect()
+    }
+
+    /// `getProvider`: whether the registry knows `provider`.
+    pub fn provider_exists(&self, provider: &str) -> bool {
+        self.builtin.contains(provider)
+            || self.config.providers.contains_key(provider)
+            || self.models.iter().any(|m| m.provider == provider)
+    }
+
+    /// `checkAuth`: the credential type requests to `provider` would use, if any.
+    pub fn check_auth(&self, provider: &str) -> Option<&'static str> {
+        match self.credential(provider) {
+            Some(Credential::OAuth(_)) if self.has_oauth(provider) => Some("oauth"),
+            _ if self.has_api_key_auth(provider) => self
+                .provider_auth(provider, OAUTH_MINIMUM_VALIDITY_MS)
+                .ok()
+                .and_then(|auth| credential_value(&auth))
+                .map(|_| "api_key"),
+            _ => None,
+        }
     }
 
     /// Re-reads `auth.json` once a login saved a credential.
@@ -238,7 +278,21 @@ impl ModelRegistry {
 
     /// The auth one request to `model` gets.
     pub fn resolve_auth(&self, model: &Model) -> Result<Auth, String> {
-        let provider = model.provider.as_str();
+        self.auth_for(&model.provider, Some(model), OAUTH_MINIMUM_VALIDITY_MS)
+    }
+
+    /// `getAuth(providerId)`: the auth a request to `provider` gets, an OAuth token that expires
+    /// within `min_validity_ms` refreshed first.
+    pub fn provider_auth(&self, provider: &str, min_validity_ms: i64) -> Result<Auth, String> {
+        self.auth_for(provider, None, min_validity_ms)
+    }
+
+    fn auth_for(
+        &self,
+        provider: &str,
+        model: Option<&Model>,
+        min_validity_ms: i64,
+    ) -> Result<Auth, String> {
         let mut auth = Auth::default();
         let mut env: Env = Env::new();
         let runtime = self.runtime_keys.lock().unwrap().get(provider).cloned();
@@ -248,7 +302,7 @@ impl ModelRegistry {
             let stored = self.auth.lock().unwrap().read(provider);
             match stored {
                 Some(Credential::OAuth(_)) if self.has_oauth(provider) => {
-                    let access = self.oauth_access(provider)?;
+                    let access = self.oauth_access(provider, min_validity_ms)?;
                     auth.api_key = Some(access);
                 }
                 Some(Credential::ApiKey {
@@ -312,19 +366,22 @@ impl ModelRegistry {
             auth.headers
                 .insert("Authorization".to_owned(), format!("Bearer {key}"));
         }
-        if let Some(headers) = config_value::resolve_headers(
-            model_config::model_headers(model, config).as_ref(),
-            &format!("model \"{}/{}\"", model.provider, model.id),
-            env_ref,
-        )? {
+        if let Some(model) = model
+            && let Some(headers) = config_value::resolve_headers(
+                model_config::model_headers(model, config).as_ref(),
+                &format!("model \"{}/{}\"", model.provider, model.id),
+                env_ref,
+            )?
+        {
             auth.headers.extend(headers);
         }
         auth.env = env;
         Ok(auth)
     }
 
-    /// The access token of the stored OAuth credential, refreshed first when it expires soon.
-    fn oauth_access(&self, provider: &str) -> Result<String, String> {
+    /// The access token of the stored OAuth credential, refreshed first when it expires within
+    /// `min_validity_ms`.
+    fn oauth_access(&self, provider: &str, min_validity_ms: i64) -> Result<String, String> {
         let refresh = |current: &Map<String, Value>| -> Result<Map<String, Value>, String> {
             if !OAUTH_REFRESH.contains(&provider) {
                 return Err(format!(
@@ -333,11 +390,30 @@ impl ModelRegistry {
             }
             refresh_oauth(provider, current)
         };
-        let fresh = self.auth.lock().unwrap().fresh_oauth(provider, &refresh)?;
+        let fresh =
+            self.auth
+                .lock()
+                .unwrap()
+                .fresh_oauth_with(provider, min_validity_ms, &refresh)?;
         fresh
             .and_then(|c| c.get("access").and_then(Value::as_str).map(str::to_owned))
             .ok_or_else(|| format!("No OAuth credential for {provider}"))
     }
+}
+
+/// `getAuthCredential`: the API key a request carries, else the bearer token of its
+/// Authorization header.
+pub fn credential_value(auth: &Auth) -> Option<String> {
+    if let Some(key) = auth.api_key.as_ref() {
+        return Some(key.clone());
+    }
+    let (_, value) = auth
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("authorization"))?;
+    let (scheme, rest) = value.split_once(char::is_whitespace)?;
+    let token = rest.trim_start_matches(char::is_whitespace);
+    (scheme.eq_ignore_ascii_case("bearer") && !token.is_empty()).then(|| token.to_owned())
 }
 
 fn refresh_oauth(

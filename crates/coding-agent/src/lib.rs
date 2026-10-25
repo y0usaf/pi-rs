@@ -2,6 +2,7 @@
 
 pub mod args;
 pub mod auth;
+pub mod auth_command;
 pub mod bash_exec;
 pub mod codemode;
 pub mod collate;

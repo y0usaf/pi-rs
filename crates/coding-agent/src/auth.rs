@@ -201,10 +201,20 @@ impl AuthStore {
         provider: &str,
         refresh: &RefreshFn<'_>,
     ) -> Result<Option<Map<String, Value>>, String> {
+        self.fresh_oauth_with(provider, OAUTH_MINIMUM_VALIDITY_MS, refresh)
+    }
+
+    /// `getAuth`'s `minOAuthValidityMs`: the refresh threshold is the caller's.
+    pub fn fresh_oauth_with(
+        &mut self,
+        provider: &str,
+        min_validity_ms: i64,
+        refresh: &RefreshFn<'_>,
+    ) -> Result<Option<Map<String, Value>>, String> {
         let expires_soon = |c: &Map<String, Value>| {
             c.get("expires")
                 .and_then(Value::as_f64)
-                .is_none_or(|e| (now_ms() + OAUTH_MINIMUM_VALIDITY_MS) as f64 >= e)
+                .is_none_or(|e| (now_ms() + min_validity_ms) as f64 >= e)
         };
         let Some(Credential::OAuth(stored)) = self.read(provider) else {
             return Ok(None);
@@ -219,8 +229,13 @@ impl AuthStore {
         let result = match current.get(provider).and_then(parse_credential) {
             Some(Credential::OAuth(c)) if !expires_soon(&c) => Some(c),
             Some(Credential::OAuth(c)) => {
-                let merged =
+                let next =
                     refresh(&c).map_err(|e| format!("OAuth refresh failed for {provider}: {e}"))?;
+                let mut merged = Map::new();
+                merged.insert("type".to_owned(), Value::String("oauth".to_owned()));
+                for (key, value) in next {
+                    merged.insert(key, value);
+                }
                 current.insert(provider.to_owned(), Value::Object(merged.clone()));
                 let text = serde_json::to_string_pretty(&Value::Object(current.clone()))
                     .map_err(|e| e.to_string())?;

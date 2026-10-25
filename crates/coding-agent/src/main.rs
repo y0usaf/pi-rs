@@ -188,6 +188,17 @@ fn report(diagnostics: &[Diagnostic]) {
 
 fn run() -> Result<ExitCode, String> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(outcome) = pi_coding_agent::auth_command::run(&argv, &config::agent_dir()) {
+        return match outcome {
+            pi_coding_agent::auth_command::Outcome::Text { stdout, code } => {
+                print!("{stdout}");
+                Ok(ExitCode::from(code))
+            }
+            pi_coding_agent::auth_command::Outcome::Error(message) => {
+                Err(format!("Error: {message}"))
+            }
+        };
+    }
     let parsed = args::parse(&argv);
     let mut had_error = false;
     for d in &parsed.diagnostics {
