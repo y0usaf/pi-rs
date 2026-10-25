@@ -13,7 +13,9 @@ use std::time::Duration;
 use pi_durable::ai::oauth::anthropic;
 use pi_durable::ai::oauth::interaction::{Event, Interaction, Prompt};
 use pi_durable::ai::oauth::openai_codex;
-use pi_durable::ai::oauth::{self, github_copilot, kimi_coding, meta, openrouter, xai};
+use pi_durable::ai::oauth::{
+    self, github_copilot, kimi_coding, meta, openai_chatgpt, openrouter, xai,
+};
 use pi_durable::cancel::CancelToken;
 use serde_json::json;
 
@@ -130,6 +132,13 @@ static PROVIDERS: &[Provider] = &[
         "Meta Model API key",
         "Enter Meta Model API key",
     ),
+    oauth(
+        "openai",
+        "OpenAI",
+        "OpenAI (ChatGPT subscription)",
+        Some(true),
+    ),
+    api_key("openai", "OpenAI", "OpenAI API key", "Enter OpenAI API key"),
     oauth(
         "openai-codex",
         "OpenAI Codex (legacy)",
@@ -328,6 +337,18 @@ fn authenticate(
         }
         ("meta", AuthType::Oauth) => {
             let credentials = meta::login(interaction, &meta::Endpoints::from_env(), cancel)?;
+            oauth::stored(provider, &credentials)
+        }
+        ("openai", AuthType::Oauth) => {
+            let mut settings =
+                crate::settings::SettingsManager::create(agent_dir, agent_dir, false);
+            let device_id = settings.get_or_create_device_id();
+            let credentials = openai_chatgpt::login(
+                interaction,
+                &openai_chatgpt::Endpoints::from_env(),
+                cancel,
+                Some(&device_id),
+            )?;
             oauth::stored(provider, &credentials)
         }
         ("openrouter", AuthType::Oauth) => {

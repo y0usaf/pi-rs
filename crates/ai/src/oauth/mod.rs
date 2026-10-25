@@ -5,6 +5,7 @@ pub mod github_copilot;
 pub mod interaction;
 pub mod kimi_coding;
 pub mod meta;
+pub mod openai_chatgpt;
 pub mod openai_codex;
 pub mod openrouter;
 pub mod pkce;

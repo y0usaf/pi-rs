@@ -28,11 +28,12 @@ const OAUTH_PROVIDERS: [&str; 9] = [
     "radius",
 ];
 /// Of those, the ones whose token refresh this port has (pi-ai's Rust OAuth flows).
-const OAUTH_REFRESH: [&str; 6] = [
+const OAUTH_REFRESH: [&str; 7] = [
     "anthropic",
     "github-copilot",
     "kimi-coding",
     "meta",
+    "openai",
     "openai-codex",
     "xai",
 ];
@@ -343,7 +344,9 @@ fn refresh_oauth(
     provider: &str,
     stored: &Map<String, Value>,
 ) -> Result<Map<String, Value>, String> {
-    use pi_durable::ai::oauth::{anthropic, github_copilot, kimi_coding, meta, openai_codex, xai};
+    use pi_durable::ai::oauth::{
+        anthropic, github_copilot, kimi_coding, meta, openai_chatgpt, openai_codex, xai,
+    };
     let credentials = match provider {
         "anthropic" => anthropic::refresh(&anthropic::Endpoints::from_env(), stored, None)?,
         "github-copilot" => {
@@ -351,8 +354,16 @@ fn refresh_oauth(
         }
         "kimi-coding" => kimi_coding::refresh(&kimi_coding::Endpoints::from_env(), stored, None)?,
         "meta" => meta::refresh(&meta::Endpoints::from_env(), stored, None)?,
+        "openai" => openai_chatgpt::refresh(&openai_chatgpt::Endpoints::from_env(), stored, None)?,
+        "openai-codex" => {
+            openai_codex::refresh(&openai_codex::Endpoints::from_env(), stored, None)?
+        }
         "xai" => xai::refresh(&xai::Endpoints::from_env(), stored, None)?,
-        _ => openai_codex::refresh(&openai_codex::Endpoints::from_env(), stored, None)?,
+        _ => {
+            return Err(format!(
+                "refreshing {provider} OAuth tokens is not supported"
+            ));
+        }
     };
     pi_durable::ai::oauth::stored(provider, &credentials)
         .as_object()
