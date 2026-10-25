@@ -10,12 +10,14 @@ use std::time::Duration;
 use pi_durable::ai::types::{
     AssistantMessage, Message, TextContent, TextType, UserBlock, UserContent,
 };
+use pi_durable::cancel::CancelToken;
 use pi_durable::errors::Error;
 use pi_durable::harness::events::AgentEvent;
 use pi_durable::harness::generation::{GENERATION_HOOK, GenerationHooks};
-use pi_durable::harness::types::{HookApi, HookRegistration};
+use pi_durable::harness::harness::{Conversation, Harness};
+use pi_durable::harness::types::{HookApi, HookRegistration, ToolRegistration};
 use pi_extensions::{Call, Load};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::config::CONFIG_DIR_NAME;
 use crate::paths::join;
@@ -225,6 +227,7 @@ struct Inner {
     jobs: mpsc::Sender<Job>,
     calls: Mutex<Vec<Call>>,
     state: Mutex<pi_extensions::Ctx>,
+    updates: Mutex<Map<String, Value>>,
     dead: AtomicBool,
     settled: AtomicBool,
     started: AtomicBool,
@@ -272,7 +275,9 @@ impl Live {
                 cwd: cwd.to_owned(),
                 streaming: false,
                 pending: 0,
+                updates: Map::new(),
             }),
+            updates: Mutex::new(Map::new()),
             dead: AtomicBool::new(false),
             settled: AtomicBool::new(false),
             started: AtomicBool::new(false),
@@ -290,6 +295,102 @@ impl Live {
         state.cwd = cwd.to_owned();
         state.streaming = streaming;
         state.pending = pending;
+    }
+
+    pub fn set_session(
+        &self,
+        harness: &Harness,
+        root: &Conversation,
+        path: Option<&str>,
+        cwd: &str,
+        cancel: &CancelToken,
+    ) {
+        let session_id = crate::sessions::export::session_id(path);
+        let Ok(mut entries) = crate::sessions::export::lines(root, cancel, &session_id, cwd) else {
+            return;
+        };
+        let header = entries.remove(0);
+        self.update(
+            "session",
+            json!({
+                "header": header,
+                "entries": entries,
+                "file": path,
+                "dir": path.map(crate::paths::dirname),
+                "name": crate::session_info::name(harness, cancel),
+            }),
+        );
+    }
+
+    pub fn set_tools(&self, builtin: &[ToolRegistration], mcp: &[ToolRegistration]) {
+        let info =
+            |name: &str, description: &str, parameters: &Value, exposure: Value, source: &str| {
+                json!({
+                    "name": name,
+                    "description": description,
+                    "parameters": parameters,
+                    "exposure": exposure,
+                    "sourceInfo": {
+                        "path": format!("builtin:{source}"),
+                        "source": "builtin",
+                        "scope": "temporary",
+                        "origin": "top-level",
+                    },
+                })
+            };
+        let registered = builtin
+            .iter()
+            .map(|r| (r, r.tool.name.as_str()))
+            .chain(mcp.iter().map(|r| (r, "mcp")));
+        let mut active = Vec::new();
+        let mut all = Vec::new();
+        for (registration, source) in registered {
+            let tool = &registration.tool;
+            if registration.exposure.declarable() {
+                active.push(tool.name.clone());
+            }
+            let exposure = serde_json::to_value(registration.exposure).unwrap_or(Value::Null);
+            all.push(info(
+                &tool.name,
+                &tool.description,
+                &tool.parameters,
+                exposure,
+                source,
+            ));
+        }
+        let known = |name: &str| builtin.iter().any(|r| r.tool.name == name);
+        for spec in crate::tools::ALL_TOOL_NAMES
+            .iter()
+            .filter(|name| !known(name))
+            .filter_map(|name| crate::tools::spec(name))
+        {
+            all.push(info(
+                spec.name,
+                &spec.description,
+                &spec.parameters,
+                json!("direct"),
+                spec.name,
+            ));
+        }
+        if !known(crate::codemode::TOOL_NAME) {
+            let tool = crate::codemode::registration(crate::codemode::description()).tool;
+            all.push(info(
+                &tool.name,
+                &tool.description,
+                &tool.parameters,
+                json!("direct"),
+                &tool.name,
+            ));
+        }
+        self.update("tools", json!({ "active": active, "all": all }));
+    }
+
+    fn update(&self, key: &str, value: Value) {
+        self.0
+            .updates
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key.to_owned(), value);
     }
 
     /// Loads what the settings and the flags named, in the child that goes on to serve events.
@@ -462,11 +563,12 @@ impl Live {
 
 fn serve(mut host: pi_extensions::Host, inner: &Inner, queue: mpsc::Receiver<Job>) {
     while let Ok(Job { op, reply }) = queue.recv() {
-        let ctx = inner
+        let mut ctx = inner
             .state
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
+        ctx.updates = std::mem::take(&mut *inner.updates.lock().unwrap_or_else(|e| e.into_inner()));
         let answer = match &op {
             Op::Load {
                 agent_dir,

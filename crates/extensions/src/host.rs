@@ -7,7 +7,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use serde::Deserialize;
 
@@ -60,6 +60,7 @@ pub struct Ctx {
     pub cwd: String,
     pub streaming: bool,
     pub pending: u64,
+    pub updates: Map<String, Value>,
 }
 
 /// One event to hand the extensions: its name, its payload and the run it belongs to.
@@ -162,6 +163,7 @@ impl Host {
             "mode": ctx.mode,
             "hasUI": ctx.has_ui,
             "trusted": true,
+            "updates": ctx.updates,
         });
         let reply = self.answer(request, LOAD_BUDGET)?;
         serde_json::from_value(reply.value).map_err(|e| format!("the extension host answered {e}"))
@@ -178,6 +180,7 @@ impl Host {
             "cwd": event.ctx.cwd,
             "streaming": event.ctx.streaming,
             "pending": event.ctx.pending,
+            "updates": event.ctx.updates,
         });
         self.answer(request, EVENT_BUDGET)
     }
@@ -193,6 +196,7 @@ impl Host {
             "cwd": ctx.cwd,
             "streaming": ctx.streaming,
             "pending": ctx.pending,
+            "updates": ctx.updates,
         });
         self.answer(request, EVENT_BUDGET)
     }

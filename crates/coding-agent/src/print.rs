@@ -142,13 +142,18 @@ pub fn extension_with(
             }
             _ => tools::spec(name).map(|spec| registration(spec, Arc::clone(&settings))),
         })
-        .chain(extra)
         .collect();
+    let builtin = registrations.len();
+    registrations.extend(extra);
     crate::codemode::set_inline_budget(settings.codemode_inline_budget);
     crate::codemode::apply_loadout(
         &mut registrations,
         crate::codemode::Mode::parse(&settings.codemode_mode),
     );
+    if let Some(live) = crate::extensions::live() {
+        let (builtin, mcp) = registrations.split_at(builtin);
+        live.set_tools(builtin, mcp);
+    }
     Extension {
         name: "pi-coding-agent".to_owned(),
         tools: registrations,
@@ -184,6 +189,7 @@ pub struct RunInput {
     pub initial: Option<(String, Vec<UserBlock>)>,
     /// The other message arguments, each sent after the previous one finishes.
     pub messages: Vec<String>,
+    pub session_file: Option<String>,
 }
 
 /// The messages of the conversation the model still sees, oldest first.
@@ -267,7 +273,17 @@ pub fn run_turns(
         ))])
     }));
     let live = crate::extensions::live();
+    let refresh = |live: &crate::extensions::Live| {
+        live.set_session(
+            harness,
+            conversation,
+            input.session_file.as_deref(),
+            &input.cwd,
+            cancel,
+        )
+    };
     if let Some(live) = live {
+        refresh(live);
         live.event("session_start", serde_json::json!({}));
     }
     let mut queued: VecDeque<UserContent> = prompts.into();
@@ -303,6 +319,7 @@ pub fn run_turns(
         let Some(live) = live else {
             continue;
         };
+        refresh(live);
         live.event("agent_end", serde_json::json!({ "messages": [] }));
         for call in live.take_calls() {
             match call {

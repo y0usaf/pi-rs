@@ -34,6 +34,20 @@ pub fn jsonl(
     session_id: &str,
     cwd: &str,
 ) -> Result<String, String> {
+    let mut out = String::new();
+    for line in &lines(root, cancel, session_id, cwd)? {
+        out.push_str(&serde_json::to_string(line).map_err(|e| e.to_string())?);
+        out.push('\n');
+    }
+    Ok(out)
+}
+
+pub fn lines(
+    root: &Conversation,
+    cancel: &CancelToken,
+    session_id: &str,
+    cwd: &str,
+) -> Result<Vec<Value>, String> {
     let agent = root.agent(cancel).map_err(|e| e.to_string())?;
     let view = root.context(None, cancel).map_err(|e| e.to_string())?;
     let timestamp = iso8601(now_ms());
@@ -86,12 +100,7 @@ pub fn jsonl(
             push(entry, &mut lines);
         }
     }
-    let mut out = String::new();
-    for line in &lines {
-        out.push_str(&serde_json::to_string(line).map_err(|e| e.to_string())?);
-        out.push('\n');
-    }
-    Ok(out)
+    Ok(lines)
 }
 
 fn header(session_id: &str, cwd: &str, timestamp: &str) -> Value {

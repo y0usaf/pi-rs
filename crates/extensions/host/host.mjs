@@ -26,8 +26,6 @@ const UNSUPPORTED = [
 	"getSessionName",
 	"setLabel",
 	"exec",
-	"getActiveTools",
-	"getAllTools",
 	"getSettings",
 	"setActiveTools",
 	"getCommands",
@@ -153,6 +151,33 @@ function create(extensionPath) {
 const calls = [];
 const errors = [];
 
+function sessionManagerOf(session) {
+	const entries = session?.entries ?? [];
+	const entry = (id) => entries.find((candidate) => candidate.id === id);
+	return {
+		getCwd: () => session?.header?.cwd ?? runtime.cwd,
+		getSessionDir: () => session?.dir ?? "",
+		getSessionId: () => session?.header?.id ?? "",
+		getSessionFile: () => session?.file ?? undefined,
+		getLeafId: () => entries.at(-1)?.id ?? null,
+		getLeafEntry: () => entries.at(-1),
+		getEntry: entry,
+		getLabel: () => undefined,
+		getBranch(fromId) {
+			const end = fromId === undefined ? entries.length : entries.findIndex((candidate) => candidate.id === fromId) + 1;
+			return entries.slice(0, end);
+		},
+		getHeader: () => session?.header ?? null,
+		getEntries: () => [...entries],
+		getTree() {
+			let node;
+			for (const leaf of [...entries].reverse()) node = { entry: leaf, children: node ? [node] : [] };
+			return node ? [node] : [];
+		},
+		getSessionName: () => session?.name ?? undefined,
+	};
+}
+
 function contextOf() {
 	const call = (value) => calls.push(value);
 	const signal = new AbortController();
@@ -194,7 +219,7 @@ function contextOf() {
 		mode: runtime.mode,
 		hasUI: runtime.hasUI,
 		cwd: runtime.cwd,
-		sessionManager: {},
+		sessionManager: sessionManagerOf(runtime.session),
 		modelRegistry: {},
 		model: undefined,
 		scopedModels: [],
@@ -244,6 +269,8 @@ function apiFor(extension, runtime) {
 			});
 			return Promise.resolve();
 		},
+		getActiveTools: () => [...runtime.tools.active],
+		getAllTools: () => runtime.tools.all.map((tool) => ({ ...tool })),
 		events: {
 			on() {
 				return () => {};
@@ -266,9 +293,19 @@ function summary(extension) {
 }
 
 const loaded = new Map();
-let runtime = { mode: "print", hasUI: false, cwd: process.cwd(), trusted: false, streaming: false, pending: 0 };
+let runtime = {
+	mode: "print",
+	hasUI: false,
+	cwd: process.cwd(),
+	trusted: false,
+	streaming: false,
+	pending: 0,
+	session: undefined,
+	tools: { active: [], all: [] },
+};
 
 async function load(request) {
+	Object.assign(runtime, request.updates);
 	const loadErrors = [];
 	globalThis.__piExtensionAgentDir = request.agentDir;
 	if (typeof request.mode === "string") runtime.mode = request.mode;
@@ -383,6 +420,7 @@ async function emitEvent(request) {
 	const name = request.name;
 	runtime.streaming = request.streaming === true;
 	runtime.pending = request.pending ?? 0;
+	Object.assign(runtime, request.updates);
 	if (name === "message_end") return await emitMessageEnd(request);
 	if (name === "input") return await emitInput(request);
 	for (const { extension, handler } of handlersOf(name)) {
@@ -398,6 +436,7 @@ async function emitEvent(request) {
 
 async function runCommand(request) {
 	const name = request.name;
+	Object.assign(runtime, request.updates);
 	for (const extension of loaded.values()) {
 		const handler = extension.commandHandlers.get(name);
 		if (!handler) continue;

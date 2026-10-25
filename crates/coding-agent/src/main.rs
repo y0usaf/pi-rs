@@ -568,6 +568,7 @@ fn run() -> Result<ExitCode, String> {
         templates: templates.clone(),
         initial,
         messages,
+        session_file: session_path.clone(),
     };
     if matches!(mode, Some(Mode::Json)) {
         let outcome = modes::json_mode::run(&harness, &root, &input, &cancel);

@@ -856,6 +856,13 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     pending.extend(messages.iter().map(|m| text_input(m, &[])));
     let live = crate::extensions::live();
     if let Some(live) = live {
+        live.set_session(
+            &open.harness,
+            &open.root,
+            open.path.as_deref(),
+            &cwd,
+            &cancel,
+        );
         live.event("session_start", json!({}));
     }
     let mut interrupted = false;
@@ -899,6 +906,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             match message {
                 Incoming::Events(events) => {
                     let mut queue_changed = false;
+                    let mut entries_changed = false;
                     for event in &events {
                         if let Some(live) = live {
                             live.observe(event);
@@ -906,9 +914,24 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         if matches!(event, AgentEvent::InboxUpdate { .. }) {
                             queue_changed = true;
                         }
+                        if matches!(
+                            event,
+                            AgentEvent::Snapshot(_) | AgentEvent::EntryAppended { .. }
+                        ) {
+                            entries_changed = true;
+                        }
                         if chat.apply(event) {
                             dirty.set(true);
                         }
+                    }
+                    if entries_changed && let Some(live) = live {
+                        live.set_session(
+                            &open.harness,
+                            &open.root,
+                            open.path.as_deref(),
+                            &cwd,
+                            &cancel,
+                        );
                     }
                     if queue_changed && refresh_pending(&pending_area, &open.root, &cancel) {
                         dirty.set(true);

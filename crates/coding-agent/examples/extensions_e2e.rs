@@ -337,17 +337,33 @@ fn main() -> Result<()> {
 }
 
 const EVENTS: &str = r#"import fs from "node:fs";
+import path from "node:path";
 
 const log = process.env.E2E_LOG;
 const note = (line: string): void => {
 	fs.appendFileSync(log, line + "\n");
 };
+const text = (message: any): string =>
+	(message.content ?? []).map((block: any) => block.text ?? "").join("");
 
 export default function (pi: any): void {
-	pi.on("session_start", () => note("session_start"));
+	pi.on("session_start", (_event: any, ctx: any) => {
+		note("session_start");
+		note("active:" + pi.getActiveTools().join(","));
+		note("all-has-ls:" + pi.getAllTools().some((tool: any) => tool.name === "ls"));
+		note("dirname:" + (__dirname === path.dirname(__filename)) + ":" + __filename.endsWith("ext.ts"));
+		note("require:" + (require("node:path") === path));
+		note("file:" + ctx.sessionManager.getSessionFile());
+	});
 	pi.on("session_shutdown", (event: any) => note("session_shutdown:" + event.reason));
 	pi.on("agent_start", () => note("agent_start"));
-	pi.on("agent_end", () => note("agent_end"));
+	pi.on("agent_end", (_event: any, ctx: any) => {
+		note("agent_end");
+		const messages = ctx.sessionManager.getBranch().filter((entry: any) => entry.type === "message");
+		note("branch:" + messages.map((entry: any) => entry.message.role).join(","));
+		note("stored:" + text(messages.at(-1).message));
+		note("entries:" + (ctx.sessionManager.getEntries().length === ctx.sessionManager.getBranch().length));
+	});
 	pi.on("agent_settled", (event: any) => note("agent_settled:" + event.aborted));
 	pi.on("message_start", (event: any) => note("message_start:" + event.message.role));
 	pi.on("message_update", (event: any) => note("message_update:" + event.message.role));
@@ -501,6 +517,15 @@ fn events(bin: &Path, scratch: &Scratch) -> Result<()> {
         "input:again",
         "cmd:one two",
         "session_shutdown:quit",
+        "active:read,bash,edit,write",
+        "all-has-ls:true",
+        "dirname:true:true",
+        "require:true",
+        "file:undefined",
+        "branch:system,user,assistant",
+        "branch:system,user,assistant,user,assistant",
+        "stored:REPLACED BY EXTENSION",
+        "entries:true",
     ] {
         if !seen.lines().any(|line| line == wanted) {
             return fail(format!(
