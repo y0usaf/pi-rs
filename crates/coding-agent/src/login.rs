@@ -13,7 +13,7 @@ use std::time::Duration;
 use pi_durable::ai::oauth::anthropic;
 use pi_durable::ai::oauth::interaction::{Event, Interaction, Prompt};
 use pi_durable::ai::oauth::openai_codex;
-use pi_durable::ai::oauth::{self, kimi_coding, meta, openrouter, xai};
+use pi_durable::ai::oauth::{self, github_copilot, kimi_coding, meta, openrouter, xai};
 use pi_durable::cancel::CancelToken;
 use serde_json::json;
 
@@ -98,6 +98,18 @@ static PROVIDERS: &[Provider] = &[
         "Anthropic",
         "Anthropic API key",
         "Enter Anthropic API key",
+    ),
+    oauth(
+        "github-copilot",
+        "GitHub Copilot",
+        "GitHub Copilot",
+        Some(true),
+    ),
+    api_key(
+        "github-copilot",
+        "GitHub Copilot",
+        "GitHub Copilot token",
+        "Enter GitHub Copilot token",
     ),
     oauth(
         "kimi-coding",
@@ -302,6 +314,11 @@ fn authenticate(
         ("openai-codex", AuthType::Oauth) => {
             let credentials =
                 openai_codex::login(interaction, &openai_codex::Endpoints::from_env(), cancel)?;
+            oauth::stored(provider, &credentials)
+        }
+        ("github-copilot", AuthType::Oauth) => {
+            let credentials =
+                github_copilot::login(interaction, &github_copilot::Endpoints::from_env(), cancel)?;
             oauth::stored(provider, &credentials)
         }
         ("kimi-coding", AuthType::Oauth) => {

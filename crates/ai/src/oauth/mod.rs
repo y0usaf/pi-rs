@@ -1,6 +1,7 @@
 pub mod anthropic;
 pub mod callback;
 pub mod device_code;
+pub mod github_copilot;
 pub mod interaction;
 pub mod kimi_coding;
 pub mod meta;

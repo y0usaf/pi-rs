@@ -28,7 +28,14 @@ const OAUTH_PROVIDERS: [&str; 9] = [
     "radius",
 ];
 /// Of those, the ones whose token refresh this port has (pi-ai's Rust OAuth flows).
-const OAUTH_REFRESH: [&str; 5] = ["anthropic", "kimi-coding", "meta", "openai-codex", "xai"];
+const OAUTH_REFRESH: [&str; 6] = [
+    "anthropic",
+    "github-copilot",
+    "kimi-coding",
+    "meta",
+    "openai-codex",
+    "xai",
+];
 
 pub struct ModelRegistry {
     pub config: ModelConfig,
@@ -336,9 +343,12 @@ fn refresh_oauth(
     provider: &str,
     stored: &Map<String, Value>,
 ) -> Result<Map<String, Value>, String> {
-    use pi_durable::ai::oauth::{anthropic, kimi_coding, meta, openai_codex, xai};
+    use pi_durable::ai::oauth::{anthropic, github_copilot, kimi_coding, meta, openai_codex, xai};
     let credentials = match provider {
         "anthropic" => anthropic::refresh(&anthropic::Endpoints::from_env(), stored, None)?,
+        "github-copilot" => {
+            github_copilot::refresh(&github_copilot::Endpoints::from_env(), stored, None)?
+        }
         "kimi-coding" => kimi_coding::refresh(&kimi_coding::Endpoints::from_env(), stored, None)?,
         "meta" => meta::refresh(&meta::Endpoints::from_env(), stored, None)?,
         "xai" => xai::refresh(&xai::Endpoints::from_env(), stored, None)?,
