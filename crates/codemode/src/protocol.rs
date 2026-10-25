@@ -18,6 +18,35 @@ pub struct VmStartData {
     pub store: std::collections::BTreeMap<String, String>,
 }
 
+/// `toCodemodeIdentifier`: characters that are not valid in a JavaScript identifier become `_`.
+pub fn to_identifier(name: &str) -> String {
+    let mut identifier = String::new();
+    for character in name.chars() {
+        let valid = if identifier.is_empty() {
+            character.is_ascii_alphabetic() || character == '_' || character == '$'
+        } else {
+            character.is_ascii_alphanumeric() || character == '_' || character == '$'
+        };
+        identifier.push(if valid { character } else { '_' });
+    }
+    if identifier.is_empty() {
+        "_".to_owned()
+    } else {
+        identifier
+    }
+}
+
+impl DeclaredTool {
+    /// A tool whose script identifier is `to_identifier(name)`.
+    pub fn new(name: &str, description: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            js_name: to_identifier(name),
+            description: description.to_owned(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeclaredTool {
     pub name: String,
@@ -98,6 +127,14 @@ pub enum HostToWorker {
         #[serde(skip_serializing_if = "Option::is_none")]
         properties: Option<String>,
     },
+}
+
+impl VmStartData {
+    pub fn to_line(&self) -> String {
+        let mut line = serde_json::to_string(self).unwrap_or_default();
+        line.push('\n');
+        line
+    }
 }
 
 impl WorkerToHost {

@@ -10,9 +10,9 @@ use std::rc::Rc;
 
 use rquickjs::context::EvalOptions;
 use rquickjs::function::MutFn;
-use rquickjs::{Context, Ctx, Exception, Function, Object, Runtime, Value};
+use rquickjs::{Context, Ctx, Exception, Function, Object, Runtime, String as JsString, Value};
 
-use crate::protocol::{CallTarget, OutputItem, VmStartData, WorkerToHost};
+use crate::protocol::{CallTarget, HostToWorker, OutputItem, VmStartData, WorkerToHost};
 
 const PRELUDE: &str = include_str!("prelude.js");
 
@@ -39,7 +39,7 @@ fn child() -> Result<(), String> {
     }
     let context = Context::full(&runtime).map_err(|e| describe(&e))?;
     let mut out = std::io::stdout().lock();
-    context.with(|ctx| run_script(&ctx, &start, &mut out))
+    context.with(|ctx| run_script(&ctx, &start, &mut input, &mut out))
 }
 
 fn options(filename: &str) -> EvalOptions {
@@ -49,7 +49,12 @@ fn options(filename: &str) -> EvalOptions {
     options
 }
 
-fn run_script(ctx: &Ctx<'_>, start: &VmStartData, out: &mut impl Write) -> Result<(), String> {
+fn run_script(
+    ctx: &Ctx<'_>,
+    start: &VmStartData,
+    input: &mut impl BufRead,
+    out: &mut impl Write,
+) -> Result<(), String> {
     let queue: Rc<RefCell<Vec<WorkerToHost>>> = Rc::new(RefCell::new(Vec::new()));
     let bridge = {
         let queue = Rc::clone(&queue);
@@ -74,13 +79,10 @@ fn run_script(ctx: &Ctx<'_>, start: &VmStartData, out: &mut impl Write) -> Resul
                                     data: b.unwrap_or_default(),
                                     mime_type: c.unwrap_or_default(),
                                 },
-                                Some(kind) => {
-                                    let console = kind == "console";
-                                    OutputItem::Text {
-                                        text: b.unwrap_or_default(),
-                                        console,
-                                    }
-                                }
+                                Some(kind) => OutputItem::Text {
+                                    text: b.unwrap_or_default(),
+                                    console: kind == "console",
+                                },
                                 None => return,
                             },
                         },
@@ -106,8 +108,17 @@ fn run_script(ctx: &Ctx<'_>, start: &VmStartData, out: &mut impl Write) -> Resul
     let factory: Function = ctx
         .eval_with_options(PRELUDE, options("codemode-prelude.js"))
         .map_err(|e| describe(&e))?;
-    let api: Object = factory.call((bridge,)).map_err(|e| describe(&e))?;
+    let api: Object = factory
+        .call((
+            bridge,
+            serde_json::to_string(&start.tools).map_err(|e| e.to_string())?,
+            serde_json::to_string(&start.globals).map_err(|e| e.to_string())?,
+            serde_json::to_string(&start.store).map_err(|e| e.to_string())?,
+        ))
+        .map_err(|e| describe(&e))?;
 
+    // The prefix shares the first line with the script so reported line numbers
+    // match the script as written.
     let source = format!("(async (tools, console) => {{{}\n}})", start.code);
     let script: Function = match ctx.eval_with_options(source, options("codemode.js")) {
         Ok(script) => script,
@@ -126,13 +137,76 @@ fn run_script(ctx: &Ctx<'_>, start: &VmStartData, out: &mut impl Write) -> Resul
     };
     let run: Function = api.get("run").map_err(|e| describe(&e))?;
     run.call::<_, ()>((script,)).map_err(|e| describe(&e))?;
-    drain(ctx);
-    let queued: Vec<WorkerToHost> = queue.borrow_mut().drain(..).collect();
-    write_messages(out, queued)
+
+    loop {
+        drain(ctx, &api)?;
+        let batch: Vec<WorkerToHost> = queue.borrow_mut().drain(..).collect();
+        let mut awaiting = Vec::new();
+        let mut finished = false;
+        for message in &batch {
+            out.write_all(message.to_line().as_bytes())
+                .map_err(|e| e.to_string())?;
+            out.flush().map_err(|e| e.to_string())?;
+            match message {
+                WorkerToHost::Call { id, .. } => awaiting.push(*id),
+                WorkerToHost::Done { .. } | WorkerToHost::Crash { .. } => finished = true,
+                WorkerToHost::Output { .. } => {}
+            }
+        }
+        if finished {
+            return Ok(());
+        }
+        for id in awaiting {
+            let mut line = String::new();
+            if input.read_line(&mut line).map_err(|e| e.to_string())? == 0 {
+                return Ok(());
+            }
+            let HostToWorker::Result {
+                id: answered,
+                ok,
+                payload,
+                properties,
+            } = serde_json::from_str(&line).map_err(|e| format!("bad result message: {e}"))?;
+            if answered != id {
+                return Err(format!("result for call {answered}, expected {id}"));
+            }
+            settle(ctx, &api, answered, ok, payload, properties)?;
+        }
+    }
 }
 
-fn drain(ctx: &Ctx<'_>) {
+fn drain(ctx: &Ctx<'_>, api: &Object<'_>) -> Result<(), String> {
     while ctx.execute_pending_job() {}
+    let stalled: Function = api.get("stalled").map_err(|e| describe(&e))?;
+    stalled.call::<_, ()>(()).map_err(|e| describe(&e))
+}
+
+fn settle<'js>(
+    ctx: &Ctx<'js>,
+    api: &Object<'js>,
+    id: u64,
+    ok: bool,
+    payload: Option<String>,
+    properties: Option<String>,
+) -> Result<(), String> {
+    let settle: Function = api.get("settle").map_err(|e| describe(&e))?;
+    settle
+        .call::<_, ()>((
+            Value::new_number(ctx.clone(), id as f64),
+            Value::new_bool(ctx.clone(), ok),
+            string(ctx, payload)?,
+            string(ctx, properties)?,
+        ))
+        .map_err(|e| describe(&e))
+}
+
+fn string<'js>(ctx: &Ctx<'js>, value: Option<String>) -> Result<Value<'js>, String> {
+    match value {
+        Some(text) => Ok(JsString::from_str(ctx.clone(), &text)
+            .map_err(|e| describe(&e))?
+            .into_value()),
+        None => Ok(Value::new_undefined(ctx.clone())),
+    }
 }
 
 fn write_messages(out: &mut impl Write, messages: Vec<WorkerToHost>) -> Result<(), String> {
@@ -143,7 +217,7 @@ fn write_messages(out: &mut impl Write, messages: Vec<WorkerToHost>) -> Result<(
     out.flush().map_err(|e| e.to_string())
 }
 
-/// A JSON object whose own properties the script's `Error` gets, as the host's runtime does.
+/// A JSON object whose own properties the script's `Error` gets, as upstream's host sends it.
 fn exception_json(ctx: &Ctx<'_>, error: &rquickjs::Error) -> String {
     match error {
         rquickjs::Error::Exception => {

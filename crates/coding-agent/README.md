@@ -86,6 +86,7 @@ Each handler has ten seconds before the child is taken for wedged and the event 
 ## Where it differs
 
 - HTTP errors from OpenAI-compatible servers print the whole JSON body (a pi-ai difference, listed in `crates/ai/parity/known.json`), and openai-completions tool declarations carry `strict: false`.
+- A `// @options:` line holding invalid JSON reports the JSON parser's own message, which reads differently from V8's.
 - Skill frontmatter is read by a small YAML reader covering what skills use (plain, quoted and block scalars, booleans); other YAML in a skill file is skipped rather than rejected.
 - The docs paths in the system prompt name `$PI_PACKAGE_DIR`, or the directory of the `pi-rs` binary, since there is no npm package.
 - `fd` and `rg` are used from the agent's bin directory or `PATH`; they are not downloaded.
