@@ -36,7 +36,7 @@ use super::selectors::{
     ActionSlot, OverlayAction, action_slot, confirm::Confirm, fork::ForkSelector,
     model::ModelSelector, scoped_models::ScopedModelsSelector, session::SessionSelector,
     settings::SettingsCallbacks, settings::SettingsConfig, settings::SettingsSelector,
-    thinking::ThinkingSelector, tree::TreeSelector, trust::TrustSelector,
+    thinking::ThinkingSelector, tree::{Filter, TreeSelector}, trust::TrustSelector,
 };
 use super::slash_commands::{self, Command, Counts, SessionInfo};
 use super::status::{StatusArea, WORKING, header};
@@ -138,7 +138,8 @@ enum Action {
 
 /// The components the loop swaps a selector in and out of.
 struct Parts {
-    header: ComponentRef,
+    /// None under quietStartup: true, which hides the startup header.
+    header: Option<ComponentRef>,
     chat: ComponentRef,
     status: ComponentRef,
     editor: ComponentRef,
@@ -150,7 +151,9 @@ impl Parts {
     /// focused.
     fn mount(&self, tui: &mut TuiMainScreen<ProcessTerminal>, selector: Option<&ComponentRef>) {
         tui.clear();
-        tui.add_child(self.header.clone());
+        if let Some(header) = &self.header {
+            tui.add_child(header.clone());
+        }
         tui.add_child(self.chat.clone());
         tui.add_child(self.status.clone());
         let focus = match selector {
@@ -255,6 +258,13 @@ fn settings_config(
             .unwrap_or(theme::SYSTEM_THEME)
             .to_owned(),
         themes: themes.to_vec(),
+        quiet_startup: match settings.quiet_startup() {
+            crate::settings::QuietStartup::On => "true",
+            crate::settings::QuietStartup::Header => "header",
+            crate::settings::QuietStartup::Off => "false",
+        }
+        .to_owned(),
+        tree_filter_mode: settings.tree_filter_mode().to_owned(),
     }
 }
 
@@ -572,7 +582,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let mut tui = TuiMainScreen::new(ProcessTerminal::new());
     tui.set_show_hardware_cursor(settings.borrow().show_hardware_cursor());
     tui.set_clear_on_shrink(settings.borrow().clear_on_shrink());
-    let header = component(Text::new(&header(), 1, 1));
+    let header =
+        header(settings.borrow().quiet_startup()).map(|text| component(Text::new(&text, 1, 1)));
     let status = component(StatusArea::new());
     let editor = component(Editor::new(
         theme::editor(),
@@ -638,7 +649,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         })
     }));
     let parts = Parts {
-        header: as_ref(&header),
+        header: header.as_ref().map(as_ref),
         chat: chat.container.clone(),
         status: as_ref(&status),
         editor: as_ref(&editor),
@@ -967,6 +978,17 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         Ok(()) => settings.borrow_mut().set_theme(&value),
                         Err(e) => chat.notice("error", &format!("Error: {e}")),
                     },
+                    "quiet-startup" => {
+                        let quiet = match value.as_str() {
+                            "true" => crate::settings::QuietStartup::On,
+                            "header" => crate::settings::QuietStartup::Header,
+                            _ => crate::settings::QuietStartup::Off,
+                        };
+                        settings.borrow_mut().set_quiet_startup(quiet);
+                    }
+                    "tree-filter-mode" => {
+                        settings.borrow_mut().set_tree_filter_mode(&value);
+                    }
                     "hide-thinking" => {
                         let hidden = value == "true";
                         chat.hide_thinking = hidden;
@@ -1187,8 +1209,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         Ok(tree) => {
                             let slot = action_slot();
                             let visible = (tui.terminal.rows() / 2).max(5);
+                            let filter = Filter::from_setting(settings.borrow().tree_filter_mode());
                             let built: ComponentRef =
-                                component(TreeSelector::new(tree, visible, slot.clone()));
+                                component(TreeSelector::new(tree, visible, slot.clone(), filter));
                             selector = Some((built, slot));
                         }
                         Err(e) => chat.notice("error", &format!("Error: {e}")),

@@ -409,6 +409,10 @@ pub struct SettingsConfig {
     pub theme_setting: String,
     /// Every theme the theme item offers.
     pub themes: Vec<String>,
+    /// The quietStartup setting: true, "header" or false.
+    pub quiet_startup: String,
+    /// The treeFilterMode setting.
+    pub tree_filter_mode: String,
 }
 
 /// What a settings row does that the row's own value cannot say: the per-model thinking
@@ -718,6 +722,24 @@ impl SettingsSelector {
                 },
             )
             .values(&["true", "false"]),
+        );
+        items.push(
+            SettingItem::new(
+                "quiet-startup",
+                "Quiet startup",
+                Some("Disable verbose printing at startup (header: keep only the startup header)"),
+                &config.quiet_startup,
+            )
+            .values(&["true", "header", "false"]),
+        );
+        items.push(
+            SettingItem::new(
+                "tree-filter-mode",
+                "Tree filter mode",
+                Some("Default filter when opening /tree"),
+                &config.tree_filter_mode,
+            )
+            .values(&["default", "no-tools", "user-only", "labeled-only", "all"]),
         );
         let themes = config.themes.clone();
         let theme_action = action.clone();

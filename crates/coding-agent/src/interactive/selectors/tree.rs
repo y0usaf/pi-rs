@@ -18,12 +18,25 @@ use crate::interactive::theme::{bold, fg};
 use crate::session_tree::Tree;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Filter {
+pub enum Filter {
     Default,
     NoTools,
     UserOnly,
     LabeledOnly,
     All,
+}
+
+impl Filter {
+    /// The treeFilterMode setting, whose unknown values read as default.
+    pub fn from_setting(mode: &str) -> Filter {
+        match mode {
+            "no-tools" => Filter::NoTools,
+            "user-only" => Filter::UserOnly,
+            "labeled-only" => Filter::LabeledOnly,
+            "all" => Filter::All,
+            _ => Filter::Default,
+        }
+    }
 }
 
 const FILTERS: [Filter; 5] = [
@@ -68,7 +81,7 @@ pub struct TreeSelector {
 }
 
 impl TreeSelector {
-    pub fn new(tree: Tree, max_visible: usize, action: ActionSlot) -> Self {
+    pub fn new(tree: Tree, max_visible: usize, action: ActionSlot, filter: Filter) -> Self {
         let mut tool_calls = HashMap::new();
         for node in &tree.nodes {
             let Some(Message::Assistant(assistant)) = node
@@ -90,7 +103,7 @@ impl TreeSelector {
             tree,
             rows: Vec::new(),
             selected: 0,
-            filter: Filter::Default,
+            filter,
             search: Input::new(InputOptions::default()),
             folded: BTreeSet::new(),
             leaf,

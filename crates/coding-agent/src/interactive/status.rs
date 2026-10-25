@@ -16,23 +16,35 @@ fn hint(key: &str, description: &str) -> String {
     fg("dim", key) + &fg("muted", &format!(" {description}"))
 }
 
-/// The header's text, upstream's compact form with the keys this mode handles.
-pub fn header() -> String {
+/// The header's text, upstream's compact form with the keys this mode handles: the logo, version
+/// and key hints, which quietStartup hides, and the details line, which quietStartup "header"
+/// hides too.
+pub fn header(quiet: crate::settings::QuietStartup) -> Option<String> {
+    use crate::settings::QuietStartup;
+    if quiet == QuietStartup::On {
+        return None;
+    }
     let hints = [
         hint("escape", "interrupt"),
         hint("ctrl+c/ctrl+d", "clear/exit"),
         hint("ctrl+o", "expand tools"),
     ]
     .join(&fg("muted", " · "));
-    format!(
-        "{} {}\n{hints}\n\n{}",
+    let top = format!(
+        "{} {}\n{hints}",
         wordmark(),
-        fg("dim", &format!("v{VERSION}")),
-        fg(
-            "dim",
-            "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi."
-        )
-    )
+        fg("dim", &format!("v{VERSION}"))
+    );
+    Some(match quiet {
+        QuietStartup::Off => format!(
+            "{top}\n\n{}",
+            fg(
+                "dim",
+                "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi."
+            )
+        ),
+        _ => top,
+    })
 }
 
 pub const WORKING: &str = "Working (escape to interrupt)";
