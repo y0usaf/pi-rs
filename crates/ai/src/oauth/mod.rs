@@ -9,6 +9,7 @@ pub mod openai_chatgpt;
 pub mod openai_codex;
 pub mod openrouter;
 pub mod pkce;
+pub mod radius;
 pub mod xai;
 
 use pi_rt::cancel::CancelToken;

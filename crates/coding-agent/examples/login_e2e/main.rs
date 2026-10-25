@@ -15,6 +15,7 @@ mod copilot;
 mod kimi;
 mod meta;
 mod openrouter;
+mod radius;
 mod xai;
 
 const ACCESS: &str = "sk-ant-oat01-login-access";
@@ -69,11 +70,12 @@ fn main() {
     kimi::run(&agent_dir);
     meta::run(&agent_dir);
     openrouter::run(&agent_dir);
+    radius::run(&agent_dir);
     xai::run(&agent_dir);
 
     let _ = std::fs::remove_dir_all(&dir);
     println!(
-        "login ok: anthropic copy code, api key, logout, codex device code, cancel, chatgpt, copilot, kimi, meta, openrouter, xai"
+        "login ok: anthropic copy code, api key, logout, codex device code, cancel, chatgpt, copilot, kimi, meta, openrouter, radius, xai"
     );
 }
 

@@ -14,7 +14,7 @@ use pi_durable::ai::oauth::anthropic;
 use pi_durable::ai::oauth::interaction::{Event, Interaction, Prompt};
 use pi_durable::ai::oauth::openai_codex;
 use pi_durable::ai::oauth::{
-    self, github_copilot, kimi_coding, meta, openai_chatgpt, openrouter, xai,
+    self, github_copilot, kimi_coding, meta, openai_chatgpt, openrouter, radius, xai,
 };
 use pi_durable::cancel::CancelToken;
 use serde_json::json;
@@ -152,6 +152,8 @@ static PROVIDERS: &[Provider] = &[
         "OpenRouter API key",
         "Enter OpenRouter API key",
     ),
+    oauth("radius", "Radius", "Radius", Some(true)),
+    api_key("radius", "Radius", "Radius API key", "Enter Radius API key"),
     oauth("xai", "xAI", "xAI (Grok/X subscription)", Some(true)),
     api_key("xai", "xAI", "xAI API key", "Enter xAI API key"),
 ];
@@ -354,6 +356,10 @@ fn authenticate(
         ("openrouter", AuthType::Oauth) => {
             let credentials =
                 openrouter::login(interaction, &openrouter::Endpoints::from_env(), cancel)?;
+            oauth::stored(provider, &credentials)
+        }
+        ("radius", AuthType::Oauth) => {
+            let credentials = radius::login(interaction, &radius::Endpoints::from_env(), cancel)?;
             oauth::stored(provider, &credentials)
         }
         ("xai", AuthType::Oauth) => {

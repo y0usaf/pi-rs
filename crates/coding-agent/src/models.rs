@@ -28,13 +28,14 @@ const OAUTH_PROVIDERS: [&str; 9] = [
     "radius",
 ];
 /// Of those, the ones whose token refresh this port has (pi-ai's Rust OAuth flows).
-const OAUTH_REFRESH: [&str; 7] = [
+const OAUTH_REFRESH: [&str; 8] = [
     "anthropic",
     "github-copilot",
     "kimi-coding",
     "meta",
     "openai",
     "openai-codex",
+    "radius",
     "xai",
 ];
 
@@ -421,7 +422,7 @@ fn refresh_oauth(
     stored: &Map<String, Value>,
 ) -> Result<Map<String, Value>, String> {
     use pi_durable::ai::oauth::{
-        anthropic, github_copilot, kimi_coding, meta, openai_chatgpt, openai_codex, xai,
+        anthropic, github_copilot, kimi_coding, meta, openai_chatgpt, openai_codex, radius, xai,
     };
     let credentials = match provider {
         "anthropic" => anthropic::refresh(&anthropic::Endpoints::from_env(), stored, None)?,
@@ -434,6 +435,7 @@ fn refresh_oauth(
         "openai-codex" => {
             openai_codex::refresh(&openai_codex::Endpoints::from_env(), stored, None)?
         }
+        "radius" => radius::refresh(&radius::Endpoints::from_env(), stored, None)?,
         "xai" => xai::refresh(&xai::Endpoints::from_env(), stored, None)?,
         _ => {
             return Err(format!(
