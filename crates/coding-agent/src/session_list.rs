@@ -138,6 +138,8 @@ pub fn rename(path: &str, name: &str) -> Result<(), String> {
         command_prefix: None,
         env: Vec::new(),
         model_takes_images: false,
+        codemode_mode: crate::codemode::Mode::On.name().to_owned(),
+        codemode_inline_budget: crate::codemode::default_inline_budget(),
     };
     let harness = crate::print::open_harness(
         storage,

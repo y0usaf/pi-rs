@@ -338,6 +338,10 @@ fn run() -> Result<ExitCode, String> {
     } else {
         Some(session_list::new_path(&sessions))
     };
+    let declared = pi_coding_agent::codemode::declared_tools(
+        &tools,
+        pi_coding_agent::codemode::Mode::parse(settings.codemode_mode()),
+    );
     let assembled = system_prompt::assemble(&AssembleOptions {
         cwd: &cwd,
         agent_dir: &agent_dir,
@@ -347,7 +351,7 @@ fn run() -> Result<ExitCode, String> {
         no_context_files: parsed.no_context_files,
         no_skills: parsed.no_skills,
         skill_paths: parsed.skills.as_deref().unwrap_or(&[]),
-        tools: &tools,
+        tools: &declared,
     });
     for w in &assembled.warnings {
         eprintln!("{w}");
@@ -646,6 +650,8 @@ fn tool_settings(cwd: &str, settings: &SettingsManager, env: &[(String, String)]
         command_prefix: settings.shell_command_prefix().map(str::to_string),
         env,
         model_takes_images: true,
+        codemode_mode: settings.codemode_mode().to_string(),
+        codemode_inline_budget: settings.codemode_inline_budget(),
     }
 }
 

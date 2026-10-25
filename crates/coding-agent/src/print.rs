@@ -37,6 +37,10 @@ pub struct ToolSettings {
     /// `PI_SESSION_ID`, `PI_PROVIDER`, ..., and PATH with the agent's bin directory first.
     pub env: Vec<(String, String)>,
     pub model_takes_images: bool,
+    /// `codemode.mode`, which decides how the codemode tool presents the tools.
+    pub codemode_mode: String,
+    /// `codemode.inlineBudget`, the tokens the codemode description may spend on declarations.
+    pub codemode_inline_budget: f64,
 }
 
 fn text_block(text: String) -> UserBlock {
@@ -96,6 +100,8 @@ fn registration(spec: ToolSpec, settings: Arc<ToolSettings>) -> ToolRegistration
             retain: None,
         }),
         prepare_arguments: prepare,
+        exposure: pi_durable::harness::types::ToolExposure::Direct,
+        hidden: false,
         execute,
     }
 }
@@ -128,18 +134,24 @@ pub fn extension_with(
     extra: Vec<ToolRegistration>,
 ) -> Extension {
     let settings = Arc::new(settings);
+    let mut registrations: Vec<ToolRegistration> = tool_names
+        .iter()
+        .filter_map(|name| match name.as_str() {
+            crate::codemode::TOOL_NAME => {
+                Some(crate::codemode::registration(crate::codemode::description()))
+            }
+            _ => tools::spec(name).map(|spec| registration(spec, Arc::clone(&settings))),
+        })
+        .chain(extra)
+        .collect();
+    crate::codemode::set_inline_budget(settings.codemode_inline_budget);
+    crate::codemode::apply_loadout(
+        &mut registrations,
+        crate::codemode::Mode::parse(&settings.codemode_mode),
+    );
     Extension {
         name: "pi-coding-agent".to_owned(),
-        tools: tool_names
-            .iter()
-            .filter_map(|name| match name.as_str() {
-                crate::codemode::TOOL_NAME => {
-                    Some(crate::codemode::registration(crate::codemode::description()))
-                }
-                _ => tools::spec(name).map(|spec| registration(spec, Arc::clone(&settings))),
-            })
-            .chain(extra)
-            .collect(),
+        tools: registrations,
         sections: sections
             .into_iter()
             .map(|(key, text)| fixed_section(&key, text))

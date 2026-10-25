@@ -65,6 +65,41 @@ pub enum Replay {
     Unsafe,
 }
 
+/// What a registered tool is for (`core/extensions/types.ts` `ToolExposure`): `Direct` and
+/// `ModelOnly` tools are declared when they are active, `Cododode` and `Deferred` ones are
+/// callable from other tools without being declared, and `Hidden` ones are never declared.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ToolExposure {
+    /// Declared to the model, and callable from other tools while active.
+    #[default]
+    Direct,
+    /// Declared to the model, never callable from other tools.
+    ModelOnly,
+    /// Callable from other tools, never declared.
+    Codemode,
+    /// Callable from other tools, never declared, and hidden from a listing that has no room.
+    Deferred,
+    /// Neither declared nor callable.
+    Hidden,
+}
+
+impl ToolExposure {
+    /// Callable from inside another tool (`ctx.executeTool()`).
+    pub fn callable(self, active: bool) -> bool {
+        match self {
+            ToolExposure::Direct => active,
+            ToolExposure::Codemode | ToolExposure::Deferred => true,
+            ToolExposure::ModelOnly | ToolExposure::Hidden => false,
+        }
+    }
+
+    /// Declared to the model, which `Hidden` never is.
+    pub fn declarable(self) -> bool {
+        self != ToolExposure::Hidden
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolControl {
@@ -186,6 +221,10 @@ pub struct ToolRegistration {
     pub execution_mode: Option<ToolExecutionMode>,
     pub output_limits: Option<OutputLimitsSpec>,
     pub prepare_arguments: Option<PrepareArguments>,
+    pub exposure: ToolExposure,
+    /// A hidden declaration: the tool stays registered, active and callable from other tools, and
+    /// requests leave its declaration out (`ToolLoadoutChanges.hiddenDeclarations`).
+    pub hidden: bool,
     pub execute: ToolExecute,
 }
 

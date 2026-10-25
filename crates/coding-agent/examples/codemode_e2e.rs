@@ -640,6 +640,154 @@ fn agent_run(bin: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The two `codemode.mode` values: `only` declares codemode alone and lists every tool in its
+/// description; `on` keeps the direct tools declared and says how a script calls them.
+fn loadout_modes(bin: &Path) -> Result<()> {
+    for (mode, expected) in [("only", 1usize), ("on", 5usize)] {
+        let root =
+            std::env::temp_dir().join(format!("codemode-modes-{mode}-{}", std::process::id()));
+        for dir in ["home", "agent", "cwd"] {
+            std::fs::create_dir_all(root.join(dir))?;
+        }
+        std::fs::write(root.join("cwd/hello.txt"), "hello\n")?;
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let served = Arc::clone(&requests);
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let requests = Arc::clone(&served);
+                std::thread::spawn(move || {
+                    if let Err(error) = serve(stream, requests) {
+                        eprintln!("fake server: {error}");
+                    }
+                });
+            }
+        });
+        let models = json!({"providers": {"fake": {
+            "baseUrl": format!("http://127.0.0.1:{port}/v1"),
+            "apiKey": "sk-test",
+            "api": "openai-completions",
+            "models": [{"id": "fake-test", "contextWindow": 200000, "maxTokens": 8192}],
+        }}});
+        std::fs::write(root.join("agent/models.json"), serde_json::to_vec(&models)?)?;
+        let settings = json!({"defaultTools": ["+codemode"], "codemode": {"mode": mode}});
+        std::fs::write(
+            root.join("agent/settings.json"),
+            serde_json::to_vec(&settings)?,
+        )?;
+        let out = Command::new(bin)
+            .args([
+                "--provider",
+                "fake",
+                "--model",
+                "fake-test",
+                "--no-session",
+                "-p",
+                "go",
+            ])
+            .current_dir(root.join("cwd"))
+            .env_clear()
+            .env("HOME", root.join("home"))
+            .env("PI_CODING_AGENT_DIR", root.join("agent"))
+            .env("PATH", "/nonexistent")
+            .output()?;
+        if !out.status.success() {
+            return fail(format!(
+                "pi-rs -p (mode {mode}) exited {}: {}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        }
+        let requests = requests
+            .lock()
+            .map(|requests| requests.clone())
+            .unwrap_or_default();
+        let first = requests.first().ok_or("the model saw no request")?;
+        let tools = first["tools"].as_array().cloned().unwrap_or_default();
+        let names: Vec<&str> = tools
+            .iter()
+            .filter_map(|tool| tool["function"]["name"].as_str())
+            .collect();
+        if names.len() != expected {
+            return fail(format!(
+                "mode {mode} declares {names:?}, expected {expected} tools"
+            ));
+        }
+        let description = |name: &str| -> String {
+            tools
+                .iter()
+                .find(|tool| tool["function"]["name"] == name)
+                .and_then(|tool| tool["function"]["description"].as_str())
+                .unwrap_or_default()
+                .to_owned()
+        };
+        if mode == "only" {
+            if names != ["codemode"] {
+                return fail(format!("mode only declares {names:?}"));
+            }
+            let codemode = description("codemode");
+            for expected in [
+                "Nested tools:",
+                "### `read`",
+                "### `bash`",
+                "declare const tools: { read(args: {",
+            ] {
+                if !codemode.contains(expected) {
+                    return fail(format!("mode only's description lacks {expected:?}"));
+                }
+            }
+            let system = first["messages"][0]["content"].as_str().unwrap_or_default();
+            let tools_section = system
+                .split("<tools>")
+                .nth(1)
+                .and_then(|rest| rest.split("</tools>").next())
+                .unwrap_or_default();
+            if !tools_section.contains("- codemode: Run JavaScript that calls other tools")
+                || tools_section.contains("- read:")
+            {
+                return fail(format!("mode only's system prompt lists {tools_section:?}"));
+            }
+            // The script still reaches read although the request never declares it.
+            let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+            if stdout.trim() != "done" {
+                return fail(format!("mode only's run printed {stdout:?}"));
+            }
+            let tool_result = requests
+                .get(1)
+                .and_then(|request| request["messages"].as_array().cloned())
+                .and_then(|messages| {
+                    messages
+                        .into_iter()
+                        .find(|message| message["role"] == "tool")
+                })
+                .and_then(|message| message["content"].as_str().map(str::to_owned))
+                .unwrap_or_default();
+            if !tool_result.contains("hello") || !tool_result.starts_with("Script completed") {
+                return fail(format!(
+                    "the hidden read did not reach the script: {tool_result:?}"
+                ));
+            }
+        } else {
+            if !names.contains(&"read") || !names.contains(&"codemode") {
+                return fail(format!("mode on declares {names:?}"));
+            }
+            let codemode = description("codemode");
+            if codemode.contains("Nested tools:") {
+                return fail(format!(
+                    "mode on lists direct tools in the description: {codemode}"
+                ));
+            }
+            let read = description("read");
+            if !read.contains("Codemode: `tools.read(args)` resolves to a string.") {
+                return fail(format!("mode on's read description reads {read:?}"));
+            }
+        }
+        std::fs::remove_dir_all(&root)?;
+    }
+    no_leftovers("the loadout runs")
+}
+
 fn main() -> Result<()> {
     let bin = binary()?;
     wire_format(&bin)?;
@@ -653,6 +801,7 @@ fn main() -> Result<()> {
     store_writes(&bin)?;
     source_options(&bin)?;
     agent_run(&bin)?;
+    loadout_modes(&bin)?;
     println!("codemode e2e ok");
     Ok(())
 }

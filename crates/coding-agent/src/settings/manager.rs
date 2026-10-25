@@ -876,6 +876,27 @@ impl SettingsManager {
         self.save();
     }
 
+    /// `codemode.mode`: `on` keeps direct tools declared and says how a script calls them,
+    /// `only` lists every callable tool in the codemode description and declares no direct tool.
+    pub fn codemode_mode(&self) -> &str {
+        self.merged
+            .object("codemode")
+            .and_then(|codemode| codemode.get("mode"))
+            .and_then(Value::as_str)
+            .filter(|mode| matches!(*mode, "on" | "only"))
+            .unwrap_or(defaults::CODEMODE_MODE)
+    }
+
+    /// `codemode.inlineBudget`: estimated tokens the codemode description may use for declarations.
+    pub fn codemode_inline_budget(&self) -> f64 {
+        self.merged
+            .object("codemode")
+            .and_then(|codemode| codemode.get("inlineBudget"))
+            .and_then(Value::as_f64)
+            .filter(|budget| *budget >= 0.0)
+            .unwrap_or(defaults::CODEMODE_INLINE_BUDGET)
+    }
+
     pub fn follow_up_mode(&self) -> &str {
         text_or(self.merged.get("followUpMode"), defaults::FOLLOW_UP_MODE)
     }

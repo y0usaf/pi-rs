@@ -25,6 +25,8 @@ use crate::output_files;
 use crate::tools::truncate::format_size;
 use crate::tools::{PromptContribution, text_block};
 
+mod declarations;
+
 pub const TOOL_NAME: &str = "codemode";
 
 /// Custom entry type holding one script's `store()` writes.
@@ -32,6 +34,8 @@ pub const STORE_ENTRY_TYPE: &str = "codemode-store";
 
 /// Heap limit for the QuickJS VM: without one a runaway script can grow to wasm32's 4 GiB.
 const MEMORY_LIMIT_BYTES: usize = 256 * 1024 * 1024;
+/// Default for `codemode.inlineBudget`.
+const DEFAULT_INLINE_BUDGET: f64 = 3000.0;
 /// Default token budget for script output.
 const DEFAULT_MAX_OUTPUT_TOKENS: u64 = 10_000;
 /// Characters per token when estimating.
@@ -65,7 +69,7 @@ pub fn parameters() -> Value {
 
 const DESCRIPTION_INTRO: &str = r#"Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.
 - `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. A tool whose declaration returns an object resolves on failure too when it returned that object; check its fields. Calls still running when the script ends are cancelled.
-- Optional first line: \`// @options: {"max_output_tokens": 10000, "timeout_ms": 60000}\`"#;
+- Optional first line: `// @options: {"max_output_tokens": 10000, "timeout_ms": 60000}`"#;
 
 const GLOBALS: &str = "Globals:
 - `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.
@@ -107,6 +111,8 @@ pub fn registration(description: String) -> ToolRegistration {
             retain: None,
         }),
         prepare_arguments: None,
+        exposure: pi_durable::harness::types::ToolExposure::ModelOnly,
+        hidden: false,
         execute,
     }
 }
@@ -172,8 +178,18 @@ fn run(
     let callable: Vec<DeclaredTool> = api
         .registry()
         .tools()
-        .filter(|(_, tool)| tool.tool.name != TOOL_NAME)
-        .map(|(_, tool)| DeclaredTool::new(&tool.tool.name, &tool.tool.description))
+        .filter(|(_, tool)| tool.tool.name != TOOL_NAME && tool.exposure.callable(true))
+        .map(|(_, tool)| {
+            DeclaredTool::new(
+                &tool.tool.name,
+                &declarations::render_sample(
+                    &tool.tool.name,
+                    Some(&tool.tool.description),
+                    Some(&tool.tool.parameters),
+                    Some(&output_schema(&tool.tool)),
+                ),
+            )
+        })
         .collect();
     let deadline = parsed.options.timeout_ms;
     let waited = Instant::now();
@@ -691,4 +707,215 @@ impl Drop for Workers {
         *active = active.saturating_sub(1);
         WORKERS_FREE.notify_one();
     }
+}
+
+/// `codemode.mode`: `on` keeps direct tools declared and says how a script calls them, `only`
+/// lists every callable tool in the codemode description and declares no direct tool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    On,
+    Only,
+}
+
+impl Mode {
+    pub fn parse(value: &str) -> Mode {
+        match value {
+            "only" => Mode::Only,
+            _ => Mode::On,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Mode::On => "on",
+            Mode::Only => "only",
+        }
+    }
+}
+
+/// `codemode.inlineBudget`'s default, for a harness with no settings of its own.
+pub fn default_inline_budget() -> f64 {
+    DEFAULT_INLINE_BUDGET
+}
+
+/// One tool as the loadout sees it.
+struct Entry {
+    name: String,
+    description: String,
+    parameters: Value,
+    callable: bool,
+    direct: bool,
+    deferred: bool,
+}
+
+const DESCRIPTION_INTRO_END: &str = "\n\n";
+
+fn output_schema(tool: &pi_durable::ai::types::Tool) -> Value {
+    let _ = tool;
+    json!({"type": "string"})
+}
+
+fn describe_output(_schema: &Value) -> &'static str {
+    "a string"
+}
+
+/// A tool's section in the codemode description: `### `id`` then its sample.
+fn render_tool_section(entry: &Entry) -> String {
+    let id = declarations::to_identifier(&entry.name);
+    let heading = if id == entry.name {
+        format!("### `{id}`")
+    } else {
+        format!("### `{id}` (`{}`)", entry.name)
+    };
+    let sample = declarations::render_sample(
+        &entry.name,
+        Some(&entry.description),
+        Some(&entry.parameters),
+        Some(&output_schema(&pi_durable::ai::types::Tool {
+            name: entry.name.clone(),
+            description: entry.description.clone(),
+            parameters: entry.parameters.clone(),
+            constrained_sampling: None,
+        })),
+    );
+    format!("{heading}\n{}", sample.trim())
+}
+
+/// Pick the sections that fit the budget, cheapest first: a tool that does not fit is left out.
+fn select_catalog(entries: &[&Entry], budget: Option<f64>) -> Vec<String> {
+    let Some(budget) = budget else {
+        return entries.iter().map(|entry| entry.name.clone()).collect();
+    };
+    let mut costs: Vec<(usize, f64)> = entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let cost = (render_tool_section(entry).len() as f64 / CHARS_PER_TOKEN as f64).ceil();
+            (index, cost)
+        })
+        .collect();
+    costs.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    let mut chosen = Vec::new();
+    let mut remaining = budget;
+    for (index, cost) in costs {
+        if cost > remaining {
+            continue;
+        }
+        remaining -= cost;
+        chosen.push(index);
+    }
+    chosen.sort_unstable();
+    chosen
+        .into_iter()
+        .map(|index| entries[index].name.clone())
+        .collect()
+}
+
+/// The model-facing description: the intro, the globals, and one section per listed tool.
+fn create_description(entries: &[Entry], budget: Option<f64>) -> String {
+    let listed: Vec<&Entry> = entries.iter().filter(|entry| !entry.deferred).collect();
+    let sections = [DESCRIPTION_INTRO, GLOBALS];
+    if listed.is_empty() {
+        return sections.join(DESCRIPTION_INTRO_END);
+    }
+    let shown = select_catalog(&listed, budget);
+    let mut body = vec!["Nested tools:".to_owned()];
+    for entry in listed {
+        if shown.contains(&entry.name) {
+            body.push(render_tool_section(entry));
+        }
+    }
+    let mut all: Vec<String> = sections
+        .iter()
+        .map(|section| (*section).to_owned())
+        .collect();
+    all.push(body.join("\n\n"));
+    all.join(DESCRIPTION_INTRO_END)
+}
+
+/// `prepareCodemodeLoadout`: what the model is told about each tool, and which declared tools the
+/// request leaves out while keeping them callable.
+pub fn apply_loadout(tools: &mut [pi_durable::harness::types::ToolRegistration], mode: Mode) {
+    use pi_durable::harness::types::ToolExposure;
+    let Some(codemode_index) = tools.iter().position(|tool| tool.tool.name == TOOL_NAME) else {
+        return;
+    };
+    let entries: Vec<Entry> = tools
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != codemode_index)
+        .map(|(_, tool)| Entry {
+            name: tool.tool.name.clone(),
+            description: tool.tool.description.clone(),
+            parameters: tool.tool.parameters.clone(),
+            callable: tool.exposure.callable(true),
+            direct: tool.exposure == ToolExposure::Direct,
+            deferred: tool.exposure == ToolExposure::Deferred,
+        })
+        .collect();
+    if mode == Mode::On {
+        for entry in entries
+            .iter()
+            .filter(|entry| entry.direct && entry.callable)
+        {
+            if let Some(tool) = tools.iter_mut().find(|tool| tool.tool.name == entry.name) {
+                tool.tool.description = format!(
+                    "{}\n\nCodemode: `tools.{}(args)` resolves to {}.",
+                    tool.tool.description.trim(),
+                    declarations::to_identifier(&entry.name),
+                    describe_output(&output_schema(&tool.tool))
+                );
+            }
+        }
+    }
+    let listed: Vec<Entry> = entries
+        .iter()
+        .filter(|entry| entry.callable && (mode == Mode::Only || !entry.direct))
+        .map(|entry| Entry {
+            name: entry.name.clone(),
+            description: entry.description.clone(),
+            parameters: entry.parameters.clone(),
+            callable: entry.callable,
+            direct: entry.direct,
+            deferred: entry.deferred,
+        })
+        .collect();
+    let description = create_description(&listed, Some(inline_budget()));
+    tools[codemode_index].tool.description = description;
+    if mode == Mode::Only {
+        for entry in entries
+            .iter()
+            .filter(|entry| entry.direct && entry.callable)
+        {
+            if let Some(tool) = tools.iter_mut().find(|tool| tool.tool.name == entry.name) {
+                tool.hidden = true;
+            }
+        }
+    }
+}
+
+/// The token budget for the description's tool sections, from `codemode.inlineBudget`.
+static INLINE_BUDGET: Mutex<Option<f64>> = Mutex::new(None);
+
+fn inline_budget() -> f64 {
+    INLINE_BUDGET
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .unwrap_or(DEFAULT_INLINE_BUDGET)
+}
+
+/// Sets the description's token budget for this process, as `codemode.inlineBudget` says.
+pub fn set_inline_budget(budget: f64) {
+    *INLINE_BUDGET
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = Some(budget);
+}
+
+/// The tools the model's request declares: with `only`, codemode alone, since direct tools are
+/// hidden declarations. The prompt's tool list is built from this, as upstream's is.
+pub fn declared_tools(tools: &[String], mode: Mode) -> Vec<String> {
+    if mode == Mode::Only && tools.iter().any(|tool| tool == TOOL_NAME) {
+        return vec![TOOL_NAME.to_owned()];
+    }
+    tools.to_vec()
 }

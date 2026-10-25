@@ -34,6 +34,8 @@ fn add_tool() -> ToolRegistration {
         }))
         .expect("tool schema"),
         replay: None,
+        exposure: Default::default(),
+        hidden: false,
         execution_mode: None,
         output_limits: None,
         prepare_arguments: None,

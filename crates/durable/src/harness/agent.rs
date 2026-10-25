@@ -353,7 +353,9 @@ pub fn resolve_agent(
     let mut tools: Vec<(String, ToolRegistration)> = Vec::new();
     for extension in &extensions {
         for tool in &extension.tools {
-            set_entry(&mut tools, tool.tool.name.clone(), tool.clone());
+            if tool.exposure.declarable() && !tool.hidden {
+                set_entry(&mut tools, tool.tool.name.clone(), tool.clone());
+            }
         }
     }
     let mut sections: Vec<(String, PromptSection)> = Vec::new();

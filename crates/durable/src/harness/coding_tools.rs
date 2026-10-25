@@ -143,6 +143,8 @@ fn registration(
         execution_mode: None,
         output_limits,
         prepare_arguments,
+        exposure: crate::harness::types::ToolExposure::Direct,
+        hidden: false,
         execute,
     }
 }

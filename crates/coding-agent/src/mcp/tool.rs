@@ -408,6 +408,8 @@ pub fn registration(
             retain: None,
         }),
         prepare_arguments: None,
+        exposure: pi_durable::harness::types::ToolExposure::Direct,
+        hidden: false,
         execute,
     }
 }

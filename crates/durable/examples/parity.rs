@@ -66,6 +66,8 @@ fn tool(
             constrained_sampling: None,
         },
         replay: None,
+        exposure: Default::default(),
+        hidden: false,
         execution_mode: None,
         output_limits: None,
         prepare_arguments: None,
