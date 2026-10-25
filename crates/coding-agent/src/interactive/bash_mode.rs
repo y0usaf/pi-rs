@@ -14,17 +14,12 @@ use serde_json::Value;
 
 use super::chat::Chat;
 use super::theme::{bold, fg, fg_fn};
-use crate::bash_exec::{self, Outcome};
+use crate::bash_exec::{self, Outcome, Update};
 use crate::settings::SettingsManager;
 use crate::tools::truncate::{Limits, truncate_tail};
 
 /// Lines of output a collapsed block shows, as the tool rows do.
 const PREVIEW_LINES: usize = 20;
-
-enum Update {
-    Chunk(String),
-    Done(Result<Outcome, String>),
-}
 
 /// The run going, if any: its thread's messages and the block it writes into.
 struct Running {
@@ -75,31 +70,12 @@ impl BashMode {
             chat.output_pad,
             chat.expanded,
         ));
-        let token = CancelToken::new();
-        let (tx, rx) = mpsc::channel();
-        let (cwd, shell, prefix) = (
-            chat.cwd.clone(),
-            settings.shell_path(),
-            settings.shell_command_prefix().map(str::to_owned),
+        let (token, rx) = bash_exec::start(
+            command,
+            &chat.cwd,
+            settings.shell_path().as_deref(),
+            settings.shell_command_prefix(),
         );
-        let run = command.to_owned();
-        let worker = token.clone();
-        std::thread::spawn(move || {
-            let mut chunks = |text: &str| {
-                let _ = tx.send(Update::Chunk(text.to_owned()));
-            };
-            let result = bash_exec::execute(
-                &run,
-                bash_exec::Spawn {
-                    cwd: &cwd,
-                    shell: shell.as_deref(),
-                    prefix: prefix.as_deref(),
-                    cancel: &worker,
-                    on_chunk: &mut chunks,
-                },
-            );
-            let _ = tx.send(Update::Done(result));
-        });
         self.running = Some(Running {
             command: command.to_owned(),
             exclude_from_context,

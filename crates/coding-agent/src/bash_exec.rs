@@ -45,6 +45,44 @@ pub struct Spawn<'a> {
     pub on_chunk: &'a mut dyn FnMut(&str),
 }
 
+/// What a run's thread reports: the output as it arrives, then the result.
+pub enum Update {
+    Chunk(String),
+    Done(Result<Outcome, String>),
+}
+
+/// The run on its own thread, for a caller that polls while it works: the token that cancels it,
+/// and the messages it sends.
+pub fn start(
+    command: &str,
+    cwd: &str,
+    shell: Option<&str>,
+    prefix: Option<&str>,
+) -> (CancelToken, mpsc::Receiver<Update>) {
+    let token = CancelToken::new();
+    let (tx, rx) = mpsc::channel();
+    let worker = token.clone();
+    let (command, cwd) = (command.to_owned(), cwd.to_owned());
+    let (shell, prefix) = (shell.map(str::to_owned), prefix.map(str::to_owned));
+    std::thread::spawn(move || {
+        let mut chunks = |text: &str| {
+            let _ = tx.send(Update::Chunk(text.to_owned()));
+        };
+        let result = execute(
+            &command,
+            Spawn {
+                cwd: &cwd,
+                shell: shell.as_deref(),
+                prefix: prefix.as_deref(),
+                cancel: &worker,
+                on_chunk: &mut chunks,
+            },
+        );
+        let _ = tx.send(Update::Done(result));
+    });
+    (token, rx)
+}
+
 /// `executeBashWithOperations`: run the command, hand each cleaned chunk to `on_chunk`, and keep
 /// the last 50KB of it for the model.
 pub fn execute(command: &str, spawn: Spawn<'_>) -> Result<Outcome, String> {

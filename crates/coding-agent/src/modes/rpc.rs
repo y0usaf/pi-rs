@@ -57,6 +57,90 @@ pub struct Options {
     pub templates: Vec<crate::prompt_templates::PromptTemplate>,
 }
 
+/// A `bash` command running on its own thread, kept so the loop carries on reading commands
+/// (upstream's `_bashAbortControllers`).
+struct BashRun {
+    id: Option<Value>,
+    command: String,
+    exclude_from_context: bool,
+    cancel: CancelToken,
+    rx: std::sync::mpsc::Receiver<crate::bash_exec::Update>,
+}
+
+/// The `BashResult` a `bash` command answers with, absent fields left out as upstream leaves
+/// them undefined.
+fn bash_result(outcome: &crate::bash_exec::Outcome) -> Value {
+    let mut result = serde_json::Map::new();
+    result.insert("output".into(), json!(outcome.output));
+    if let Some(code) = outcome.exit_code {
+        result.insert("exitCode".into(), json!(code));
+    }
+    result.insert("cancelled".into(), json!(outcome.cancelled));
+    result.insert("truncated".into(), json!(outcome.truncated));
+    if let Some(path) = &outcome.full_output_path {
+        result.insert("fullOutputPath".into(), json!(path));
+    }
+    Value::Object(result)
+}
+
+/// `bash_execution_update` for each chunk, the `bash` response and the recorded message when a
+/// run ends.
+fn drain_bash(runs: &mut Vec<BashRun>, root: &Conversation, cancel: &CancelToken, output: &Output) {
+    let mut index = 0;
+    while index < runs.len() {
+        let finished = {
+            let run = &mut runs[index];
+            let mut finished = false;
+            loop {
+                match run.rx.try_recv() {
+                    Ok(crate::bash_exec::Update::Chunk(delta)) => {
+                        let mut line = serde_json::Map::new();
+                        if let Some(id) = &run.id {
+                            line.insert("id".into(), id.clone());
+                        }
+                        line.insert("type".into(), json!("bash_execution_update"));
+                        line.insert("delta".into(), json!(delta));
+                        output.line(&Value::Object(line));
+                    }
+                    Ok(crate::bash_exec::Update::Done(result)) => {
+                        let id = run.id.clone();
+                        let response = match result {
+                            Ok(outcome) => {
+                                if let Err(e) = crate::bash_exec::record(
+                                    root,
+                                    cancel,
+                                    &run.command,
+                                    &outcome,
+                                    run.exclude_from_context,
+                                ) {
+                                    failure(id.as_ref(), "bash", e)
+                                } else {
+                                    success(id.as_ref(), "bash", Some(bash_result(&outcome)))
+                                }
+                            }
+                            Err(e) => failure(id.as_ref(), "bash", e),
+                        };
+                        output.line(&response);
+                        finished = true;
+                        break;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        finished = true;
+                        break;
+                    }
+                }
+            }
+            finished
+        };
+        if finished {
+            runs.remove(index);
+        } else {
+            index += 1;
+        }
+    }
+}
+
 /// What the session state is, kept from the events as they arrive.
 struct State {
     model: pi_durable::ai::types::Model,
@@ -313,38 +397,50 @@ pub fn run(
         root,
     };
 
-    let stdin = std::io::stdin();
-    let mut reader = std::io::BufReader::new(stdin.lock());
-    let mut line = String::new();
-    loop {
-        line.clear();
-        let read = reader
-            .read_line(&mut line)
-            .map_err(|e| format!("Error: {e}"))?;
-        if read == 0 {
-            break;
-        }
-        let text = line.trim_end_matches(['\n', '\r']);
-        if text.is_empty() {
-            continue;
-        }
-        let parsed: Value = match serde_json::from_str(text) {
-            Ok(parsed) => parsed,
-            Err(error) => {
-                output.line(&failure(
-                    None,
-                    "parse",
-                    format!("Failed to parse command: {error}"),
-                ));
-                continue;
+    // A thread reads stdin, so a running `bash` command's output and `abort_bash` reach the
+    // client while nothing is typed.
+    let (lines, reading) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lock().lines() {
+            match line {
+                Ok(line) => {
+                    if lines.send(line).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
             }
-        };
-        if parsed["type"] == "extension_ui_response" {
-            continue;
         }
-        if let Some(response) = handle(&mut open, &output, &options, &state, &parsed, cancel) {
-            output.line(&response);
+    });
+    let mut runs: Vec<BashRun> = Vec::new();
+    loop {
+        match reading.recv_timeout(std::time::Duration::from_millis(20)) {
+            Ok(text) => {
+                let text = text.trim_end_matches(['\n', '\r']);
+                if !text.is_empty() {
+                    match serde_json::from_str::<Value>(text) {
+                        Err(error) => output.line(&failure(
+                            None,
+                            "parse",
+                            format!("Failed to parse command: {error}"),
+                        )),
+                        Ok(parsed) => {
+                            if parsed["type"] != "extension_ui_response"
+                                && let Some(response) = handle(
+                                    &mut open, &output, &options, &state, &parsed, cancel,
+                                    &mut runs,
+                                )
+                            {
+                                output.line(&response);
+                            }
+                        }
+                    }
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
+        drain_bash(&mut runs, &open.root, cancel, &output);
     }
 
     open.stream.stop();
@@ -442,6 +538,7 @@ fn handle(
     state: &Arc<Mutex<State>>,
     command: &Value,
     cancel: &CancelToken,
+    runs: &mut Vec<BashRun>,
 ) -> Option<Value> {
     let id = command.get("id").cloned();
     let id = id.as_ref();
@@ -943,6 +1040,35 @@ fn handle(
 
         "get_commands" => success(id, kind, Some(commands(options))),
 
+        "bash" => {
+            let line = command["command"].as_str().unwrap_or_default().to_owned();
+            let exclude_from_context = command["excludeFromContext"].as_bool().unwrap_or_default();
+            let (shell, prefix) = {
+                let settings = options.settings.borrow();
+                (
+                    settings.shell_path(),
+                    settings.shell_command_prefix().map(str::to_owned),
+                )
+            };
+            let (token, rx) =
+                crate::bash_exec::start(&line, &options.cwd, shell.as_deref(), prefix.as_deref());
+            runs.push(BashRun {
+                id: id.cloned(),
+                command: line,
+                exclude_from_context,
+                cancel: token,
+                rx,
+            });
+            return None;
+        }
+
+        "abort_bash" => {
+            for run in runs.iter() {
+                run.cancel.cancel();
+            }
+            success(id, kind, None)
+        }
+
         "set_session_name" => {
             let name = command["name"].as_str().unwrap_or_default().trim();
             if name.is_empty() {
@@ -955,7 +1081,7 @@ fn handle(
             }
         }
 
-        "bash" | "abort_bash" | "export_html" => failure(
+        "export_html" => failure(
             id,
             kind,
             format!("pi-rs: {kind} is not implemented in RPC mode"),
