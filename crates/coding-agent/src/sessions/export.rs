@@ -178,6 +178,30 @@ fn mapped(
                 },
             );
         }
+        kind if kind == crate::bash_exec::KIND => {
+            let data = record
+                .data
+                .as_ref()
+                .ok_or_else(|| format!("Entry {} carries no bash execution", record.id.0))?;
+            entry.insert("type".into(), "message".into());
+            let mut message = Map::new();
+            message.insert("role".into(), "bashExecution".into());
+            for key in [
+                "command",
+                "output",
+                "exitCode",
+                "cancelled",
+                "truncated",
+                "fullOutputPath",
+                "excludeFromContext",
+            ] {
+                if let Some(value) = data.get(key).filter(|value| !value.is_null()) {
+                    message.insert(key.into(), value.clone());
+                }
+            }
+            message.insert("timestamp".into(), timestamp.into());
+            entry.insert("message".into(), Value::Object(message));
+        }
         _ => return Ok(None),
     }
     Ok(Some(entry))

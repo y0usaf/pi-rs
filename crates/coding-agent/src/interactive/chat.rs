@@ -17,6 +17,7 @@ use pi_tui::components::text::Text;
 use pi_tui::tui::{ComponentRef, Container};
 use serde_json::Value;
 
+use super::bash_mode::BashRow;
 use super::footer::Totals;
 use super::messages::{AssistantView, UserMessage};
 use super::theme;
@@ -28,6 +29,9 @@ pub struct Chat {
     streaming: Option<(Rc<RefCell<AssistantView>>, AssistantMessage)>,
     rows: HashMap<String, Rc<RefCell<ToolRow>>>,
     all_rows: Vec<Rc<RefCell<ToolRow>>>,
+    bash_rows: Vec<Rc<RefCell<BashRow>>>,
+    /// The model's text for a `!` run this chat already drew as a block.
+    bash_texts: Vec<String>,
     pub cwd: String,
     pub expanded: bool,
     pub hide_thinking: bool,
@@ -68,6 +72,8 @@ impl Chat {
             streaming: None,
             rows: HashMap::new(),
             all_rows: Vec::new(),
+            bash_rows: Vec::new(),
+            bash_texts: Vec::new(),
             cwd: cwd.to_string(),
             expanded: false,
             hide_thinking: false,
@@ -77,6 +83,20 @@ impl Chat {
             context_tokens: None,
             status: None,
         }
+    }
+
+    /// Adds a `!` run's block to the transcript, and keeps it for Ctrl+O.
+    pub fn add_bash(&mut self, row: BashRow) -> Rc<RefCell<BashRow>> {
+        let row = Rc::new(RefCell::new(row));
+        self.add(row.clone());
+        self.bash_rows.push(Rc::clone(&row));
+        row
+    }
+
+    /// The model's text for a run this chat drew as a block: the entry carries it for the next
+    /// request, and the chat does not draw it again as the user's own message.
+    pub fn drew_bash(&mut self, model_text: &str) {
+        self.bash_texts.push(model_text.to_owned());
     }
 
     fn add(&mut self, c: ComponentRef) {
@@ -112,12 +132,17 @@ impl Chat {
         self.container.borrow_mut().clear();
         self.rows.clear();
         self.all_rows.clear();
+        self.bash_rows.clear();
+        self.bash_texts.clear();
         self.streaming = None;
     }
 
     pub fn set_expanded(&mut self, expanded: bool) {
         self.expanded = expanded;
         for row in &self.all_rows {
+            row.borrow_mut().set_expanded(expanded);
+        }
+        for row in &self.bash_rows {
             row.borrow_mut().set_expanded(expanded);
         }
     }
@@ -256,8 +281,17 @@ impl Chat {
         self.container.borrow_mut().clear();
         self.rows.clear();
         self.all_rows.clear();
+        self.bash_rows.clear();
         self.streaming = None;
         for entry in &snapshot.entries {
+            if entry.kind == crate::bash_exec::KIND {
+                if let Some(data) = &entry.data
+                    && let Some(row) = BashRow::from_entry(data, self.output_pad, self.expanded)
+                {
+                    self.add_bash(row);
+                }
+                continue;
+            }
             for message in Self::entry_messages(entry) {
                 self.show(message);
             }
@@ -351,7 +385,14 @@ impl Chat {
                 self.status = None;
             }
             AgentEvent::MessageStart { message } => match message {
-                Message::User(u) => self.add_user(&u.content),
+                Message::User(u) => {
+                    let text = user_text(&u.content);
+                    if let Some(at) = self.bash_texts.iter().position(|drawn| *drawn == text) {
+                        self.bash_texts.remove(at);
+                        return false;
+                    }
+                    self.add_user(&u.content);
+                }
                 Message::Assistant(a) => self.start_assistant(a),
                 _ => return false,
             },

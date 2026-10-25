@@ -138,18 +138,41 @@ fn write(
                     *dropped.entry(kind.to_owned()).or_default() += 1;
                     continue;
                 };
-                let message: Message = serde_json::from_value(raw.clone())?;
-                let draft = EntryDraft {
-                    kind: durable_kind(&message),
-                    data: matches!(message, Message::ToolResult(_))
-                        .then(|| json!({ "diagnostics": [] })),
-                    model: Some(vec![message.clone()]),
-                    head: None,
-                    edits: None,
-                };
-                record(&mut *tx, conversation, &message)?;
-                written.insert(source.to_owned(), message);
-                tx.append_entry(conversation, draft)?.id
+                if raw.get("role").and_then(Value::as_str) == Some("bashExecution") {
+                    let draft = crate::bash_exec::entry(
+                        raw.get("command")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default(),
+                        &bash_outcome(raw),
+                        raw.get("excludeFromContext")
+                            .and_then(Value::as_bool)
+                            .unwrap_or_default(),
+                    );
+                    tx.append_entry(
+                        conversation,
+                        EntryDraft {
+                            kind: draft.kind,
+                            model: draft.model,
+                            data: draft.data,
+                            head: None,
+                            edits: None,
+                        },
+                    )?
+                    .id
+                } else {
+                    let message: Message = serde_json::from_value(raw.clone())?;
+                    let draft = EntryDraft {
+                        kind: durable_kind(&message),
+                        data: matches!(message, Message::ToolResult(_))
+                            .then(|| json!({ "diagnostics": [] })),
+                        model: Some(vec![message.clone()]),
+                        head: None,
+                        edits: None,
+                    };
+                    record(&mut *tx, conversation, &message)?;
+                    written.insert(source.to_owned(), message);
+                    tx.append_entry(conversation, draft)?.id
+                }
             }
             "compaction" => {
                 let summary = entry
@@ -285,6 +308,33 @@ fn name_is_safe(id: &str) -> bool {
             .iter()
             .all(|b| alnum(b) || matches!(b, b'.' | b'_' | b'-')),
         _ => false,
+    }
+}
+
+/// The run upstream recorded in a `bashExecution` message.
+fn bash_outcome(raw: &Value) -> crate::bash_exec::Outcome {
+    crate::bash_exec::Outcome {
+        output: raw
+            .get("output")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+        exit_code: raw
+            .get("exitCode")
+            .and_then(Value::as_i64)
+            .map(|code| code as i32),
+        cancelled: raw
+            .get("cancelled")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+        truncated: raw
+            .get("truncated")
+            .and_then(Value::as_bool)
+            .unwrap_or_default(),
+        full_output_path: raw
+            .get("fullOutputPath")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
     }
 }
 

@@ -31,6 +31,7 @@ use pi_tui::tui::{ComponentRef, InputListenerResult, component};
 use pi_tui::tui_main_screen::{TuiMainScreen, as_ref};
 use serde_json::json;
 
+use super::bash_mode::BashMode;
 use super::chat::Chat;
 use super::footer::{Footer, FooterState, Totals, git_branch};
 use super::keybindings;
@@ -744,6 +745,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     for notice in &extensions.notices {
         chat.notice("warning", notice);
     }
+    let mut bash = BashMode::new();
     chat.hide_thinking = settings.borrow().hide_thinking_block();
     chat.output_pad = settings.borrow().output_pad() as usize;
     let mut scope = run_config::scope(&settings.borrow(), &run_config::available(&registry));
@@ -783,6 +785,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         },
     });
     let submitted: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let bash_border = Rc::new(Cell::new(false));
     let dirty = Rc::new(Cell::new(true));
     {
         let mut e = editor.borrow_mut();
@@ -874,10 +877,15 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         if spun {
             dirty.set(true);
         }
+        let (moved, bash_due) = bash.tick(now());
+        if moved {
+            dirty.set(true);
+        }
         due = match (due, spin_due) {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
         };
+        due = [due, bash_due].into_iter().flatten().min();
         let timeout = due.map_or(50, |d| d.saturating_sub(now()).min(50));
         let events = tui.terminal.poll(Some(timeout));
         tui.handle_events(events);
@@ -929,7 +937,13 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         for action in actions.borrow_mut().drain(..) {
             match action {
                 Action::Interrupt => {
-                    if chat.working {
+                    if !chat.working && bash.cancel() {
+                        // `abortBash`: the block ends as cancelled.
+                    } else if !chat.working
+                        && editor.borrow().get_text().trim_start().starts_with('!')
+                    {
+                        editor.borrow_mut().set_text("");
+                    } else if chat.working {
                         // `restoreQueuedMessagesToEditor({abort: true})`: the queued lines go
                         // back in the editor before the run is aborted.
                         match take_queued(&open.root, &cancel) {
@@ -1770,6 +1784,20 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 dirty.set(true);
                 continue;
             }
+            if let Some((command, exclude)) = BashMode::parse(&text) {
+                if bash.is_running() {
+                    chat.notice(
+                        "warning",
+                        "A bash command is already running. Press Esc to cancel it first.",
+                    );
+                    editor.borrow_mut().set_text(&text);
+                } else {
+                    editor.borrow_mut().add_to_history(&text);
+                    bash.start(&mut chat, command, exclude, &settings.borrow());
+                }
+                dirty.set(true);
+                continue;
+            }
             editor.borrow_mut().add_to_history(&text);
             let expanded = crate::prompt_templates::expand(&text, &templates);
             if let Err(e) = submit(
@@ -1804,6 +1832,23 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             let mut f = footer.borrow_mut();
             f.state.totals = chat.totals;
             f.state.context_tokens = chat.context_tokens;
+        }
+        let (moved, failure) = bash.poll(&mut chat, &open.root, &cancel);
+        if let Some(error) = failure {
+            chat.notice("error", &format!("Bash command failed: {error}"));
+        }
+        if moved {
+            dirty.set(true);
+        }
+        let wants_bash_border = editor.borrow().get_text().trim_start().starts_with('!');
+        if wants_bash_border != bash_border.get() {
+            bash_border.set(wants_bash_border);
+            editor.borrow_mut().border_color = if wants_bash_border {
+                theme::fg_fn("bashMode")
+            } else {
+                theme::editor().border_color.clone()
+            };
+            dirty.set(true);
         }
         editor.borrow_mut().terminal_rows = tui.terminal.rows();
         if dirty.replace(false) {

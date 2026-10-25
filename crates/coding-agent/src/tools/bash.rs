@@ -87,7 +87,7 @@ unsafe extern "C" {
     fn kill(pid: i32, signal: i32) -> i32;
 }
 
-fn kill_tree(pid: u32) {
+pub(crate) fn kill_tree(pid: u32) {
     // SAFETY: kill(2) takes plain integers.
     unsafe {
         if kill(-(pid as i32), 9) != 0 {
