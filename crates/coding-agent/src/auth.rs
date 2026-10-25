@@ -219,13 +219,8 @@ impl AuthStore {
         let result = match current.get(provider).and_then(parse_credential) {
             Some(Credential::OAuth(c)) if !expires_soon(&c) => Some(c),
             Some(Credential::OAuth(c)) => {
-                let next =
+                let merged =
                     refresh(&c).map_err(|e| format!("OAuth refresh failed for {provider}: {e}"))?;
-                let mut merged = Map::new();
-                merged.insert("type".to_owned(), Value::String("oauth".to_owned()));
-                for (k, v) in next {
-                    merged.insert(k, v);
-                }
                 current.insert(provider.to_owned(), Value::Object(merged.clone()));
                 let text = serde_json::to_string_pretty(&Value::Object(current.clone()))
                     .map_err(|e| e.to_string())?;

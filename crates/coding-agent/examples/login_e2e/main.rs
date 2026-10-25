@@ -21,7 +21,7 @@ fn device_access_token() -> String {
     )
 }
 
-fn check<T: PartialEq + std::fmt::Debug>(label: &str, got: T, want: T) {
+pub fn check<T: PartialEq + std::fmt::Debug>(label: &str, got: T, want: T) {
     assert!(got == want, "{label}: got {got:?}, want {want:?}");
 }
 
@@ -35,13 +35,20 @@ fn main() {
     let oauth_port = oauth.local_addr().unwrap().port();
     let base = format!("http://127.0.0.1:{oauth_port}");
     unsafe {
-        std::env::set_var("PI_OAUTH_AUTHORIZE_URL", format!("{base}/authorize"));
-        std::env::set_var("PI_OAUTH_TOKEN_URL", format!("{base}/token"));
         std::env::set_var(
-            "PI_OAUTH_DEVICE_USER_CODE_URL",
+            "PI_OAUTH_ANTHROPIC_AUTHORIZE_URL",
+            format!("{base}/authorize"),
+        );
+        std::env::set_var("PI_OAUTH_ANTHROPIC_TOKEN_URL", format!("{base}/token"));
+        std::env::set_var("PI_OAUTH_OPENAI_CODEX_TOKEN_URL", format!("{base}/token"));
+        std::env::set_var(
+            "PI_OAUTH_OPENAI_CODEX_DEVICE_USER_CODE_URL",
             format!("{base}/device/usercode"),
         );
-        std::env::set_var("PI_OAUTH_DEVICE_TOKEN_URL", format!("{base}/device/token"));
+        std::env::set_var(
+            "PI_OAUTH_OPENAI_CODEX_DEVICE_TOKEN_URL",
+            format!("{base}/device/token"),
+        );
     }
     thread::spawn(move || serve_oauth(oauth));
 
@@ -55,7 +62,15 @@ fn main() {
     println!("login ok: anthropic copy code, api key, logout, codex device code, cancel");
 }
 
-fn auth_json(agent_dir: &str) -> serde_json::Value {
+/// A stored credential's keys in the order auth.json holds them.
+pub fn keys(value: &serde_json::Value) -> Vec<String> {
+    value
+        .as_object()
+        .map(|map| map.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+pub fn auth_json(agent_dir: &str) -> serde_json::Value {
     let text = std::fs::read_to_string(login::auth_path(agent_dir)).expect("auth.json exists");
     serde_json::from_str(&text).expect("auth.json parses")
 }
@@ -68,14 +83,18 @@ fn anthropic_copy_code(agent_dir: &str) {
         },
         agent_dir,
     );
-    let status = drive(&login, |prompt, state| match prompt {
-        Prompt::Select { options, .. } => {
-            check("method options", options.len(), 2);
-            Some("copy_code".to_owned())
-        }
-        Prompt::ManualCode { .. } => Some(format!("{CODE}#{state}")),
-        other => panic!("unexpected prompt {other:?}"),
-    });
+    let status = drive(
+        &login,
+        |prompt, state| match prompt {
+            Prompt::Select { options, .. } => {
+                check("method options", options.len(), 2);
+                Some("copy_code".to_owned())
+            }
+            Prompt::ManualCode { .. } => Some(format!("{CODE}#{state}")),
+            other => panic!("unexpected prompt {other:?}"),
+        },
+        |_, _| {},
+    );
     let outcome = status.expect("anthropic login succeeds");
     check("provider", outcome.provider.as_str(), "anthropic");
     check("auth", outcome.auth, AuthType::Oauth);
@@ -129,13 +148,17 @@ fn api_key(agent_dir: &str) {
         },
         agent_dir,
     );
-    let status = drive(&login, |prompt, _| match prompt {
-        Prompt::Secret { message } => {
-            check("key prompt", message.as_str(), "Enter Anthropic API key");
-            Some("sk-ant-api03-typed".to_owned())
-        }
-        other => panic!("unexpected prompt {other:?}"),
-    });
+    let status = drive(
+        &login,
+        |prompt, _| match prompt {
+            Prompt::Secret { message } => {
+                check("key prompt", message.as_str(), "Enter Anthropic API key");
+                Some("sk-ant-api03-typed".to_owned())
+            }
+            other => panic!("unexpected prompt {other:?}"),
+        },
+        |_, _| {},
+    );
     status.expect("api key login succeeds");
     let stored = auth_json(agent_dir);
     check(
@@ -173,10 +196,28 @@ fn codex_device(agent_dir: &str) {
         },
         agent_dir,
     );
-    let status = drive(&login, |prompt, _| match prompt {
-        Prompt::Select { .. } => Some("device_code".to_owned()),
-        other => panic!("unexpected prompt {other:?}"),
-    });
+    let status = drive(
+        &login,
+        |prompt, _| match prompt {
+            Prompt::Select { .. } => Some("device_code".to_owned()),
+            other => panic!("unexpected prompt {other:?}"),
+        },
+        |event, _| {
+            if let UiEvent::DeviceCode {
+                user_code,
+                verification_uri,
+                ..
+            } = event
+            {
+                check("user code", user_code.as_str(), "DEV-1");
+                check(
+                    "verification uri",
+                    verification_uri.as_str(),
+                    "https://auth.openai.com/codex/device",
+                );
+            }
+        },
+    );
     status.expect("device code login succeeds");
     let stored = auth_json(agent_dir);
     check(
@@ -217,44 +258,55 @@ fn cancel(agent_dir: &str) {
     }
 }
 
-/// Answers prompts as the screen would. The second argument is the state the authorize URL carried,
-/// which a pasted code has to name back.
-fn drive(
+/// Answers prompts as the screen would, and hands every other event to `observe` together with the
+/// state the authorize URL carried, which a pasted code has to name back.
+pub fn drive(
     login: &Login,
-    answer: impl Fn(Prompt, &str) -> Option<String>,
+    mut answer: impl FnMut(Prompt, &str) -> Option<String>,
+    mut observe: impl FnMut(&UiEvent, &str),
 ) -> Result<login::Outcome, String> {
     let mut state = String::new();
     loop {
-        match login.events.recv().expect("an event") {
+        let event = login.events.recv().expect("an event");
+        match &event {
             UiEvent::Prompt { id, prompt } => {
-                login.answer(id, answer(prompt, &state));
-            }
-            UiEvent::DeviceCode {
-                user_code,
-                verification_uri,
-            } => {
-                check("user code", user_code.as_str(), "DEV-1");
-                check(
-                    "verification uri",
-                    verification_uri.as_str(),
-                    "https://auth.openai.com/codex/device",
-                );
+                login.answer(*id, answer(prompt.clone(), &state));
             }
             UiEvent::AuthUrl { url, .. } => {
-                assert!(
-                    url.starts_with("http://127.0.0.1:"),
-                    "authorize URL is the fake server: {url}"
-                );
                 let query = url
                     .split_once('?')
                     .map(|(_, query)| query)
                     .unwrap_or_default();
                 state = pi_durable::ai::oauth::query_param(query, "state").unwrap_or_default();
+                observe(&event, &state);
             }
-            UiEvent::Progress(_) | UiEvent::Dismiss(_) => {}
-            UiEvent::Done(status) => return status,
+            UiEvent::DeviceCode { .. } | UiEvent::Progress(_) | UiEvent::Dismiss(_) => {
+                observe(&event, &state)
+            }
+            UiEvent::Done(status) => return status.clone(),
         }
     }
+}
+
+/// Serves fake answers on a loopback port of its own until the process ends, and answers the base
+/// URL requests go to.
+pub fn fake_server(handler: impl Fn(&str, &str) -> (u16, String) + Send + 'static) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("fake server binds");
+    let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let (head, body) = read_request(&mut stream);
+            let request = head.lines().next().unwrap_or_default().to_owned();
+            let (status, reply) = handler(&request, &body);
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+                reply.len()
+            );
+        }
+    });
+    base
 }
 
 fn serve_oauth(listener: TcpListener) {

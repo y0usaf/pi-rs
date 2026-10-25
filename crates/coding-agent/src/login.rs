@@ -10,12 +10,12 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use pi_durable::ai::oauth::Credentials;
 use pi_durable::ai::oauth::anthropic;
 use pi_durable::ai::oauth::interaction::{Event, Interaction, Prompt};
 use pi_durable::ai::oauth::openai_codex;
+use pi_durable::ai::oauth::{self};
 use pi_durable::cancel::CancelToken;
-use serde_json::{Map, Value, json};
+use serde_json::json;
 
 use crate::auth::AuthStore;
 
@@ -161,6 +161,8 @@ pub enum UiEvent {
     DeviceCode {
         user_code: String,
         verification_uri: String,
+        interval_seconds: u64,
+        expires_in_seconds: u64,
     },
     Progress(String),
     /// A question with an id the screen answers through `Login::answer`.
@@ -242,40 +244,6 @@ impl Drop for Login {
     }
 }
 
-/// Anthropic's endpoints, with the ones a check or a gateway sets from the environment.
-fn anthropic_endpoints() -> anthropic::Endpoints {
-    let mut endpoints = anthropic::Endpoints::default();
-    if let Some(url) = env("PI_OAUTH_AUTHORIZE_URL") {
-        endpoints.authorize_url = url;
-    }
-    if let Some(url) = env("PI_OAUTH_TOKEN_URL") {
-        endpoints.token_url = url;
-    }
-    endpoints
-}
-
-/// OpenAI Codex's endpoints, with the same overrides.
-fn openai_codex_endpoints() -> openai_codex::Endpoints {
-    let mut endpoints = openai_codex::Endpoints::default();
-    if let Some(url) = env("PI_OAUTH_AUTHORIZE_URL") {
-        endpoints.authorize_url = url;
-    }
-    if let Some(url) = env("PI_OAUTH_TOKEN_URL") {
-        endpoints.token_url = url;
-    }
-    if let Some(url) = env("PI_OAUTH_DEVICE_USER_CODE_URL") {
-        endpoints.device_user_code_url = url;
-    }
-    if let Some(url) = env("PI_OAUTH_DEVICE_TOKEN_URL") {
-        endpoints.device_token_url = url;
-    }
-    endpoints
-}
-
-fn env(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|value| !value.is_empty())
-}
-
 fn provider_name(request: &LoginRequest) -> String {
     PROVIDERS
         .iter()
@@ -299,12 +267,14 @@ fn authenticate(
     let provider = request.provider.as_str();
     let credential = match (provider, request.auth) {
         ("anthropic", AuthType::Oauth) => {
-            let credentials = anthropic::login(interaction, &anthropic_endpoints(), cancel)?;
-            oauth_credential(provider, &credentials)
+            let credentials =
+                anthropic::login(interaction, &anthropic::Endpoints::from_env(), cancel)?;
+            oauth::stored(provider, &credentials)
         }
         ("openai-codex", AuthType::Oauth) => {
-            let credentials = openai_codex::login(interaction, &openai_codex_endpoints(), cancel)?;
-            oauth_credential(provider, &credentials)
+            let credentials =
+                openai_codex::login(interaction, &openai_codex::Endpoints::from_env(), cancel)?;
+            oauth::stored(provider, &credentials)
         }
         (_, AuthType::ApiKey) => {
             let provider_entry = PROVIDERS
@@ -331,25 +301,6 @@ fn authenticate(
     let mut store = AuthStore::open(&path);
     store.write(provider, credential)?;
     Ok(path)
-}
-
-/// The credential object `auth-storage.ts` stores, in the order upstream writes it.
-fn oauth_credential(provider: &str, credentials: &Credentials) -> Value {
-    let mut map = Map::new();
-    map.insert("type".to_owned(), Value::String("oauth".to_owned()));
-    if provider == "anthropic" {
-        map.insert("refresh".to_owned(), credentials.refresh.clone().into());
-        map.insert("access".to_owned(), credentials.access.clone().into());
-        map.insert("expires".to_owned(), credentials.expires_ms.into());
-    } else {
-        map.insert("access".to_owned(), credentials.access.clone().into());
-        map.insert("refresh".to_owned(), credentials.refresh.clone().into());
-        map.insert("expires".to_owned(), credentials.expires_ms.into());
-        if let Some(account) = openai_codex::account_id_from_token(&credentials.access) {
-            map.insert("accountId".to_owned(), Value::String(account));
-        }
-    }
-    Value::Object(map)
 }
 
 /// `/logout`: removes the stored credential.
@@ -428,10 +379,13 @@ impl Interaction for ChannelInteraction {
             Event::DeviceCode {
                 user_code,
                 verification_uri,
-                ..
+                interval_seconds,
+                expires_in_seconds,
             } => UiEvent::DeviceCode {
                 user_code,
                 verification_uri,
+                interval_seconds,
+                expires_in_seconds,
             },
             Event::Progress(text) => UiEvent::Progress(text),
             Event::Info { message, .. } => UiEvent::Progress(message),

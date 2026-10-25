@@ -7,7 +7,7 @@ use crate::http::{Request, send};
 use crate::oauth::callback::{Code, Listener, wait_for_code};
 use crate::oauth::interaction::{Event, Interaction, Prompt};
 use crate::oauth::pkce::{self, Pkce};
-use crate::oauth::{Credentials, form_encode, now_ms, query_param};
+use crate::oauth::{Credentials, env_url, form_encode, now_ms, query_param};
 use pi_rt::cancel::CancelToken;
 
 const TOKEN_TIMEOUT: Duration = Duration::from_secs(30);
@@ -45,6 +45,17 @@ impl Default for Endpoints {
 }
 
 impl Endpoints {
+    /// The production endpoints, with the ones a check or a gateway moves through
+    /// `PI_OAUTH_ANTHROPIC_<FIELD>`.
+    pub fn from_env() -> Self {
+        let default = Self::default();
+        Self {
+            authorize_url: env_url("anthropic", "authorize_url", &default.authorize_url),
+            token_url: env_url("anthropic", "token_url", &default.token_url),
+            ..default
+        }
+    }
+
     /// The redirect URI for the loopback flow on `port`, as the browser sees it.
     pub fn loopback_redirect_uri(&self, port: u16) -> String {
         format!("http://{}:{port}{}", self.redirect_host, self.callback_path)
@@ -154,11 +165,11 @@ struct TokenResponse {
 
 impl TokenResponse {
     fn into_credentials(self, now: i64) -> Credentials {
-        Credentials {
-            refresh: self.refresh_token,
-            access: self.access_token,
-            expires_ms: now + self.expires_in * 1000 - EXPIRY_MARGIN_MS,
-        }
+        Credentials::new(
+            self.refresh_token,
+            self.access_token,
+            now + self.expires_in * 1000 - EXPIRY_MARGIN_MS,
+        )
     }
 }
 

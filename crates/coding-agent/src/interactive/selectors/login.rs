@@ -415,6 +415,7 @@ impl LoginDialog {
                 login::UiEvent::DeviceCode {
                     user_code,
                     verification_uri,
+                    ..
                 } => {
                     self.lines.push(fg("accent", &verification_uri));
                     self.lines

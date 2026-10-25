@@ -338,21 +338,12 @@ impl ModelRegistry {
 
 fn refresh_oauth(provider: &str, refresh_token: &str) -> Result<Map<String, Value>, String> {
     use pi_durable::ai::oauth::{anthropic, openai_codex};
-    let mut out = Map::new();
     let credentials = match provider {
-        "anthropic" => anthropic::refresh(&anthropic::Endpoints::default(), refresh_token, None)?,
-        _ => openai_codex::refresh(&openai_codex::Endpoints::default(), refresh_token, None)?,
+        "anthropic" => anthropic::refresh(&anthropic::Endpoints::from_env(), refresh_token, None)?,
+        _ => openai_codex::refresh(&openai_codex::Endpoints::from_env(), refresh_token, None)?,
     };
-    out.insert(
-        "access".to_owned(),
-        Value::String(credentials.access.clone()),
-    );
-    out.insert("refresh".to_owned(), Value::String(credentials.refresh));
-    out.insert("expires".to_owned(), Value::from(credentials.expires_ms));
-    if provider == "openai-codex" {
-        let account = openai_codex::account_id_from_token(&credentials.access)
-            .ok_or("Failed to extract accountId from token")?;
-        out.insert("accountId".to_owned(), Value::String(account));
-    }
-    Ok(out)
+    pi_durable::ai::oauth::stored(provider, &credentials)
+        .as_object()
+        .cloned()
+        .ok_or_else(|| format!("stored {provider} credential is not an object"))
 }

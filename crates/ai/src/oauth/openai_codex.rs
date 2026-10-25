@@ -8,7 +8,7 @@ use crate::oauth::anthropic::parse_authorization_input;
 use crate::oauth::callback::{Code, Listener, wait_for_code};
 use crate::oauth::interaction::{Event, Interaction, Prompt};
 use crate::oauth::pkce::{self, Pkce};
-use crate::oauth::{Credentials, form_encode, now_ms};
+use crate::oauth::{Credentials, env_url, form_encode, now_ms};
 use pi_rt::cancel::CancelToken;
 
 pub const ORIGINATOR: &str = "pig";
@@ -61,6 +61,27 @@ impl Default for Endpoints {
 }
 
 impl Endpoints {
+    /// The production endpoints, with the ones a check or a gateway moves through
+    /// `PI_OAUTH_OPENAI_CODEX_<FIELD>`.
+    pub fn from_env() -> Self {
+        let default = Self::default();
+        Self {
+            authorize_url: env_url("openai-codex", "authorize_url", &default.authorize_url),
+            token_url: env_url("openai-codex", "token_url", &default.token_url),
+            device_user_code_url: env_url(
+                "openai-codex",
+                "device_user_code_url",
+                &default.device_user_code_url,
+            ),
+            device_token_url: env_url(
+                "openai-codex",
+                "device_token_url",
+                &default.device_token_url,
+            ),
+            ..default
+        }
+    }
+
     pub fn authorize_link(&self, pkce: &Pkce, state: &str) -> String {
         let params = [
             ("response_type", "code"),
@@ -110,11 +131,14 @@ fn credentials(text: &str, operation: &str) -> Result<Credentials, String> {
     if account_id_from_token(&data.access_token).is_none() {
         return Err("Failed to extract accountId from token".to_owned());
     }
-    Ok(Credentials {
-        refresh: data.refresh_token,
-        access: data.access_token,
-        expires_ms: now_ms() + (data.expires_in * 1000.0) as i64,
-    })
+    let account = account_id_from_token(&data.access_token)
+        .ok_or_else(|| "Failed to extract accountId from token".to_owned())?;
+    Ok(Credentials::new(
+        data.refresh_token,
+        data.access_token,
+        now_ms() + (data.expires_in * 1000.0) as i64,
+    )
+    .with("accountId", account.into()))
 }
 
 fn post_form(
