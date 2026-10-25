@@ -19,7 +19,8 @@ pub use crate::harness::timers::SetTimer;
 use crate::ids::{ConversationId, EntryId, TaskId};
 use crate::session::types::{DocumentObserver, DocumentReader, Tx};
 use crate::types::{
-    AnyTaskRecord, ConversationOwnership, ConversationRecord, JsonObject, JsonValue, ToolDiagnostic,
+    AnyTaskRecord, ConversationOwnership, ConversationRecord, EntryRecord, JsonObject, JsonValue,
+    ToolDiagnostic,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -182,6 +183,10 @@ pub trait ToolExecutionApi: DocumentObserver + DocumentReader + Sync {
         cancel: &CancelToken,
     ) -> Result<JsonValue>;
     fn get_task(&self, id: TaskId, cancel: &CancelToken) -> Result<Option<AnyTaskRecord>>;
+    /// The entries on the current branch, root first: what the model's transcript is built from.
+    fn branch_entries(&self, cancel: &CancelToken) -> Result<Vec<EntryRecord>>;
+    /// Append one custom entry to the conversation: no model messages, only `data`.
+    fn append_custom_entry(&self, kind: &str, data: JsonValue, cancel: &CancelToken) -> Result<()>;
     fn before_tool(
         &self,
         _tool: &ToolRegistration,

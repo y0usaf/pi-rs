@@ -1150,6 +1150,37 @@ impl ToolExecutionApi for Api<'_> {
         self.rt.get_task(id, cancel)
     }
 
+    fn branch_entries(&self, cancel: &CancelToken) -> Result<Vec<EntryRecord>> {
+        Ok(self
+            .rt
+            .context(None, cancel)?
+            .entries
+            .iter()
+            .map(|entry| (**entry).clone())
+            .collect())
+    }
+
+    fn append_custom_entry(&self, kind: &str, data: JsonValue, cancel: &CancelToken) -> Result<()> {
+        let conversation = self.rt.conversation_id();
+        let kind = kind.to_owned();
+        self.rt.commit(
+            Box::new(move |tx: &mut dyn Tx, _task| {
+                tx.append_entry(
+                    conversation,
+                    EntryDraft {
+                        kind: kind.clone(),
+                        model: None,
+                        data: Some(data.clone()),
+                        head: None,
+                        edits: None,
+                    },
+                )?;
+                Ok(None)
+            }),
+            cancel,
+        )
+    }
+
     fn before_tool(
         &self,
         tool: &ToolRegistration,

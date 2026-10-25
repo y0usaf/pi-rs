@@ -259,12 +259,13 @@ fn run(
             outcome
         };
 
+    let store = read_store(api, cancel)?;
     let result = pi_codemode::execute(
         &vm_path(),
         &parsed.code,
         &callable,
         &[],
-        &BTreeMap::new(),
+        &store,
         ExecuteOptions {
             timeout_ms: remaining,
             memory_limit_bytes: Some(MEMORY_LIMIT_BYTES),
@@ -276,6 +277,14 @@ fn run(
     if cancel.is_cancelled() {
         return Err(pi_durable::errors::Error::Aborted);
     }
+    let writes = &result.store_writes;
+    if result.ok && !writes.is_empty() {
+        api.append_custom_entry(
+            STORE_ENTRY_TYPE,
+            json!({"set": writes.set, "delete": writes.delete}),
+            cancel,
+        )?;
+    }
     Ok(finish(
         &result,
         &calls,
@@ -285,6 +294,42 @@ fn run(
             .max_output_tokens
             .unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS),
     ))
+}
+
+/// One script's `store()` writes: the shape of a `codemode-store` entry's data.
+#[derive(Deserialize)]
+struct StoreEntry {
+    #[serde(default)]
+    set: Map<String, Value>,
+    #[serde(default)]
+    delete: Vec<String>,
+}
+
+/// What `load()` returns: the `codemode-store` entries on the branch, applied from the root, as the
+/// JSON text the sandbox keeps each value in.
+fn read_store(
+    api: &dyn ToolExecutionApi,
+    cancel: &CancelToken,
+) -> pi_durable::errors::Result<BTreeMap<String, String>> {
+    let mut store: BTreeMap<String, Value> = BTreeMap::new();
+    for entry in api.branch_entries(cancel)? {
+        if entry.kind != STORE_ENTRY_TYPE {
+            continue;
+        }
+        let Some(Ok(data)) = entry.data.map(serde_json::from_value::<StoreEntry>) else {
+            continue;
+        };
+        for key in data.delete {
+            store.remove(&key);
+        }
+        for (key, value) in data.set {
+            store.insert(key, value);
+        }
+    }
+    Ok(store
+        .into_iter()
+        .map(|(key, value)| (key, value.to_string()))
+        .collect())
 }
 
 /// The pi-rs binary, which carries the hidden `--codemode-vm` mode.
