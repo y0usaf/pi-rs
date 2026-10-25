@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use pi_coding_agent::args::{self, Args, Mode};
 use pi_coding_agent::config::{self, VERSION};
+use pi_coding_agent::extensions;
 use pi_coding_agent::interactive;
 use pi_coding_agent::list_models;
 use pi_coding_agent::mcp;
@@ -84,7 +85,6 @@ fn file_arguments(files: &[String], cwd: &str) -> Result<(String, Vec<UserBlock>
 fn unimplemented_flag(parsed: &Args) -> Option<&'static str> {
     let flags = [
         (parsed.export.is_some(), "--export"),
-        (parsed.extensions.is_some(), "--extension"),
         (parsed.prompt_templates.is_some(), "--prompt-template"),
         (parsed.tui_mode.is_some(), "--tui-mode"),
         (parsed.verbose, "--verbose"),
@@ -273,6 +273,13 @@ fn run() -> Result<ExitCode, String> {
     // Upstream reports MCP trouble through the UI, which print mode does not have.
     let mut mcp_notices: Vec<String> = mcp.problems();
     mcp_notices.extend(mcp.unreachable_warning());
+    let extensions = extensions::load(
+        &cwd,
+        &agent_dir,
+        parsed.extensions.as_deref().unwrap_or(&[]),
+        parsed.no_extensions,
+        &settings,
+    );
 
     // The session: a durable sqlite file, or memory with --no-session.
     let initial_name = parsed
@@ -486,12 +493,16 @@ fn run() -> Result<ExitCode, String> {
             session_path,
             initial_name,
             mcp_problems: mcp_notices,
+            extensions,
             incoming,
         })?;
         if let Some(path) = path {
             println!("Session: {path}");
         }
         return Ok(ExitCode::SUCCESS);
+    }
+    for notice in &extensions.notices {
+        eprintln!("{notice}");
     }
     let storage: Arc<dyn Storage> = match &session_path {
         Some(path) => {
@@ -534,18 +545,25 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
     if matches!(mode, Some(Mode::Rpc)) {
-        let commands: Vec<serde_json::Value> = assembled
-            .input
-            .skills
+        let commands: Vec<serde_json::Value> = extensions
+            .commands
             .iter()
-            .map(|skill| {
+            .map(|command| {
+                serde_json::json!({
+                    "name": command.name,
+                    "description": command.description,
+                    "source": "extension",
+                    "sourceInfo": { "path": command.path },
+                })
+            })
+            .chain(assembled.input.skills.iter().map(|skill| {
                 serde_json::json!({
                     "name": format!("skill:{}", skill.name),
                     "description": skill.description,
                     "source": "skill",
                     "sourceInfo": { "path": skill.file_path },
                 })
-            })
+            }))
             .collect();
         let options = modes::rpc::Options {
             model: input.model.clone(),

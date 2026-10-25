@@ -4,9 +4,9 @@ Pi's coding agent ([`@earendil-works/pi-coding-agent`](https://github.com/earend
 
 Settings are upstream's own layer: the global `<agentDir>/settings.json` and the trusted project's `.pi/settings.json`, deep-merged with the project winning, every schema key with upstream's default, and setters that write back through a lock, replacing only the fields the session changed so keys this port does not know survive. pi-durable's auto-compaction follows them: `compaction.enabled`, `reserveTokens`, `keepRecentTokens` and the per-model overrides, with upstream's 16384 / 20000 when unset.
 
-It won't: show settings screens, or the model and thinking selectors; run any slash command but `/quit`, `/new`, `/name`, `/session`, `/resume`, `/hotkeys`, `/compact`, `/tree`, `/fork`, `/clone`, `/export` and `/import`; answer RPC's `bash`, `abort_bash` and `export_html`, or its extension UI protocol; load extensions or prompt templates; log in (it reads the credentials `pi` stores, and refreshes Anthropic and OpenAI Codex OAuth tokens); export a session as HTML.
+It won't: show settings screens, or the model and thinking selectors; run any slash command but `/quit`, `/new`, `/name`, `/session`, `/resume`, `/hotkeys`, `/compact`, `/tree`, `/fork`, `/clone`, `/export` and `/import`; answer RPC's `bash`, `abort_bash` and `export_html`, or its extension UI protocol; load prompt templates; log in (it reads the credentials `pi` stores, and refreshes Anthropic and OpenAI Codex OAuth tokens); export a session as HTML.
 
-The flags for what it won't do, `--export`, `--fork`, `--extension`, `--prompt-template`, `--tui-mode` and `--verbose`, are refused before anything starts: `pi-rs: --export is not implemented yet`, exit 1. The flags that turn a resource off — `--no-extensions` and `--no-prompt-templates` — and `--offline`, which would skip a model-catalog refresh this port never makes, are accepted and change nothing; `--no-mcp` reads no `mcp.json`, and `--no-themes` leaves only the built-in themes. A flag no option or extension defines is `Error: Unknown option: --foo`.
+The flags for what it won't do, `--export`, `--fork`, `--prompt-template`, `--tui-mode` and `--verbose`, are refused before anything starts: `pi-rs: --export is not implemented yet`, exit 1. The flags that turn a resource off — `--no-extensions` and `--no-prompt-templates` — and `--offline`, which would skip a model-catalog refresh this port never makes, are accepted and change nothing; `--no-mcp` reads no `mcp.json`, `--no-themes` leaves only the built-in themes, and `--no-extensions` keeps only the `--extension` paths, as upstream's does. A flag no option or extension defines is `Error: Unknown option: --foo`.
 
 Its behaviour and `pi-ai`'s follow the upstream TypeScript at `bdb1517`; `pi-durable`'s follows `f1b2e77f` ([its README](../durable/README.md) says why the two pins differ). The parity scripts below compare the two on the same inputs.
 
@@ -57,6 +57,14 @@ Servers come from `<agentDir>/mcp.json` and, in a trusted project, from `<cwd>/.
 
 A server's tools are declared to the model only with `"exposure": "direct"`, or a `toolExposure` entry that says so. The default, `codemode`, and `deferred` are not ported, since this port has neither the codemode tool nor `tool_search`: such a server is listed in the `mcp_servers` system prompt section with its description, its tools cannot be called, and the interactive mode says so once at startup. An HTTP server that answers 401 fails, because OAuth sign-in is not ported, and `"auth": { "provider" }` is accepted by the config validation but sends no token. The interactive mode reports the servers that failed to connect and the config errors in the transcript at startup; print mode, like upstream's, has no UI to report them in. A connection that drops is not re-established, so that server's tools fail until the next run.
 
+## Extensions
+
+`packages` (a package directory, a store path for an npm package), the `extensions` setting, `--extension` and the `<cwd>/.pi/extensions` and `<agentDir>/extensions` directories name what to load, and the child finds inside them what upstream's resource loader finds: one level deep, by `package.json`'s `pi.extensions`, `index.ts` or `index.js`. One Node child per session imports each entry point with Node's own type stripping and calls the factory; it comes from the `extension-host` directory installed beside the binary, and `PI_EXTENSION_HOST` names another copy.
+
+A command a factory registers is listed where upstream lists it — `/` autocomplete and RPC `get_commands`, as `"source": "extension"` with the entry point's path; upstream tags the autocomplete entry with where the extension came from (`[u]` for the agent directory) and pi-rs does not. Typing one sends it to the model, because command dispatch and the events are not ported yet. The child answers `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai` and `@earendil-works/pi-tui` with a stub, so a package that imports from them loads: `getAgentDir()` answers with the agent directory, and every other member records itself the first time a package uses it, which the session then reports as `Warning: <path> uses registerTool, which pi-rs does not implement yet`.
+
+A package that fails to load is reported as upstream reports it, `Warning: Failed to load extension: <message>`, and the session goes on; with nothing configured no child starts and nothing changes.
+
 ## What matches upstream, and how it is checked
 
 `parity/run.sh` (with `PI_TS` pointing at an upstream checkout with `node_modules` installed, and the models catalog hydrated) runs each check against the TypeScript and against this crate:
@@ -65,6 +73,8 @@ A server's tools are declared to the model only with `"exposure": "direct"`, or 
 - model resolution (`models.json`): `--model`, `--provider`, `:thinking` suffixes, `--models` scopes and their warnings;
 - the system prompt (`prompt.json`): the tools list and rules, context files up the directory tree (with worktree shadowing), SYSTEM.md and APPEND_SYSTEM.md with project trust, `--system-prompt` and `--append-system-prompt`, and skills discovery with frontmatter, ignore files and name collisions;
 - print mode end to end (`e2e.json`): `pi -p` and `pi-rs -p` against one scripted OpenAI-compatible server, compared on every request they send (system prompt, tool declarations, messages, tool results) and on stdout, stderr and the exit code.
+
+`nix flake check`'s `extensions-e2e` writes an extension of its own and drives the built binary with it: `packages` names it, a command appears in RPC `get_commands` with the schema the package computed at load, `--extension` adds a second, `--no-extensions` keeps only that one, a package that throws and one that registers a tool are reported and leave nothing behind, and an empty settings file starts no child.
 
 ## Where it differs
 

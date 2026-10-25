@@ -132,6 +132,8 @@ pub struct Session {
     pub initial_name: Option<String>,
     /// MCP servers that failed to connect or are configured wrongly, shown once at startup.
     pub mcp_problems: Vec<String>,
+    /// The commands the extensions registered, and what loading them had to say.
+    pub extensions: crate::extensions::Extensions,
     pub incoming: mpsc::Receiver<Incoming>,
 }
 
@@ -547,6 +549,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         session_path,
         initial_name,
         mcp_problems,
+        extensions,
         incoming,
     } = session;
     let (mut model, mut thinking, mut cwd) = (model, thinking, cwd);
@@ -577,6 +580,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     }
 
     let mut chat = Chat::new(&cwd);
+    for notice in &extensions.notices {
+        chat.notice("warning", notice);
+    }
     chat.hide_thinking = settings.borrow().hide_thinking_block();
     chat.output_pad = settings.borrow().output_pad() as usize;
     let mut scope = run_config::scope(&settings.borrow(), &run_config::available(&registry));
@@ -622,7 +628,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         e.on_submit = Some(Box::new(move |t: &str| s.borrow_mut().push(t.to_string())));
         e.request_render = Some(Rc::new(move || d.set(true)));
         e.set_autocomplete_provider(Rc::new(CombinedAutocompleteProvider::new(
-            slash_commands::autocomplete_commands(),
+            slash_commands::autocomplete_commands(&extensions.commands),
             &cwd,
             crate::config::tool_path("fd").as_deref(),
         )));
@@ -794,7 +800,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                                             chat.cwd = cwd.clone();
                                             editor.borrow_mut().set_autocomplete_provider(Rc::new(
                                                 CombinedAutocompleteProvider::new(
-                                                    slash_commands::autocomplete_commands(),
+                                                    slash_commands::autocomplete_commands(
+                                                        &extensions.commands,
+                                                    ),
                                                     &cwd,
                                                     crate::config::tool_path("fd").as_deref(),
                                                 ),

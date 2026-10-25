@@ -5,6 +5,7 @@ pub mod auth;
 pub mod collate;
 pub mod config;
 pub mod config_value;
+pub mod extensions;
 pub mod interactive;
 pub mod json;
 pub mod list_models;

@@ -1,0 +1,8 @@
+{
+	"name": "@earendil-works/pi-ai",
+	"type": "module",
+	"exports": {
+		".": "./index.mjs",
+		"./providers/all": "./providers-all.mjs"
+	}
+}

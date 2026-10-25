@@ -1,0 +1,10 @@
+[package]
+name = "pi-extensions"
+description = "Upstream pi extensions as a child process: one Node that loads the user's TypeScript packages, calls their factories and answers with what they registered."
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

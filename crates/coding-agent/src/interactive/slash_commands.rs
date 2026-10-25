@@ -6,6 +6,7 @@ use pi_tui::autocomplete::{CommandEntry, SlashCommand};
 use pi_tui::keybindings::get_keybindings;
 
 use super::footer::Totals;
+use crate::extensions::ExtensionCommand;
 
 /// A builtin command as `BUILTIN_SLASH_COMMANDS` has it, plus whether the submit handler takes
 /// arguments after the name (which is what decides between a command and a message starting with `/`).
@@ -204,18 +205,26 @@ pub fn dispatch(text: &str) -> Option<Command> {
     })
 }
 
-/// The builtins as autocomplete entries.
-pub fn autocomplete_commands() -> Vec<CommandEntry> {
-    BUILTIN_SLASH_COMMANDS
+/// The extensions' commands, then the builtins, as autocomplete entries.
+pub fn autocomplete_commands(extensions: &[ExtensionCommand]) -> Vec<CommandEntry> {
+    extensions
         .iter()
-        .map(|c| {
+        .map(|command| {
+            CommandEntry::Command(SlashCommand {
+                name: command.name.clone(),
+                description: (!command.description.is_empty()).then(|| command.description.clone()),
+                argument_hint: None,
+                argument_completions: None,
+            })
+        })
+        .chain(BUILTIN_SLASH_COMMANDS.iter().map(|c| {
             CommandEntry::Command(SlashCommand {
                 name: c.name.to_string(),
                 description: Some(c.description.to_string()),
                 argument_hint: c.argument_hint.map(str::to_owned),
                 argument_completions: None,
             })
-        })
+        }))
         .collect()
 }
 
@@ -462,7 +471,7 @@ mod tests {
 
     #[test]
     fn autocomplete_lists_the_builtins_with_hints() {
-        let entries = autocomplete_commands();
+        let entries = autocomplete_commands(&[]);
         assert_eq!(entries.len(), BUILTIN_SLASH_COMMANDS.len());
         let model = entries
             .iter()

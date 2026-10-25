@@ -58,6 +58,10 @@
             find target/release -maxdepth 1 -type f -executable -exec cp {} $out/bin/ \;
             runHook postInstall
           '';
+          postInstall = ''
+            mkdir -p $out/share/pi-rs
+            cp -r ${extensionHost pkgs} $out/share/pi-rs/extension-host
+          '';
           meta.mainProgram = "pi-rs";
         };
       chatManifest = (builtins.fromTOML (builtins.readFile ./examples/chat/Cargo.toml)).package;
@@ -160,11 +164,29 @@
           cp ${./crates/ai/parity/loader.mjs} $out/parity-ai/loader.mjs
           cp -r ${./crates/ai/parity/stubs} $out/parity-ai/stubs
         '';
+      extensionHost =
+        pkgs:
+        pkgs.runCommand "pi-extension-host"
+          {
+            nativeBuildInputs = [
+              pkgs.nodejs_24
+              pkgs.gnutar
+            ];
+          }
+          ''
+            mkdir -p $out/node_modules/@earendil-works
+            mkdir -p $out/node_modules/typebox
+            tar -xzf ${(oracleDeps pkgs).typebox} --strip-components=1 -C $out/node_modules/typebox
+            cp ${./crates/extensions/host}/host.mjs ${./crates/extensions/host}/register.mjs ${./crates/extensions/host}/common.mjs $out/
+            cp -r ${./crates/extensions/host}/shims/pi-ai ${./crates/extensions/host}/shims/pi-coding-agent ${./crates/extensions/host}/shims/pi-tui $out/node_modules/@earendil-works/
+            ln -s ${pkgs.nodejs_24}/bin/node $out/node
+          '';
     in
     {
       packages = forAll (pkgs: {
         default = build pkgs "pi-durable/providers";
         storage-only = build pkgs "";
+        extension-host = extensionHost pkgs;
         chat = chat pkgs;
       });
 
@@ -226,6 +248,12 @@
           '';
           durable-sleep-e2e = pkgs.runCommand "${pname}-durable-sleep-e2e" { } ''
             ${examples}/bin/durable_sleep_e2e
+            touch $out
+          '';
+          extensions-e2e = pkgs.runCommand "${pname}-extensions-e2e" { } ''
+            PI_RS_BIN=${self.packages.${system}.default}/bin/pi-rs \
+              PI_EXTENSION_HOST=${extensionHost pkgs} \
+              ${examples}/bin/extensions_e2e
             touch $out
           '';
           parity =
