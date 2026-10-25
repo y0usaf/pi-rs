@@ -104,6 +104,7 @@ pub type OnYieldHook = Box<
 >;
 pub type AfterToolsHook = Box<dyn Fn(&HookApi, EntryId, &[EntryId]) -> Result<()> + Send + Sync>;
 pub type PartialHook = Arc<dyn Fn(&HookApi, Option<Arc<AssistantMessage>>) + Send + Sync>;
+pub type MessageEndHook = Arc<dyn Fn(&HookApi, &Message) -> Result<Option<Message>> + Send + Sync>;
 
 #[derive(Default)]
 pub struct GenerationHooks {
@@ -112,6 +113,38 @@ pub struct GenerationHooks {
     pub on_yield: Option<OnYieldHook>,
     pub after_tools: Option<AfterToolsHook>,
     pub on_partial: Option<PartialHook>,
+    pub message_end: Option<MessageEndHook>,
+}
+
+/// The `message_end` hooks of the extensions this task runs under, in registration order.
+pub fn message_end_hooks(runtime: Runtime<'_>) -> Result<Vec<MessageEndHook>> {
+    let mut hooks = Vec::new();
+    runtime.hooks().each(&mut |generation: &GenerationHooks| {
+        if let Some(hook) = generation.message_end.as_ref() {
+            hooks.push(Arc::clone(hook));
+        }
+        Ok(())
+    })?;
+    Ok(hooks)
+}
+
+/// Runs the hooks over a finished message, each seeing what the one before returned. A
+/// replacement of another role is dropped, as upstream's `emitMessageEnd` refuses one.
+pub fn apply_message_end(
+    hooks: &[MessageEndHook],
+    api: &HookApi,
+    message: Message,
+) -> Result<Message> {
+    let mut current = message;
+    for hook in hooks {
+        let Some(next) = hook(api, &current)? else {
+            continue;
+        };
+        if std::mem::discriminant(&next) == std::mem::discriminant(&current) {
+            current = next;
+        }
+    }
+    Ok(current)
 }
 
 pub const GENERATION_KIND: &str = "pi.generation";
@@ -325,6 +358,8 @@ pub fn convert_partial(
     tx: &mut dyn Tx,
     live: &LiveState,
     conversation_id: ConversationId,
+    hooks: &[MessageEndHook],
+    api: &HookApi,
 ) -> Result<()> {
     let Some(partial) = live
         .generation
@@ -336,6 +371,10 @@ pub fn convert_partial(
     let aborted = AssistantMessage {
         stop_reason: StopReason::Aborted,
         ..partial.clone()
+    };
+    let ended = apply_message_end(hooks, api, Message::Assistant(Arc::new(aborted)))?;
+    let Message::Assistant(aborted) = ended else {
+        return Ok(());
     };
     append_assistant(tx, conversation_id, &aborted)?;
     Ok(())
@@ -669,7 +708,8 @@ fn request(
     runtime.commit(
         Box::new(move |tx, _task| {
             let live = read_live(tx, conversation_id)?;
-            convert_partial(tx, &live, conversation_id)?;
+            let api = HookApi { conversation_id };
+            convert_partial(tx, &live, conversation_id, &[], &api)?;
             let mut live = live;
             live.generation = Some(GenerationStatus {
                 attempt,
@@ -710,6 +750,17 @@ fn request(
         session_id,
     );
     let message = classify::stream_response(runtime, &model, messages, options, attempt, cancel)?;
+    let ended = apply_message_end(
+        &message_end_hooks(runtime)?,
+        &api,
+        Message::Assistant(Arc::new(message)),
+    )?;
+    let Message::Assistant(message) = ended else {
+        return Err(Error::Invalid(
+            "a finished message changed its role".to_owned(),
+        ));
+    };
+    let message = message.as_ref().clone();
     let request = classify::Request {
         attempt,
         compacted,
@@ -823,10 +874,12 @@ fn abort(
     };
     let task_id = erase(runtime.task_id());
     let now = runtime.now();
+    let hooks = message_end_hooks(runtime)?;
+    let api = HookApi { conversation_id };
     runtime.commit(
         Box::new(move |tx, _task| {
             let mut live = read_live(tx, conversation_id)?;
-            convert_partial(tx, &live, conversation_id)?;
+            convert_partial(tx, &live, conversation_id, &hooks, &api)?;
             for call in &unstarted {
                 let result = harness_error("aborted", &format!("Tool {} was aborted", call.name));
                 crate::harness::tool::append_tool_result(

@@ -21,6 +21,7 @@ use pi_durable::harness::harness::Conversation;
 use pi_durable::harness::submissions::{SubmissionDraft, WhenBusy};
 use pi_durable::harness::types::ErrorReport;
 use pi_durable::ids::EntryId;
+use pi_extensions::Call;
 use pi_tui::autocomplete::CombinedAutocompleteProvider;
 use pi_tui::components::editor::{Editor, EditorOptions};
 use pi_tui::components::text::Text;
@@ -28,6 +29,7 @@ use pi_tui::keys::is_key_release;
 use pi_tui::terminal::{ProcessTerminal, Terminal};
 use pi_tui::tui::{ComponentRef, InputListenerResult, component};
 use pi_tui::tui_main_screen::{TuiMainScreen, as_ref};
+use serde_json::json;
 
 use super::chat::Chat;
 use super::footer::{Footer, FooterState, Totals, git_branch};
@@ -318,12 +320,66 @@ fn text_input(text: &str, images: &[UserBlock]) -> UserContent {
     UserContent::Blocks(blocks)
 }
 
+/// What the extensions made of the calls they made while an event was served: the same actions
+/// the keys beside them take.
+struct Calls<'a> {
+    root: &'a Conversation,
+    chat: &'a mut Chat,
+    pending: &'a mut Vec<UserContent>,
+    quit: &'a mut bool,
+    cwd: &'a str,
+    interrupted: &'a mut bool,
+    cancel: &'a CancelToken,
+}
+
+fn serve_extension_calls(live: &crate::extensions::Live, calls: Calls<'_>) {
+    let Calls {
+        root,
+        chat,
+        pending,
+        quit,
+        cwd,
+        interrupted,
+        cancel,
+    } = calls;
+    live.set_state(cwd, chat.working, pending.len() as u64);
+    for call in live.take_calls() {
+        match call {
+            Call::Abort => {
+                *interrupted = true;
+                if let Err(e) = root.abort(false, cancel) {
+                    chat.notice("error", &format!("Error: {e}"));
+                }
+            }
+            Call::Notify { text, level } => chat.notice(&level, &text),
+            Call::SendUserMessage { content, .. } => {
+                pending.push(crate::extensions::content_of(&content));
+            }
+            Call::Shutdown => *quit = true,
+            Call::Unsupported { member } => {
+                chat.notice("dim", &format!("{member} is not available in pi-rs yet"))
+            }
+        }
+    }
+    live.settle(*interrupted);
+    *interrupted = *interrupted && chat.working;
+}
+
 fn submit(
     root: &Conversation,
     content: UserContent,
     busy: bool,
     cancel: &CancelToken,
+    live: Option<&crate::extensions::Live>,
 ) -> Result<(), String> {
+    let content = match (live, crate::extensions::text_of(&content)) {
+        (Some(live), Some(text)) => match live.input(&text, "interactive") {
+            None => return Ok(()),
+            Some(replaced) if replaced != text => crate::extensions::with_text(content, replaced),
+            Some(_) => content,
+        },
+        _ => content,
+    };
     root.submit(
         SubmissionDraft::Input {
             request_id: None,
@@ -680,6 +736,11 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         pending.push(text_input(text, images));
     }
     pending.extend(messages.iter().map(|m| text_input(m, &[])));
+    let live = crate::extensions::live();
+    if let Some(live) = live {
+        live.event("session_start", json!({}));
+    }
+    let mut interrupted = false;
     let mut last_clear: Option<Instant> = None;
     let mut quit = false;
     let mut next_timer = Instant::now();
@@ -687,7 +748,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         // Queued command-line messages go one per idle turn, as print mode sends them.
         if !chat.working && !pending.is_empty() {
             let content = pending.remove(0);
-            if let Err(e) = submit(&open.root, content, false, &cancel) {
+            if let Err(e) = submit(&open.root, content, false, &cancel, live) {
                 chat.notice("error", &format!("Error: {e}"));
             }
             chat.working = true;
@@ -710,6 +771,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             match message {
                 Incoming::Events(events) => {
                     for event in &events {
+                        if let Some(live) = live {
+                            live.observe(event);
+                        }
                         if chat.apply(event) {
                             dirty.set(true);
                         }
@@ -720,6 +784,20 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                     dirty.set(true);
                 }
             }
+        }
+        if let Some(live) = live {
+            serve_extension_calls(
+                live,
+                Calls {
+                    root: &open.root,
+                    chat: &mut chat,
+                    pending: &mut pending,
+                    quit: &mut quit,
+                    cwd: &cwd,
+                    interrupted: &mut interrupted,
+                    cancel: &cancel,
+                },
+            );
         }
         for action in actions.borrow_mut().drain(..) {
             match action {
@@ -1059,6 +1137,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             if trimmed.is_empty() {
                 continue;
             }
+            if live.is_some_and(|live| live.run_command(trimmed)) {
+                continue;
+            }
             if let Some(command) = slash_commands::dispatch(trimmed) {
                 match command {
                     Command::Quit => quit = true,
@@ -1361,7 +1442,13 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 continue;
             }
             editor.borrow_mut().add_to_history(&text);
-            if let Err(e) = submit(&open.root, text_input(&text, &[]), chat.working, &cancel) {
+            if let Err(e) = submit(
+                &open.root,
+                text_input(&text, &[]),
+                chat.working,
+                &cancel,
+                live,
+            ) {
                 chat.notice("error", &format!("Error: {e}"));
             }
             chat.working = true;
@@ -1394,6 +1481,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     tui.terminal.drain_input(1000, 50);
     if chat.working {
         let _ = open.root.abort(false, &cancel);
+    }
+    if let Some(live) = live {
+        live.event("session_shutdown", json!({ "reason": "quit" }));
     }
     open.shutdown(&cancel)?;
     Ok(open.path)

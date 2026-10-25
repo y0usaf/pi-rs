@@ -1,7 +1,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -329,7 +329,209 @@ fn main() -> Result<()> {
     }
     println!("nothing configured ok");
 
+    events(&bin, &scratch)?;
+
     std::fs::remove_dir_all(&scratch.root)?;
     println!("extensions e2e ok");
+    Ok(())
+}
+
+const EVENTS: &str = r#"import fs from "node:fs";
+
+const log = process.env.E2E_LOG;
+const note = (line: string): void => {
+	fs.appendFileSync(log, line + "\n");
+};
+
+export default function (pi: any): void {
+	pi.on("session_start", () => note("session_start"));
+	pi.on("session_shutdown", (event: any) => note("session_shutdown:" + event.reason));
+	pi.on("agent_start", () => note("agent_start"));
+	pi.on("agent_end", () => note("agent_end"));
+	pi.on("agent_settled", (event: any) => note("agent_settled:" + event.aborted));
+	pi.on("message_start", (event: any) => note("message_start:" + event.message.role));
+	pi.on("message_update", (event: any) => note("message_update:" + event.message.role));
+	pi.on("message_end", (event: any) => {
+		note("message_end:" + event.message.role);
+		if (event.message.role !== "assistant") return undefined;
+		return { message: { ...event.message, content: [{ type: "text", text: "REPLACED BY EXTENSION" }] } };
+	});
+	pi.on("input", (event: any) => {
+		note("input:" + event.text);
+		if (event.text.includes("swallow")) return { action: "handled" };
+		if (event.text.includes("hello")) return { action: "transform", text: event.text + " (from input)" };
+		return undefined;
+	});
+	pi.registerCommand("e2e-cmd", {
+		description: "records its arguments",
+		handler: async (args: string) => note("cmd:" + args),
+	});
+}
+"#;
+
+/// An OpenAI-completions server on a real socket: it records each request body and answers with
+/// one sentence streamed back in two parts.
+fn serve_events(bodies: Arc<Mutex<Vec<String>>>) -> Result<u16> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let Ok(copy) = stream.try_clone() else { return };
+            let mut reader = BufReader::new(copy);
+            let mut length = 0usize;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+                let lower = line.to_ascii_lowercase();
+                if let Some(value) = lower.strip_prefix("content-length:") {
+                    length = value.trim().parse().unwrap_or(0);
+                }
+            }
+            let mut body = vec![0u8; length];
+            if reader.read_exact(&mut body).is_err() {
+                return;
+            }
+            if let Ok(mut bodies) = bodies.lock() {
+                bodies.push(String::from_utf8_lossy(&body).into_owned());
+            }
+            let head =
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n";
+            if stream.write_all(head.as_bytes()).is_err() {
+                return;
+            }
+            for (index, part) in ["loop ", "one."].into_iter().enumerate() {
+                let delta = if index == 0 {
+                    json!({"role": "assistant", "content": part})
+                } else {
+                    json!({"content": part})
+                };
+                let chunk = json!({"id": "c1", "choices": [{"index": 0, "delta": delta}]});
+                if writeln!(stream, "data: {chunk}\n").is_err() {
+                    return;
+                }
+            }
+            let stop = json!({"id": "c1", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]});
+            let _ = writeln!(stream, "data: {stop}\n");
+            let usage = json!({"id": "c1", "choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 2}});
+            let _ = writeln!(stream, "data: {usage}\n");
+            let _ = stream.write_all(b"data: [DONE]\n\n");
+        }
+    });
+    Ok(port)
+}
+
+/// Events, the answering ones and commands, in one print-mode run: a message is replaced and the
+/// input rewritten before the model sees either, and an extension command runs with its arguments.
+fn events(bin: &Path, scratch: &Scratch) -> Result<()> {
+    let bodies = Arc::new(Mutex::new(Vec::new()));
+    let port = serve_events(Arc::clone(&bodies))?;
+    let models = json!({"providers": {"fake": {
+        "baseUrl": format!("http://127.0.0.1:{port}/v1"),
+        "apiKey": "sk-test",
+        "api": "openai-completions",
+        "models": [{"id": "fake-test", "contextWindow": 200000, "maxTokens": 8192}],
+    }}});
+    scratch.write("agent/models.json", &serde_json::to_string(&models)?)?;
+    let extension = scratch.write("events/ext.ts", EVENTS)?;
+    scratch.write(
+        "agent/settings.json",
+        &serde_json::to_string(&json!({"extensions": [extension.to_string_lossy()]}))?,
+    )?;
+    let log = scratch.root.join("events.log");
+    let mut child = Command::new(bin)
+        .args([
+            "-p",
+            "hello",
+            "-p",
+            "again",
+            "-p",
+            "/e2e-cmd one two",
+            "--provider",
+            "fake",
+            "--model",
+            "fake-test",
+            "--no-session",
+        ])
+        .current_dir(scratch.root.join("cwd"))
+        .env_clear()
+        .env("HOME", scratch.root.join("home"))
+        .env("PI_CODING_AGENT_DIR", scratch.root.join("agent"))
+        .env("PATH", "/nonexistent")
+        .env("E2E_LOG", &log)
+        .envs(host_env())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let deadline = Instant::now() + Duration::from_secs(180);
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            return fail("pi-rs did not finish the print-mode run".to_owned());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let mut stdout = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        pipe.read_to_string(&mut stdout).ok();
+    }
+    let mut stderr = String::new();
+    if let Some(mut pipe) = child.stderr.take() {
+        pipe.read_to_string(&mut stderr).ok();
+    }
+    if !status.success() {
+        return fail(format!("pi-rs exited {status}: {stderr}"));
+    }
+    let seen = std::fs::read_to_string(&log).unwrap_or_default();
+    for wanted in [
+        "session_start",
+        "agent_start",
+        "message_start:assistant",
+        "message_update:assistant",
+        "message_end:assistant",
+        "agent_end",
+        "agent_settled:false",
+        "input:hello",
+        "input:again",
+        "cmd:one two",
+        "session_shutdown:quit",
+    ] {
+        if !seen.lines().any(|line| line == wanted) {
+            return fail(format!(
+                "no {wanted:?} in the extension log:\n{seen}\nstderr:\n{stderr}"
+            ));
+        }
+    }
+    println!("events ok: {}", seen.lines().count());
+    let recorded = bodies.lock().map(|b| b.clone()).unwrap_or_default();
+    let Some(first) = recorded.first() else {
+        return fail("the model was never called".to_owned());
+    };
+    let second = recorded.get(1).ok_or("the model was called once")?;
+    if !first.contains("hello (from input)") {
+        return fail(format!(
+            "the input event did not rewrite the prompt: {first}"
+        ));
+    }
+    if first.contains("REPLACED BY EXTENSION") {
+        return fail(format!(
+            "the first request already held the replacement: {first}"
+        ));
+    }
+    if !second.contains("REPLACED BY EXTENSION") {
+        return fail(format!(
+            "the replaced message is not in the next request: {second}"
+        ));
+    }
+    if second.contains("loop one.") && stdout.trim().is_empty() {
+        return fail("print mode printed nothing for the replaced reply".to_owned());
+    }
+    println!("message_end replacement and input transform ok");
     Ok(())
 }

@@ -9,10 +9,66 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::{LOAD_BUDGET, Load};
+use serde::Deserialize;
+
+use crate::{EVENT_BUDGET, LOAD_BUDGET, Load};
 
 /// How many of the child's stderr lines to keep for a failure message.
 const STDERR_LINES: usize = 200;
+
+/// What an extension asked pi-rs to do while it was answering.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Call {
+    Abort,
+    Notify {
+        text: String,
+        level: String,
+    },
+    SendUserMessage {
+        content: Value,
+        deliver_as: Option<String>,
+    },
+    Shutdown,
+    /// A member of the API pi-rs does not implement yet.
+    Unsupported {
+        member: String,
+    },
+}
+
+/// A handler that threw, as upstream's `emitError` reports it.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Failed {
+    pub path: String,
+    #[serde(default)]
+    pub event: String,
+    pub error: String,
+}
+
+/// One answer: what the event decided, and the calls the extension made on the way.
+#[derive(Clone, Debug, Default)]
+pub struct Reply {
+    pub value: Value,
+    pub calls: Vec<Call>,
+    pub errors: Vec<Failed>,
+}
+
+/// The run an event sees: upstream's `ExtensionContext` minus what pi-rs fills in per extension.
+#[derive(Clone, Debug)]
+pub struct Ctx {
+    pub mode: String,
+    pub has_ui: bool,
+    pub cwd: String,
+    pub streaming: bool,
+    pub pending: u64,
+}
+
+/// One event to hand the extensions: its name, its payload and the run it belongs to.
+#[derive(Clone, Debug)]
+pub struct Event<'a> {
+    pub name: &'a str,
+    pub payload: Value,
+    pub ctx: &'a Ctx,
+}
 
 pub struct Host {
     child: Child,
@@ -95,11 +151,60 @@ impl Host {
         agent_dir: &str,
         dirs: &[String],
         paths: &[String],
+        ctx: &Ctx,
     ) -> Result<Load, String> {
-        let request =
-            json!({"op": "load", "cwd": cwd, "agentDir": agent_dir, "dirs": dirs, "paths": paths});
-        let answer = self.request(request, LOAD_BUDGET)?;
-        serde_json::from_value(answer).map_err(|e| format!("the extension host answered {e}"))
+        let request = json!({
+            "op": "load",
+            "cwd": cwd,
+            "agentDir": agent_dir,
+            "dirs": dirs,
+            "paths": paths,
+            "mode": ctx.mode,
+            "hasUI": ctx.has_ui,
+            "trusted": true,
+        });
+        let reply = self.answer(request, LOAD_BUDGET)?;
+        serde_json::from_value(reply.value).map_err(|e| format!("the extension host answered {e}"))
+    }
+
+    /// Hands one event to the extensions, which may answer it and call back into pi-rs.
+    pub fn event(&mut self, event: &Event<'_>) -> Result<Reply, String> {
+        let request = json!({
+            "op": "event",
+            "name": event.name,
+            "event": event.payload,
+            "mode": event.ctx.mode,
+            "hasUI": event.ctx.has_ui,
+            "cwd": event.ctx.cwd,
+            "streaming": event.ctx.streaming,
+            "pending": event.ctx.pending,
+        });
+        self.answer(request, EVENT_BUDGET)
+    }
+
+    /// Runs a command an extension registered, with the arguments the user typed after it.
+    pub fn command(&mut self, name: &str, args: &str, ctx: &Ctx) -> Result<Reply, String> {
+        let request = json!({
+            "op": "command",
+            "name": name,
+            "args": args,
+            "mode": ctx.mode,
+            "hasUI": ctx.has_ui,
+            "cwd": ctx.cwd,
+            "streaming": ctx.streaming,
+            "pending": ctx.pending,
+        });
+        self.answer(request, EVENT_BUDGET)
+    }
+
+    /// Sends `message` and reads the answer together with the calls that came with it.
+    fn answer(&mut self, message: Value, budget: Duration) -> Result<Reply, String> {
+        let value = self.request(message, budget)?;
+        Ok(Reply {
+            value: value.get("value").cloned().unwrap_or(Value::Null),
+            calls: calls_of(value.get("calls")),
+            errors: errors_of(value.get("errors")),
+        })
     }
 
     fn request(&mut self, mut message: Value, budget: Duration) -> Result<Value, String> {
@@ -124,7 +229,7 @@ impl Host {
                         continue;
                     }
                     if value.get("ok").and_then(Value::as_bool) == Some(true) {
-                        return Ok(value.get("value").cloned().unwrap_or(Value::Null));
+                        return Ok(value);
                     }
                     let error = value
                         .get("error")
@@ -182,6 +287,55 @@ impl Host {
         self.failure = Some(message.clone());
         message
     }
+}
+
+/// One call the extension made while a request was being served.
+fn call_of(value: &Value) -> Option<Call> {
+    let text = |key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
+    };
+    match value.get("call").and_then(Value::as_str)? {
+        "abort" => Some(Call::Abort),
+        "notify" => Some(Call::Notify {
+            text: text("text"),
+            level: text("level"),
+        }),
+        "sendUserMessage" => Some(Call::SendUserMessage {
+            content: value.get("content").cloned().unwrap_or(Value::Null),
+            deliver_as: value
+                .get("deliverAs")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+        }),
+        "shutdown" => Some(Call::Shutdown),
+        "unsupported" => Some(Call::Unsupported {
+            member: text("member"),
+        }),
+        _ => None,
+    }
+}
+
+fn calls_of(value: Option<&Value>) -> Vec<Call> {
+    value
+        .and_then(Value::as_array)
+        .map(|calls| calls.iter().filter_map(call_of).collect())
+        .unwrap_or_default()
+}
+
+fn errors_of(value: Option<&Value>) -> Vec<Failed> {
+    value
+        .and_then(Value::as_array)
+        .map(|errors| {
+            errors
+                .iter()
+                .filter_map(|error| serde_json::from_value(error.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 impl Drop for Host {

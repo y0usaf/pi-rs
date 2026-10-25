@@ -8,6 +8,7 @@ use crate::harness::generation::{
     GENERATION_KIND, convert_partial, end_run, read_live, write_live,
 };
 use crate::harness::tool::TOOL_KIND;
+use crate::harness::types::HookApi;
 use crate::harness::util::doc_definition;
 use crate::ids::{EntryId, SubmissionId, TaskId};
 use crate::session::types::Tx;
@@ -207,7 +208,8 @@ pub fn settle_scheduler_outcome(
             if live.run.as_ref().map(|run| run.task_id) != Some(record.id) {
                 return Ok(());
             }
-            convert_partial(tx, &live, conversation_id)?;
+            let api = HookApi { conversation_id };
+            convert_partial(tx, &live, conversation_id, &[], &api)?;
             let settlement = match outcome {
                 TaskOutcome::Faulted { error } => SubmissionSettlement::Unanswered {
                     reason: "faulted".to_owned(),

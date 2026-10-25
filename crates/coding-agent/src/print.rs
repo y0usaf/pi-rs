@@ -1,6 +1,7 @@
 //! Print mode (`modes/print-mode.ts`) on pi-durable's Harness: the built-in tools and the
 //! system prompt as a durable extension, one conversation per run, and the text output.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use pi_durable::ai::registry::Providers;
@@ -21,6 +22,8 @@ use pi_durable::harness::types::{
 };
 use pi_durable::types::{EntryQuery, ScanOrder};
 use serde_json::Value;
+
+use pi_extensions::Call;
 
 use crate::models::ModelRegistry;
 use crate::tools::{self, ToolContext, ToolSpec};
@@ -138,7 +141,9 @@ pub fn extension_with(
             .map(|(key, text)| fixed_section(&key, text))
             .collect(),
         wraps: Vec::new(),
-        hooks: Vec::new(),
+        hooks: crate::extensions::live()
+            .map(|live| vec![live.hooks()])
+            .unwrap_or_default(),
         tasks: Vec::new(),
     }
 }
@@ -240,7 +245,31 @@ pub fn run_turns(
             .iter()
             .map(|m| UserContent::Blocks(vec![text_block(m.clone())])),
     );
-    for content in prompts {
+    let live = crate::extensions::live();
+    if let Some(live) = live {
+        live.event("session_start", serde_json::json!({}));
+    }
+    let mut queued: VecDeque<UserContent> = prompts.into();
+    let mut aborted = false;
+    while let Some(content) = queued.pop_front() {
+        if let Some(text) = crate::extensions::text_of(&content)
+            && live.is_some_and(|live| live.run_command(text.trim()))
+        {
+            continue;
+        }
+        let content = match (live, crate::extensions::text_of(&content)) {
+            (Some(live), Some(text)) => match live.input(&text, "print") {
+                None => continue,
+                Some(replaced) if replaced != text => {
+                    crate::extensions::with_text(content, replaced)
+                }
+                Some(_) => content,
+            },
+            _ => content,
+        };
+        if let Some(live) = live {
+            live.event("agent_start", serde_json::json!({}));
+        }
         conversation.submit(
             SubmissionDraft::Input {
                 request_id: None,
@@ -250,6 +279,29 @@ pub fn run_turns(
             cancel,
         )?;
         harness.wait_for_idle(cancel)?;
+        let Some(live) = live else {
+            continue;
+        };
+        live.event("agent_end", serde_json::json!({ "messages": [] }));
+        for call in live.take_calls() {
+            match call {
+                Call::Abort => {
+                    aborted = true;
+                    conversation.abort(false, cancel)?;
+                }
+                Call::Notify { text, .. } => eprintln!("{text}"),
+                Call::SendUserMessage { content, .. } => {
+                    queued.push_back(crate::extensions::content_of(&content));
+                }
+                Call::Shutdown => queued.clear(),
+                Call::Unsupported { .. } => {}
+            }
+        }
+    }
+    if let Some(live) = live {
+        live.set_state(&input.cwd, false, 0);
+        live.settle(aborted);
+        live.event("session_shutdown", serde_json::json!({ "reason": "quit" }));
     }
     Ok(())
 }

@@ -279,6 +279,8 @@ fn run() -> Result<ExitCode, String> {
         parsed.extensions.as_deref().unwrap_or(&[]),
         parsed.no_extensions,
         &settings,
+        extensions::mode_name(parsed.mode),
+        parsed.mode.is_none(),
     );
 
     // The session: a durable sqlite file, or memory with --no-session.

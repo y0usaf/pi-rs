@@ -21,7 +21,6 @@ const UNSUPPORTED = [
 	"registerEntryRenderer",
 	"registerToolRenderer",
 	"sendMessage",
-	"sendUserMessage",
 	"appendEntry",
 	"setSessionName",
 	"getSessionName",
@@ -46,7 +45,7 @@ const UNSUPPORTED = [
 ];
 
 function send(message) {
-	protocol(`${JSON.stringify(message)}\n`);
+	protocol(JSON.stringify(message) + "\n");
 }
 
 function stripBom(text) {
@@ -149,7 +148,73 @@ function create(extensionPath) {
 	};
 }
 
-function apiFor(extension) {
+// Calls an extension makes into pi-rs while a request is being served. They travel back with
+// the answer, so the host applies them in order once the extension has returned.
+const calls = [];
+const errors = [];
+
+function contextOf() {
+	const call = (value) => calls.push(value);
+	const signal = new AbortController();
+	return {
+		ui: {
+			notify(message, type) {
+				call({ call: "notify", text: String(message), level: type ?? "info" });
+			},
+			setStatus() {
+				calls.push({ call: "unsupported", member: "ui.setStatus" });
+			},
+			select() {
+				calls.push({ call: "unsupported", member: "ui.select" });
+				return Promise.resolve(undefined);
+			},
+			confirm() {
+				calls.push({ call: "unsupported", member: "ui.confirm" });
+				return Promise.resolve(false);
+			},
+			input() {
+				calls.push({ call: "unsupported", member: "ui.input" });
+				return Promise.resolve(undefined);
+			},
+			custom() {
+				calls.push({ call: "unsupported", member: "ui.custom" });
+				return Promise.resolve(undefined);
+			},
+			onTerminalInput() {
+				return () => {};
+			},
+			setWidget() {
+				calls.push({ call: "unsupported", member: "ui.setWidget" });
+			},
+			setTheme() {},
+			getTheme() {
+				return undefined;
+			},
+		},
+		mode: runtime.mode,
+		hasUI: runtime.hasUI,
+		cwd: runtime.cwd,
+		sessionManager: {},
+		modelRegistry: {},
+		model: undefined,
+		scopedModels: [],
+		isIdle: () => !runtime.streaming,
+		isProjectTrusted: () => runtime.trusted,
+		signal: signal.signal,
+		abort() {
+			call({ call: "abort" });
+		},
+		hasPendingMessages: () => runtime.pending > 0,
+		shutdown() {
+			call({ call: "shutdown" });
+		},
+		getContextUsage: () => undefined,
+		compact() {},
+		getSystemPrompt: () => "",
+	};
+}
+
+function apiFor(extension, runtime) {
 	const note = (member) => {
 		if (!extension.unsupported.includes(member)) extension.unsupported.push(member);
 	};
@@ -170,7 +235,21 @@ function apiFor(extension) {
 			extension.commands.push({ name, description: options?.description ?? "" });
 			extension.commandHandlers.set(name, options?.handler);
 		},
-		events: {},
+		sendUserMessage(content, options) {
+			const parts = typeof content === "string" ? [{ type: "text", text: content }] : content;
+			calls.push({
+				call: "sendUserMessage",
+				content: parts,
+				deliverAs: options?.deliverAs ?? null,
+			});
+			return Promise.resolve();
+		},
+		events: {
+			on() {
+				return () => {};
+			},
+			emit() {},
+		},
 	};
 	for (const member of UNSUPPORTED) api[member] = () => note(member);
 	return api;
@@ -187,21 +266,28 @@ function summary(extension) {
 }
 
 const loaded = new Map();
+let runtime = { mode: "print", hasUI: false, cwd: process.cwd(), trusted: false, streaming: false, pending: 0 };
 
 async function load(request) {
+	const loadErrors = [];
 	globalThis.__piExtensionAgentDir = request.agentDir;
+	if (typeof request.mode === "string") runtime.mode = request.mode;
+	runtime.hasUI = request.hasUI === true;
+	runtime.cwd = request.cwd ?? runtime.cwd;
+	runtime.trusted = request.trusted === true;
 	const extensions = [];
-	const errors = [];
+	const found = [];
 	for (const extensionPath of resolvePaths(request)) {
 		try {
 			if (loaded.has(extensionPath)) {
 				extensions.push(summary(loaded.get(extensionPath)));
+				found.push(loaded.get(extensionPath));
 				continue;
 			}
 			const module = await import(pathToFileURL(extensionPath).href);
 			const factory = module.default;
 			if (typeof factory !== "function") {
-				errors.push({
+				loadErrors.push({
 					path: extensionPath,
 					error: `Extension does not export a valid factory function: ${extensionPath}`,
 				});
@@ -209,26 +295,135 @@ async function load(request) {
 			}
 			const extension = create(extensionPath);
 			drain();
-			await factory(apiFor(extension));
+			await factory(apiFor(extension, runtime));
 			for (const name of drain()) {
 				if (!extension.unsupported.includes(name)) extension.unsupported.push(name);
 			}
 			loaded.set(extensionPath, extension);
 			extensions.push(summary(extension));
+			found.push(extension);
 		} catch (error) {
-			errors.push({
+			loadErrors.push({
 				path: extensionPath,
 				error: `Failed to load extension: ${error instanceof Error ? error.message : String(error)}`,
 			});
 		}
 	}
-	return { extensions, errors };
+	return { value: { extensions, errors: loadErrors } };
+}
+
+function handlersOf(name) {
+	const found = [];
+	for (const extension of loaded.values()) {
+		for (const handler of extension.eventHandlers.get(name) ?? []) {
+			found.push({ extension, handler });
+		}
+	}
+	return found;
+}
+
+function sameRole(a, b) {
+	return (a?.role ?? "") === (b?.role ?? "");
+}
+
+function failed(extension, name, error) {
+	errors.push({
+		path: extension.path,
+		event: name,
+		error: error instanceof Error ? error.message : String(error),
+	});
+}
+
+async function emitMessageEnd(request) {
+	let message = request.event.message;
+	let replaced = false;
+	for (const { extension, handler } of handlersOf("message_end")) {
+		const ctx = contextOf();
+		try {
+			const result = await handler({ ...request.event, message }, ctx);
+			if (!result?.message) continue;
+			if (!sameRole(result.message, message)) {
+				failed(
+					extension,
+					"message_end",
+					new Error("message_end handlers must return a message with the same role"),
+				);
+				continue;
+			}
+			message = result.message;
+			replaced = true;
+		} catch (error) {
+			failed(extension, "message_end", error);
+		}
+	}
+	return { value: replaced ? { message } : null };
+}
+
+async function emitInput(request) {
+	let text = request.event.text;
+	let images = request.event.images;
+	for (const { extension, handler } of handlersOf("input")) {
+		const ctx = contextOf();
+		try {
+			const result = await handler({ ...request.event, text, images }, ctx);
+			if (result?.action === "handled") return { value: { action: "handled" } };
+			if (result?.action === "transform") {
+				text = result.text ?? text;
+				images = result.images ?? images;
+			}
+		} catch (error) {
+			failed(extension, "input", error);
+		}
+	}
+	const changed = text !== request.event.text || images !== request.event.images;
+	return { value: changed ? { action: "transform", text, images } : { action: "continue" } };
+}
+
+async function emitEvent(request) {
+	const name = request.name;
+	runtime.streaming = request.streaming === true;
+	runtime.pending = request.pending ?? 0;
+	if (name === "message_end") return await emitMessageEnd(request);
+	if (name === "input") return await emitInput(request);
+	for (const { extension, handler } of handlersOf(name)) {
+		const ctx = contextOf();
+		try {
+			await handler(request.event, ctx);
+		} catch (error) {
+			failed(extension, name, error);
+		}
+	}
+	return { value: null };
+}
+
+async function runCommand(request) {
+	const name = request.name;
+	for (const extension of loaded.values()) {
+		const handler = extension.commandHandlers.get(name);
+		if (!handler) continue;
+		const ctx = contextOf();
+		try {
+			await handler(request.args ?? "", ctx);
+		} catch (error) {
+			errors.push({
+				path: `command:${name}`,
+				event: "command",
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+		return { value: null };
+	}
+	return { value: null };
 }
 
 async function handle(request) {
 	switch (request.op) {
 		case "load":
 			return await load(request);
+		case "event":
+			return await emitEvent(request);
+		case "command":
+			return await runCommand(request);
 		case "shutdown":
 			process.exit(0);
 		default:
@@ -247,10 +442,20 @@ input.on("line", (line) => {
 			return;
 		}
 		try {
-			send({ id: request.id, ok: true, value: await handle(request) });
+			const answer = await handle(request);
+			const value = answer.value;
+			send({ id: request.id, ok: true, value, calls, errors });
 		} catch (error) {
-			send({ id: request.id, ok: false, error: error instanceof Error ? error.message : String(error) });
+			send({
+				id: request.id,
+				ok: false,
+				error: error instanceof Error ? error.message : String(error),
+				calls,
+				errors,
+			});
 		}
+		calls.length = 0;
+		errors.length = 0;
 	});
 });
 input.on("close", () => process.exit(0));
