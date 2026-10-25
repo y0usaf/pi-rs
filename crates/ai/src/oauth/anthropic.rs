@@ -4,7 +4,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::http::{Request, send};
-use crate::oauth::pkce::Pkce;
+use crate::oauth::callback::{Code, Listener, wait_for_code};
+use crate::oauth::interaction::{Event, Interaction, Prompt};
+use crate::oauth::pkce::{self, Pkce};
 use crate::oauth::{Credentials, form_encode, now_ms, query_param};
 use pi_rt::cancel::CancelToken;
 
@@ -212,6 +214,120 @@ pub fn refresh(
 /// Whether an API key is an OAuth access token (sent as a bearer token, not `x-api-key`).
 pub fn is_oauth_token(key: &str) -> bool {
     key.contains("sk-ant-oat")
+}
+
+const BROWSER: &str = "browser";
+const COPY_CODE: &str = "copy_code";
+const PROVIDER: &str = "Anthropic";
+const BROWSER_INSTRUCTIONS: &str = "Complete login in your browser. If the browser is on another machine, paste the final redirect URL here.";
+const COPY_CODE_INSTRUCTIONS: &str =
+    "Complete login in your browser, then copy the code Anthropic shows and paste it here.";
+const MANUAL_PROMPT: &str =
+    "Complete login in your browser, or paste the authorization code / redirect URL here:";
+const COPY_CODE_PROMPT: &str = "Paste the code Anthropic shows after you sign in:";
+const EXCHANGING: &str = "Exchanging authorization code for tokens...";
+
+/// Asks which Anthropic login method to use and runs it (upstream `anthropicOAuth.login`).
+pub fn login(
+    interaction: &mut dyn Interaction,
+    endpoints: &Endpoints,
+    cancel: &CancelToken,
+) -> Result<Credentials, String> {
+    let method = interaction
+        .prompt(
+            Prompt::Select {
+                message: "Select Anthropic login method:".to_owned(),
+                options: vec![
+                    (BROWSER.to_owned(), "Browser login (default)".to_owned()),
+                    (
+                        COPY_CODE.to_owned(),
+                        "Copy code login (headless)".to_owned(),
+                    ),
+                ],
+            },
+            cancel,
+        )?
+        .ok_or_else(|| "Login cancelled".to_owned())?;
+    match method.as_str() {
+        BROWSER => login_browser(interaction, endpoints, cancel),
+        COPY_CODE => login_copy_code(interaction, endpoints, cancel),
+        other => Err(format!("Unknown Anthropic login method: {other}")),
+    }
+}
+
+/// The loopback login: the browser's redirect or a pasted code, whichever comes first.
+pub fn login_browser(
+    interaction: &mut dyn Interaction,
+    endpoints: &Endpoints,
+    cancel: &CancelToken,
+) -> Result<Credentials, String> {
+    let pkce = pkce::generate()?;
+    let listener = Listener::bind(&endpoints.callback_host, endpoints.callback_port).ok();
+    let redirect_uri = match &listener {
+        Some(listener) => endpoints.loopback_redirect_uri(listener.port()),
+        None => endpoints.loopback_redirect_uri(endpoints.callback_port),
+    };
+    interaction.notify(Event::AuthUrl {
+        url: endpoints.authorize_link(&redirect_uri, &pkce),
+        instructions: Some(BROWSER_INSTRUCTIONS.to_owned()),
+    });
+    let answer = wait_for_code(
+        interaction,
+        listener,
+        PROVIDER,
+        &endpoints.callback_path,
+        &pkce.verifier,
+        Prompt::ManualCode {
+            message: MANUAL_PROMPT.to_owned(),
+            placeholder: redirect_uri.clone(),
+        },
+        cancel,
+    )?;
+    let (code, state) = match answer {
+        Code::Callback(code) => (code, pkce.verifier.clone()),
+        Code::Manual(input) => resolve_manual_input(&input, &pkce.verifier)?,
+    };
+    interaction.notify(Event::Progress(EXCHANGING.to_owned()));
+    exchange_code(
+        endpoints,
+        &code,
+        &state,
+        &pkce.verifier,
+        &redirect_uri,
+        Some(cancel),
+    )
+}
+
+/// The headless login: Anthropic redirects to a page that shows a code to paste back.
+pub fn login_copy_code(
+    interaction: &mut dyn Interaction,
+    endpoints: &Endpoints,
+    cancel: &CancelToken,
+) -> Result<Credentials, String> {
+    let pkce = pkce::generate()?;
+    interaction.notify(Event::AuthUrl {
+        url: endpoints.authorize_link(&endpoints.copy_code_redirect_uri, &pkce),
+        instructions: Some(COPY_CODE_INSTRUCTIONS.to_owned()),
+    });
+    let input = interaction
+        .prompt(
+            Prompt::ManualCode {
+                message: COPY_CODE_PROMPT.to_owned(),
+                placeholder: "code#state".to_owned(),
+            },
+            cancel,
+        )?
+        .ok_or_else(|| "Login cancelled".to_owned())?;
+    let (code, state) = resolve_manual_input(&input, &pkce.verifier)?;
+    interaction.notify(Event::Progress(EXCHANGING.to_owned()));
+    exchange_code(
+        endpoints,
+        &code,
+        &state,
+        &pkce.verifier,
+        &endpoints.copy_code_redirect_uri,
+        Some(cancel),
+    )
 }
 
 fn post_json(url: &str, body: &Value, cancel: Option<&CancelToken>) -> Result<String, String> {

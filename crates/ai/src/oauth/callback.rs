@@ -1,7 +1,9 @@
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::oauth::interaction::{Interaction, Prompt};
 use crate::oauth::query_param;
 use pi_rt::cancel::CancelToken;
 
@@ -66,6 +68,58 @@ impl Listener {
                 Err(error) => return Err(format!("OAuth callback server failed: {error}")),
             }
         }
+    }
+}
+
+/// A pasted code wins over one the loopback server received first.
+pub enum Code {
+    Callback(String),
+    Manual(String),
+}
+
+/// Waits for the browser's redirect and the user's paste at once: whichever answers first, the other
+/// stops. Without a server only the paste is offered (upstream's `waitForCallbackOrManualInput`).
+pub fn wait_for_code(
+    interaction: &mut dyn Interaction,
+    listener: Option<Listener>,
+    provider: &str,
+    path: &str,
+    state: &str,
+    prompt: Prompt,
+    cancel: &CancelToken,
+) -> Result<Code, String> {
+    let Some(listener) = listener else {
+        return match interaction.prompt(prompt, cancel)? {
+            Some(input) => Ok(Code::Manual(input)),
+            None => Err(CANCELLED.to_owned()),
+        };
+    };
+    let dismiss = CancelToken::new();
+    let stop = CancelToken::new();
+    let received: Arc<Mutex<Option<Result<String, String>>>> = Arc::new(Mutex::new(None));
+    let (shared, wake) = (received.clone(), dismiss.clone());
+    let (stop_in_thread, provider, path, state) = (
+        stop.clone(),
+        provider.to_owned(),
+        path.to_owned(),
+        state.to_owned(),
+    );
+    let waiter = std::thread::spawn(move || {
+        let result = listener.wait_code(&provider, &path, &state, &stop_in_thread);
+        *shared.lock().unwrap() = Some(result);
+        wake.cancel();
+    });
+    let answer = interaction.prompt(prompt, &dismiss);
+    stop.cancel();
+    let _ = waiter.join();
+    match answer {
+        Ok(Some(input)) => Ok(Code::Manual(input)),
+        Ok(None) => match received.lock().unwrap().take() {
+            Some(Ok(code)) => Ok(Code::Callback(code)),
+            Some(Err(e)) => Err(e),
+            None => Err(CANCELLED.to_owned()),
+        },
+        Err(e) => Err(e),
     }
 }
 

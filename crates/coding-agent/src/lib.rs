@@ -9,6 +9,7 @@ pub mod extensions;
 pub mod interactive;
 pub mod json;
 pub mod list_models;
+pub mod login;
 pub mod mcp;
 pub mod model_config;
 pub mod model_resolver;

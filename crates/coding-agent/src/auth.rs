@@ -240,6 +240,41 @@ impl AuthStore {
     }
 }
 
+impl AuthStore {
+    /// `AuthStorage.modify`: stores one provider's credential and keeps the rest as they are on
+    /// disk, under the same lock a refresh takes.
+    pub fn write(&mut self, provider: &str, credential: Value) -> Result<(), String> {
+        self.update(|data| {
+            data.insert(provider.to_owned(), credential);
+        })
+    }
+
+    /// `AuthStorage.delete`.
+    pub fn remove(&mut self, provider: &str) -> Result<(), String> {
+        self.update(|data| {
+            data.remove(provider);
+        })
+    }
+
+    /// `AuthStorage.list`: the providers with a stored credential.
+    pub fn providers(&self) -> Vec<String> {
+        self.data.keys().cloned().collect()
+    }
+
+    fn update(&mut self, change: impl FnOnce(&mut Map<String, Value>)) -> Result<(), String> {
+        ensure_file(&self.path)?;
+        let lock = FileLock::acquire(&self.path, Duration::from_secs(30))?;
+        let mut current = read_map(&self.path)?;
+        change(&mut current);
+        let text = serde_json::to_string_pretty(&Value::Object(current.clone()))
+            .map_err(|e| e.to_string())?;
+        write_private(&self.path, &text)?;
+        drop(lock);
+        self.data = current;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

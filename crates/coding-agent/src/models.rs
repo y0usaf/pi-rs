@@ -103,6 +103,25 @@ impl ModelRegistry {
         &self.models
     }
 
+    /// Re-reads `auth.json` once a login saved a credential.
+    pub fn reload_auth(&self) {
+        let mut auth = self.auth.lock().unwrap();
+        let path = auth.path.clone();
+        *auth = AuthStore::open(&path);
+    }
+
+    /// The number of providers with auth, as the footer counts them.
+    pub fn provider_count(&self) -> usize {
+        let mut providers: Vec<&str> = self
+            .available()
+            .iter()
+            .map(|model| model.provider.as_str())
+            .collect();
+        providers.sort();
+        providers.dedup();
+        providers.len()
+    }
+
     pub fn get_model(&self, provider: &str, id: &str) -> Option<&Model> {
         self.models
             .iter()

@@ -4,6 +4,7 @@
 
 pub mod confirm;
 pub mod fork;
+pub mod login;
 pub mod model;
 pub mod scoped_models;
 pub mod session;
@@ -55,6 +56,30 @@ pub enum OverlayAction {
     Fork(pi_durable::ids::EntryId),
     /// A yes/no dialog's answer, yes when the first option was chosen.
     Confirmed(bool),
+    /// /login's auth-type question chose one; `provider` starts its login straight away.
+    SetLoginMethod {
+        auth: crate::login::AuthType,
+        provider: Option<String>,
+    },
+    /// /login's provider list chose a provider.
+    LoginProvider {
+        provider: String,
+        auth: crate::login::AuthType,
+    },
+    /// /logout's list chose a provider.
+    LogoutProvider {
+        provider: String,
+        name: String,
+        auth: crate::login::AuthType,
+    },
+    /// A login finished and wrote its credential.
+    LoggedIn(crate::login::Outcome),
+    /// A login failed; the message is what the flow reported.
+    LoginFailed {
+        name: String,
+        auth: crate::login::AuthType,
+        message: String,
+    },
     /// The theme item is showing a theme it was not on: draw with it, do not save it.
     PreviewTheme(String),
 }

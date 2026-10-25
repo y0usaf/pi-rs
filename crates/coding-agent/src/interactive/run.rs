@@ -38,6 +38,10 @@ use super::selectors::{
     ActionSlot, OverlayAction, action_slot,
     confirm::Confirm,
     fork::ForkSelector,
+    login as login_selector,
+    login::AuthSelector,
+    login::LoginDialog,
+    login::MethodSelector,
     model::ModelSelector,
     scoped_models::ScopedModelsSelector,
     session::SessionSelector,
@@ -584,6 +588,20 @@ pub fn mcp_report(problems: &[String]) -> String {
     format!("MCP servers need attention:\n{}", lines.join("\n"))
 }
 
+/// Opens the login dialog for one provider, keeping the handle the loop polls.
+fn open_login(
+    dialog: &mut Option<Rc<RefCell<LoginDialog>>>,
+    agent_dir: &str,
+    provider: &str,
+    auth: crate::login::AuthType,
+    slot: &ActionSlot,
+) -> ComponentRef {
+    let name = crate::login::display_name(provider);
+    let (built, handle) = login_selector::start(agent_dir, provider, &name, auth, slot);
+    *dialog = Some(handle);
+    built
+}
+
 pub fn run(session: Session) -> Result<Option<String>, String> {
     let cancel = CancelToken::new();
     let Session {
@@ -726,6 +744,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         footer: as_ref(&footer),
     };
     let mut selector: Option<(ComponentRef, ActionSlot)> = None;
+    let mut login_dialog: Option<Rc<RefCell<LoginDialog>>> = None;
     // The `/import` a confirmation dialog is asking about.
     let mut import_request: Option<String> = None;
     parts.mount(&mut tui, None);
@@ -767,6 +786,11 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         let events = tui.terminal.poll(Some(timeout));
         tui.handle_events(events);
 
+        if let Some(dialog) = &login_dialog
+            && dialog.borrow_mut().poll()
+        {
+            dirty.set(true);
+        }
         while let Ok(message) = incoming.try_recv() {
             match message {
                 Incoming::Events(events) => {
@@ -829,8 +853,88 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             .and_then(|(_, slot)| slot.borrow_mut().take());
         if let Some(action) = pending {
             let mut close = false;
+            let mut next: Option<(ComponentRef, ActionSlot)> = None;
             match action {
                 OverlayAction::Close => close = true,
+                OverlayAction::SetLoginMethod { auth, provider } => {
+                    let slot = action_slot();
+                    let built: ComponentRef = match provider {
+                        Some(provider) => {
+                            open_login(&mut login_dialog, &agent_dir, &provider, auth, &slot)
+                        }
+                        None => component(AuthSelector::new(
+                            Some(auth),
+                            &agent_dir,
+                            None,
+                            slot.clone(),
+                        )),
+                    };
+                    next = Some((built, slot));
+                }
+                OverlayAction::LoginProvider { provider, auth } => {
+                    let slot = action_slot();
+                    let built = open_login(&mut login_dialog, &agent_dir, &provider, auth, &slot);
+                    next = Some((built, slot));
+                }
+                OverlayAction::LogoutProvider {
+                    provider,
+                    name,
+                    auth,
+                } => {
+                    close = true;
+                    match crate::login::logout(&agent_dir, &provider) {
+                        Ok(()) => {
+                            registry.reload_auth();
+                            let count = registry.provider_count();
+                            footer.borrow_mut().state.provider_count = count;
+                            match auth {
+                                crate::login::AuthType::Oauth => {
+                                    chat.notice("accent", &format!("Logged out of {name}"))
+                                }
+                                crate::login::AuthType::ApiKey => chat.notice(
+                                    "accent",
+                                    &format!(
+                                        "Removed stored API key for {name}. Environment variables and models.json config are unchanged."
+                                    ),
+                                ),
+                            }
+                        }
+                        Err(e) => chat.notice("error", &format!("Logout failed: {e}")),
+                    }
+                }
+                OverlayAction::LoggedIn(outcome) => {
+                    close = true;
+                    registry.reload_auth();
+                    let count = registry.provider_count();
+                    footer.borrow_mut().state.provider_count = count;
+                    let action = match outcome.auth {
+                        crate::login::AuthType::Oauth => "Logged in to",
+                        crate::login::AuthType::ApiKey => "Saved API key for",
+                    };
+                    chat.notice(
+                        "accent",
+                        &format!(
+                            "{action} {}. Credentials saved to {}",
+                            outcome.name, outcome.path
+                        ),
+                    );
+                }
+                OverlayAction::LoginFailed {
+                    name,
+                    auth,
+                    message,
+                } => {
+                    close = true;
+                    if message == "Login cancelled" {
+                        chat.notice("dim", "Login cancelled");
+                    } else {
+                        let action = match auth {
+                            crate::login::AuthType::Oauth => "Failed to login to",
+                            crate::login::AuthType::ApiKey => "Failed to save API key for",
+                        };
+                        chat.notice("error", &format!("{action} {name}: {message}"));
+                    }
+                }
                 OverlayAction::Confirmed(confirmed) => {
                     close = true;
                     if let Some(argument) = import_request.take() {
@@ -1124,8 +1228,13 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                     _ => {}
                 },
             }
-            if close {
+            if let Some((built, slot)) = next {
+                selector = Some((built, slot));
+                selector_open.set(true);
+                parts.mount(&mut tui, selector.as_ref().map(|(built, _)| built));
+            } else if close {
                 selector = None;
+                login_dialog = None;
                 selector_open.set(false);
                 parts.mount(&mut tui, None);
             }
@@ -1428,6 +1537,60 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                             Err(e) => {
                                 chat.notice("error", &format!("Failed to export session: {e}"))
                             }
+                        }
+                    }
+                    Command::Login(reference) => {
+                        let slot = action_slot();
+                        let options = reference
+                            .as_deref()
+                            .map(crate::login::find)
+                            .unwrap_or_default();
+                        let built: ComponentRef = match reference.as_deref() {
+                            None => component(MethodSelector::new(slot.clone())),
+                            Some(reference) => match options.as_slice() {
+                                [only] => open_login(
+                                    &mut login_dialog,
+                                    &agent_dir,
+                                    only.id,
+                                    only.auth,
+                                    &slot,
+                                ),
+                                _ if options.len() > 1
+                                    && options.iter().all(|option| option.id == options[0].id) =>
+                                {
+                                    let auths: Vec<crate::login::AuthType> =
+                                        options.iter().map(|option| option.auth).collect();
+                                    component(MethodSelector::for_provider(
+                                        Some(options[0].id),
+                                        auths,
+                                        slot.clone(),
+                                    ))
+                                }
+                                _ => component(AuthSelector::new(
+                                    None,
+                                    &agent_dir,
+                                    Some(reference),
+                                    slot.clone(),
+                                )),
+                            },
+                        };
+                        selector = Some((built, slot));
+                    }
+                    Command::Logout => {
+                        let slot = action_slot();
+                        match AuthSelector::logout(&agent_dir, slot.clone()) {
+                            Ok(list) if list.is_empty() => chat.notice(
+                                "dim",
+                                "No stored credentials to remove. /logout only removes credentials saved by /login; environment variables and models.json config are unchanged.",
+                            ),
+                            Ok(list) => {
+                                let built: ComponentRef = component(list);
+                                selector = Some((built, slot));
+                            }
+                            Err(e) => chat.notice(
+                                "error",
+                                &format!("Could not read stored credentials: {e}"),
+                            ),
                         }
                     }
                     Command::Unavailable(name) => {

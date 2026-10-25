@@ -5,12 +5,20 @@ use serde_json::{Value, json};
 
 use crate::http::{Request, send};
 use crate::oauth::anthropic::parse_authorization_input;
-use crate::oauth::callback::Listener;
-use crate::oauth::pkce::Pkce;
+use crate::oauth::callback::{Code, Listener, wait_for_code};
+use crate::oauth::interaction::{Event, Interaction, Prompt};
+use crate::oauth::pkce::{self, Pkce};
 use crate::oauth::{Credentials, form_encode, now_ms};
 use pi_rt::cancel::CancelToken;
 
 pub const ORIGINATOR: &str = "pig";
+const BROWSER: &str = "browser";
+const DEVICE_CODE: &str = "device_code";
+const CALLBACK_HOST: &str = "127.0.0.1";
+const CALLBACK_PORT: u16 = 1455;
+const BROWSER_INSTRUCTIONS: &str = "A browser window should open. Complete login to finish.";
+const MANUAL_PROMPT: &str =
+    "Complete login in your browser, or paste the authorization code / redirect URL here:";
 const TOKEN_TIMEOUT: Duration = Duration::from_secs(30);
 const JWT_CLAIM: &str = "https://api.openai.com/auth";
 const CALLBACK_PATH: &str = "/auth/callback";
@@ -188,6 +196,82 @@ pub fn code_from_manual_input(input: &str, state: &str) -> Result<String, String
         .code
         .filter(|code| !code.is_empty())
         .ok_or_else(|| "Missing authorization code".to_owned())
+}
+
+/// Asks which OpenAI Codex login method to use and runs it (upstream `openaiCodexOAuth.login`).
+pub fn login(
+    interaction: &mut dyn Interaction,
+    endpoints: &Endpoints,
+    cancel: &CancelToken,
+) -> Result<Credentials, String> {
+    let method = interaction
+        .prompt(
+            Prompt::Select {
+                message: "Select OpenAI Codex login method:".to_owned(),
+                options: vec![
+                    (BROWSER.to_owned(), "Browser login (default)".to_owned()),
+                    (
+                        DEVICE_CODE.to_owned(),
+                        "Device code login (headless)".to_owned(),
+                    ),
+                ],
+            },
+            cancel,
+        )?
+        .ok_or_else(|| DEVICE_CANCELLED.to_owned())?;
+    match method.as_str() {
+        BROWSER => login_browser_with_interaction(interaction, endpoints, cancel),
+        DEVICE_CODE => login_device_with_interaction(interaction, endpoints, cancel),
+        other => Err(format!("Unknown OpenAI Codex login method: {other}")),
+    }
+}
+
+/// Port 1455 is shared with the Codex CLI; when it is taken the paste carries the login instead.
+pub fn login_browser_with_interaction(
+    interaction: &mut dyn Interaction,
+    endpoints: &Endpoints,
+    cancel: &CancelToken,
+) -> Result<Credentials, String> {
+    let pair = pkce::generate()?;
+    let state = new_state()?;
+    let listener = Listener::bind(CALLBACK_HOST, CALLBACK_PORT).ok();
+    interaction.notify(Event::AuthUrl {
+        url: endpoints.authorize_link(&pair, &state),
+        instructions: Some(BROWSER_INSTRUCTIONS.to_owned()),
+    });
+    let answer = wait_for_code(
+        interaction,
+        listener,
+        "OpenAI",
+        CALLBACK_PATH,
+        &state,
+        Prompt::ManualCode {
+            message: MANUAL_PROMPT.to_owned(),
+            placeholder: endpoints.redirect_uri.clone(),
+        },
+        cancel,
+    )?;
+    let code = match answer {
+        Code::Callback(code) => code,
+        Code::Manual(input) => code_from_manual_input(&input, &state)?,
+    };
+    exchange_code(endpoints, &code, &pair.verifier, Some(cancel))
+}
+
+/// Shows the user code and waits for the browser to complete the sign-in.
+pub fn login_device_with_interaction(
+    interaction: &mut dyn Interaction,
+    endpoints: &Endpoints,
+    cancel: &CancelToken,
+) -> Result<Credentials, String> {
+    login_device(endpoints, cancel, |device| {
+        interaction.notify(Event::DeviceCode {
+            user_code: device.user_code.clone(),
+            verification_uri: device.verification_uri.clone(),
+            interval_seconds: device.interval_seconds.floor() as u64,
+            expires_in_seconds: DEVICE_CODE_TIMEOUT.as_secs(),
+        });
+    })
 }
 
 pub fn login_browser(

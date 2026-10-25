@@ -146,6 +146,9 @@ pub enum Command {
     Clone,
     /// /export <path>.jsonl: the branch as upstream's session JSONL.
     Export,
+    /// /login [provider]: opens the provider selectors, or logs straight in.
+    Login(Option<String>),
+    Logout,
     /// /import <path.jsonl>: a session file into a new session.
     Import,
     Unavailable(&'static str),
@@ -200,6 +203,13 @@ pub fn dispatch(text: &str) -> Option<Command> {
         "fork" => Command::Fork,
         "clone" => Command::Clone,
         "export" => Command::Export,
+        "login" => Command::Login(
+            arguments
+                .map(str::trim)
+                .filter(|a| !a.is_empty())
+                .map(str::to_owned),
+        ),
+        "logout" => Command::Logout,
         "import" => Command::Import,
         _ => Command::Unavailable(builtin.name),
     })

@@ -1,5 +1,6 @@
 pub mod anthropic;
 pub mod callback;
+pub mod interaction;
 pub mod openai_codex;
 pub mod pkce;
 
