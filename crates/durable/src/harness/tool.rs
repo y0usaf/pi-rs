@@ -9,8 +9,8 @@ use serde_json::Value;
 
 use crate::ai::models::Models;
 use crate::ai::types::{
-    AssistantBlock, Message, TextContent, TextType, ToolCall, ToolResultMessage, ToolResultRole,
-    UserBlock,
+    AssistantBlock, Message, TextContent, TextType, ToolCall, ToolCallType, ToolResultMessage,
+    ToolResultRole, UserBlock,
 };
 use crate::ai::utils::text::utf16_len;
 use crate::ai::utils::validation::validate_tool_arguments;
@@ -250,6 +250,50 @@ pub fn after_tool_hooks(
         Ok(())
     })?;
     Ok(result)
+}
+
+/// Runs a tool call from inside another tool. The call reaches the same gates a model-issued one
+/// does — `prepareArguments`, argument validation, and the before/after tool hooks — and runs the
+/// tool's own `execute`, but it writes no transcript entry and no task: the caller decides what
+/// the model sees of it, and by default the model sees only the caller's result.
+///
+/// `call_id` is the nested call's id, which the hooks see (`<parent call id>/<n>`).
+pub fn nested_call(
+    api: &dyn ToolExecutionApi,
+    call_id: &str,
+    name: &str,
+    arguments: JsonObject,
+    cancel: &CancelToken,
+) -> Result<ToolExecutionResult> {
+    let registry = api.registry();
+    let tool = registry
+        .tools()
+        .find(|(_, tool)| tool.tool.name == name)
+        .map(|(_, tool)| tool.clone());
+    let Some(tool) = tool else {
+        return Ok(plain_error(&format!("Tool {name} not found")));
+    };
+    let call = ToolCall {
+        kind: ToolCallType,
+        id: call_id.to_owned(),
+        name: name.to_owned(),
+        arguments: match prepare(&tool, arguments) {
+            Ok(arguments) => arguments,
+            Err(message) => return Ok(plain_error(&message)),
+        },
+        thought_signature: None,
+        namespace: None,
+    };
+    let arguments = match api.before_tool(&tool, &call, cancel)? {
+        ToolGate::Run(arguments) => arguments,
+        ToolGate::Blocked(result) => return Ok(*result),
+    };
+    let result = match (tool.execute)(JsonValue::Object(arguments), api, cancel) {
+        Ok(result) => result,
+        Err(error) if cancel.is_cancelled() => return Err(error),
+        Err(error) => plain_error(&error.to_string()),
+    };
+    api.after_tool(&call, result, cancel)
 }
 
 fn execute_phase(

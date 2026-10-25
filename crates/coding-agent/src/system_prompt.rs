@@ -425,10 +425,19 @@ pub fn assemble(o: &AssembleOptions) -> Assembled {
             ));
         }
     }
+    let codemode = crate::codemode::prompt_contribution();
+    tool_snippets.push((
+        crate::codemode::TOOL_NAME.to_owned(),
+        codemode.snippet.to_owned(),
+    ));
+    tool_guidelines.push((
+        crate::codemode::TOOL_NAME.to_owned(),
+        codemode.guidelines.iter().map(|g| g.to_string()).collect(),
+    ));
     let known: Vec<String> = o
         .tools
         .iter()
-        .filter(|t| crate::tools::spec(t).is_some())
+        .filter(|t| crate::tools::spec(t).is_some() || *t == crate::codemode::TOOL_NAME)
         .cloned()
         .collect();
     Assembled {

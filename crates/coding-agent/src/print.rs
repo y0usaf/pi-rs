@@ -132,8 +132,12 @@ pub fn extension_with(
         name: "pi-coding-agent".to_owned(),
         tools: tool_names
             .iter()
-            .filter_map(|name| tools::spec(name))
-            .map(|spec| registration(spec, Arc::clone(&settings)))
+            .filter_map(|name| match name.as_str() {
+                crate::codemode::TOOL_NAME => {
+                    Some(crate::codemode::registration(crate::codemode::description()))
+                }
+                _ => tools::spec(name).map(|spec| registration(spec, Arc::clone(&settings))),
+            })
             .chain(extra)
             .collect(),
         sections: sections

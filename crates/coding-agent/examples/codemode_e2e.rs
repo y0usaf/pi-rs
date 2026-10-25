@@ -2,10 +2,12 @@
 //! `--codemode-vm` child's wire format, the tools bridge, the deadline, and the abort.
 
 use std::collections::BTreeMap;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use pi_codemode::host::{CallStatus, ErrorKind, ExecuteOptions};
@@ -433,6 +435,211 @@ fn source_options(bin: &Path) -> Result<()> {
     no_leftovers("the @options run")
 }
 
+fn read_request(stream: &mut TcpStream) -> Result<Value> {
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut line = String::new();
+    reader.read_line(&mut line)?;
+    let mut length = None;
+    loop {
+        line.clear();
+        reader.read_line(&mut line)?;
+        let line = line.trim_end();
+        if line.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = line.split_once(':')
+            && name.trim().eq_ignore_ascii_case("content-length")
+        {
+            length = value.trim().parse::<usize>().ok();
+        }
+    }
+    let length = length.ok_or("no content-length")?;
+    let mut body = vec![0; length];
+    reader.read_exact(&mut body)?;
+    Ok(serde_json::from_slice(&body)?)
+}
+
+fn data(stream: &mut TcpStream, value: &Value) -> std::io::Result<()> {
+    let chunk = format!("data: {value}\n\n");
+    write!(stream, "{:x}\r\n{chunk}\r\n", chunk.len())?;
+    stream.flush()
+}
+
+/// The script the model asks for: it reads a file through the agent's own read tool.
+fn script() -> String {
+    "const content = await tools.read({ path: \"hello.txt\" });\ntext(content);\nreturn { length: content.length };"
+        .to_owned()
+}
+
+fn serve(mut stream: TcpStream, requests: Arc<Mutex<Vec<Value>>>) -> Result<()> {
+    let body = read_request(&mut stream)?;
+    let has_tool_result = body["messages"]
+        .as_array()
+        .is_some_and(|messages| messages.iter().any(|message| message["role"] == "tool"));
+    if let Ok(mut requests) = requests.lock() {
+        requests.push(body.clone());
+    }
+    stream.write_all(
+        b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n",
+    )?;
+    if has_tool_result {
+        data(
+            &mut stream,
+            &json!({"id": "c2", "choices": [{"index": 0, "delta": {"content": "done"}}]}),
+        )?;
+        data(
+            &mut stream,
+            &json!({"id": "c2", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}),
+        )?;
+        data(
+            &mut stream,
+            &json!({"id": "c2", "choices": [], "usage": {"prompt_tokens": 900, "completion_tokens": 3}}),
+        )?;
+    } else {
+        let arguments = json!({"code": script()}).to_string();
+        data(
+            &mut stream,
+            &json!({"id": "c1", "choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "codemode", "arguments": ""}}]}}]}),
+        )?;
+        data(
+            &mut stream,
+            &json!({"id": "c1", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": arguments}}]}}]}),
+        )?;
+        data(
+            &mut stream,
+            &json!({"id": "c1", "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}),
+        )?;
+        data(
+            &mut stream,
+            &json!({"id": "c1", "choices": [], "usage": {"prompt_tokens": 800, "completion_tokens": 20}}),
+        )?;
+    }
+    data(&mut stream, &json!("[DONE]"))?;
+    stream.write_all(b"0\r\n\r\n")?;
+    Ok(())
+}
+
+/// `pi-rs -p` with a fake model whose only call is `codemode` running a script that calls `read`.
+fn agent_run(bin: &Path) -> Result<()> {
+    let root = std::env::temp_dir().join(format!("codemode-e2e-{}", std::process::id()));
+    for dir in ["home", "agent", "cwd"] {
+        std::fs::create_dir_all(root.join(dir))?;
+    }
+    std::fs::write(root.join("cwd/hello.txt"), "hello from the file\n")?;
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let served = Arc::clone(&requests);
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let requests = Arc::clone(&served);
+            std::thread::spawn(move || {
+                if let Err(error) = serve(stream, requests) {
+                    eprintln!("fake server: {error}");
+                }
+            });
+        }
+    });
+    let models = json!({"providers": {"fake": {
+        "baseUrl": format!("http://127.0.0.1:{port}/v1"),
+        "apiKey": "sk-test",
+        "api": "openai-completions",
+        "models": [{"id": "fake-test", "contextWindow": 200000, "maxTokens": 8192}],
+    }}});
+    std::fs::write(root.join("agent/models.json"), serde_json::to_vec(&models)?)?;
+    let out = Command::new(bin)
+        .args([
+            "--provider",
+            "fake",
+            "--model",
+            "fake-test",
+            "--no-session",
+            "--tools",
+            "+codemode",
+            "-p",
+            "go",
+        ])
+        .current_dir(root.join("cwd"))
+        .env_clear()
+        .env("HOME", root.join("home"))
+        .env("PI_CODING_AGENT_DIR", root.join("agent"))
+        .env("PATH", "/nonexistent")
+        .output()?;
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    if !out.status.success() {
+        return fail(format!("pi-rs -p exited {}: {stderr}", out.status));
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    if stdout.trim() != "done" {
+        return fail(format!("pi-rs -p printed {stdout:?}"));
+    }
+    let requests = requests
+        .lock()
+        .map(|requests| requests.clone())
+        .unwrap_or_default();
+    if requests.len() < 2 {
+        return fail(format!(
+            "the model saw {} request(s), expected the tool result to be sent back: {stderr}",
+            requests.len()
+        ));
+    }
+    let tools = requests[0]["tools"].as_array().cloned().unwrap_or_default();
+    let names: Vec<&str> = tools
+        .iter()
+        .filter_map(|tool| tool["function"]["name"].as_str())
+        .collect();
+    if !names.contains(&"codemode") {
+        return fail(format!(
+            "the first request declares {names:?}, without codemode"
+        ));
+    }
+    let codemode = tools
+        .iter()
+        .find(|tool| tool["function"]["name"] == "codemode")
+        .ok_or("no codemode tool")?;
+    let description = codemode["function"]["description"]
+        .as_str()
+        .unwrap_or_default();
+    if !description.starts_with("Run JavaScript that calls other tools.") {
+        return fail(format!("the codemode description reads {description:?}"));
+    }
+    if codemode["function"]["parameters"]["required"] != json!(["code"]) {
+        return fail(format!(
+            "the codemode schema reads {}",
+            codemode["function"]["parameters"]
+        ));
+    }
+    let tool_results: Vec<&Value> = requests[1]["messages"]
+        .as_array()
+        .map(|messages| {
+            messages
+                .iter()
+                .filter(|message| message["role"] == "tool")
+                .collect()
+        })
+        .unwrap_or_default();
+    let result = tool_results
+        .first()
+        .and_then(|message| message["content"].as_str())
+        .unwrap_or_default();
+    if !result.starts_with("Script completed\nWall time ") {
+        return fail(format!("the tool result reads {result:?}"));
+    }
+    for expected in [
+        "hello from the file",
+        "==> text 1/2 <==",
+        "==> text 2/2 <==",
+        "{\"length\":20}",
+    ] {
+        if !result.contains(expected) {
+            return fail(format!("the tool result lacks {expected:?}: {result:?}"));
+        }
+    }
+    std::fs::remove_dir_all(&root)?;
+    no_leftovers("the agent run")?;
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let bin = binary()?;
     wire_format(&bin)?;
@@ -445,6 +652,7 @@ fn main() -> Result<()> {
     memory_limit(&bin)?;
     store_writes(&bin)?;
     source_options(&bin)?;
-    println!("codemode sandbox ok");
+    agent_run(&bin)?;
+    println!("codemode e2e ok");
     Ok(())
 }
