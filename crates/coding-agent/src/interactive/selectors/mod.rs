@@ -8,6 +8,7 @@ pub mod model;
 pub mod scoped_models;
 pub mod session;
 pub mod settings;
+pub mod theme;
 pub mod thinking;
 pub mod tree;
 pub mod trust;
@@ -54,6 +55,8 @@ pub enum OverlayAction {
     Fork(pi_durable::ids::EntryId),
     /// A yes/no dialog's answer, yes when the first option was chosen.
     Confirmed(bool),
+    /// The theme item is showing a theme it was not on: draw with it, do not save it.
+    PreviewTheme(String),
 }
 
 /// One project trust decision to write, `decision: None` clearing the entry.

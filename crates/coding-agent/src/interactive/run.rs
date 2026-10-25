@@ -228,6 +228,7 @@ fn settings_config(
     registry: &ModelRegistry,
     model: &Model,
     thinking: ModelThinkingLevel,
+    themes: &[String],
 ) -> SettingsConfig {
     SettingsConfig {
         hide_thinking_block: settings.hide_thinking_block(),
@@ -249,6 +250,11 @@ fn settings_config(
         available_models: run_config::available(registry),
         current_model: Some((model.provider.clone(), model.id.clone())),
         default_model: default_model_ref(settings),
+        theme_setting: settings
+            .theme_setting()
+            .unwrap_or(theme::SYSTEM_THEME)
+            .to_owned(),
+        themes: themes.to_vec(),
     }
 }
 
@@ -542,6 +548,10 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     if let Some(message) = theme::init(&sources, setting.as_deref()) {
         eprintln!("Warning: {message}");
     }
+    let theme_names: Vec<String> = theme::available(&sources)
+        .into_iter()
+        .map(|info| info.name)
+        .collect();
     let mut open = opener.open(session_path.as_deref())?;
     run_config::apply_agent(&open.root, &cancel, &model, thinking, &cwd)?;
     if let Some(name) = &initial_name {
@@ -949,7 +959,14 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         }
                     }
                 }
+                OverlayAction::PreviewTheme(setting) => {
+                    let _ = theme::set_setting(&setting, &sources);
+                }
                 OverlayAction::Setting { id, value } => match id.as_str() {
+                    "theme" => match theme::set_setting(&value, &sources) {
+                        Ok(()) => settings.borrow_mut().set_theme(&value),
+                        Err(e) => chat.notice("error", &format!("Error: {e}")),
+                    },
                     "hide-thinking" => {
                         let hidden = value == "true";
                         chat.hide_thinking = hidden;
@@ -1148,8 +1165,13 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                     }
                     Command::Settings => {
                         let slot = action_slot();
-                        let config =
-                            settings_config(&settings.borrow(), &registry, &model, thinking);
+                        let config = settings_config(
+                            &settings.borrow(),
+                            &registry,
+                            &model,
+                            thinking,
+                            &theme_names,
+                        );
                         let callbacks = settings_callbacks(settings.clone());
                         let reader = overrides_reader(settings.clone());
                         let built: ComponentRef = component(SettingsSelector::new(

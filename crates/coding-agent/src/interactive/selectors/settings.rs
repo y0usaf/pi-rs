@@ -20,6 +20,7 @@ use pi_tui::fuzzy::fuzzy_filter;
 use pi_tui::keybindings::get_keybindings;
 use pi_tui::tui::{Component, ComponentRef, component};
 
+use super::theme::ThemeSubmenu;
 use super::{
     ActionSlot, OverlayAction, border, fit, key_display, push, select_list_theme,
     settings_list_theme, wrap,
@@ -79,10 +80,14 @@ type CompleteFn = Box<dyn FnMut(&StepContext)>;
 type SetLevelFn = Box<dyn FnMut(&str, &str, ModelThinkingLevel)>;
 type RemoveLevelFn = Box<dyn FnMut(&str, &str)>;
 
-/// What a submenu does when the user picks a value or backs out.
+/// A submenu's answer to the value the user highlighted.
+pub type ChangeFn = Box<dyn FnMut(&str)>;
+
+/// What a submenu does when the user picks a value, highlights one, or backs out.
 pub struct SubmenuCallbacks {
     pub on_select: Box<dyn FnMut(&str)>,
     pub on_cancel: Box<dyn FnMut()>,
+    pub on_change: Option<ChangeFn>,
 }
 
 /// Upstream SelectSubmenu: a titled select list, optionally type-to-filter.
@@ -96,9 +101,11 @@ pub struct SelectSubmenu {
     layout: SelectListLayoutOptions,
     on_select: Box<dyn FnMut(&str)>,
     on_cancel: Box<dyn FnMut()>,
+    on_change: Option<ChangeFn>,
     hint: &'static str,
     selected_slot: Rc<RefCell<Option<String>>>,
     cancel_slot: Rc<RefCell<bool>>,
+    changed_slot: Rc<RefCell<Option<String>>>,
 }
 
 impl SelectSubmenu {
@@ -122,6 +129,7 @@ impl SelectSubmenu {
             layout: layout_options,
             on_select: callbacks.on_select,
             on_cancel: callbacks.on_cancel,
+            on_change: callbacks.on_change,
             hint: if searchable {
                 "  Type to filter · Enter to select · Esc to go back"
             } else {
@@ -129,6 +137,7 @@ impl SelectSubmenu {
             },
             selected_slot: Rc::new(RefCell::new(None)),
             cancel_slot: Rc::new(RefCell::new(false)),
+            changed_slot: Rc::new(RefCell::new(None)),
         };
         submenu.rebuild(current_value.map(str::to_string));
         submenu
@@ -161,6 +170,10 @@ impl SelectSubmenu {
         let cancelled = self.cancel_slot.clone();
         list.on_cancel = Some(Box::new(move || {
             *cancelled.borrow_mut() = true;
+        }));
+        let changed = self.changed_slot.clone();
+        list.on_selection_change = Some(Box::new(move |item: &SelectItem| {
+            *changed.borrow_mut() = Some(item.value.clone());
         }));
         if let Some(index) = preselect_index {
             list.set_selected_index(index);
@@ -209,6 +222,12 @@ impl Component for SelectSubmenu {
             }
         } else {
             self.list.handle_input(data);
+        }
+        let changed = self.changed_slot.borrow_mut().take();
+        if let Some(value) = changed
+            && let Some(on_change) = self.on_change.as_mut()
+        {
+            on_change(&value);
         }
         if let Some(value) = self.selected_slot.borrow_mut().take() {
             (self.on_select)(&value);
@@ -274,6 +293,7 @@ fn build_step(
                     .push(StepEvent::Select(value.to_string()));
             }),
             on_cancel: Box::new(move || cancel_events.borrow_mut().push(StepEvent::Cancel)),
+            on_change: None,
         },
     ))
 }
@@ -385,6 +405,10 @@ pub struct SettingsConfig {
     pub available_models: Vec<Model>,
     pub current_model: Option<(String, String)>,
     pub default_model: Option<(String, String)>,
+    /// The theme setting as it is written, which names a pair with a slash.
+    pub theme_setting: String,
+    /// Every theme the theme item offers.
+    pub themes: Vec<String>,
 }
 
 /// What a settings row does that the row's own value cannot say: the per-model thinking
@@ -694,6 +718,24 @@ impl SettingsSelector {
                 },
             )
             .values(&["true", "false"]),
+        );
+        let themes = config.themes.clone();
+        let theme_action = action.clone();
+        items.push(
+            SettingItem::new(
+                "theme",
+                "Theme",
+                Some("Color theme for the interface"),
+                &config.theme_setting,
+            )
+            .submenu(Box::new(move |current: &str, done: SubmenuDone| {
+                component(ThemeSubmenu::new(
+                    current,
+                    themes.clone(),
+                    theme_action.clone(),
+                    done,
+                ))
+            })),
         );
 
         let mut list = SettingsList::new(

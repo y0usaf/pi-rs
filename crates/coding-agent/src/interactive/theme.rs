@@ -1082,6 +1082,13 @@ pub fn init(sources: &Sources, setting: Option<&str>) -> Option<String> {
     }
 }
 
+/// Apply a theme setting: a theme name, or a light/dark pair resolved for this terminal.
+pub fn set_setting(setting: &str, sources: &Sources) -> Result<(), String> {
+    let name = resolve_setting(Some(setting), terminal_appearance())
+        .unwrap_or_else(|| SYSTEM_THEME.to_owned());
+    set(&name, sources)
+}
+
 /// setTheme: switch to an available theme, leaving the current one in place when it does not load.
 pub fn set(name: &str, sources: &Sources) -> Result<(), String> {
     let theme = load(name, sources)?;
