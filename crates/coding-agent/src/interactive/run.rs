@@ -33,6 +33,7 @@ use serde_json::json;
 
 use super::bash_mode::BashMode;
 use super::chat::Chat;
+use super::external_editor;
 use super::footer::{Footer, FooterState, Totals, git_branch};
 use super::keybindings;
 use super::pending::PendingMessages;
@@ -161,6 +162,7 @@ enum Action {
     /// Forward or backward through the models in scope.
     ModelCycle(bool),
     ModelSelect,
+    ExternalEditor,
 }
 
 /// The components the loop swaps a selector in and out of.
@@ -871,6 +873,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             Action::ModelCycle(false)
         } else if kb.matches(data, "app.model.select") {
             Action::ModelSelect
+        } else if kb.matches(data, "app.editor.external") {
+            Action::ExternalEditor
         } else {
             return None;
         };
@@ -1171,6 +1175,19 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                     }
                 }
                 Action::ModelSelect => submitted.borrow_mut().push("/model".to_owned()),
+                Action::ExternalEditor => {
+                    let command = settings.borrow().external_editor_command();
+                    let content = editor.borrow().get_text();
+                    tui.stop(false);
+                    println!(
+                        "Launching external editor: {command}\nPi will resume when the editor exits."
+                    );
+                    if let Some(text) = external_editor::edit(&command, &content) {
+                        editor.borrow_mut().set_text(&text);
+                    }
+                    tui.start();
+                    tui.request_render(true);
+                }
                 Action::ThinkingCycle => {
                     let levels = supported_thinking_levels(&model);
                     if !model.reasoning {

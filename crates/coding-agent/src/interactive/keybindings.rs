@@ -29,6 +29,7 @@ const APP_DEFS: &[(&str, &[&str], &str)] = &[
         "Cycle to previous model",
     ),
     ("app.model.select", &["ctrl+l"], "Open model selector"),
+    ("app.editor.external", &["ctrl+g"], "Open external editor"),
     ("app.thinking.toggle", &["ctrl+t"], "Toggle thinking blocks"),
     ("app.models.save", &["ctrl+s"], "Save model selection"),
     ("app.models.enableAll", &["ctrl+a"], "Enable all models"),

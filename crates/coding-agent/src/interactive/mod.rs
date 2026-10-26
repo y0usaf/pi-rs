@@ -3,6 +3,7 @@
 
 pub mod bash_mode;
 pub mod chat;
+pub mod external_editor;
 pub mod footer;
 pub mod keybindings;
 pub mod messages;
