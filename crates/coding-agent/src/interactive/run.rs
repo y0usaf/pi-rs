@@ -164,6 +164,8 @@ enum Action {
     ModelSelect,
     ExternalEditor,
     Suspend,
+    /// A session key, run as the slash command it names.
+    Session(&'static str),
 }
 
 /// The components the loop swaps a selector in and out of.
@@ -878,6 +880,14 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             Action::ExternalEditor
         } else if kb.matches(data, "app.suspend") {
             Action::Suspend
+        } else if kb.matches(data, "app.session.new") {
+            Action::Session("/new")
+        } else if kb.matches(data, "app.session.tree") {
+            Action::Session("/tree")
+        } else if kb.matches(data, "app.session.fork") {
+            Action::Session("/fork")
+        } else if kb.matches(data, "app.session.resume") {
+            Action::Session("/resume")
         } else {
             return None;
         };
@@ -1191,6 +1201,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                     tui.start();
                     tui.request_render(true);
                 }
+                Action::Session(command) => submitted.borrow_mut().push(command.to_owned()),
                 Action::Suspend => {
                     tui.stop(false);
                     pi_tui::terminal::suspend();
