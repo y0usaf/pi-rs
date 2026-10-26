@@ -157,6 +157,7 @@ enum Action {
     FollowUp,
     Dequeue,
     ThinkingToggle,
+    ThinkingCycle,
 }
 
 /// The components the loop swaps a selector in and out of.
@@ -859,6 +860,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             Action::Dequeue
         } else if kb.matches(data, "app.thinking.toggle") {
             Action::ThinkingToggle
+        } else if kb.matches(data, "app.thinking.cycle") {
+            Action::ThinkingCycle
         } else {
             return None;
         };
@@ -1094,6 +1097,31 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 Action::Expand => {
                     let expanded = !chat.expanded;
                     chat.set_expanded(expanded);
+                }
+                Action::ThinkingCycle => {
+                    let levels = supported_thinking_levels(&model);
+                    if !model.reasoning {
+                        chat.show_status("Current model does not support thinking");
+                    } else {
+                        let next = match levels.iter().position(|level| *level == thinking) {
+                            Some(index) => levels[(index + 1) % levels.len()],
+                            None => levels[0],
+                        };
+                        match apply_thinking(
+                            &open.root,
+                            &cancel,
+                            &mut settings.borrow_mut(),
+                            &footer,
+                            next,
+                            false,
+                        ) {
+                            Ok(_) => {
+                                thinking = next;
+                                chat.show_status(&format!("Thinking level: {}", level_name(next)));
+                            }
+                            Err(e) => chat.notice("error", &format!("Error: {e}")),
+                        }
+                    }
                 }
                 Action::ThinkingToggle => {
                     let hidden = !chat.hide_thinking;
