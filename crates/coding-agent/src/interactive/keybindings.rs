@@ -22,6 +22,13 @@ const APP_DEFS: &[(&str, &[&str], &str)] = &[
     ),
     ("app.thinking.cycle", &["shift+tab"], "Cycle thinking level"),
     ("app.thinking.save", &["ctrl+s"], "Save thinking level"),
+    ("app.model.cycleForward", &["ctrl+p"], "Cycle to next model"),
+    (
+        "app.model.cycleBackward",
+        &["shift+ctrl+p"],
+        "Cycle to previous model",
+    ),
+    ("app.model.select", &["ctrl+l"], "Open model selector"),
     ("app.thinking.toggle", &["ctrl+t"], "Toggle thinking blocks"),
     ("app.models.save", &["ctrl+s"], "Save model selection"),
     ("app.models.enableAll", &["ctrl+a"], "Enable all models"),

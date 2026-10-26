@@ -158,6 +158,9 @@ enum Action {
     Dequeue,
     ThinkingToggle,
     ThinkingCycle,
+    /// Forward or backward through the models in scope.
+    ModelCycle(bool),
+    ModelSelect,
 }
 
 /// The components the loop swaps a selector in and out of.
@@ -862,6 +865,12 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             Action::ThinkingToggle
         } else if kb.matches(data, "app.thinking.cycle") {
             Action::ThinkingCycle
+        } else if kb.matches(data, "app.model.cycleForward") {
+            Action::ModelCycle(true)
+        } else if kb.matches(data, "app.model.cycleBackward") {
+            Action::ModelCycle(false)
+        } else if kb.matches(data, "app.model.select") {
+            Action::ModelSelect
         } else {
             return None;
         };
@@ -1098,6 +1107,70 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                     let expanded = !chat.expanded;
                     chat.set_expanded(expanded);
                 }
+                Action::ModelCycle(forward) => {
+                    let available = run_config::available(&registry);
+                    let scoped = !scope.is_empty();
+                    let models: Vec<Model> = if scoped {
+                        scope
+                            .iter()
+                            .filter(|scoped_model| {
+                                available.iter().any(|model| {
+                                    model.provider == scoped_model.provider
+                                        && model.id == scoped_model.id
+                                })
+                            })
+                            .cloned()
+                            .collect()
+                    } else {
+                        available
+                    };
+                    if models.len() <= 1 {
+                        chat.show_status(if scoped {
+                            "Only one model in scope"
+                        } else {
+                            "Only one model available"
+                        });
+                    } else {
+                        let count = models.len();
+                        let current = models
+                            .iter()
+                            .position(|m| m.provider == model.provider && m.id == model.id)
+                            .unwrap_or(0);
+                        let index = if forward {
+                            (current + 1) % count
+                        } else {
+                            (current + count - 1) % count
+                        };
+                        let next = models[index].clone();
+                        match apply_model(
+                            &open.root,
+                            &cancel,
+                            &mut settings.borrow_mut(),
+                            &footer,
+                            &next,
+                            false,
+                            &mut thinking,
+                        ) {
+                            Ok(_) => {
+                                let name = if next.name.is_empty() {
+                                    next.id.clone()
+                                } else {
+                                    next.name.clone()
+                                };
+                                let thinking_text =
+                                    if next.reasoning && thinking != ModelThinkingLevel::Off {
+                                        format!(" (thinking: {})", level_name(thinking))
+                                    } else {
+                                        String::new()
+                                    };
+                                model = next;
+                                chat.show_status(&format!("Switched to {name}{thinking_text}"));
+                            }
+                            Err(e) => chat.notice("error", &format!("Error: {e}")),
+                        }
+                    }
+                }
+                Action::ModelSelect => submitted.borrow_mut().push("/model".to_owned()),
                 Action::ThinkingCycle => {
                     let levels = supported_thinking_levels(&model);
                     if !model.reasoning {
