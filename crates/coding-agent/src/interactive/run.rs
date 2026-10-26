@@ -163,6 +163,7 @@ enum Action {
     ModelCycle(bool),
     ModelSelect,
     ExternalEditor,
+    Suspend,
 }
 
 /// The components the loop swaps a selector in and out of.
@@ -875,6 +876,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             Action::ModelSelect
         } else if kb.matches(data, "app.editor.external") {
             Action::ExternalEditor
+        } else if kb.matches(data, "app.suspend") {
+            Action::Suspend
         } else {
             return None;
         };
@@ -1185,6 +1188,12 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                     if let Some(text) = external_editor::edit(&command, &content) {
                         editor.borrow_mut().set_text(&text);
                     }
+                    tui.start();
+                    tui.request_render(true);
+                }
+                Action::Suspend => {
+                    tui.stop(false);
+                    pi_tui::terminal::suspend();
                     tui.start();
                     tui.request_render(true);
                 }

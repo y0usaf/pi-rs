@@ -373,6 +373,17 @@ mod sig {
     }
 }
 
+/// Stop this process until it is continued: SIGTSTP to its process group, with SIGINT ignored
+/// while it is stopped, as upstream's Ctrl+Z does.
+#[cfg(unix)]
+pub fn suspend() {
+    unsafe {
+        let ignored = libc::signal(libc::SIGINT, libc::SIG_IGN);
+        libc::kill(0, libc::SIGTSTP);
+        libc::signal(libc::SIGINT, ignored);
+    }
+}
+
 fn now_ms() -> u64 {
     use std::sync::OnceLock;
     use std::time::Instant;

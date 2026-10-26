@@ -9,6 +9,7 @@ const APP_DEFS: &[(&str, &[&str], &str)] = &[
     ("app.interrupt", &["escape"], "Cancel or abort"),
     ("app.clear", &["ctrl+c"], "Clear editor"),
     ("app.exit", &["ctrl+d"], "Exit when editor is empty"),
+    ("app.suspend", &["ctrl+z"], "Suspend to background"),
     ("app.tools.expand", &["ctrl+o"], "Toggle tool output"),
     (
         "app.message.followUp",
