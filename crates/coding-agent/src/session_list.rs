@@ -5,24 +5,37 @@ use crate::args::Args;
 use crate::paths::{PathInput, join, normalize_path};
 use crate::settings::SettingsManager;
 
+/// This run's session directory: `custom` when a flag, the environment or a setting names it.
+pub struct Dir {
+    pub path: String,
+    pub custom: bool,
+}
+
 /// `<agentDir>/sessions/--<cwd with / as ->--`, upstream's session directory for a cwd.
-pub fn dir(agent_dir: &str, cwd: &str, args: &Args, settings: &SettingsManager) -> String {
-    if let Some(dir) = &args.session_dir {
-        return normalize_path(dir, PathInput::default());
-    }
-    if let Ok(dir) = std::env::var("PI_CODING_AGENT_SESSION_DIR")
-        && !dir.is_empty()
-    {
-        return normalize_path(&dir, PathInput::default());
+pub fn dir(agent_dir: &str, cwd: &str, args: &Args, settings: &SettingsManager) -> Dir {
+    let from_env = std::env::var("PI_CODING_AGENT_SESSION_DIR")
+        .ok()
+        .filter(|dir| !dir.is_empty());
+    if let Some(dir) = args.session_dir.as_ref().or(from_env.as_ref()) {
+        return Dir {
+            path: normalize_path(dir, PathInput::default()),
+            custom: true,
+        };
     }
     if let Some(dir) = settings.session_dir() {
-        return dir;
+        return Dir {
+            path: dir,
+            custom: true,
+        };
     }
     let safe = format!(
         "--{}--",
         cwd.trim_start_matches('/').replace(['/', '\\', ':'], "-")
     );
-    join(agent_dir, &format!("sessions/{safe}"))
+    Dir {
+        path: join(agent_dir, &format!("sessions/{safe}")),
+        custom: false,
+    }
 }
 
 /// A session file as the picker lists it: what the file says about itself plus what the

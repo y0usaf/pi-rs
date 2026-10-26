@@ -1,6 +1,7 @@
 //! `--fork <path|id>` (`cli/args.ts`, `main.ts`, `core/session-manager.ts` `forkFrom`): a copy of
-//! another session, under a new id, in this project's session directory. `/fork` and `/clone`
-//! write a new session from the active path instead (`createBranchedSession`).
+//! another session, under a new id, in this project's session directory. What the argument names
+//! is `session_resolve`'s answer. `/fork` and `/clone` write a new session from the active path
+//! instead (`createBranchedSession`).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -14,36 +15,6 @@ use pi_durable::session::types::Tx;
 use pi_durable::storage::sqlite;
 use pi_durable::storage::sqlite::SqliteStorage;
 use pi_durable::types::{ContextEdit, EntryDraft, EntryRecord};
-
-/// The session file `arg` names: a path when it is one, else `<dir>/<id>.db`, else the one file in
-/// `dir` whose id starts with `arg`.
-pub fn resolve(dir: &str, arg: &str) -> Option<String> {
-    let direct = Path::new(arg);
-    if direct.is_file() {
-        return Some(direct.to_string_lossy().into_owned());
-    }
-    let exact = format!("{dir}/{arg}.db");
-    if Path::new(&exact).is_file() {
-        return Some(exact);
-    }
-    let mut matches: Vec<String> = std::fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "db"))
-        .filter(|path| {
-            path.file_stem()
-                .and_then(|stem| stem.to_str())
-                .is_some_and(|stem| stem.starts_with(arg))
-        })
-        .map(|path| path.to_string_lossy().into_owned())
-        .collect();
-    matches.sort();
-    match matches.len() {
-        1 => matches.pop(),
-        _ => None,
-    }
-}
 
 /// Copy `source` into `dir` under a new id and return the new file. A session whose run is still in
 /// flight is refused: its copy would resume that run.

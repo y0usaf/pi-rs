@@ -242,6 +242,10 @@
             PI_RS_BIN=${self.packages.${system}.default}/bin/pi-rs ${examples}/bin/modes_e2e
             touch $out
           '';
+          session-e2e = pkgs.runCommand "${pname}-session-e2e" { } ''
+            PI_RS_BIN=${self.packages.${system}.default}/bin/pi-rs ${examples}/bin/session_e2e
+            touch $out
+          '';
           login-e2e = pkgs.runCommand "${pname}-login-e2e" { } ''
             ${examples}/bin/login_e2e
             touch $out

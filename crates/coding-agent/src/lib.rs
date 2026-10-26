@@ -28,6 +28,7 @@ pub mod session_fork;
 pub mod session_info;
 pub mod session_list;
 pub mod session_open;
+pub mod session_resolve;
 pub mod session_tree;
 pub mod sessions;
 pub mod settings;

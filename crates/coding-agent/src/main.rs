@@ -13,13 +13,14 @@ use pi_coding_agent::list_models;
 use pi_coding_agent::mcp;
 use pi_coding_agent::models::ModelRegistry;
 use pi_coding_agent::modes;
-use pi_coding_agent::paths::{PathInput, join, normalize_path, resolve_read_path};
+use pi_coding_agent::paths::{join, resolve_read_path};
 use pi_coding_agent::print::{self, RunInput, ToolSettings};
 use pi_coding_agent::prompt_templates;
 use pi_coding_agent::run_config::{self, Diagnostic, level_name};
 use pi_coding_agent::session_fork;
 use pi_coding_agent::session_list;
 use pi_coding_agent::session_open;
+use pi_coding_agent::session_resolve::{self, Resolved};
 use pi_coding_agent::session_tree;
 use pi_coding_agent::settings::{
     self, SettingsManager, collect_diagnostics, deduplicate_diagnostics,
@@ -318,18 +319,39 @@ fn run() -> Result<ExitCode, String> {
     let session_path = if parsed.no_session {
         None
     } else if let Some(fork) = &parsed.fork {
-        let source = session_fork::resolve(&sessions, fork)
-            .ok_or_else(|| format!("No session found matching '{fork}'"))?;
-        let copy = session_fork::copy(&source, &sessions, parsed.session_id.as_deref())?;
+        let source = match session_resolve::resolve(&sessions, &agent_dir, &cwd, fork) {
+            Resolved::Path(path) | Resolved::Local(path) | Resolved::Global { path, .. } => path,
+            Resolved::NotFound => return Err(format!("No session found matching '{fork}'")),
+        };
+        let copy = session_fork::copy(&source, &sessions.path, parsed.session_id.as_deref())?;
         fork_source = Some((copy.clone(), source));
         Some(copy)
-    } else if let Some(path) = &parsed.session {
-        Some(normalize_path(path, PathInput::default()))
+    } else if let Some(arg) = &parsed.session {
+        match session_resolve::resolve(&sessions, &agent_dir, &cwd, arg) {
+            Resolved::Path(path) | Resolved::Local(path) => Some(path),
+            Resolved::Global { path, cwd: project } => {
+                eprintln!("Session found in different project: {project}");
+                eprint!("Fork this session into current directory? [y/N] ");
+                let mut answer = String::new();
+                if std::io::stdin().read_line(&mut answer).unwrap_or(0) == 0 {
+                    return Ok(ExitCode::SUCCESS);
+                }
+                let answer = answer.trim();
+                if !answer.eq_ignore_ascii_case("y") && !answer.eq_ignore_ascii_case("yes") {
+                    eprintln!("Aborted.");
+                    return Ok(ExitCode::SUCCESS);
+                }
+                let copy = session_fork::copy(&path, &sessions.path, None)?;
+                fork_source = Some((copy.clone(), path));
+                Some(copy)
+            }
+            Resolved::NotFound => return Err(format!("No session found matching '{arg}'")),
+        }
     } else if parsed.resume {
         if !std::io::stdin().is_terminal() {
             return Err("Error: --resume needs a terminal".into());
         }
-        match interactive::selectors::session::select_session(&sessions, &agent_dir)? {
+        match interactive::selectors::session::select_session(&sessions.path, &agent_dir)? {
             Some(path) => Some(path),
             None => {
                 println!("No session selected");
@@ -337,9 +359,10 @@ fn run() -> Result<ExitCode, String> {
             }
         }
     } else if parsed.continue_ {
-        session_list::latest(&sessions).or_else(|| Some(session_list::new_path(&sessions)))
+        session_list::latest(&sessions.path)
+            .or_else(|| Some(session_list::new_path(&sessions.path)))
     } else if let Some(id) = &parsed.session_id {
-        let path = join(&sessions, &format!("{id}.db"));
+        let path = join(&sessions.path, &format!("{id}.db"));
         if !std::path::Path::new(&path).exists() {
             eprintln!(
                 "Warning: No project session found with id '{id}'; creating a new session with that id."
@@ -347,7 +370,7 @@ fn run() -> Result<ExitCode, String> {
         }
         Some(path)
     } else {
-        Some(session_list::new_path(&sessions))
+        Some(session_list::new_path(&sessions.path))
     };
     let declared = pi_coding_agent::codemode::declared_tools(
         &tools,
@@ -505,7 +528,7 @@ fn run() -> Result<ExitCode, String> {
         };
         let path = interactive::run::run(interactive::run::Session {
             opener,
-            session_dir: sessions.clone(),
+            session_dir: sessions.path.clone(),
             persists: !parsed.no_session,
             model,
             thinking: choice.thinking,
@@ -610,7 +633,7 @@ fn run() -> Result<ExitCode, String> {
             thinking: input.thinking,
             registry: Arc::clone(&registry),
             session_path: session_path.clone(),
-            session_dir: sessions.clone(),
+            session_dir: sessions.path.clone(),
             cwd: input.cwd.clone(),
             settings: std::rc::Rc::new(std::cell::RefCell::new(settings)),
             source: session_open::Source {
