@@ -156,6 +156,7 @@ enum Action {
     Expand,
     FollowUp,
     Dequeue,
+    ThinkingToggle,
 }
 
 /// The components the loop swaps a selector in and out of.
@@ -856,6 +857,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             Action::FollowUp
         } else if kb.matches(data, "app.message.dequeue") {
             Action::Dequeue
+        } else if kb.matches(data, "app.thinking.toggle") {
+            Action::ThinkingToggle
         } else {
             return None;
         };
@@ -1091,6 +1094,15 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 Action::Expand => {
                     let expanded = !chat.expanded;
                     chat.set_expanded(expanded);
+                }
+                Action::ThinkingToggle => {
+                    let hidden = !chat.hide_thinking;
+                    chat.set_hide_thinking(hidden);
+                    settings.borrow_mut().set_hide_thinking_block(hidden);
+                    chat.show_status(&format!(
+                        "Thinking blocks: {}",
+                        if hidden { "hidden" } else { "visible" }
+                    ));
                 }
             }
             dirty.set(true);

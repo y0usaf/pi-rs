@@ -14,7 +14,7 @@ use pi_durable::types::EntryRecord;
 use pi_tui::components::markdown::{Markdown, MarkdownOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
-use pi_tui::tui::{ComponentRef, Container};
+use pi_tui::tui::{ComponentRef, Container, same};
 use serde_json::Value;
 
 use super::bash_mode::BashRow;
@@ -32,6 +32,9 @@ pub struct Chat {
     bash_rows: Vec<Rc<RefCell<BashRow>>>,
     /// The model's text for a `!` run this chat already drew as a block.
     bash_texts: Vec<String>,
+    views: Vec<Rc<RefCell<AssistantView>>>,
+    /// The spacer and line of the last status shown, which a second status updates in place.
+    status_line: Option<(ComponentRef, Rc<RefCell<Text>>)>,
     pub cwd: String,
     pub expanded: bool,
     pub hide_thinking: bool,
@@ -74,6 +77,8 @@ impl Chat {
             all_rows: Vec::new(),
             bash_rows: Vec::new(),
             bash_texts: Vec::new(),
+            views: Vec::new(),
+            status_line: None,
             cwd: cwd.to_string(),
             expanded: false,
             hide_thinking: false,
@@ -114,6 +119,30 @@ impl Chat {
         self.add(Rc::new(RefCell::new(line)));
     }
 
+    /// A status message in the chat. Back-to-back statuses update the line already there
+    /// instead of appending more, as upstream's `showStatus` does.
+    pub fn show_status(&mut self, message: &str) {
+        let text = fg("dim", message);
+        if let Some((spacer, line)) = &self.status_line {
+            let children = &self.container.borrow().children;
+            let count = children.len();
+            let line_ref: ComponentRef = line.clone();
+            if count >= 2
+                && same(&children[count - 1], &line_ref)
+                && same(&children[count - 2], spacer)
+            {
+                line.borrow_mut().set_text(&text);
+                return;
+            }
+        }
+        let spacer: ComponentRef = Rc::new(RefCell::new(Spacer::new(1)));
+        let line = Rc::new(RefCell::new(Text::new(&text, 1, 0)));
+        self.add(Rc::clone(&spacer));
+        let line_ref: ComponentRef = line.clone();
+        self.add(line_ref);
+        self.status_line = Some((spacer, line));
+    }
+
     /// A block of Markdown in the chat, as upstream's `/hotkeys` and `/session` add them.
     pub fn block(&mut self, markdown: &str) {
         self.add(Rc::new(RefCell::new(Spacer::new(1))));
@@ -134,7 +163,17 @@ impl Chat {
         self.all_rows.clear();
         self.bash_rows.clear();
         self.bash_texts.clear();
+        self.views.clear();
+        self.status_line = None;
         self.streaming = None;
+    }
+
+    /// Hide or show the thinking blocks of every assistant message already in the transcript.
+    pub fn set_hide_thinking(&mut self, hide: bool) {
+        self.hide_thinking = hide;
+        for view in &self.views {
+            view.borrow_mut().set_hide_thinking(hide);
+        }
     }
 
     pub fn set_expanded(&mut self, expanded: bool) {
@@ -216,6 +255,7 @@ impl Chat {
         )));
         self.add(view.clone());
         view.borrow_mut().update(message);
+        self.views.push(Rc::clone(&view));
         self.streaming = Some((view, message.clone()));
         self.sync_tool_calls(message);
     }
@@ -224,9 +264,13 @@ impl Chat {
         match self.streaming.take() {
             Some((view, _)) => view.borrow_mut().update(message),
             None => {
-                let view =
-                    AssistantView::with_message(message, self.hide_thinking, self.output_pad);
-                self.add(Rc::new(RefCell::new(view)));
+                let view = Rc::new(RefCell::new(AssistantView::with_message(
+                    message,
+                    self.hide_thinking,
+                    self.output_pad,
+                )));
+                self.add(view.clone());
+                self.views.push(view);
             }
         }
         self.sync_tool_calls(message);
@@ -282,6 +326,8 @@ impl Chat {
         self.rows.clear();
         self.all_rows.clear();
         self.bash_rows.clear();
+        self.views.clear();
+        self.status_line = None;
         self.streaming = None;
         for entry in &snapshot.entries {
             if entry.kind == crate::bash_exec::KIND {

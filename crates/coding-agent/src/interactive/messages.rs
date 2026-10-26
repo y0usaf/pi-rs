@@ -95,6 +95,14 @@ impl AssistantView {
         view
     }
 
+    /// Show or hide the thinking blocks, redrawing the message that was here.
+    pub fn set_hide_thinking(&mut self, hide: bool) {
+        self.hide_thinking = hide;
+        if let Some(message) = self.last.clone() {
+            self.update(&message);
+        }
+    }
+
     /// `updateContent`: rebuilds the parts from the message as it stands.
     pub fn update(&mut self, message: &AssistantMessage) {
         self.last = Some(message.clone());
