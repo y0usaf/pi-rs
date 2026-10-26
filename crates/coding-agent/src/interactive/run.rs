@@ -702,6 +702,24 @@ fn open_login(
     built
 }
 
+/// Hands the extensions the models they see: the session's own, the catalog `find` searches, and
+/// the providers whose credentials are configured.
+fn hand_models(live: &crate::extensions::Live, registry: &Arc<ModelRegistry>, model: &Model) {
+    let mut configured: Vec<String> = registry
+        .available()
+        .iter()
+        .map(|model| model.provider.clone())
+        .collect();
+    configured.sort();
+    configured.dedup();
+    live.set_models(crate::extensions::ExtensionModels {
+        providers: crate::print::providers(Arc::clone(registry), model),
+        current: model.clone(),
+        list: registry.models().to_vec(),
+        configured,
+    });
+}
+
 pub fn run(session: Session) -> Result<Option<String>, String> {
     let cancel = CancelToken::new();
     let Session {
@@ -868,6 +886,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     }
     pending.extend(messages.iter().map(|m| text_input(m, &[])));
     let live = crate::extensions::live();
+    let mut handed: Option<(String, String)> = None;
     if let Some(live) = live {
         live.set_session(
             &open.harness,
@@ -891,6 +910,13 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             }
             chat.working = true;
             dirty.set(true);
+        }
+        if let Some(live) = live {
+            let reference = (model.provider.clone(), model.id.clone());
+            if handed.as_ref() != Some(&reference) {
+                hand_models(live, &registry, &model);
+                handed = Some(reference);
+            }
         }
         let mut due = tui.tick(now());
         let (spun, spin_due) = status.borrow_mut().tick(now());

@@ -7,8 +7,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::time::Duration;
 
+use pi_durable::ai::models::Models as ModelsTrait;
+use pi_durable::ai::registry::Providers;
 use pi_durable::ai::types::{
-    AssistantMessage, Message, TextContent, TextType, UserBlock, UserContent,
+    AssistantMessage, CacheRetention, Context, Message, Model, SimpleStreamOptions, SystemContent,
+    SystemMessage, SystemRole, TextContent, TextType, TranscriptContext, UserBlock, UserContent,
 };
 use pi_durable::cancel::CancelToken;
 use pi_durable::errors::Error;
@@ -22,6 +25,78 @@ use serde_json::{Map, Value, json};
 use crate::config::CONFIG_DIR_NAME;
 use crate::paths::join;
 use crate::settings::SettingsManager;
+
+/// What an extension sees of the models: the session's own, the catalog `find` searches, and the
+/// providers whose credentials are configured.
+pub struct ExtensionModels {
+    pub providers: Providers,
+    pub current: Model,
+    pub list: Vec<Model>,
+    pub configured: Vec<String>,
+}
+
+impl ExtensionModels {
+    /// One call the child made while a handler waited on it, answered here.
+    fn call(&self, name: &str, args: &Value) -> std::result::Result<Value, String> {
+        match name {
+            "complete" => self.complete(args),
+            other => Err(format!(
+                "pi-rs does not implement the extension call {other}"
+            )),
+        }
+    }
+
+    /// `modelRegistry.complete`: one request with the session's auth, answered whole.
+    fn complete(&self, args: &Value) -> std::result::Result<Value, String> {
+        let field = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
+        let (provider, id) = (field("provider"), field("modelId"));
+        let model = self
+            .providers
+            .get_model(provider, id)
+            .ok_or_else(|| format!("no model {provider}/{id} is configured"))?;
+        let context: Context =
+            serde_json::from_value(args.get("context").cloned().unwrap_or(Value::Null))
+                .map_err(|e| format!("the request context does not load: {e}"))?;
+        let mut messages = Vec::new();
+        if let Some(prompt) = context.system_prompt {
+            messages.push(Message::System(SystemMessage {
+                role: SystemRole,
+                content: SystemContent::Text(prompt),
+                sections: None,
+                tools_added: None,
+                tools_removed: None,
+                timestamp: now_ms(),
+            }));
+        }
+        messages.extend(context.messages);
+        let mut options = SimpleStreamOptions {
+            cache_retention: Some(CacheRetention::None),
+            ..SimpleStreamOptions::default()
+        };
+        if let Some(tokens) = args.pointer("/options/maxTokens").and_then(Value::as_u64) {
+            options.max_tokens = Some(tokens);
+        }
+        if let Some(level) = args
+            .pointer("/options/reasoningEffort")
+            .and_then(Value::as_str)
+        {
+            options.reasoning = crate::run_config::parse_level(level)
+                .and_then(pi_durable::harness::generation::reasoning);
+        }
+        let message = self
+            .providers
+            .complete_simple(&model, TranscriptContext { messages }, options)
+            .map_err(|error| error.0)?;
+        serde_json::to_value(message).map_err(|e| e.to_string())
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or_default()
+}
 
 /// A command an extension registered, and the extension that registered it.
 #[derive(Clone, Debug)]
@@ -228,6 +303,7 @@ struct Inner {
     calls: Mutex<Vec<Call>>,
     state: Mutex<pi_extensions::Ctx>,
     updates: Mutex<Map<String, Value>>,
+    models: Mutex<Option<Arc<ExtensionModels>>>,
     dead: AtomicBool,
     settled: AtomicBool,
     started: AtomicBool,
@@ -278,6 +354,7 @@ impl Live {
                 updates: Map::new(),
             }),
             updates: Mutex::new(Map::new()),
+            models: Mutex::new(None),
             dead: AtomicBool::new(false),
             settled: AtomicBool::new(false),
             started: AtomicBool::new(false),
@@ -320,6 +397,19 @@ impl Live {
                 "name": crate::session_info::name(harness, cancel),
             }),
         );
+    }
+
+    /// Hands the extensions the models `ctx.model`, `ctx.modelRegistry.find` and `complete` read.
+    pub fn set_models(&self, models: ExtensionModels) {
+        self.update(
+            "models",
+            json!({
+                "current": models.current,
+                "list": models.list,
+                "configured": models.configured,
+            }),
+        );
+        *self.0.models.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(models));
     }
 
     pub fn set_tools(&self, builtin: &[ToolRegistration], mcp: &[ToolRegistration]) {
@@ -569,6 +659,15 @@ fn serve(mut host: pi_extensions::Host, inner: &Inner, queue: mpsc::Receiver<Job
             .unwrap_or_else(|e| e.into_inner())
             .clone();
         ctx.updates = std::mem::take(&mut *inner.updates.lock().unwrap_or_else(|e| e.into_inner()));
+        let models = inner
+            .models
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let mut ask = |name: &str, args: &Value| match &models {
+            Some(models) => models.call(name, args),
+            None => Err(format!("pi-rs has no model to answer {name} with yet")),
+        };
         let answer = match &op {
             Op::Load {
                 agent_dir,
@@ -584,12 +683,15 @@ fn serve(mut host: pi_extensions::Host, inner: &Inner, queue: mpsc::Receiver<Job
                         })
                         .map_err(|e| e.to_string())
                 }),
-            Op::Event { name, payload } => host.event(&pi_extensions::Event {
-                name,
-                payload: payload.clone(),
-                ctx: &ctx,
-            }),
-            Op::Command { name, args } => host.command(name, args, &ctx),
+            Op::Event { name, payload } => host.event(
+                &pi_extensions::Event {
+                    name,
+                    payload: payload.clone(),
+                    ctx: &ctx,
+                },
+                &mut ask,
+            ),
+            Op::Command { name, args } => host.command(name, args, &ctx, &mut ask),
         };
         let answer = match answer {
             Ok(answer) => answer,

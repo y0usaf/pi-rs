@@ -46,6 +46,17 @@ function send(message) {
 	protocol(JSON.stringify(message) + "\n");
 }
 
+// Calls an extension makes into pi-rs while a handler is waiting: sent on the same channel as the
+// answer, numbered so the reply names the call it satisfies.
+const answers = new Map();
+let nextCallId = 1;
+
+function ask(call, args) {
+	const callId = nextCallId++;
+	send({ call, callId, ...args });
+	return new Promise((resolve, reject) => answers.set(callId, { resolve, reject }));
+}
+
 function stripBom(text) {
 	return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }
@@ -151,6 +162,55 @@ function create(extensionPath) {
 const calls = [];
 const errors = [];
 
+const UNIMPLEMENTED_REGISTRY = [
+	"stream",
+	"streamSimple",
+	"classify",
+	"generateImages",
+	"refresh",
+	"getError",
+	"getProvider",
+	"getProviderAuth",
+	"getProviderAuthStatus",
+	"getProviderDisplayName",
+	"getModelOfType",
+	"findOfType",
+	"getModelsOfType",
+	"getAvailableOfType",
+	"getApiKeyAndHeaders",
+	"getApiKeyForProvider",
+];
+
+/** `ctx.modelRegistry`: the models `find` searches, and a `complete` pi-rs runs. */
+function registryOf() {
+	const models = runtime.models ?? {};
+	const list = models.list ?? [];
+	const configured = new Set(models.configured ?? []);
+	const registry = {
+		getAll: () => list.map((model) => ({ ...model })),
+		getAvailable: () => list.filter((model) => configured.has(model.provider)),
+		find: (provider, modelId) => list.find((model) => model.provider === provider && model.id === modelId),
+		hasConfiguredAuth: (model) => configured.has(model?.provider),
+		complete: (model, context, options) =>
+			ask("complete", {
+				provider: model?.provider,
+				modelId: model?.id,
+				context,
+				options: {
+					maxTokens: options?.maxTokens,
+					reasoningEffort: options?.reasoningEffort,
+				},
+			}),
+	};
+	for (const member of UNIMPLEMENTED_REGISTRY) {
+		registry[member] = () => {
+			calls.push({ call: "unsupported", member: `modelRegistry.${member}` });
+			return Promise.resolve(undefined);
+		};
+	}
+	return registry;
+}
+
 function sessionManagerOf(session) {
 	const entries = session?.entries ?? [];
 	const entry = (id) => entries.find((candidate) => candidate.id === id);
@@ -220,8 +280,8 @@ function contextOf() {
 		hasUI: runtime.hasUI,
 		cwd: runtime.cwd,
 		sessionManager: sessionManagerOf(runtime.session),
-		modelRegistry: {},
-		model: undefined,
+		modelRegistry: registryOf(),
+		model: runtime.models?.current,
 		scopedModels: [],
 		isIdle: () => !runtime.streaming,
 		isProjectTrusted: () => runtime.trusted,
@@ -301,6 +361,7 @@ let runtime = {
 	streaming: false,
 	pending: 0,
 	session: undefined,
+	models: { current: undefined, list: [], configured: [] },
 	tools: { active: [], all: [] },
 };
 
@@ -473,13 +534,21 @@ async function handle(request) {
 let queue = Promise.resolve();
 const input = readline.createInterface({ input: process.stdin, terminal: false });
 input.on("line", (line) => {
+	let request;
+	try {
+		request = JSON.parse(line);
+	} catch {
+		return;
+	}
+	if (request.answer !== undefined) {
+		const waiting = answers.get(request.answer);
+		if (!waiting) return;
+		answers.delete(request.answer);
+		if (request.ok === true) waiting.resolve(request.value);
+		else waiting.reject(new Error(request.error ?? "the call failed"));
+		return;
+	}
 	queue = queue.then(async () => {
-		let request;
-		try {
-			request = JSON.parse(line);
-		} catch {
-			return;
-		}
 		try {
 			const answer = await handle(request);
 			const value = answer.value;

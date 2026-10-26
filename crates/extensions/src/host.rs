@@ -52,6 +52,10 @@ pub struct Reply {
     pub errors: Vec<Failed>,
 }
 
+/// What the child asked pi-rs for while a handler was waiting on it: the call's name and arguments,
+/// answered so the handler can go on.
+pub type Ask<'a> = &'a mut dyn FnMut(&str, &Value) -> Result<Value, String>;
+
 /// The run an event sees: upstream's `ExtensionContext` minus what pi-rs fills in per extension.
 #[derive(Clone, Debug)]
 pub struct Ctx {
@@ -165,12 +169,14 @@ impl Host {
             "trusted": true,
             "updates": ctx.updates,
         });
-        let reply = self.answer(request, LOAD_BUDGET)?;
+        let reply = self.answer(request, LOAD_BUDGET, &mut |_, _| {
+            Err("the extensions cannot call pi-rs while they are loading".to_owned())
+        })?;
         serde_json::from_value(reply.value).map_err(|e| format!("the extension host answered {e}"))
     }
 
     /// Hands one event to the extensions, which may answer it and call back into pi-rs.
-    pub fn event(&mut self, event: &Event<'_>) -> Result<Reply, String> {
+    pub fn event(&mut self, event: &Event<'_>, ask: Ask<'_>) -> Result<Reply, String> {
         let request = json!({
             "op": "event",
             "name": event.name,
@@ -182,11 +188,17 @@ impl Host {
             "pending": event.ctx.pending,
             "updates": event.ctx.updates,
         });
-        self.answer(request, EVENT_BUDGET)
+        self.answer(request, EVENT_BUDGET, ask)
     }
 
     /// Runs a command an extension registered, with the arguments the user typed after it.
-    pub fn command(&mut self, name: &str, args: &str, ctx: &Ctx) -> Result<Reply, String> {
+    pub fn command(
+        &mut self,
+        name: &str,
+        args: &str,
+        ctx: &Ctx,
+        ask: Ask<'_>,
+    ) -> Result<Reply, String> {
         let request = json!({
             "op": "command",
             "name": name,
@@ -198,12 +210,12 @@ impl Host {
             "pending": ctx.pending,
             "updates": ctx.updates,
         });
-        self.answer(request, EVENT_BUDGET)
+        self.answer(request, EVENT_BUDGET, ask)
     }
 
     /// Sends `message` and reads the answer together with the calls that came with it.
-    fn answer(&mut self, message: Value, budget: Duration) -> Result<Reply, String> {
-        let value = self.request(message, budget)?;
+    fn answer(&mut self, message: Value, budget: Duration, ask: Ask<'_>) -> Result<Reply, String> {
+        let value = self.request(message, budget, ask)?;
         Ok(Reply {
             value: value.get("value").cloned().unwrap_or(Value::Null),
             calls: calls_of(value.get("calls")),
@@ -211,7 +223,12 @@ impl Host {
         })
     }
 
-    fn request(&mut self, mut message: Value, budget: Duration) -> Result<Value, String> {
+    fn request(
+        &mut self,
+        mut message: Value,
+        budget: Duration,
+        ask: Ask<'_>,
+    ) -> Result<Value, String> {
         if let Some(failure) = &self.failure {
             return Err(failure.clone());
         }
@@ -227,7 +244,13 @@ impl Host {
                         continue;
                     };
                     if let Some(call) = value.get("call").and_then(Value::as_str) {
-                        return Err(format!("the extension host asked for {call}"));
+                        let id = value.get("callId").cloned().unwrap_or(Value::Null);
+                        let reply = match ask(call, &value) {
+                            Ok(value) => json!({ "answer": id, "ok": true, "value": value }),
+                            Err(error) => json!({ "answer": id, "ok": false, "error": error }),
+                        };
+                        self.write(&reply)?;
+                        continue;
                     }
                     if value.get("id").and_then(Value::as_u64) != Some(id) {
                         continue;
