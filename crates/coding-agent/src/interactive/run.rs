@@ -413,7 +413,8 @@ struct Calls<'a> {
     cancel: &'a CancelToken,
 }
 
-fn serve_extension_calls(live: &crate::extensions::Live, calls: Calls<'_>) {
+/// Serves what the extensions asked for; true when one of the calls put a line in the chat.
+fn serve_extension_calls(live: &crate::extensions::Live, calls: Calls<'_>) -> bool {
     let Calls {
         root,
         chat,
@@ -424,26 +425,38 @@ fn serve_extension_calls(live: &crate::extensions::Live, calls: Calls<'_>) {
         cancel,
     } = calls;
     live.set_state(cwd, chat.working, pending.len() as u64);
+    let mut drew = false;
     for call in live.take_calls() {
         match call {
             Call::Abort => {
                 *interrupted = true;
                 if let Err(e) = root.abort(false, cancel) {
                     chat.notice("error", &format!("Error: {e}"));
+                    drew = true;
                 }
             }
-            Call::Notify { text, level } => chat.notice(&level, &text),
+            Call::Notify { text, level } => {
+                let token = match level.as_str() {
+                    "error" => "error",
+                    "warning" => "warning",
+                    _ => "dim",
+                };
+                chat.notice(token, &text);
+                drew = true;
+            }
             Call::SendUserMessage { content, .. } => {
                 pending.push(crate::extensions::content_of(&content));
             }
             Call::Shutdown => *quit = true,
             Call::Unsupported { member } => {
-                chat.notice("dim", &format!("{member} is not available in pi-rs yet"))
+                chat.notice("dim", &format!("{member} is not available in pi-rs yet"));
+                drew = true;
             }
         }
     }
     live.settle(*interrupted);
     *interrupted = *interrupted && chat.working;
+    drew
 }
 
 fn submit(
@@ -916,7 +929,10 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         }
                         if matches!(
                             event,
-                            AgentEvent::Snapshot(_) | AgentEvent::EntryAppended { .. }
+                            AgentEvent::Snapshot(_)
+                                | AgentEvent::EntryAppended { .. }
+                                | AgentEvent::MessageEnd { .. }
+                                | AgentEvent::ToolExecutionEnd { entry: Some(_), .. }
                         ) {
                             entries_changed = true;
                         }
@@ -943,8 +959,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 }
             }
         }
-        if let Some(live) = live {
-            serve_extension_calls(
+        if let Some(live) = live
+            && serve_extension_calls(
                 live,
                 Calls {
                     root: &open.root,
@@ -955,7 +971,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                     interrupted: &mut interrupted,
                     cancel: &cancel,
                 },
-            );
+            )
+        {
+            dirty.set(true);
         }
         for action in actions.borrow_mut().drain(..) {
             match action {
