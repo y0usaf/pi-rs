@@ -200,6 +200,14 @@ fn run() -> Result<ExitCode, String> {
             }
         };
     }
+    if let Some(command) = argv.first()
+        && matches!(
+            command.as_str(),
+            "install" | "remove" | "uninstall" | "update" | "list" | "config"
+        )
+    {
+        return Err(format!("pi-rs: {command} is not implemented yet"));
+    }
     let parsed = args::parse(&argv);
     let mut had_error = false;
     for d in &parsed.diagnostics {

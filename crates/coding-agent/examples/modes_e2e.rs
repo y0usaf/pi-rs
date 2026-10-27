@@ -202,6 +202,50 @@ fn template_run(bin: &Path, scratch: &Scratch) -> Result<()> {
     Ok(())
 }
 
+fn package_commands_run(bin: &Path, scratch: &Scratch) -> Result<()> {
+    for command in ["install", "remove", "uninstall", "update", "list", "config"] {
+        for suffix in [None, Some("--help"), Some("npm:@foo/bar")] {
+            let out = Command::new(bin)
+                .arg(command)
+                .args(suffix)
+                .current_dir(scratch.root.join("cwd"))
+                .env_clear()
+                .env("HOME", scratch.root.join("home"))
+                .env("PI_CODING_AGENT_DIR", scratch.root.join("agent"))
+                .env("PATH", "/nonexistent")
+                .output()?;
+            let expected = format!("pi-rs: {command} is not implemented yet\n");
+            if out.status.code() != Some(1)
+                || !out.stdout.is_empty()
+                || out.stderr != expected.as_bytes()
+            {
+                return fail(format!("package command {command} {suffix:?}: {out:?}"));
+            }
+        }
+    }
+    for prompt in [vec!["install"], vec!["--", "install"]] {
+        let mut args = vec![
+            "--provider",
+            "fake",
+            "--model",
+            "fake-test",
+            "--no-session",
+            "--mode",
+            "json",
+            "-p",
+        ];
+        args.extend(prompt);
+        let (lines, _) = stdout_of(bin, scratch, &args)?;
+        need(&lines, "install as prompt text", |line| {
+            line["type"] == "message_start"
+                && line["message"]["role"] == "user"
+                && line["message"]["content"][0]["text"] == "install"
+        })?;
+    }
+    println!("package commands rejected; explicit prompts preserved");
+    Ok(())
+}
+
 struct Scratch {
     root: PathBuf,
 }
@@ -828,6 +872,7 @@ fn main() -> Result<()> {
         serde_json::to_vec(&models)?,
     )?;
 
+    package_commands_run(&bin, &scratch)?;
     json_run(&bin, &scratch, &written)?;
     template_run(&bin, &scratch)?;
     rpc_run(&bin, &scratch)?;
