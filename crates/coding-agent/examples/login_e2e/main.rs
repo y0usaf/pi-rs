@@ -72,10 +72,49 @@ fn main() {
     openrouter::run(&agent_dir);
     radius::run(&agent_dir);
     xai::run(&agent_dir);
+    catalog_api_key(&agent_dir);
 
     let _ = std::fs::remove_dir_all(&dir);
     println!(
-        "login ok: anthropic copy code, api key, logout, codex device code, cancel, chatgpt, copilot, kimi, meta, openrouter, radius, xai"
+        "login ok: anthropic copy code, api key, logout, codex device code, cancel, chatgpt, copilot, kimi, meta, openrouter, radius, xai, deepseek api key"
+    );
+}
+
+fn catalog_api_key(agent_dir: &str) {
+    let found: Vec<(&str, AuthType)> = login::find("DeepSeek")
+        .into_iter()
+        .map(|provider| (provider.id, provider.auth))
+        .collect();
+    check(
+        "deepseek options",
+        found,
+        vec![("deepseek", AuthType::ApiKey)],
+    );
+    let login = Login::start(
+        LoginRequest {
+            provider: "deepseek".to_owned(),
+            auth: AuthType::ApiKey,
+        },
+        agent_dir,
+    );
+    let status = drive(
+        &login,
+        |prompt, _| match prompt {
+            Prompt::Secret { message } => {
+                check("key prompt", message.as_str(), "Enter DeepSeek API key");
+                Some("sk-deepseek-typed".to_owned())
+            }
+            other => panic!("unexpected prompt {other:?}"),
+        },
+        |_, _| {},
+    );
+    status.expect("deepseek api key login succeeds");
+    let stored = auth_json(agent_dir);
+    check("type", stored["deepseek"]["type"].as_str(), Some("api_key"));
+    check(
+        "key",
+        stored["deepseek"]["key"].as_str(),
+        Some("sk-deepseek-typed"),
     );
 }
 

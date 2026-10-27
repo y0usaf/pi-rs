@@ -89,6 +89,12 @@ const fn api_key(
 /// What `/login` offers: every provider whose flow this port has, sorted as upstream sorts the
 /// selector. Upstream lists the rest beside these; the README says which are missing.
 static PROVIDERS: &[Provider] = &[
+    api_key(
+        "ant-ling",
+        "Ant Ling",
+        "Ant Ling API key",
+        "Enter Ant Ling API key",
+    ),
     oauth(
         "anthropic",
         "Anthropic",
@@ -101,6 +107,36 @@ static PROVIDERS: &[Provider] = &[
         "Anthropic API key",
         "Enter Anthropic API key",
     ),
+    api_key(
+        "azure",
+        "Azure",
+        "Azure OpenAI API key",
+        "Enter Azure OpenAI API key",
+    ),
+    api_key(
+        "baseten",
+        "Baseten",
+        "Baseten API key",
+        "Enter Baseten API key",
+    ),
+    api_key(
+        "cerebras",
+        "Cerebras",
+        "Cerebras API key",
+        "Enter Cerebras API key",
+    ),
+    api_key(
+        "deepseek",
+        "DeepSeek",
+        "DeepSeek API key",
+        "Enter DeepSeek API key",
+    ),
+    api_key(
+        "fireworks",
+        "Fireworks",
+        "Fireworks API key",
+        "Enter Fireworks API key",
+    ),
     oauth(
         "github-copilot",
         "GitHub Copilot",
@@ -112,6 +148,14 @@ static PROVIDERS: &[Provider] = &[
         "GitHub Copilot",
         "GitHub Copilot token",
         "Enter GitHub Copilot token",
+    ),
+    api_key("google", "Google", "Gemini API key", "Enter Gemini API key"),
+    api_key("groq", "Groq", "Groq API key", "Enter Groq API key"),
+    api_key(
+        "huggingface",
+        "Hugging Face",
+        "Hugging Face token",
+        "Enter Hugging Face token",
     ),
     oauth(
         "kimi-coding",
@@ -132,6 +176,37 @@ static PROVIDERS: &[Provider] = &[
         "Meta Model API key",
         "Enter Meta Model API key",
     ),
+    api_key(
+        "minimax",
+        "MiniMax",
+        "MiniMax API key",
+        "Enter MiniMax API key",
+    ),
+    api_key(
+        "minimax-cn",
+        "MiniMax CN",
+        "MiniMax CN API key",
+        "Enter MiniMax CN API key",
+    ),
+    api_key(
+        "mistral",
+        "Mistral",
+        "Mistral API key",
+        "Enter Mistral API key",
+    ),
+    api_key(
+        "moonshotai",
+        "Moonshot AI",
+        "Moonshot AI API key",
+        "Enter Moonshot AI API key",
+    ),
+    api_key(
+        "moonshotai-cn",
+        "Moonshot AI CN",
+        "Moonshot AI API key",
+        "Enter Moonshot AI API key",
+    ),
+    api_key("nvidia", "NVIDIA", "NVIDIA API key", "Enter NVIDIA API key"),
     oauth(
         "openai",
         "OpenAI",
@@ -145,6 +220,18 @@ static PROVIDERS: &[Provider] = &[
         "OpenAI (ChatGPT Plus/Pro)",
         Some(true),
     ),
+    api_key(
+        "opencode-go",
+        "OpenCode Go",
+        "OpenCode API key",
+        "Enter OpenCode API key",
+    ),
+    api_key(
+        "opencode",
+        "OpenCode Zen",
+        "OpenCode API key",
+        "Enter OpenCode API key",
+    ),
     oauth("openrouter", "OpenRouter", "OpenRouter OAuth", Some(false)),
     api_key(
         "openrouter",
@@ -152,10 +239,72 @@ static PROVIDERS: &[Provider] = &[
         "OpenRouter API key",
         "Enter OpenRouter API key",
     ),
+    api_key(
+        "qwen-token-plan",
+        "Qwen Token Plan",
+        "Qwen Token Plan API key",
+        "Enter Qwen Token Plan API key",
+    ),
+    api_key(
+        "qwen-token-plan-cn",
+        "Qwen Token Plan CN",
+        "Qwen Token Plan CN API key",
+        "Enter Qwen Token Plan CN API key",
+    ),
+    api_key(
+        "qwen-token-plan-individual",
+        "Qwen Token Plan Individual",
+        "Qwen Token Plan Individual API key",
+        "Enter Qwen Token Plan Individual API key",
+    ),
     oauth("radius", "Radius", "Radius", Some(true)),
     api_key("radius", "Radius", "Radius API key", "Enter Radius API key"),
+    api_key(
+        "together",
+        "Together",
+        "Together API key",
+        "Enter Together API key",
+    ),
+    api_key(
+        "typesafe",
+        "TypeSafe",
+        "TypeSafe API key",
+        "Enter TypeSafe API key",
+    ),
+    api_key(
+        "vercel-ai-gateway",
+        "Vercel AI Gateway",
+        "Vercel AI Gateway API key",
+        "Enter Vercel AI Gateway API key",
+    ),
     oauth("xai", "xAI", "xAI (Grok/X subscription)", Some(true)),
     api_key("xai", "xAI", "xAI API key", "Enter xAI API key"),
+    api_key("xiaomi", "Xiaomi", "Xiaomi API key", "Enter Xiaomi API key"),
+    api_key(
+        "xiaomi-token-plan-ams",
+        "Xiaomi Token Plan AMS",
+        "Xiaomi Token Plan AMS API key",
+        "Enter Xiaomi Token Plan AMS API key",
+    ),
+    api_key(
+        "xiaomi-token-plan-cn",
+        "Xiaomi Token Plan CN",
+        "Xiaomi Token Plan CN API key",
+        "Enter Xiaomi Token Plan CN API key",
+    ),
+    api_key(
+        "xiaomi-token-plan-sgp",
+        "Xiaomi Token Plan SGP",
+        "Xiaomi Token Plan SGP API key",
+        "Enter Xiaomi Token Plan SGP API key",
+    ),
+    api_key("zai", "Z.AI", "Z.AI API key", "Enter Z.AI API key"),
+    api_key(
+        "zai-coding-cn",
+        "Z.AI Coding CN",
+        "Z.AI Coding CN API key",
+        "Enter Z.AI Coding CN API key",
+    ),
 ];
 
 /// The providers a selector shows for one auth type, or every one when `auth` is `None`.
