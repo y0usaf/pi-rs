@@ -655,13 +655,15 @@ fn run() -> Result<ExitCode, String> {
         modes::rpc::run(harness, root, options, &cancel)?;
         return Ok(ExitCode::SUCCESS);
     }
+    let before = print::last_entry(&root, &cancel).map_err(|e| e.to_string())?;
     let outcome = print::run_turns(&harness, &root, &input, &cancel);
-    let transcript = print::transcript(&root, &cancel).map_err(|e| e.to_string())?;
+    let (transcript, fresh) =
+        print::transcript_after(&root, before, &cancel).map_err(|e| e.to_string())?;
     print::close(&harness, &cancel).map_err(|e| e.to_string())?;
     if let Err(e) = outcome {
         return Err(e.to_string());
     }
-    let (out, err, code) = print::text_result(&transcript);
+    let (out, err, code) = print::text_result(&transcript, fresh);
     stdout::write(&out)?;
     eprint!("{err}");
     Ok(ExitCode::from(code as u8))

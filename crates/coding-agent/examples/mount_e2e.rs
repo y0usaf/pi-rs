@@ -157,8 +157,15 @@ fn child(script: &str) -> ExitCode {
         "toolUse",
     )
     .expect("stop message");
+    let silent = message(
+        json!([{"type": "toolCall", "id": "c3", "name": "mount_stop", "arguments": {}}]),
+        "toolUse",
+    )
+    .expect("silent stop message");
     faux.set_responses(if script == "stop" {
         vec![FauxResponse::Message(Box::new(stop))]
+    } else if script == "silent" {
+        vec![FauxResponse::Message(Box::new(silent))]
     } else {
         vec![
             FauxResponse::Message(Box::new(call)),
@@ -256,6 +263,26 @@ fn main() -> ExitCode {
         out.status.success() && text(&out.stdout) == STOP_TEXT,
         format!(
             "rc={:?} stdout={:?} stderr={:?}",
+            out.status.code(),
+            text(&out.stdout),
+            text(&out.stderr)
+        ),
+    );
+
+    let saved = ["-p", "--model", model.as_str(), "probe"];
+    let first = run(me, &home, Some("probe"), &saved);
+    let resumed = ["-p", "-c", "--model", model.as_str(), "again"];
+    let out = run(me, &home, Some("silent"), &resumed);
+    check(
+        "a continued session whose run a tool ends without words prints nothing, not the earlier run's reply",
+        first.status.success()
+            && text(&first.stdout) == format!("false:{TOOL_TEXT}")
+            && out.status.success()
+            && text(&out.stdout).is_empty(),
+        format!(
+            "first rc={:?} stdout={:?}; resumed rc={:?} stdout={:?} stderr={:?}",
+            first.status.code(),
+            text(&first.stdout),
             out.status.code(),
             text(&out.stdout),
             text(&out.stderr)

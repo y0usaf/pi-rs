@@ -197,6 +197,34 @@ pub fn transcript(
     conversation: &Conversation,
     cancel: &CancelToken,
 ) -> Result<Vec<Message>, Error> {
+    transcript_after(conversation, None, cancel).map(|(messages, _)| messages)
+}
+
+/// The conversation's newest entry, the boundary a run's own messages start after.
+pub fn last_entry(
+    conversation: &Conversation,
+    cancel: &CancelToken,
+) -> Result<Option<pi_durable::ids::EntryId>, Error> {
+    let page = conversation.entries(
+        EntryQuery {
+            conversation_id: conversation.id(),
+            min_entry_id: None,
+            max_entry_id: None,
+            order: Some(ScanOrder::Descending),
+        },
+        1,
+        None,
+        cancel,
+    )?;
+    Ok(page.items.first().map(|entry| entry.id))
+}
+
+/// The transcript, and how many of its last messages came from entries after `after`.
+pub fn transcript_after(
+    conversation: &Conversation,
+    after: Option<pi_durable::ids::EntryId>,
+    cancel: &CancelToken,
+) -> Result<(Vec<Message>, usize), Error> {
     let mut entries: Vec<(pi_durable::ids::EntryId, Vec<Message>)> = Vec::new();
     let mut omitted = std::collections::BTreeSet::new();
     let mut from = None;
@@ -230,11 +258,19 @@ pub fn transcript(
     }
     // Hidden entries (a cut-off reply the harness dropped) are left out, as upstream prints
     // from the projected context.
-    Ok(entries
+    let kept: Vec<_> = entries
         .into_iter()
         .filter(|(id, _)| !omitted.contains(id))
-        .flat_map(|(_, model)| model)
-        .collect())
+        .collect();
+    let fresh = kept
+        .iter()
+        .filter(|(id, _)| after.is_none_or(|after| *id > after))
+        .map(|(_, model)| model.len())
+        .sum();
+    Ok((
+        kept.into_iter().flat_map(|(_, model)| model).collect(),
+        fresh,
+    ))
 }
 
 /// Sends the messages and waits for each run to finish, as `session.prompt` does in print mode.
@@ -347,12 +383,14 @@ pub fn run_turns(
 /// Text mode's ending: the last assistant message's text on stdout (exit 0), or its error on
 /// stderr (exit 1); a kept reply cut by the output limit is printed and exits 1. The harness
 /// hides a recoverable cut reply, so a run that only produced one prints nothing. A run a tool
-/// ended prints the last assistant text before that tool's result.
-pub fn text_result(messages: &[Message]) -> (String, String, i32) {
+/// ended prints the last assistant text among its `fresh` last messages, the run's own, so a
+/// continued session never prints an earlier run's reply as this one's.
+pub fn text_result(messages: &[Message], fresh: usize) -> (String, String, i32) {
     let last = match messages.last() {
         Some(Message::Assistant(last)) => last,
         Some(Message::ToolResult(_)) => {
-            let said = messages.iter().rev().find_map(|message| match message {
+            let own = &messages[messages.len().saturating_sub(fresh)..];
+            let said = own.iter().rev().find_map(|message| match message {
                 Message::Assistant(reply) => Some(text_of(reply)).filter(|text| !text.is_empty()),
                 _ => None,
             });

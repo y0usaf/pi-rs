@@ -83,7 +83,7 @@ Each handler has ten seconds before the child is taken for wedged and the event 
 
 ## Embedding
 
-`pi_coding_agent::cli::main()` is the whole `pi-rs` binary. A program that calls `mount::set` before it adds models and pi-durable extensions written in Rust to every harness the run opens: the mount's catalog resolves with `--model` and lists as available without credentials, and its `open` gets the built-in providers and returns the models every request goes through, so it can answer for its own models and pass the rest on. `nix flake check`'s `mount-e2e` mounts a fake model and a tool and checks that a print-mode turn calls the tool through the mounted model, that `--list-models` lists the model, and that plain `pi-rs` does not know it.
+`pi_coding_agent::cli::main()` is the whole `pi-rs` binary. A program that calls `mount::set` before it adds models and pi-durable extensions written in Rust to every harness the run opens: the mount's catalog resolves with `--model` and lists as available without credentials, and its `open` gets the built-in providers and returns the models every request goes through, so it can answer for its own models and pass the rest on. `nix flake check`'s `mount-e2e` mounts a fake model and a tool and checks that a print-mode turn calls the tool through the mounted model, that a run the tool ends prints the reply before it and a continued session's wordless run prints nothing, that `--list-models` lists the model, and that plain `pi-rs` does not know it.
 
 ## What matches upstream, and how it is checked
 
@@ -102,7 +102,7 @@ Each handler has ten seconds before the child is taken for wedged and the event 
 
 ## Where it differs
 
-- A print-mode run that a tool ends (an extension tool whose result terminates the run, as fusion's `finish` does) prints the last assistant text before that result; upstream prints nothing, since the run's last message is the tool's result.
+- A print-mode run that a tool ends (an extension tool whose result terminates the run, as fusion's `finish` does) prints the last assistant text that run produced before that result, never an earlier run's reply in a continued session; upstream prints nothing, since the run's last message is the tool's result.
 - HTTP errors from OpenAI-compatible servers print the whole JSON body (a pi-ai difference, listed in `crates/ai/parity/known.json`), and openai-completions tool declarations carry `strict: false`.
 - A `// @options:` line holding invalid JSON reports the JSON parser's own message, which reads differently from V8's.
 - A script's nested calls run one at a time, where upstream runs a script's concurrent calls in parallel, because pi-durable's harness is synchronous: a tool call cannot run beside another.
