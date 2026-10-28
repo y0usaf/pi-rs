@@ -32,8 +32,6 @@ const UNSUPPORTED = [
 	"setModel",
 	"getThinkingLevel",
 	"setThinkingLevel",
-	"registerProvider",
-	"unregisterProvider",
 	"registerMcpServer",
 	"unregisterMcpServer",
 	"getMcpServers",
@@ -51,10 +49,15 @@ let nextCallId = 1;
 const current = new AsyncLocalStorage();
 const inflight = new Map();
 
-function ask(call, args) {
+function askStream(call, args, update) {
 	const callId = nextCallId++;
+	const answer = new Promise((resolve, reject) => answers.set(callId, { resolve, reject, update }));
 	send({ ...args, call, callId, request: current.getStore()?.id });
-	return new Promise((resolve, reject) => answers.set(callId, { resolve, reject }));
+	return { callId, answer };
+}
+
+function ask(call, args) {
+	return askStream(call, args).answer;
 }
 
 function effect(call) {
@@ -298,7 +301,30 @@ function create(extensionPath) {
 		eventHandlers: new Map(),
 		commandHandlers: new Map(),
 		tools: new Map(),
+		providers: new Map(),
 	};
+}
+
+/** The providers extensions registered, by id; a later registration of an id wins. */
+function registeredProviders() {
+	const found = new Map();
+	for (const extension of loaded.values()) {
+		for (const provider of extension.providers.values()) found.set(provider.id, { extension, provider });
+	}
+	return found;
+}
+
+function providerInfos() {
+	return [...registeredProviders().values()].map(({ extension, provider }) => {
+		const oauth = provider.auth?.oauth ?? provider.oauth;
+		return {
+			id: provider.id,
+			name: provider.name ?? provider.id,
+			oauth: oauth ? { name: oauth.name ?? provider.name ?? provider.id, flow: oauth.id } : null,
+			streams: typeof provider.streamSimple === "function",
+			path: extension.path,
+		};
+	});
 }
 
 function plain(value) {
@@ -338,8 +364,6 @@ const UNIMPLEMENTED_REGISTRY = [
 	"refresh",
 	"getError",
 	"getProvider",
-	"getProviderAuth",
-	"getProviderAuthStatus",
 	"getProviderDisplayName",
 	"getModelOfType",
 	"findOfType",
@@ -351,14 +375,18 @@ const UNIMPLEMENTED_REGISTRY = [
 
 /** `ctx.modelRegistry`: the models `find` searches, and a `complete` pi-rs runs. */
 function registryOf() {
-	const models = runtime.models ?? {};
-	const list = models.list ?? [];
-	const configured = new Set(models.configured ?? []);
+	const list = () => runtime.models?.list ?? [];
+	const configured = () => new Set(runtime.models?.configured ?? []);
 	const registry = {
-		getAll: () => list.map((model) => ({ ...model })),
-		getAvailable: () => list.filter((model) => configured.has(model.provider)),
-		find: (provider, modelId) => list.find((model) => model.provider === provider && model.id === modelId),
-		hasConfiguredAuth: (model) => configured.has(model?.provider),
+		getAll: () => list().map((model) => ({ ...model })),
+		getAvailable: () => {
+			const providers = configured();
+			return list().filter((model) => providers.has(model.provider));
+		},
+		find: (provider, modelId) => list().find((model) => model.provider === provider && model.id === modelId),
+		hasConfiguredAuth: (model) => configured().has(model?.provider),
+		getProviderAuthStatus: (provider) => ({ configured: configured().has(provider) }),
+		getProviderAuth: async (provider) => (await ask("providerAuth", { provider })) ?? undefined,
 		complete: (model, context, options) =>
 			ask("complete", {
 				provider: model?.provider,
@@ -506,6 +534,19 @@ function apiFor(extension, runtime) {
 			extension.tools.set(tool.name, tool);
 			if (runtime.bound) effect({ call: "tools", tools: toolInfos() });
 		},
+		registerProvider(providerOrName, config) {
+			const provider = typeof providerOrName === "string" ? { ...config, id: providerOrName } : providerOrName;
+			if (typeof provider?.id !== "string" || provider.id.length === 0) {
+				throw new Error(`Provider registered by extension "${extension.path}" must have a non-empty string id.`);
+			}
+			extension.providers.set(provider.id, provider);
+			if (runtime.bound) effect({ call: "providers", providers: providerInfos() });
+		},
+		unregisterProvider(id) {
+			if (extension.providers.delete(id) && runtime.bound) {
+				effect({ call: "providers", providers: providerInfos() });
+			}
+		},
 		exec(command, args, options) {
 			bound();
 			return execCommand(command, args, options?.cwd ?? runtime.cwd, options);
@@ -587,7 +628,15 @@ let runtime = {
 	pending: 0,
 	session: undefined,
 	models: { current: undefined, list: [], configured: [] },
+	providers: [],
 	tools: { active: [], all: [] },
+};
+
+globalThis.__piHost = {
+	askStream,
+	effect,
+	providers: () => runtime.providers ?? [],
+	models: () => runtime.models?.list ?? [],
 };
 
 async function load(request) {
@@ -633,7 +682,7 @@ async function load(request) {
 		}
 	}
 	runtime.bound = true;
-	return { value: { extensions, errors: loadErrors, tools: toolInfos() } };
+	return { value: { extensions, errors: loadErrors, tools: toolInfos(), providers: providerInfos() } };
 }
 
 function handlersOf(name) {
@@ -763,6 +812,19 @@ async function runTool(request) {
 	return { value: result ?? null };
 }
 
+/** One request to a provider an extension registered, each event its stream yields sent as it comes. */
+async function runStream(request) {
+	const found = registeredProviders().get(request.provider);
+	if (typeof found?.provider.streamSimple !== "function") {
+		throw new Error(`No extension registered a provider ${request.provider} that streams`);
+	}
+	const options = { ...request.options, signal: current.getStore()?.signal };
+	for await (const event of found.provider.streamSimple(request.model, request.context, options)) {
+		send({ id: request.id, update: event });
+	}
+	return { value: null };
+}
+
 async function handle(request) {
 	switch (request.op) {
 		case "load":
@@ -773,6 +835,8 @@ async function handle(request) {
 			return await runCommand(request);
 		case "tool":
 			return await runTool(request);
+		case "stream":
+			return await runStream(request);
 		case "shutdown":
 			exit();
 		default:
@@ -791,6 +855,10 @@ input.on("line", (line) => {
 	if (request.answer !== undefined) {
 		const waiting = answers.get(request.answer);
 		if (!waiting) return;
+		if ("update" in request) {
+			waiting.update?.(request.update);
+			return;
+		}
 		answers.delete(request.answer);
 		if (request.ok === true) waiting.resolve(request.value);
 		else waiting.reject(new Error(request.error ?? "the call failed"));

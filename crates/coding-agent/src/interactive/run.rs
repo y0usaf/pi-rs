@@ -743,24 +743,6 @@ fn login_default(registry: &ModelRegistry, provider: &str, label: &str) -> Resul
         })
 }
 
-/// Hands the extensions the models they see: the session's own, the catalog `find` searches, and
-/// the providers whose credentials are configured.
-fn hand_models(live: &crate::extensions::Live, registry: &Arc<ModelRegistry>, model: &Model) {
-    let mut configured: Vec<String> = registry
-        .available()
-        .iter()
-        .map(|model| model.provider.clone())
-        .collect();
-    configured.sort();
-    configured.dedup();
-    live.set_models(crate::extensions::ExtensionModels {
-        providers: crate::print::providers(Arc::clone(registry), model),
-        current: model.clone(),
-        list: registry.models().to_vec(),
-        configured,
-    });
-}
-
 pub fn run(session: Session) -> Result<Option<String>, String> {
     let cancel = CancelToken::new();
     let Session {
@@ -957,6 +939,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let live = crate::extensions::live();
     let mut handed: Option<(String, String)> = None;
     if let Some(live) = live {
+        live.hand_models(&registry, &model);
+        handed = Some((model.provider.clone(), model.id.clone()));
         live.set_session(
             &open.harness,
             &open.root,
@@ -983,7 +967,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         if let Some(live) = live {
             let reference = (model.provider.clone(), model.id.clone());
             if handed.as_ref() != Some(&reference) {
-                hand_models(live, &registry, &model);
+                live.hand_models(&registry, &model);
                 handed = Some(reference);
             }
         }

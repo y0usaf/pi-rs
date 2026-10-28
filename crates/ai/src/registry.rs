@@ -28,11 +28,15 @@ pub struct Auth {
 
 pub type AuthResolver = Arc<dyn Fn(&Model) -> Result<Auth, String> + Send + Sync>;
 
+/// The API a provider registered at runtime streams a model with, when one did.
+pub type Router = Arc<dyn Fn(&Model) -> Option<Arc<dyn Api>> + Send + Sync>;
+
 #[derive(Default)]
 pub struct Providers {
     models: Vec<Model>,
     apis: BTreeMap<String, Arc<dyn Api>>,
     auth: Option<AuthResolver>,
+    router: Option<Router>,
 }
 
 impl Providers {
@@ -91,8 +95,51 @@ impl Providers {
         self
     }
 
+    pub fn set_router(&mut self, router: Router) -> &mut Self {
+        self.router = Some(router);
+        self
+    }
+
     pub fn models(&self) -> &[Model] {
         &self.models
+    }
+
+    /// Streams with the API the model names, past any provider the router hands out.
+    pub fn stream_builtin(
+        &self,
+        model: &Model,
+        context: TranscriptContext,
+        options: SimpleStreamOptions,
+    ) -> AssistantMessageEventStream {
+        self.dispatch(model, context, options, false)
+    }
+
+    fn dispatch(
+        &self,
+        model: &Model,
+        context: TranscriptContext,
+        options: SimpleStreamOptions,
+        routed: bool,
+    ) -> AssistantMessageEventStream {
+        let api = match routed
+            .then(|| self.router.as_ref().and_then(|route| route(model)))
+            .flatten()
+        {
+            Some(api) => api,
+            None => match self.apis.get(&model.api) {
+                Some(api) => Arc::clone(api),
+                None => {
+                    return error_stream(
+                        model,
+                        format!("No API provider registered for api: {}", model.api),
+                    );
+                }
+            },
+        };
+        match self.resolve(model, options) {
+            Ok(options) => api.stream_simple(model, context, options),
+            Err(message) => error_stream(model, message),
+        }
     }
 
     fn resolve(
@@ -137,16 +184,7 @@ impl Models for Providers {
         context: TranscriptContext,
         options: SimpleStreamOptions,
     ) -> AssistantMessageEventStream {
-        let Some(api) = self.apis.get(&model.api) else {
-            return error_stream(
-                model,
-                format!("No API provider registered for api: {}", model.api),
-            );
-        };
-        match self.resolve(model, options) {
-            Ok(options) => api.stream_simple(model, context, options),
-            Err(message) => error_stream(model, message),
-        }
+        self.dispatch(model, context, options, true)
     }
 
     fn fetch_deferred(

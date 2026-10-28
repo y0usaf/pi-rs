@@ -64,6 +64,31 @@ pub struct ToolInfo {
     pub path: String,
 }
 
+/// A provider an extension registered: `pi.registerProvider`'s object as pi-rs needs it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderInfo {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    /// The login it offers, when it has one.
+    #[serde(default)]
+    pub oauth: Option<OAuthInfo>,
+    /// Whether requests to its models go to its own `streamSimple`.
+    #[serde(default)]
+    pub streams: bool,
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct OAuthInfo {
+    #[serde(default)]
+    pub name: String,
+    /// The built-in provider whose login flow and token refresh this login runs.
+    #[serde(default)]
+    pub flow: Option<String>,
+}
+
 /// What one load produced: upstream's `LoadExtensionsResult`, minus warnings.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Load {
@@ -71,4 +96,6 @@ pub struct Load {
     pub errors: Vec<LoadError>,
     #[serde(default)]
     pub tools: Vec<ToolInfo>,
+    #[serde(default)]
+    pub providers: Vec<ProviderInfo>,
 }

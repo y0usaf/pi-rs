@@ -6,13 +6,16 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 
+use pi_durable::ai::event_stream::AssistantMessageEventStream;
 use pi_durable::ai::models::Models as ModelsTrait;
-use pi_durable::ai::registry::Providers;
+use pi_durable::ai::registry::{Api, Providers};
+use pi_durable::ai::stream::{fail, new_output};
 use pi_durable::ai::types::{
-    AssistantMessage, CacheRetention, Context, Message, Model, SimpleStreamOptions, SystemContent,
-    SystemMessage, SystemRole, TextContent, TextType, Tool as AgentTool, TranscriptContext,
-    UserBlock, UserContent,
+    AssistantMessage, AssistantMessageEvent, CachePoint, CacheRetention, Context, Message, Model,
+    SimpleStreamOptions, SystemContent, SystemMessage, SystemRole, TextContent, TextType,
+    Tool as AgentTool, TranscriptContext, UserBlock, UserContent,
 };
+use pi_durable::ai::utils::transcript::normalize_context;
 use pi_durable::cancel::CancelToken;
 use pi_durable::errors::Error;
 use pi_durable::harness::events::AgentEvent;
@@ -24,32 +27,99 @@ use pi_durable::harness::types::{
     HookApi, HookRegistration, OutputLimitsSpec, ToolControl, ToolExecute, ToolExecutionApi,
     ToolExecutionMode, ToolExecutionResult, ToolExposure, ToolRegistration,
 };
-use pi_extensions::{Call, Failed, Load, Peer, Pending, ToolInfo};
+use pi_extensions::{Call, Failed, Load, Peer, Pending, ProviderInfo, ToolInfo};
+use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
 use crate::config::CONFIG_DIR_NAME;
+use crate::models::ModelRegistry;
 use crate::paths::join;
 use crate::print::Loadout;
 use crate::settings::SettingsManager;
 
 /// What an extension sees of the models: the session's own, the catalog `find` searches, and the
 /// providers whose credentials are configured.
-pub struct ExtensionModels {
-    pub providers: Providers,
-    pub current: Model,
-    pub list: Vec<Model>,
-    pub configured: Vec<String>,
+struct ExtensionModels {
+    providers: Providers,
+    registry: Arc<ModelRegistry>,
+    current: Model,
+    list: Vec<Model>,
+    configured: Vec<String>,
 }
 
 impl ExtensionModels {
     /// One call the child made while a handler waited on it, answered here.
-    fn call(&self, name: &str, args: &Value) -> std::result::Result<Value, String> {
+    fn call(
+        &self,
+        name: &str,
+        args: &Value,
+        update: &mut dyn FnMut(Value),
+        cancel: &CancelToken,
+    ) -> std::result::Result<Value, String> {
         match name {
             "complete" => self.complete(args),
+            "stream" => self.stream(args, update, cancel),
+            "providerAuth" => self.provider_auth(args),
             other => Err(format!(
                 "pi-rs does not implement the extension call {other}"
             )),
         }
+    }
+
+    /// A built-in provider's `streamSimple`: pi-rs's client for the model's API, each event handed
+    /// back as it comes. A context with upstream's `systemPrompt` and `tools` is normalized first.
+    fn stream(
+        &self,
+        args: &Value,
+        update: &mut dyn FnMut(Value),
+        cancel: &CancelToken,
+    ) -> std::result::Result<Value, String> {
+        let model: Model = serde_json::from_value(args.get("model").cloned().unwrap_or_default())
+            .map_err(|e| format!("the request model does not load: {e}"))?;
+        let context: Context =
+            serde_json::from_value(args.get("context").cloned().unwrap_or_default())
+                .map_err(|e| format!("the request context does not load: {e}"))?;
+        let options = options_of(
+            args.get("options").unwrap_or(&Value::Null),
+            Some(cancel.clone()),
+        );
+        let stream = self
+            .providers
+            .stream_builtin(&model, normalize_context(&context), options);
+        while let Some(event) = stream.next_event() {
+            update(serde_json::to_value(&event).map_err(|e| e.to_string())?);
+        }
+        Ok(Value::Null)
+    }
+
+    /// `modelRegistry.getProviderAuth`: the credentials a request to the provider gets, nothing
+    /// when it has none.
+    fn provider_auth(&self, args: &Value) -> std::result::Result<Value, String> {
+        let provider = args
+            .get("provider")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !self.registry.has_configured_auth(provider) {
+            return Ok(Value::Null);
+        }
+        let auth = self
+            .registry
+            .provider_auth(provider, crate::auth::OAUTH_MINIMUM_VALIDITY_MS)?;
+        let mut resolved = Map::new();
+        if let Some(key) = auth.api_key {
+            resolved.insert("apiKey".to_owned(), json!(key));
+        }
+        if !auth.headers.is_empty() {
+            resolved.insert("headers".to_owned(), json!(auth.headers));
+        }
+        if let Some(base_url) = auth.base_url {
+            resolved.insert("baseUrl".to_owned(), json!(base_url));
+        }
+        let mut answer = json!({ "auth": resolved });
+        if !auth.env.is_empty() {
+            answer["env"] = json!(auth.env);
+        }
+        Ok(answer)
     }
 
     /// `modelRegistry.complete`: one request with the session's auth, answered whole.
@@ -94,6 +164,133 @@ impl ExtensionModels {
             .complete_simple(&model, TranscriptContext { messages }, options)
             .map_err(|error| error.0)?;
         serde_json::to_value(message).map_err(|e| e.to_string())
+    }
+}
+
+fn take<T: DeserializeOwned>(value: &Value, key: &str) -> Option<T> {
+    value
+        .get(key)
+        .filter(|field| !field.is_null())
+        .and_then(|field| serde_json::from_value(field.clone()).ok())
+}
+
+/// A request's options as upstream's `SimpleStreamOptions` names them.
+fn options_json(options: &SimpleStreamOptions) -> Value {
+    let mut out = Map::new();
+    let fields = [
+        ("apiKey", json!(options.api_key)),
+        ("baseUrl", json!(options.base_url)),
+        ("sessionId", json!(options.session_id)),
+        ("reasoning", json!(options.reasoning)),
+        ("cacheRetention", json!(options.cache_retention)),
+        ("deferred", json!(options.deferred.then_some(true))),
+        ("maxTokens", json!(options.max_tokens)),
+        ("transport", json!(options.transport)),
+        ("timeoutMs", json!(options.timeout_ms)),
+        ("maxRetries", json!(options.max_retries)),
+        ("maxRetryDelayMs", json!(options.max_retry_delay_ms)),
+        ("headers", json!(options.headers)),
+        ("metadata", json!(options.metadata)),
+        ("temperature", json!(options.temperature)),
+        ("toolChoice", json!(options.tool_choice)),
+    ];
+    for (key, value) in fields {
+        if !value.is_null() {
+            out.insert(key.to_owned(), value);
+        }
+    }
+    if !options.cache_points.is_empty() {
+        let points = options
+            .cache_points
+            .iter()
+            .map(|point| json!({ "message": point.message, "block": point.block }))
+            .collect();
+        out.insert("cachePoints".to_owned(), Value::Array(points));
+    }
+    Value::Object(out)
+}
+
+fn options_of(value: &Value, signal: Option<CancelToken>) -> SimpleStreamOptions {
+    let cache_points = value
+        .get("cachePoints")
+        .and_then(Value::as_array)
+        .map(|points| {
+            points
+                .iter()
+                .filter_map(|point| {
+                    Some(CachePoint {
+                        message: usize::try_from(point.get("message")?.as_u64()?).ok()?,
+                        block: point
+                            .get("block")
+                            .and_then(Value::as_u64)
+                            .and_then(|block| usize::try_from(block).ok()),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    SimpleStreamOptions {
+        signal,
+        api_key: take(value, "apiKey"),
+        base_url: take(value, "baseUrl"),
+        session_id: take(value, "sessionId"),
+        reasoning: take(value, "reasoning"),
+        cache_retention: take(value, "cacheRetention"),
+        deferred: value
+            .get("deferred")
+            .is_some_and(|deferred| !deferred.is_null() && deferred != &Value::Bool(false)),
+        max_tokens: take(value, "maxTokens"),
+        transport: take(value, "transport"),
+        timeout_ms: take(value, "timeoutMs"),
+        max_retries: take(value, "maxRetries"),
+        max_retry_delay_ms: take(value, "maxRetryDelayMs"),
+        headers: take(value, "headers"),
+        metadata: take(value, "metadata"),
+        cache_points,
+        temperature: take(value, "temperature"),
+        tool_choice: take(value, "toolChoice"),
+    }
+}
+
+/// A provider an extension registered with its own `streamSimple`: each request goes to the child.
+struct Routed {
+    provider: String,
+}
+
+impl Api for Routed {
+    fn stream_simple(
+        &self,
+        model: &Model,
+        context: TranscriptContext,
+        options: SimpleStreamOptions,
+    ) -> AssistantMessageEventStream {
+        let out = AssistantMessageEventStream::new();
+        let Some(live) = live() else {
+            fail(
+                &out,
+                new_output(model),
+                None,
+                "no extension host is running".to_owned(),
+            );
+            return out;
+        };
+        let signal = options.signal.clone();
+        if let Some(signal) = &signal {
+            out.bind_cancel_with(signal, new_output(model));
+        }
+        let request = (
+            serde_json::to_value(model).unwrap_or_default(),
+            json!({ "messages": context.messages }),
+            options_json(&options),
+        );
+        let (live, provider, model, sink) = (
+            live.clone(),
+            self.provider.clone(),
+            model.clone(),
+            out.clone(),
+        );
+        std::thread::spawn(move || live.stream(&provider, &model, request, signal.as_ref(), &sink));
+        out
     }
 }
 
@@ -261,6 +458,7 @@ pub fn load(
             return extensions;
         }
     };
+    host.update("providers", builtin_providers());
     let load = match host.load(agent_dir, &dirs, &paths) {
         Ok(load) => load,
         Err(error) => {
@@ -274,6 +472,7 @@ pub fn load(
         }
     }
     host.0.sink.tools(load.tools.clone());
+    host.0.sink.providers(load.providers.clone());
     let _ = LIVE.set(host);
     for error in &load.errors {
         extensions.notices.push(format!("Warning: {}", error.error));
@@ -296,6 +495,32 @@ pub fn load(
     extensions
 }
 
+/// `builtinProviders()`: each provider of the built-in catalog, with the login it offers.
+fn builtin_providers() -> Value {
+    let mut providers: Vec<(String, String)> = Vec::new();
+    for model in pi_durable::ai::catalog::all() {
+        if !providers.iter().any(|(id, _)| *id == model.provider) {
+            providers.push((model.provider, model.base_url));
+        }
+    }
+    let logins = crate::login::providers_for(Some(crate::login::AuthType::Oauth));
+    providers
+        .into_iter()
+        .map(|(id, base_url)| {
+            let oauth = logins
+                .iter()
+                .find(|login| login.id == id)
+                .map(|login| json!({ "id": id, "name": login.name }));
+            json!({
+                "id": id,
+                "name": crate::login::display_name(&id),
+                "baseUrl": base_url,
+                "oauth": oauth,
+            })
+        })
+        .collect()
+}
+
 #[derive(Clone)]
 pub struct Live(Arc<Inner>);
 
@@ -315,6 +540,7 @@ struct Sink {
     calls: Mutex<Vec<Call>>,
     models: Mutex<Option<Arc<ExtensionModels>>>,
     tools: Mutex<Vec<ToolInfo>>,
+    providers: Mutex<Vec<ProviderInfo>>,
     registries: Mutex<Vec<(Weak<Registry>, Arc<Loadout>)>>,
 }
 
@@ -323,12 +549,22 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Peer for Sink {
-    fn ask(&self, call: &str, args: &Value) -> std::result::Result<Value, String> {
+    fn ask(
+        &self,
+        call: &str,
+        args: &Value,
+        update: &mut dyn FnMut(Value),
+        cancel: &CancelToken,
+    ) -> std::result::Result<Value, String> {
         let models = lock(&self.models).clone();
         match models {
-            Some(models) => models.call(call, args),
+            Some(models) => models.call(call, args, update, cancel),
             None => Err(format!("pi-rs has no model to answer {call} with yet")),
         }
+    }
+
+    fn providers(&self, providers: Vec<ProviderInfo>) {
+        *lock(&self.providers) = providers;
     }
 
     fn call(&self, call: Call) {
@@ -511,8 +747,107 @@ impl Live {
         );
     }
 
-    /// Hands the extensions the models `ctx.model`, `ctx.modelRegistry.find` and `complete` read.
-    pub fn set_models(&self, models: ExtensionModels) {
+    /// Hands the extensions the models they see: the session's own, the catalog `find` searches,
+    /// and the providers whose credentials are configured, logins without models included.
+    pub fn hand_models(&self, registry: &Arc<ModelRegistry>, model: &Model) {
+        let mut configured: Vec<String> = registry
+            .available()
+            .iter()
+            .map(|model| model.provider.clone())
+            .collect();
+        configured.extend(
+            registry
+                .stored_credentials()
+                .into_iter()
+                .map(|(provider, _)| provider)
+                .filter(|provider| registry.has_configured_auth(provider)),
+        );
+        configured.sort();
+        configured.dedup();
+        self.set_models(ExtensionModels {
+            providers: crate::print::providers(Arc::clone(registry), model),
+            registry: Arc::clone(registry),
+            current: model.clone(),
+            list: registry.models().to_vec(),
+            configured,
+        });
+    }
+
+    /// The API requests to `provider` go through when an extension registered it with its own
+    /// `streamSimple`.
+    pub fn provider_api(&self, provider: &str) -> Option<Arc<dyn Api>> {
+        lock(&self.0.sink.providers)
+            .iter()
+            .any(|info| info.id == provider && info.streams)
+            .then(|| {
+                Arc::new(Routed {
+                    provider: provider.to_owned(),
+                }) as Arc<dyn Api>
+            })
+    }
+
+    /// The built-in provider whose login a provider an extension registered runs, as an extra
+    /// login for one provider does.
+    pub fn oauth_flow(&self, provider: &str) -> Option<String> {
+        lock(&self.0.sink.providers)
+            .iter()
+            .find(|info| info.id == provider)
+            .and_then(|info| info.oauth.as_ref())
+            .and_then(|oauth| oauth.flow.clone())
+    }
+
+    /// One request through a provider's `streamSimple` in the child, its events pushed to `out`.
+    fn stream(
+        &self,
+        provider: &str,
+        model: &Model,
+        (model_json, context, options): (Value, Value, Value),
+        signal: Option<&CancelToken>,
+        out: &AssistantMessageEventStream,
+    ) {
+        let mut unreadable: Option<String> = None;
+        let answer = self
+            .0
+            .host
+            .stream(provider, model_json, context, options)
+            .and_then(|pending| {
+                pending.wait(signal, &mut |event| match serde_json::from_value::<
+                    AssistantMessageEvent,
+                >(event)
+                {
+                    Ok(event) => {
+                        let last = matches!(
+                            event,
+                            AssistantMessageEvent::Done { .. }
+                                | AssistantMessageEvent::Error { .. }
+                        );
+                        out.push(event);
+                        if last {
+                            out.end(None);
+                        }
+                    }
+                    Err(e) => {
+                        unreadable.get_or_insert_with(|| {
+                            format!("the {provider} provider sent an event pi-rs cannot read: {e}")
+                        });
+                    }
+                })
+            });
+        if out.is_done() {
+            return;
+        }
+        let message = match (answer, unreadable) {
+            (Err(error), _) => {
+                self.died();
+                error
+            }
+            (Ok(_), Some(unreadable)) => unreadable,
+            (Ok(_), None) => format!("the {provider} provider's stream ended without a result"),
+        };
+        fail(out, new_output(model), signal, message);
+    }
+
+    fn set_models(&self, models: ExtensionModels) {
         self.update(
             "models",
             json!({

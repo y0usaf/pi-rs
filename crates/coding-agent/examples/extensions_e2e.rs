@@ -334,6 +334,7 @@ fn main() -> Result<()> {
     tools(&bin, &scratch)?;
     cancel(&bin, &scratch)?;
     exec(&bin, &scratch)?;
+    providers(&bin, &scratch)?;
 
     std::fs::remove_dir_all(&scratch.root)?;
     println!("extensions e2e ok");
@@ -1120,6 +1121,219 @@ fn exec(bin: &Path, scratch: &Scratch) -> Result<()> {
     gone("604.5", Duration::from_secs(5))?;
     println!(
         "extension exec ok: timeout kills the tree; quitting, killing pi-rs, a waiting or spinning handler, or a background job leaves no program"
+    );
+    Ok(())
+}
+
+const PROVIDERS: &str = r#"import fs from "node:fs";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+
+const log = process.env.E2E_LOG;
+const note = (line: string): void => {
+	if (log) fs.appendFileSync(log, `${line}\n`);
+};
+
+export default function (pi: ExtensionAPI): void {
+	const base = builtinProviders().find((provider) => provider.id === "anthropic");
+	const oauth = base?.auth.oauth;
+	if (!base || !oauth) throw new Error("anthropic is not a built-in provider with an OAuth login");
+	note(`oauth ${oauth.name}`);
+	let ctx: ExtensionContext | undefined;
+	pi.on("session_start", (_event, context) => {
+		ctx = context;
+	});
+	pi.registerProvider({
+		...base,
+		id: "anthropic#2",
+		name: `${base.name} #2`,
+		auth: { oauth: { ...oauth, name: `${oauth.name} #2` } },
+		getModels: () => [],
+	});
+	pi.registerProvider({
+		...base,
+		streamSimple: (model, context, options) => {
+			const out = createAssistantMessageEventStream();
+			const run = async (logins: string[]): Promise<void> => {
+				const [login, ...rest] = logins;
+				note(`try ${login} configured=${ctx?.modelRegistry.getProviderAuthStatus(login).configured}`);
+				let request = options;
+				if (login !== "anthropic") {
+					const resolved = await ctx?.modelRegistry.getProviderAuth(login);
+					request = { ...options, apiKey: resolved?.auth.apiKey };
+				}
+				for await (const event of base.streamSimple(model, context, request)) {
+					if (event.type === "error" && rest.length > 0) {
+						note(`${login} failed: ${event.error.errorMessage}`);
+						return run(rest);
+					}
+					out.push(event);
+				}
+				note(`served ${login}`);
+			};
+			run(["anthropic", "anthropic#2"])
+				.catch((error) => note(`failover threw ${error}`))
+				.finally(() => out.end());
+			return out;
+		},
+	});
+}
+"#;
+
+/// An Anthropic endpoint that turns the first login away with a 429 and answers the second.
+fn serve_anthropic(keys: Arc<Mutex<Vec<String>>>) -> Result<u16> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut reader = BufReader::new(match stream.try_clone() {
+                Ok(clone) => clone,
+                Err(_) => return,
+            });
+            let (mut length, mut key) = (0usize, String::new());
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+                let lower = line.to_ascii_lowercase();
+                if let Some(value) = lower.strip_prefix("content-length:") {
+                    length = value.trim().parse().unwrap_or(0);
+                }
+                if let Some(value) = lower.strip_prefix("x-api-key:") {
+                    key = value.trim().to_owned();
+                }
+            }
+            let mut body = vec![0u8; length];
+            if reader.read_exact(&mut body).is_err() {
+                return;
+            }
+            if let Ok(mut keys) = keys.lock() {
+                keys.push(key.clone());
+            }
+            if key != "sk-ant-two" {
+                let error = json!({"type": "error", "error": {"type": "rate_limit_error", "message": "This request would exceed your rate limit"}}).to_string();
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nRetry-After: 0\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{error}",
+                    error.len()
+                );
+                continue;
+            }
+            let head =
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n";
+            if stream.write_all(head.as_bytes()).is_err() {
+                return;
+            }
+            for (event, data) in [
+                (
+                    "message_start",
+                    json!({"type": "message_start", "message": {"id": "msg_1", "type": "message", "role": "assistant", "model": "claude-haiku-4-5", "content": [], "stop_reason": null, "usage": {"input_tokens": 10, "output_tokens": 1}}}),
+                ),
+                (
+                    "content_block_start",
+                    json!({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
+                ),
+                (
+                    "content_block_delta",
+                    json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "served by "}}),
+                ),
+                (
+                    "content_block_delta",
+                    json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "the second login"}}),
+                ),
+                (
+                    "content_block_stop",
+                    json!({"type": "content_block_stop", "index": 0}),
+                ),
+                (
+                    "message_delta",
+                    json!({"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 5}}),
+                ),
+                ("message_stop", json!({"type": "message_stop"})),
+            ] {
+                if write!(stream, "event: {event}\ndata: {data}\n\n").is_err() {
+                    return;
+                }
+            }
+        }
+    });
+    Ok(port)
+}
+
+/// A provider an extension registers over a built-in one: a request rate-limited on the stored
+/// Anthropic key goes again on a second login the extension added, whose OAuth token pi-rs hands
+/// it through `getProviderAuth`, and the answer streams back through the extension.
+fn providers(bin: &Path, scratch: &Scratch) -> Result<()> {
+    let keys = Arc::new(Mutex::new(Vec::new()));
+    let port = serve_anthropic(Arc::clone(&keys))?;
+    let models =
+        json!({"providers": {"anthropic": {"baseUrl": format!("http://127.0.0.1:{port}")}}});
+    scratch.write("agent/models.json", &serde_json::to_string(&models)?)?;
+    let far = 4_102_444_800_000u64;
+    let auth = json!({
+        "anthropic": {"type": "api_key", "key": "sk-ant-one"},
+        "anthropic#2": {"type": "oauth", "access": "sk-ant-two", "refresh": "unused", "expires": far},
+    });
+    scratch.write("agent/auth.json", &serde_json::to_string(&auth)?)?;
+    let extension = scratch.write("providers/ext.ts", PROVIDERS)?;
+    scratch.settings(&json!({"extensions": [extension.to_string_lossy()]}))?;
+    let log = scratch.root.join("providers.log");
+    let _ = std::fs::remove_file(&log);
+    let out = Command::new(bin)
+        .args([
+            "-p",
+            "hello",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-haiku-4-5",
+            "--no-session",
+        ])
+        .current_dir(scratch.root.join("cwd"))
+        .env_clear()
+        .env("HOME", scratch.root.join("home"))
+        .env("PI_CODING_AGENT_DIR", scratch.root.join("agent"))
+        .env("PATH", "/nonexistent")
+        .env("E2E_LOG", &log)
+        .envs(host_env())
+        .stdin(Stdio::null())
+        .output()?;
+    std::fs::remove_file(scratch.root.join("agent/auth.json"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let seen = std::fs::read_to_string(&log).unwrap_or_default();
+    if !out.status.success() || stdout.trim() != "served by the second login" {
+        return fail(format!(
+            "the failover run exited {}: stdout {stdout:?}, stderr {stderr:?}, log:\n{seen}",
+            out.status
+        ));
+    }
+    let lines: Vec<&str> = seen.lines().collect();
+    let expected = [
+        "oauth Anthropic (Claude Pro/Max)",
+        "try anthropic configured=true",
+        "try anthropic#2 configured=true",
+        "served anthropic#2",
+    ];
+    let steps: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|line| !line.starts_with("anthropic failed: "))
+        .collect();
+    if steps != expected || !lines.iter().any(|line| line.contains("429")) {
+        return fail(format!("the failover took other steps:\n{seen}"));
+    }
+    let keys = keys.lock().map(|keys| keys.clone()).unwrap_or_default();
+    if keys.last().map(String::as_str) != Some("sk-ant-two")
+        || !keys.iter().any(|key| key == "sk-ant-one")
+    {
+        return fail(format!("the endpoint saw the keys {keys:?}"));
+    }
+    println!(
+        "extension providers ok: a registered provider fails over to a second login through the built-in client"
     );
     Ok(())
 }

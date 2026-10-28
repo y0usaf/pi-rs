@@ -12,7 +12,7 @@ use pi_rt::turn::pause;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::{EVENT_BUDGET, LOAD_BUDGET, Load, ToolInfo};
+use crate::{EVENT_BUDGET, LOAD_BUDGET, Load, ProviderInfo, ToolInfo};
 
 /// How many of the child's stderr lines to keep for a failure message.
 const STDERR_LINES: usize = 200;
@@ -75,10 +75,19 @@ pub struct Failed {
 }
 
 pub trait Peer: Send + Sync {
-    fn ask(&self, call: &str, args: &Value) -> Result<Value, String>;
+    /// Answers one call the child waits on; `update` hands it a part of the answer early, and
+    /// `cancel` fires when the child stops waiting.
+    fn ask(
+        &self,
+        call: &str,
+        args: &Value,
+        update: &mut dyn FnMut(Value),
+        cancel: &CancelToken,
+    ) -> Result<Value, String>;
     fn call(&self, call: Call);
     fn failed(&self, failed: Failed);
     fn tools(&self, tools: Vec<ToolInfo>);
+    fn providers(&self, providers: Vec<ProviderInfo>);
 }
 
 /// The run an event sees: upstream's `ExtensionContext` minus what pi-rs fills in per extension.
@@ -112,6 +121,7 @@ struct Shared {
     routes: Mutex<Option<HashMap<u64, Sender<Incoming>>>>,
     failure: Mutex<Option<String>>,
     groups: Mutex<HashSet<i32>>,
+    asks: Mutex<HashMap<u64, CancelToken>>,
     stderr: Arc<Mutex<Vec<String>>>,
     next: AtomicU64,
 }
@@ -173,6 +183,7 @@ impl Host {
             routes: Mutex::new(Some(HashMap::new())),
             failure: Mutex::new(None),
             groups: Mutex::new(HashSet::new()),
+            asks: Mutex::new(HashMap::new()),
             stderr: collected,
             next: AtomicU64::new(1),
         });
@@ -236,6 +247,25 @@ impl Host {
             ctx,
         );
         request["params"] = params;
+        self.begin(request, Limit::Unbounded)
+    }
+
+    /// Streams one request through the `streamSimple` of a provider an extension registered; each
+    /// event arrives as an update.
+    pub fn stream(
+        &self,
+        provider: &str,
+        model: Value,
+        context: Value,
+        options: Value,
+    ) -> Result<Pending, String> {
+        let request = json!({
+            "op": "stream",
+            "provider": provider,
+            "model": model,
+            "context": context,
+            "options": options,
+        });
         self.begin(request, Limit::Unbounded)
     }
 
@@ -393,14 +423,24 @@ impl Shared {
             if let Some(id) = request {
                 self.route(id, Incoming::Asking);
             }
+            let cancel = CancelToken::new();
+            if let Some(key) = call_id.as_u64() {
+                lock(&self.asks).insert(key, cancel.clone());
+            }
             let shared = Arc::clone(self);
             let peer = Arc::clone(peer);
             let call = call.to_owned();
             std::thread::spawn(move || {
-                let reply = match peer.ask(&call, &value) {
+                let mut update = |part: Value| {
+                    let _ = shared.write(&json!({ "answer": call_id, "update": part }));
+                };
+                let reply = match peer.ask(&call, &value, &mut update, &cancel) {
                     Ok(value) => json!({ "answer": call_id, "ok": true, "value": value }),
                     Err(error) => json!({ "answer": call_id, "ok": false, "error": error }),
                 };
+                if let Some(key) = call_id.as_u64() {
+                    lock(&shared.asks).remove(&key);
+                }
                 let _ = shared.write(&reply);
                 if let Some(id) = request {
                     shared.route(id, Incoming::Answered);
@@ -409,6 +449,23 @@ impl Shared {
             return;
         }
         match call {
+            "cancel" => {
+                let asked = value.get("ask").and_then(Value::as_u64);
+                if let Some(cancel) = asked.and_then(|key| lock(&self.asks).get(&key).cloned()) {
+                    cancel.cancel();
+                }
+            }
+            "providers" => {
+                let providers = value.get("providers").cloned().unwrap_or(Value::Null);
+                match serde_json::from_value(providers) {
+                    Ok(providers) => peer.providers(providers),
+                    Err(e) => peer.failed(Failed {
+                        path: "registerProvider".to_owned(),
+                        event: String::new(),
+                        error: format!("the extension host sent providers pi-rs cannot read: {e}"),
+                    }),
+                }
+            }
             "group" | "ungroup" => {
                 let Some(pid) = value
                     .get("pid")
@@ -464,6 +521,9 @@ impl Shared {
         let routes = lock(&self.routes).take();
         for sender in routes.into_iter().flat_map(HashMap::into_values) {
             let _ = sender.send(Incoming::Closed);
+        }
+        for (_, cancel) in lock(&self.asks).drain() {
+            cancel.cancel();
         }
         *lock(&self.stdin) = None;
         reap(&mut lock(&self.child), &mut lock(&self.groups));

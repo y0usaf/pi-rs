@@ -585,6 +585,9 @@ fn run() -> Result<ExitCode, String> {
     )
     .map_err(|e| e.to_string())?;
     let root = session_tree::active_conversation(&harness, &cancel).map_err(|e| e.to_string())?;
+    if let Some(live) = extensions::live() {
+        live.hand_models(&registry, &model);
+    }
     if let Some(name) = &initial_name {
         crate::session_info::set_name(&root, &cancel, name).map_err(|e| e.to_string())?;
     }

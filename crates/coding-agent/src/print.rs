@@ -195,6 +195,9 @@ pub fn providers(registry: Arc<ModelRegistry>, chosen: &Model) -> Providers {
     providers.add_models(registry.models().iter().cloned());
     providers.add_models([chosen.clone()]);
     providers.set_auth(Arc::new(move |model: &Model| registry.resolve_auth(model)));
+    providers.set_router(Arc::new(|model: &Model| {
+        crate::extensions::live()?.provider_api(&model.provider)
+    }));
     providers
 }
 

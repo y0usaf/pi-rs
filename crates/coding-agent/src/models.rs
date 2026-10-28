@@ -206,7 +206,17 @@ impl ModelRegistry {
     }
 
     fn has_oauth(&self, provider: &str) -> bool {
-        self.builtin.contains(provider) && OAUTH_PROVIDERS.contains(&provider)
+        self.oauth_flow(provider).is_some()
+    }
+
+    /// The built-in provider whose OAuth login and refresh `provider` uses: itself, or the one a
+    /// provider an extension registered names.
+    fn oauth_flow(&self, provider: &str) -> Option<String> {
+        let flow = match crate::extensions::live().and_then(|live| live.oauth_flow(provider)) {
+            Some(flow) => flow,
+            None => provider.to_owned(),
+        };
+        (self.builtin.contains(&flow) && OAUTH_PROVIDERS.contains(&flow.as_str())).then_some(flow)
     }
 
     fn has_api_key_auth(&self, provider: &str) -> bool {
@@ -388,13 +398,16 @@ impl ModelRegistry {
     /// The access token of the stored OAuth credential, refreshed first when it expires within
     /// `min_validity_ms`.
     fn oauth_access(&self, provider: &str, min_validity_ms: i64) -> Result<String, String> {
+        let flow = self
+            .oauth_flow(provider)
+            .unwrap_or_else(|| provider.to_owned());
         let refresh = |current: &Map<String, Value>| -> Result<Map<String, Value>, String> {
-            if !OAUTH_REFRESH.contains(&provider) {
+            if !OAUTH_REFRESH.contains(&flow.as_str()) {
                 return Err(format!(
                     "refreshing {provider} OAuth tokens is not supported by pi-rs; log in again with pi"
                 ));
             }
-            refresh_oauth(provider, current)
+            refresh_oauth(&flow, current)
         };
         let fresh =
             self.auth
