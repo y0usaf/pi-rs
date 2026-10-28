@@ -7,14 +7,27 @@ use crate::system_prompt;
 use pi_durable::ai::types::Model;
 use pi_tui::fuzzy::fuzzy_filter;
 
-/// `formatNoModelsAvailableMessage` (`core/auth-guidance.ts`).
-pub fn no_models_available() -> String {
+fn login_help() -> String {
     let docs = join(&system_prompt::package_dir(), "docs");
     format!(
-        "No models available. Use /login to log into a provider via OAuth or API key. See:\n  {}\n  {}",
+        "Use /login to log into a provider via OAuth or API key. See:\n  {}\n  {}",
         join(&docs, "providers.md"),
         join(&docs, "models.md")
     )
+}
+
+/// `formatNoModelsAvailableMessage` (`core/auth-guidance.ts`).
+pub fn no_models_available() -> String {
+    format!("No models available. {}", login_help())
+}
+
+pub fn no_api_key_found(provider: &str) -> String {
+    let shown = if provider == "unknown" {
+        "the selected model"
+    } else {
+        provider
+    };
+    format!("No API key found for {shown}.\n\n{}", login_help())
 }
 
 /// `formatTokenCount`: 200000 is `200K`, 1000000 is `1M`.

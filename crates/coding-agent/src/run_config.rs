@@ -243,6 +243,14 @@ pub fn choose_model(
     }
 }
 
+pub fn unknown_model() -> Model {
+    Model::new("unknown", "unknown", "unknown", 0, 0, false)
+}
+
+pub fn is_unknown_model(model: &Model) -> bool {
+    model.provider == "unknown" && model.id == "unknown" && model.api == "unknown"
+}
+
 /// The models a session may switch to: every model the catalog has.
 pub fn available(registry: &ModelRegistry) -> Vec<Model> {
     registry.available().into_iter().cloned().collect()

@@ -479,8 +479,10 @@ fn run() -> Result<ExitCode, String> {
     }
     let initial = (!parts.is_empty()).then(|| (parts.concat(), images));
 
-    let Some(model) = choice.model else {
-        return Err(list_models::no_models_available());
+    let model = match choice.model {
+        Some(model) => model,
+        None if interactive => run_config::unknown_model(),
+        None => return Err(list_models::no_models_available()),
     };
     let env = vec![
         ("PI_PROVIDER".to_string(), model.provider.clone()),

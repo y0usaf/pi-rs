@@ -21,3 +21,6 @@ serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"
 unicode-normalization = "0.1"
 ring = "0.17"
+
+[dev-dependencies]
+libc = "0.2"

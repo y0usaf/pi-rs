@@ -353,6 +353,7 @@ dependencies = [
 name = "pi-coding-agent"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "pi-codemode",
  "pi-durable",
  "pi-extensions",

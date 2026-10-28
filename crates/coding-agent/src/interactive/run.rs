@@ -471,6 +471,7 @@ fn serve_extension_calls(live: &crate::extensions::Live, calls: Calls<'_>) -> bo
 
 fn submit(
     root: &Conversation,
+    model: &Model,
     content: UserContent,
     busy: bool,
     cancel: &CancelToken,
@@ -484,6 +485,9 @@ fn submit(
         },
         _ => content,
     };
+    if run_config::is_unknown_model(model) {
+        return Err(crate::list_models::no_api_key_found(&model.provider));
+    }
     root.submit(
         SubmissionDraft::Input {
             request_id: None,
@@ -712,6 +716,33 @@ fn open_login(
     built
 }
 
+fn login_default(registry: &ModelRegistry, provider: &str, label: &str) -> Result<Model, String> {
+    let Some(default_id) = model_resolver::default_model_for(provider) else {
+        return Err(format!(
+            "{label}, but no default model is configured for provider \"{provider}\". Use /model to select a model."
+        ));
+    };
+    let provider_models: Vec<&Model> = registry
+        .available()
+        .into_iter()
+        .filter(|found| found.provider == provider)
+        .collect();
+    if provider_models.is_empty() {
+        return Err(format!(
+            "{label}, but no models are available for that provider. Use /model to select a model."
+        ));
+    }
+    provider_models
+        .into_iter()
+        .find(|found| found.id == default_id)
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "{label}, but its default model \"{default_id}\" is not available. Use /model to select a model."
+            )
+        })
+}
+
 /// Hands the extensions the models they see: the session's own, the catalog `find` searches, and
 /// the providers whose credentials are configured.
 fn hand_models(live: &crate::extensions::Live, registry: &Arc<ModelRegistry>, model: &Model) {
@@ -793,6 +824,12 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     chat.load(&open.stream.snapshot);
     if !mcp_problems.is_empty() {
         chat.notice("warning", &mcp_report(&mcp_problems));
+    }
+    if run_config::is_unknown_model(&model) {
+        chat.notice(
+            "warning",
+            &format!("Warning: {}", crate::list_models::no_models_available()),
+        );
     }
 
     let start = Instant::now();
@@ -937,10 +974,10 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         // Queued command-line messages go one per idle turn, as print mode sends them.
         if !chat.working && !pending.is_empty() {
             let content = pending.remove(0);
-            if let Err(e) = submit(&open.root, content, false, &cancel, live) {
-                chat.notice("error", &format!("Error: {e}"));
+            match submit(&open.root, &model, content, false, &cancel, live) {
+                Ok(()) => chat.working = true,
+                Err(e) => chat.notice("error", &format!("Error: {e}")),
             }
-            chat.working = true;
             dirty.set(true);
         }
         if let Some(live) = live {
@@ -1073,9 +1110,14 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         editor.borrow_mut().add_to_history(&text);
                         editor.borrow_mut().set_text("");
                         let expanded = crate::prompt_templates::expand(&text, &templates);
-                        if let Err(e) =
-                            submit(&open.root, text_input(&expanded, &[]), false, &cancel, live)
-                        {
+                        if let Err(e) = submit(
+                            &open.root,
+                            &model,
+                            text_input(&expanded, &[]),
+                            false,
+                            &cancel,
+                            live,
+                        ) {
                             chat.notice("error", &format!("Error: {e}"));
                         }
                         refresh_pending(&pending_area, &open.root, &cancel);
@@ -1308,13 +1350,47 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         crate::login::AuthType::Oauth => "Logged in to",
                         crate::login::AuthType::ApiKey => "Saved API key for",
                     };
-                    chat.notice(
-                        "accent",
-                        &format!(
-                            "{action} {}. Credentials saved to {}",
-                            outcome.name, outcome.path
-                        ),
-                    );
+                    let label = format!("{action} {}", outcome.name);
+                    let picked = run_config::is_unknown_model(&model).then(|| {
+                        login_default(&registry, &outcome.provider, &label).and_then(|found| {
+                            apply_model(
+                                &open.root,
+                                &cancel,
+                                &mut settings.borrow_mut(),
+                                &footer,
+                                &found,
+                                true,
+                                &mut thinking,
+                            )
+                            .map(|_| found)
+                            .map_err(|e| {
+                                format!(
+                                    "{label}, but selecting its default model failed: {e}. Use /model to select a model."
+                                )
+                            })
+                        })
+                    });
+                    match picked {
+                        Some(Ok(found)) => {
+                            chat.notice(
+                                "accent",
+                                &format!(
+                                    "{label}. Selected {}. Credentials saved to {}",
+                                    found.id, outcome.path
+                                ),
+                            );
+                            model = found;
+                        }
+                        picked => {
+                            chat.notice(
+                                "accent",
+                                &format!("{label}. Credentials saved to {}", outcome.path),
+                            );
+                            if let Some(Err(error)) = picked {
+                                chat.notice("error", &format!("Error: {error}"));
+                            }
+                        }
+                    }
                 }
                 OverlayAction::LoginFailed {
                     name,
@@ -2017,16 +2093,17 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             }
             editor.borrow_mut().add_to_history(&text);
             let expanded = crate::prompt_templates::expand(&text, &templates);
-            if let Err(e) = submit(
+            match submit(
                 &open.root,
+                &model,
                 text_input(&expanded, &[]),
                 chat.working,
                 &cancel,
                 live,
             ) {
-                chat.notice("error", &format!("Error: {e}"));
+                Ok(()) => chat.working = true,
+                Err(e) => chat.notice("error", &format!("Error: {e}")),
             }
-            chat.working = true;
             if refresh_pending(&pending_area, &open.root, &cancel) {
                 dirty.set(true);
             }
