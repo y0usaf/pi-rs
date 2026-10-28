@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -18,6 +18,34 @@ use crate::{EVENT_BUDGET, LOAD_BUDGET, Load, ToolInfo};
 const STDERR_LINES: usize = 200;
 
 const CANCEL_GRACE: Duration = Duration::from_secs(5);
+
+const EXIT_GRACE: Duration = Duration::from_secs(1);
+
+unsafe extern "C" {
+    fn kill(pid: i32, signal: i32) -> i32;
+}
+
+const SIGKILL: i32 = 9;
+
+fn reap(child: &mut Child, groups: &mut HashSet<i32>) {
+    let deadline = Instant::now() + EXIT_GRACE;
+    let exited = loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break true,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(None) | Err(_) => break false,
+        }
+    };
+    if !exited {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    for group in groups.drain() {
+        unsafe { kill(-group, SIGKILL) };
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Call {
@@ -83,6 +111,7 @@ struct Shared {
     child: Mutex<Child>,
     routes: Mutex<Option<HashMap<u64, Sender<Incoming>>>>,
     failure: Mutex<Option<String>>,
+    groups: Mutex<HashSet<i32>>,
     stderr: Arc<Mutex<Vec<String>>>,
     next: AtomicU64,
 }
@@ -143,6 +172,7 @@ impl Host {
             child: Mutex::new(child),
             routes: Mutex::new(Some(HashMap::new())),
             failure: Mutex::new(None),
+            groups: Mutex::new(HashSet::new()),
             stderr: collected,
             next: AtomicU64::new(1),
         });
@@ -379,6 +409,22 @@ impl Shared {
             return;
         }
         match call {
+            "group" | "ungroup" => {
+                let Some(pid) = value
+                    .get("pid")
+                    .and_then(Value::as_i64)
+                    .and_then(|pid| i32::try_from(pid).ok())
+                    .filter(|pid| *pid > 1)
+                else {
+                    return;
+                };
+                let mut groups = lock(&self.groups);
+                if call == "group" {
+                    groups.insert(pid);
+                } else {
+                    groups.remove(&pid);
+                }
+            }
             "error" => {
                 if let Ok(failed) = serde_json::from_value(value) {
                     peer.failed(failed);
@@ -420,9 +466,7 @@ impl Shared {
             let _ = sender.send(Incoming::Closed);
         }
         *lock(&self.stdin) = None;
-        let mut child = lock(&self.child);
-        let _ = child.kill();
-        let _ = child.wait();
+        reap(&mut lock(&self.child), &mut lock(&self.groups));
         message
     }
 }
@@ -430,9 +474,7 @@ impl Shared {
 impl Drop for Shared {
     fn drop(&mut self) {
         *lock(&self.stdin) = None;
-        let mut child = lock(&self.child);
-        let _ = child.kill();
-        let _ = child.wait();
+        reap(&mut lock(&self.child), &mut lock(&self.groups));
     }
 }
 

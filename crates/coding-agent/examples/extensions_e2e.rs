@@ -333,6 +333,7 @@ fn main() -> Result<()> {
     events(&bin, &scratch)?;
     tools(&bin, &scratch)?;
     cancel(&bin, &scratch)?;
+    exec(&bin, &scratch)?;
 
     std::fs::remove_dir_all(&scratch.root)?;
     println!("extensions e2e ok");
@@ -384,6 +385,55 @@ export default function (pi: any): void {
 	pi.registerCommand("e2e-cmd", {
 		description: "records its arguments",
 		handler: async (args: string) => note("cmd:" + args),
+	});
+}
+"#;
+
+const EXEC: &str = r#"import fs from "node:fs";
+import { Type } from "@earendil-works/pi-ai";
+
+const note = (line: string): void => {
+	fs.appendFileSync(process.env.E2E_LOG, line + "\n");
+};
+const BASH = "@BASH@";
+const PATH = "@PATH@";
+
+export default function (pi: any): void {
+	pi.on("input", async (event: any) => {
+		if (event.text.includes("wedge")) await pi.exec(BASH, ["-c", "export PATH=" + PATH + "; sleep 602.5; :"]);
+		if (event.text.includes("spin")) {
+			await pi.exec(BASH, ["-c", "export PATH=" + PATH + "; sleep 604.5 & :"]);
+			for (;;) {}
+		}
+		if (event.text.includes("background")) {
+			const result = await pi.exec(BASH, ["-c", "export PATH=" + PATH + "; sleep 603.5 & :"]);
+			note("background:" + result.code + ":" + result.killed);
+		}
+		return undefined;
+	});
+	pi.registerTool({
+		name: "exec_tree",
+		label: "Exec tree",
+		description: "runs a tree that ignores SIGTERM and keeps writing, with a timeout",
+		parameters: Type.Object({}),
+		async execute() {
+			const start = Date.now();
+			const script = "export PATH=" + PATH + "; : e2e-exec-tree; trap '' TERM; (while :; do echo x; sleep 0.05; done) & wait";
+			const result = await pi.exec(BASH, ["-c", script], { timeout: 200 });
+			note("exec_tree:" + result.killed + ":" + (Date.now() - start));
+			return { content: [{ type: "text", text: "tree done" }], details: {} };
+		},
+	});
+	pi.registerTool({
+		name: "exec_hang",
+		label: "Exec hang",
+		description: "runs a program that outlives the session",
+		parameters: Type.Object({}),
+		async execute() {
+			note("exec_hang:started");
+			await pi.exec(BASH, ["-c", "export PATH=" + PATH + "; sleep 601.5; :"]);
+			return { content: [{ type: "text", text: "hang done" }], details: {} };
+		},
 	});
 }
 "#;
@@ -674,7 +724,11 @@ fn serve_script(turns: Vec<Turn>, bodies: Arc<Mutex<Vec<String>>>) -> Result<u16
     Ok(port)
 }
 
-fn scripted(scratch: &Scratch, turns: Vec<Turn>) -> Result<(Arc<Mutex<Vec<String>>>, PathBuf)> {
+fn scripted(
+    scratch: &Scratch,
+    source: &str,
+    turns: Vec<Turn>,
+) -> Result<(Arc<Mutex<Vec<String>>>, PathBuf)> {
     let bodies = Arc::new(Mutex::new(Vec::new()));
     let port = serve_script(turns, Arc::clone(&bodies))?;
     let models = json!({"providers": {"fake": {
@@ -684,7 +738,7 @@ fn scripted(scratch: &Scratch, turns: Vec<Turn>) -> Result<(Arc<Mutex<Vec<String
         "models": [{"id": "fake-test", "contextWindow": 200000, "maxTokens": 8192}],
     }}});
     scratch.write("agent/models.json", &serde_json::to_string(&models)?)?;
-    let extension = scratch.write("tools/ext.ts", TOOLS)?;
+    let extension = scratch.write("tools/ext.ts", source)?;
     scratch.settings(&json!({"extensions": [extension.to_string_lossy()]}))?;
     let log = scratch.root.join("tools.log");
     let _ = std::fs::remove_file(&log);
@@ -711,6 +765,7 @@ fn launch(bin: &Path, scratch: &Scratch, log: &Path, args: &[&str]) -> Result<st
 fn tools(bin: &Path, scratch: &Scratch) -> Result<()> {
     let (bodies, log) = scripted(
         scratch,
+        TOOLS,
         vec![
             Turn::Tool("late_echo", json!({"text": "hi"})),
             Turn::Text("done"),
@@ -801,6 +856,7 @@ fn tools(bin: &Path, scratch: &Scratch) -> Result<()> {
 fn cancel(bin: &Path, scratch: &Scratch) -> Result<()> {
     let (_bodies, log) = scripted(
         scratch,
+        TOOLS,
         vec![Turn::Tool("wait_abort", json!({})), Turn::Text("after")],
     )?;
     let mut child = launch(bin, scratch, &log, &["--mode", "rpc"])?;
@@ -874,5 +930,196 @@ fn cancel(bin: &Path, scratch: &Scratch) -> Result<()> {
         ));
     }
     println!("extension tool cancellation ok");
+    Ok(())
+}
+
+fn marked(marker: &str) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(std::result::Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .bytes()
+                .all(|b| b.is_ascii_digit())
+        })
+        .filter_map(|entry| std::fs::read(entry.path().join("cmdline")).ok())
+        .map(|cmdline| String::from_utf8_lossy(&cmdline).replace('\0', " "))
+        .filter(|cmdline| cmdline.contains(marker))
+        .collect()
+}
+
+fn gone(marker: &str, within: Duration) -> Result<()> {
+    let deadline = Instant::now() + within;
+    loop {
+        let left = marked(marker);
+        if left.is_empty() {
+            return Ok(());
+        }
+        if Instant::now() > deadline {
+            return fail(format!("{marker} outlived its exec: {left:?}"));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn exec_source() -> Result<String> {
+    let path = std::env::var("PATH")?;
+    let bash = path
+        .split(':')
+        .map(|dir| Path::new(dir).join("bash"))
+        .find(|candidate| executable(candidate))
+        .ok_or("bash not found on PATH")?;
+    Ok(EXEC
+        .replace("@BASH@", &bash.to_string_lossy())
+        .replace("@PATH@", &path))
+}
+
+fn exec(bin: &Path, scratch: &Scratch) -> Result<()> {
+    let source = exec_source()?;
+    let (_bodies, log) = scripted(
+        scratch,
+        &source,
+        vec![Turn::Tool("exec_tree", json!({})), Turn::Text("done")],
+    )?;
+    let mut child = launch(bin, scratch, &log, &["--mode", "json", "-p", "run it"])?;
+    drop(child.stdin.take());
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while child.try_wait()?.is_none() {
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            return fail("pi-rs never finished a run whose exec timed out".to_owned());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let seen = std::fs::read_to_string(&log).unwrap_or_default();
+    let Some(ms) = seen
+        .lines()
+        .find_map(|line| line.strip_prefix("exec_tree:true:"))
+        .and_then(|ms| ms.parse::<u64>().ok())
+    else {
+        return fail(format!("exec_tree was not killed:\n{seen}"));
+    };
+    if !(4500..15000).contains(&ms) {
+        return fail(format!(
+            "exec_tree took {ms} ms, not SIGTERM then SIGKILL 5 s on"
+        ));
+    }
+    gone("e2e-exec-tree", Duration::from_secs(2))?;
+
+    for how in ["quit", "killed"] {
+        let (_bodies, log) = scripted(
+            scratch,
+            &source,
+            vec![Turn::Tool("exec_hang", json!({})), Turn::Text("done")],
+        )?;
+        let mut child = launch(bin, scratch, &log, &["--mode", "rpc"])?;
+        let mut stdin = child.stdin.take().ok_or("no stdin")?;
+        let stdout = child.stdout.take().ok_or("no stdout")?;
+        let (sender, lines) = mpsc::channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout)
+                .lines()
+                .map_while(std::result::Result::ok)
+            {
+                if sender.send(line).is_err() {
+                    return;
+                }
+            }
+        });
+        writeln!(
+            stdin,
+            "{}",
+            json!({"type": "prompt", "id": "p", "message": "hang"})
+        )?;
+        stdin.flush()?;
+        let started = Instant::now() + Duration::from_secs(60);
+        while marked("601.5").is_empty() {
+            if Instant::now() > started {
+                let _ = child.kill();
+                return fail(format!("exec_hang never started its program ({how})"));
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if how == "killed" {
+            child.kill()?;
+        } else {
+            writeln!(stdin, "{}", json!({"type": "abort", "id": "a"}))?;
+            stdin.flush()?;
+            let ended = Instant::now() + Duration::from_secs(60);
+            loop {
+                let Ok(line) = lines.recv_timeout(ended.saturating_duration_since(Instant::now()))
+                else {
+                    let _ = child.kill();
+                    return fail("no agent_end after aborting exec_hang".to_owned());
+                };
+                if serde_json::from_str::<Value>(&line).is_ok_and(|v| v["type"] == "agent_end") {
+                    break;
+                }
+            }
+        }
+        drop(stdin);
+        let exited = Instant::now() + Duration::from_secs(30);
+        while child.try_wait()?.is_none() {
+            if Instant::now() > exited {
+                let _ = child.kill();
+                return fail(format!("pi-rs did not exit ({how})"));
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        gone("601.5", Duration::from_secs(5))?;
+    }
+    let (_bodies, log) = scripted(scratch, &source, vec![Turn::Text("done")])?;
+    let mut child = launch(bin, scratch, &log, &["--mode", "json", "-p", "wedge"])?;
+    drop(child.stdin.take());
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while child.try_wait()?.is_none() {
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            return fail("pi-rs never gave up on a wedged input handler".to_owned());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    gone("602.5", Duration::from_secs(5))?;
+
+    let (_bodies, log) = scripted(scratch, &source, vec![Turn::Text("done")])?;
+    let mut child = launch(bin, scratch, &log, &["--mode", "json", "-p", "background"])?;
+    drop(child.stdin.take());
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while child.try_wait()?.is_none() {
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            return fail(
+                "pi-rs never finished a run that left a program in the background".to_owned(),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let seen = std::fs::read_to_string(&log).unwrap_or_default();
+    if !seen.lines().any(|line| line == "background:0:false") {
+        return fail(format!(
+            "the backgrounding exec did not return at once:\n{seen}"
+        ));
+    }
+    gone("603.5", Duration::from_secs(5))?;
+
+    let (_bodies, log) = scripted(scratch, &source, vec![Turn::Text("done")])?;
+    let mut child = launch(bin, scratch, &log, &["--mode", "json", "-p", "spin"])?;
+    drop(child.stdin.take());
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while child.try_wait()?.is_none() {
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            return fail("pi-rs never gave up on a spinning input handler".to_owned());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    gone("604.5", Duration::from_secs(5))?;
+    println!(
+        "extension exec ok: timeout kills the tree; quitting, killing pi-rs, a waiting or spinning handler, or a background job leaves no program"
+    );
     Ok(())
 }

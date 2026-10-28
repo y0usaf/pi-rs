@@ -61,7 +61,53 @@ function effect(call) {
 	send(call);
 }
 
-function waitForChild(child) {
+const groups = new Set();
+let pruning;
+
+function signalGroup(child, name) {
+	if (child.pid === undefined) return;
+	try {
+		process.kill(-child.pid, name);
+	} catch (error) {
+		if (error.code !== "ESRCH") throw error;
+	}
+}
+
+function alive(child) {
+	try {
+		process.kill(-child.pid, 0);
+		return true;
+	} catch (error) {
+		if (error.code === "ESRCH" || error.code === "EPERM") return false;
+		throw error;
+	}
+}
+
+function prune() {
+	for (const child of groups) {
+		if (alive(child)) continue;
+		groups.delete(child);
+		effect({ call: "ungroup", pid: child.pid });
+	}
+	if (groups.size > 0) return;
+	clearInterval(pruning);
+	pruning = undefined;
+}
+
+function track(child) {
+	if (child.pid === undefined) return;
+	groups.add(child);
+	effect({ call: "group", pid: child.pid });
+	pruning ??= setInterval(prune, 10000).unref();
+}
+
+function exit() {
+	prune();
+	for (const child of groups) signalGroup(child, "SIGKILL");
+	process.exit(0);
+}
+
+function waitForChild(child, stopped) {
 	return new Promise((resolve, reject) => {
 		let settled = false;
 		let exited = false;
@@ -85,7 +131,7 @@ function waitForChild(child) {
 			timer = setTimeout(() => finish(exitCode), 100);
 		};
 		const data = () => {
-			if (exited && !settled) idle();
+			if (exited && !settled && !stopped()) idle();
 		};
 		child.stdout?.once("end", () => {
 			stdoutEnded = true;
@@ -115,7 +161,8 @@ function waitForChild(child) {
 
 function execCommand(command, args, cwd, options) {
 	return new Promise((resolve) => {
-		const proc = spawn(command, args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+		const proc = spawn(command, args, { cwd, detached: true, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+		track(proc);
 		let stdout = "";
 		let stderr = "";
 		let killed = false;
@@ -123,9 +170,10 @@ function execCommand(command, args, cwd, options) {
 		const kill = () => {
 			if (killed) return;
 			killed = true;
-			proc.kill("SIGTERM");
+			signalGroup(proc, "SIGTERM");
 			setTimeout(() => {
-				if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
+				signalGroup(proc, "SIGKILL");
+				prune();
 			}, 5000).unref();
 		};
 		if (options?.signal) {
@@ -140,11 +188,12 @@ function execCommand(command, args, cwd, options) {
 			stderr += chunk.toString();
 		});
 		const done = (code) => {
+			prune();
 			clearTimeout(timeoutId);
 			options?.signal?.removeEventListener("abort", kill);
 			resolve({ stdout, stderr, code, killed });
 		};
-		waitForChild(proc).then(
+		waitForChild(proc, () => killed).then(
 			(code) => done(code ?? 0),
 			() => done(1),
 		);
@@ -725,7 +774,7 @@ async function handle(request) {
 		case "tool":
 			return await runTool(request);
 		case "shutdown":
-			process.exit(0);
+			exit();
 		default:
 			throw new Error(`unknown op: ${request.op}`);
 	}
@@ -764,4 +813,4 @@ input.on("line", (line) => {
 		}
 	});
 });
-input.on("close", () => process.exit(0));
+input.on("close", exit);
