@@ -102,6 +102,7 @@ Each handler has ten seconds before the child is taken for wedged and the event 
 
 ## Where it differs
 
+- A print-mode run that a tool ends (an extension tool whose result terminates the run, as fusion's `finish` does) prints the last assistant text before that result; upstream prints nothing, since the run's last message is the tool's result.
 - HTTP errors from OpenAI-compatible servers print the whole JSON body (a pi-ai difference, listed in `crates/ai/parity/known.json`), and openai-completions tool declarations carry `strict: false`.
 - A `// @options:` line holding invalid JSON reports the JSON parser's own message, which reads differently from V8's.
 - A script's nested calls run one at a time, where upstream runs a script's concurrent calls in parallel, because pi-durable's harness is synchronous: a tool call cannot run beside another.

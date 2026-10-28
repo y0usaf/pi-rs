@@ -10,13 +10,14 @@ use pi_durable::ai::types::{
     AssistantMessage, DeferredHandle, Model, SimpleStreamOptions, TranscriptContext,
 };
 use pi_durable::cancel::CancelToken;
-use pi_durable::harness::types::{Extension, ToolExecutionResult, ToolRegistration};
+use pi_durable::harness::types::{Extension, ToolControl, ToolExecutionResult, ToolRegistration};
 use serde_json::{Value, json};
 
 const PROVIDER: &str = "mounted";
 const MODEL: &str = "probe";
 const TOOL_TEXT: &str = "mounted tool ran";
 const CHILD: &str = "MOUNT_E2E_CHILD";
+const STOP_TEXT: &str = "said before stopping";
 
 struct Layer {
     inner: Providers,
@@ -104,7 +105,36 @@ fn probe_tool() -> ToolRegistration {
     }
 }
 
-fn child() -> ExitCode {
+fn stop_tool() -> ToolRegistration {
+    ToolRegistration {
+        tool: serde_json::from_value(json!({
+            "name": "mount_stop",
+            "description": "Ends the run",
+            "parameters": {"type": "object", "properties": {}}
+        }))
+        .expect("tool schema"),
+        replay: None,
+        exposure: Default::default(),
+        hidden: false,
+        execution_mode: None,
+        output_limits: None,
+        prepare_arguments: None,
+        execute: Arc::new(|_arguments, _api, _cancel| {
+            Ok(ToolExecutionResult {
+                content: Some(vec![serde_json::from_value(
+                    json!({"type": "text", "text": "stopped"}),
+                )?]),
+                control: Some(ToolControl {
+                    terminate: true,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+        }),
+    }
+}
+
+fn child(script: &str) -> ExitCode {
     let faux = Arc::new(Faux::new(FauxOptions {
         provider: Some(PROVIDER.to_owned()),
         api: Some("faux".to_owned()),
@@ -119,20 +149,33 @@ fn child() -> ExitCode {
         "toolUse",
     )
     .expect("tool call message");
-    faux.set_responses(vec![
-        FauxResponse::Message(Box::new(call)),
-        FauxResponse::Factory(Arc::new(|context, _, _, _| {
-            let last = serde_json::to_value(context.messages.last()).map_err(|e| e.to_string())?;
-            let text = last["content"][0]["text"]
-                .as_str()
-                .unwrap_or("no tool result");
-            let failed = last["isError"].as_bool().unwrap_or(true);
-            message(
-                json!([{"type": "text", "text": format!("{failed}:{text}")}]),
-                "stop",
-            )
-        })),
-    ]);
+    let stop = message(
+        json!([
+            {"type": "text", "text": STOP_TEXT},
+            {"type": "toolCall", "id": "c2", "name": "mount_stop", "arguments": {}}
+        ]),
+        "toolUse",
+    )
+    .expect("stop message");
+    faux.set_responses(if script == "stop" {
+        vec![FauxResponse::Message(Box::new(stop))]
+    } else {
+        vec![
+            FauxResponse::Message(Box::new(call)),
+            FauxResponse::Factory(Arc::new(|context, _, _, _| {
+                let last =
+                    serde_json::to_value(context.messages.last()).map_err(|e| e.to_string())?;
+                let text = last["content"][0]["text"]
+                    .as_str()
+                    .unwrap_or("no tool result");
+                let failed = last["isError"].as_bool().unwrap_or(true);
+                message(
+                    json!([{"type": "text", "text": format!("{failed}:{text}")}]),
+                    "stop",
+                )
+            })),
+        ]
+    });
     let catalog = vec![faux.default_model()];
     let open = Box::new(move |inner: Providers| Mounted {
         models: Arc::new(Layer {
@@ -141,7 +184,7 @@ fn child() -> ExitCode {
         }),
         extensions: vec![Extension {
             name: "mount-probe".to_owned(),
-            tools: vec![probe_tool()],
+            tools: vec![probe_tool(), stop_tool()],
             sections: vec![],
             wraps: vec![],
             hooks: vec![],
@@ -155,7 +198,7 @@ fn child() -> ExitCode {
     pi_coding_agent::cli::main()
 }
 
-fn run(bin: &str, home: &str, mounted: bool, args: &[&str]) -> Output {
+fn run(bin: &str, home: &str, script: Option<&str>, args: &[&str]) -> Output {
     let mut command = Command::new(bin);
     command
         .args(args)
@@ -164,8 +207,8 @@ fn run(bin: &str, home: &str, mounted: bool, args: &[&str]) -> Output {
         .env("PI_CODING_AGENT_DIR", format!("{home}/agent"))
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .current_dir(home);
-    if mounted {
-        command.env(CHILD, "1");
+    if let Some(script) = script {
+        command.env(CHILD, script);
     }
     command.output().expect("spawn")
 }
@@ -175,8 +218,8 @@ fn text(bytes: &[u8]) -> String {
 }
 
 fn main() -> ExitCode {
-    if std::env::var_os(CHILD).is_some() {
-        return child();
+    if let Ok(script) = std::env::var(CHILD) {
+        return child(&script);
     }
     let me = std::env::current_exe().expect("current exe");
     let me = me.to_str().expect("utf-8 path");
@@ -195,7 +238,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let out = run(me, &home, true, &turn);
+    let out = run(me, &home, Some("probe"), &turn);
     check(
         "a mounted model answers through the mounted layer, after calling the mounted extension's tool",
         out.status.success() && text(&out.stdout) == format!("false:{TOOL_TEXT}"),
@@ -207,7 +250,19 @@ fn main() -> ExitCode {
         ),
     );
 
-    let out = run(me, &home, true, &["--list-models", PROVIDER]);
+    let out = run(me, &home, Some("stop"), &turn);
+    check(
+        "a run a mounted tool ends prints the reply's text before the tool",
+        out.status.success() && text(&out.stdout) == STOP_TEXT,
+        format!(
+            "rc={:?} stdout={:?} stderr={:?}",
+            out.status.code(),
+            text(&out.stdout),
+            text(&out.stderr)
+        ),
+    );
+
+    let out = run(me, &home, Some("probe"), &["--list-models", PROVIDER]);
     let listed = text(&out.stdout);
     check(
         "the mounted catalog is listed as available without credentials",
@@ -222,7 +277,7 @@ fn main() -> ExitCode {
         ),
     );
 
-    let out = run(&plain, &home, false, &turn);
+    let out = run(&plain, &home, None, &turn);
     check(
         "plain pi-rs knows no mounted model",
         !out.status.success(),

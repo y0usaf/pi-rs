@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use pi_durable::ai::registry::Providers;
 use pi_durable::ai::types::{
-    AssistantBlock, Message, Model, ModelThinkingLevel, StopReason, TextContent, TextType, Tool,
-    UserBlock, UserContent,
+    AssistantBlock, AssistantMessage, Message, Model, ModelThinkingLevel, StopReason, TextContent,
+    TextType, Tool, UserBlock, UserContent,
 };
 use pi_durable::cancel::CancelToken;
 use pi_durable::errors::Error;
@@ -346,10 +346,19 @@ pub fn run_turns(
 
 /// Text mode's ending: the last assistant message's text on stdout (exit 0), or its error on
 /// stderr (exit 1); a kept reply cut by the output limit is printed and exits 1. The harness
-/// hides a recoverable cut reply, so a run that only produced one prints nothing.
+/// hides a recoverable cut reply, so a run that only produced one prints nothing. A run a tool
+/// ended prints the last assistant text before that tool's result.
 pub fn text_result(messages: &[Message]) -> (String, String, i32) {
-    let Some(Message::Assistant(last)) = messages.last() else {
-        return (String::new(), String::new(), 0);
+    let last = match messages.last() {
+        Some(Message::Assistant(last)) => last,
+        Some(Message::ToolResult(_)) => {
+            let said = messages.iter().rev().find_map(|message| match message {
+                Message::Assistant(reply) => Some(text_of(reply)).filter(|text| !text.is_empty()),
+                _ => None,
+            });
+            return (said.unwrap_or_default(), String::new(), 0);
+        }
+        _ => return (String::new(), String::new(), 0),
     };
     match last.stop_reason {
         StopReason::Error | StopReason::Aborted => {
@@ -366,13 +375,7 @@ pub fn text_result(messages: &[Message]) -> (String, String, i32) {
             (String::new(), format!("{message}\n"), 1)
         }
         _ => {
-            let mut out = String::new();
-            for block in &last.content {
-                if let AssistantBlock::Text(t) = block {
-                    out.push_str(&t.text);
-                    out.push('\n');
-                }
-            }
+            let out = text_of(last);
             if last.stop_reason == StopReason::Length {
                 return (
                     out,
@@ -383,6 +386,17 @@ pub fn text_result(messages: &[Message]) -> (String, String, i32) {
             (out, String::new(), 0)
         }
     }
+}
+
+fn text_of(message: &AssistantMessage) -> String {
+    let mut out = String::new();
+    for block in &message.content {
+        if let AssistantBlock::Text(t) = block {
+            out.push_str(&t.text);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 /// Set once this process starts closing its harness. pi-durable's scheduler can still run a
