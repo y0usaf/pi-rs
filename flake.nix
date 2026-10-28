@@ -164,6 +164,14 @@
           cp ${./crates/ai/parity/loader.mjs} $out/parity-ai/loader.mjs
           cp -r ${./crates/ai/parity/stubs} $out/parity-ai/stubs
         '';
+      upstreamPi = pkgs: pkgs.callPackage "${pi}/nix/package.nix" { source = pi; };
+      extensionsParityFixtures =
+        pkgs:
+        pkgs.runCommand "pi-extensions-parity-fixtures" { } ''
+          cp -r ${./crates/coding-agent/parity/extensions} $out
+          chmod u+w $out
+          cp -r ${pi}/packages/coding-agent/examples/extensions $out/upstream
+        '';
       extensionHost =
         pkgs:
         pkgs.runCommand "pi-extension-host"
@@ -276,6 +284,22 @@
               ${examples}/bin/extensions_e2e
             touch $out
           '';
+          extensions-parity =
+            pkgs.runCommand "${pname}-extensions-parity"
+              {
+                passthru = {
+                  upstream = upstreamPi pkgs;
+                  fixtures = extensionsParityFixtures pkgs;
+                };
+              }
+              ''
+                PI_UPSTREAM_BIN=${upstreamPi pkgs}/bin/pi \
+                  PI_RS_BIN=${self.packages.${system}.default}/bin/pi-rs \
+                  PI_EXTENSION_HOST=${extensionHost pkgs} \
+                  PI_PARITY_FIXTURES=${extensionsParityFixtures pkgs} \
+                  ${examples}/bin/extensions_parity
+                touch $out
+              '';
           codemode-e2e = pkgs.runCommand "${pname}-codemode-e2e" { } ''
             PI_RS_BIN=${self.packages.${system}.default}/bin/pi-rs ${examples}/bin/codemode_e2e
             touch $out

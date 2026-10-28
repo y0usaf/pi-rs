@@ -1,0 +1,19 @@
+{
+  "extension": "upstream/hello.ts",
+  "prompt": "greet Ada",
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "hello",
+          "arguments": {
+            "name": "Ada"
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ]
+}
