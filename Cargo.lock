@@ -391,6 +391,7 @@ dependencies = [
 name = "pi-extensions"
 version = "0.1.0"
 dependencies = [
+ "pi-rt",
  "serde",
  "serde_json",
 ]

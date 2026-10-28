@@ -183,7 +183,7 @@ impl Mapper {
                 {
                     let mut result_line = json!({ "content": value(&result.content) });
                     if let Some(details) = &result.details {
-                        result_line["structuredContent"] = details.clone();
+                        result_line["details"] = details.clone();
                     }
                     line["result"] = result_line;
                     line["isError"] = json!(result.is_error);

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
@@ -12,7 +13,6 @@ const protocol = process.stdout.write.bind(process.stdout);
 process.stdout.write = (chunk, encoding, callback) => process.stderr.write(chunk, encoding, callback);
 
 const UNSUPPORTED = [
-	"registerTool",
 	"registerShortcut",
 	"registerFlag",
 	"getFlag",
@@ -46,15 +46,19 @@ function send(message) {
 	protocol(JSON.stringify(message) + "\n");
 }
 
-// Calls an extension makes into pi-rs while a handler is waiting: sent on the same channel as the
-// answer, numbered so the reply names the call it satisfies.
 const answers = new Map();
 let nextCallId = 1;
+const current = new AsyncLocalStorage();
+const inflight = new Map();
 
 function ask(call, args) {
 	const callId = nextCallId++;
-	send({ call, callId, ...args });
+	send({ ...args, call, callId, request: current.getStore()?.id });
 	return new Promise((resolve, reject) => answers.set(callId, { resolve, reject }));
+}
+
+function effect(call) {
+	send(call);
 }
 
 function stripBom(text) {
@@ -154,13 +158,38 @@ function create(extensionPath) {
 		unsupported: [],
 		eventHandlers: new Map(),
 		commandHandlers: new Map(),
+		tools: new Map(),
 	};
 }
 
-// Calls an extension makes into pi-rs while a request is being served. They travel back with
-// the answer, so the host applies them in order once the extension has returned.
-const calls = [];
-const errors = [];
+function plain(value) {
+	return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+function registeredTools() {
+	const found = new Map();
+	for (const extension of loaded.values()) {
+		for (const tool of extension.tools.values()) {
+			if (!found.has(tool.name)) found.set(tool.name, { extension, tool });
+		}
+	}
+	return [...found.values()];
+}
+
+function toolInfos() {
+	return registeredTools().map(({ extension, tool }) => ({
+		name: tool.name,
+		label: tool.label ?? tool.name,
+		description: tool.description ?? "",
+		parameters: plain(tool.parameters),
+		promptSnippet: tool.promptSnippet,
+		promptGuidelines: tool.promptGuidelines ?? [],
+		executionMode: tool.executionMode,
+		exposure: tool.exposure,
+		defaultActive: tool.defaultActive,
+		path: extension.path,
+	}));
+}
 
 const UNIMPLEMENTED_REGISTRY = [
 	"stream",
@@ -204,7 +233,7 @@ function registryOf() {
 	};
 	for (const member of UNIMPLEMENTED_REGISTRY) {
 		registry[member] = () => {
-			calls.push({ call: "unsupported", member: `modelRegistry.${member}` });
+			effect({ call: "unsupported", member: `modelRegistry.${member}` });
 			return Promise.resolve(undefined);
 		};
 	}
@@ -239,37 +268,38 @@ function sessionManagerOf(session) {
 }
 
 function contextOf() {
-	const call = (value) => calls.push(value);
-	const signal = new AbortController();
+	const call = effect;
+	const unsupported = (member) => effect({ call: "unsupported", member });
+	const signal = current.getStore()?.signal ?? new AbortController().signal;
 	return {
 		ui: {
 			notify(message, type) {
 				call({ call: "notify", text: String(message), level: type ?? "info" });
 			},
 			setStatus() {
-				calls.push({ call: "unsupported", member: "ui.setStatus" });
+				unsupported("ui.setStatus");
 			},
 			select() {
-				calls.push({ call: "unsupported", member: "ui.select" });
+				unsupported("ui.select");
 				return Promise.resolve(undefined);
 			},
 			confirm() {
-				calls.push({ call: "unsupported", member: "ui.confirm" });
+				unsupported("ui.confirm");
 				return Promise.resolve(false);
 			},
 			input() {
-				calls.push({ call: "unsupported", member: "ui.input" });
+				unsupported("ui.input");
 				return Promise.resolve(undefined);
 			},
 			custom() {
-				calls.push({ call: "unsupported", member: "ui.custom" });
+				unsupported("ui.custom");
 				return Promise.resolve(undefined);
 			},
 			onTerminalInput() {
 				return () => {};
 			},
 			setWidget() {
-				calls.push({ call: "unsupported", member: "ui.setWidget" });
+				unsupported("ui.setWidget");
 			},
 			setTheme() {},
 			getTheme() {
@@ -285,7 +315,7 @@ function contextOf() {
 		scopedModels: [],
 		isIdle: () => !runtime.streaming,
 		isProjectTrusted: () => runtime.trusted,
-		signal: signal.signal,
+		signal,
 		abort() {
 			call({ call: "abort" });
 		},
@@ -320,17 +350,48 @@ function apiFor(extension, runtime) {
 			extension.commands.push({ name, description: options?.description ?? "" });
 			extension.commandHandlers.set(name, options?.handler);
 		},
+		registerTool(tool) {
+			if (typeof tool?.parameters !== "object" || tool.parameters === null || Array.isArray(tool.parameters)) {
+				throw new Error(
+					`Tool "${tool?.name}" registered by extension "${extension.path}" must define an object parameter schema.`,
+				);
+			}
+			extension.tools.set(tool.name, tool);
+			if (runtime.bound) effect({ call: "tools", tools: toolInfos() });
+		},
 		sendUserMessage(content, options) {
+			bound();
 			const parts = typeof content === "string" ? [{ type: "text", text: content }] : content;
-			calls.push({
+			effect({
 				call: "sendUserMessage",
 				content: parts,
 				deliverAs: options?.deliverAs ?? null,
 			});
 			return Promise.resolve();
 		},
-		getActiveTools: () => [...runtime.tools.active],
-		getAllTools: () => runtime.tools.all.map((tool) => ({ ...tool })),
+		getActiveTools() {
+			bound();
+			const active = new Set(runtime.tools.active);
+			for (const { tool } of registeredTools()) if (activated(tool)) active.add(tool.name);
+			return [...active];
+		},
+		getAllTools() {
+			bound();
+			const all = runtime.tools.all.map((tool) => ({ ...tool }));
+			for (const { extension, tool } of registeredTools()) {
+				const info = {
+					name: tool.name,
+					description: tool.description ?? "",
+					parameters: tool.parameters,
+					exposure: tool.exposure ?? "direct",
+					sourceInfo: { path: extension.path, source: "extension", scope: "temporary", origin: "top-level" },
+				};
+				const index = all.findIndex((existing) => existing.name === tool.name);
+				if (index >= 0) all[index] = info;
+				else all.push(info);
+			}
+			return all;
+		},
 		events: {
 			on() {
 				return () => {};
@@ -340,6 +401,18 @@ function apiFor(extension, runtime) {
 	};
 	for (const member of UNSUPPORTED) api[member] = () => note(member);
 	return api;
+}
+
+function bound() {
+	if (!runtime.bound) {
+		throw new Error("Extension runtime not initialized. Action methods cannot be called during extension loading.");
+	}
+}
+
+function activated(tool) {
+	const exposure = tool.exposure ?? "direct";
+	if (exposure !== "direct" && exposure !== "model-only") return false;
+	return tool.defaultActive !== false;
 }
 
 function summary(extension) {
@@ -358,6 +431,7 @@ let runtime = {
 	hasUI: false,
 	cwd: process.cwd(),
 	trusted: false,
+	bound: false,
 	streaming: false,
 	pending: 0,
 	session: undefined,
@@ -407,7 +481,8 @@ async function load(request) {
 			});
 		}
 	}
-	return { value: { extensions, errors: loadErrors } };
+	runtime.bound = true;
+	return { value: { extensions, errors: loadErrors, tools: toolInfos() } };
 }
 
 function handlersOf(name) {
@@ -425,7 +500,8 @@ function sameRole(a, b) {
 }
 
 function failed(extension, name, error) {
-	errors.push({
+	effect({
+		call: "error",
 		path: extension.path,
 		event: name,
 		error: error instanceof Error ? error.message : String(error),
@@ -505,7 +581,8 @@ async function runCommand(request) {
 		try {
 			await handler(request.args ?? "", ctx);
 		} catch (error) {
-			errors.push({
+			effect({
+				call: "error",
 				path: `command:${name}`,
 				event: "command",
 				error: error instanceof Error ? error.message : String(error),
@@ -516,6 +593,25 @@ async function runCommand(request) {
 	return { value: null };
 }
 
+async function runTool(request) {
+	Object.assign(runtime, request.updates);
+	const found = registeredTools().find(({ tool }) => tool.name === request.name);
+	if (!found) throw new Error(`Tool ${request.name} not found`);
+	const onUpdate = (partial) => {
+		try {
+			send({ id: request.id, update: partial ?? null });
+		} catch {}
+	};
+	const result = await found.tool.execute(
+		request.toolCallId,
+		request.params,
+		current.getStore()?.signal,
+		onUpdate,
+		contextOf(),
+	);
+	return { value: result ?? null };
+}
+
 async function handle(request) {
 	switch (request.op) {
 		case "load":
@@ -524,6 +620,8 @@ async function handle(request) {
 			return await emitEvent(request);
 		case "command":
 			return await runCommand(request);
+		case "tool":
+			return await runTool(request);
 		case "shutdown":
 			process.exit(0);
 		default:
@@ -531,7 +629,6 @@ async function handle(request) {
 	}
 }
 
-let queue = Promise.resolve();
 const input = readline.createInterface({ input: process.stdin, terminal: false });
 input.on("line", (line) => {
 	let request;
@@ -548,22 +645,21 @@ input.on("line", (line) => {
 		else waiting.reject(new Error(request.error ?? "the call failed"));
 		return;
 	}
-	queue = queue.then(async () => {
+	if (request.cancel !== undefined) {
+		inflight.get(request.cancel)?.abort();
+		return;
+	}
+	const controller = new AbortController();
+	inflight.set(request.id, controller);
+	current.run({ id: request.id, signal: controller.signal }, async () => {
 		try {
 			const answer = await handle(request);
-			const value = answer.value;
-			send({ id: request.id, ok: true, value, calls, errors });
+			send({ id: request.id, ok: true, value: answer.value ?? null });
 		} catch (error) {
-			send({
-				id: request.id,
-				ok: false,
-				error: error instanceof Error ? error.message : String(error),
-				calls,
-				errors,
-			});
+			send({ id: request.id, ok: false, error: error instanceof Error ? error.message : String(error) });
+		} finally {
+			inflight.delete(request.id);
 		}
-		calls.length = 0;
-		errors.length = 0;
 	});
 });
 input.on("close", () => process.exit(0));

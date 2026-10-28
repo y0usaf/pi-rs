@@ -1,5 +1,9 @@
 import { component, stub } from "../../../common.mjs";
 
+export function defineTool(tool) {
+	return tool;
+}
+
 export function getAgentDir() {
 	return globalThis.__piExtensionAgentDir;
 }

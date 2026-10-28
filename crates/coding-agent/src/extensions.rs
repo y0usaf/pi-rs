@@ -4,26 +4,32 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, mpsc};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 
 use pi_durable::ai::models::Models as ModelsTrait;
 use pi_durable::ai::registry::Providers;
 use pi_durable::ai::types::{
     AssistantMessage, CacheRetention, Context, Message, Model, SimpleStreamOptions, SystemContent,
-    SystemMessage, SystemRole, TextContent, TextType, TranscriptContext, UserBlock, UserContent,
+    SystemMessage, SystemRole, TextContent, TextType, Tool as AgentTool, TranscriptContext,
+    UserBlock, UserContent,
 };
 use pi_durable::cancel::CancelToken;
 use pi_durable::errors::Error;
 use pi_durable::harness::events::AgentEvent;
 use pi_durable::harness::generation::{GENERATION_HOOK, GenerationHooks};
 use pi_durable::harness::harness::{Conversation, Harness};
-use pi_durable::harness::types::{HookApi, HookRegistration, ToolRegistration};
-use pi_extensions::{Call, Load};
+use pi_durable::harness::output::OutputChunk;
+use pi_durable::harness::registry::Registry;
+use pi_durable::harness::types::{
+    HookApi, HookRegistration, OutputLimitsSpec, ToolControl, ToolExecute, ToolExecutionApi,
+    ToolExecutionMode, ToolExecutionResult, ToolExposure, ToolRegistration,
+};
+use pi_extensions::{Call, Failed, Load, Peer, Pending, ToolInfo};
 use serde_json::{Map, Value, json};
 
 use crate::config::CONFIG_DIR_NAME;
 use crate::paths::join;
+use crate::print::Loadout;
 use crate::settings::SettingsManager;
 
 /// What an extension sees of the models: the session's own, the catalog `find` searches, and the
@@ -264,13 +270,10 @@ pub fn load(
     };
     for extension in &load.extensions {
         for command in &extension.commands {
-            host.0
-                .commands
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push(command.name.clone());
+            lock(&host.0.commands).push(command.name.clone());
         }
     }
+    host.0.sink.tools(load.tools.clone());
     let _ = LIVE.set(host);
     for error in &load.errors {
         extensions.notices.push(format!("Warning: {}", error.error));
@@ -293,42 +296,155 @@ pub fn load(
     extensions
 }
 
-/// The child, alive as long as the process: one thread owns it, so a handler that answers waits on
-/// that thread alone and a wedged one costs the caller its budget, never the TUI.
 #[derive(Clone)]
 pub struct Live(Arc<Inner>);
 
 struct Inner {
-    jobs: mpsc::Sender<Job>,
-    calls: Mutex<Vec<Call>>,
+    host: pi_extensions::Host,
+    sink: Arc<Sink>,
     state: Mutex<pi_extensions::Ctx>,
     updates: Mutex<Map<String, Value>>,
-    models: Mutex<Option<Arc<ExtensionModels>>>,
     dead: AtomicBool,
     settled: AtomicBool,
     started: AtomicBool,
     commands: Mutex<Vec<String>>,
 }
 
-struct Job {
-    op: Op,
-    reply: mpsc::Sender<std::result::Result<Value, String>>,
+#[derive(Default)]
+struct Sink {
+    calls: Mutex<Vec<Call>>,
+    models: Mutex<Option<Arc<ExtensionModels>>>,
+    tools: Mutex<Vec<ToolInfo>>,
+    registries: Mutex<Vec<(Weak<Registry>, Arc<Loadout>)>>,
 }
 
-enum Op {
-    Load {
-        agent_dir: String,
-        dirs: Vec<String>,
-        paths: Vec<String>,
-    },
-    Event {
-        name: String,
-        payload: Value,
-    },
-    Command {
-        name: String,
-        args: String,
-    },
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+impl Peer for Sink {
+    fn ask(&self, call: &str, args: &Value) -> std::result::Result<Value, String> {
+        let models = lock(&self.models).clone();
+        match models {
+            Some(models) => models.call(call, args),
+            None => Err(format!("pi-rs has no model to answer {call} with yet")),
+        }
+    }
+
+    fn call(&self, call: Call) {
+        lock(&self.calls).push(call);
+    }
+
+    fn failed(&self, failed: Failed) {
+        self.call(Call::Notify {
+            text: format!("Extension error ({}): {}", failed.path, failed.error),
+            level: "error".to_owned(),
+        });
+    }
+
+    fn tools(&self, tools: Vec<ToolInfo>) {
+        *lock(&self.tools) = tools;
+        let registries: Vec<(Arc<Registry>, Arc<Loadout>)> = {
+            let mut registries = lock(&self.registries);
+            registries.retain(|(registry, _)| registry.strong_count() > 0);
+            registries
+                .iter()
+                .filter_map(|(registry, loadout)| Some((registry.upgrade()?, Arc::clone(loadout))))
+                .collect()
+        };
+        for (registry, loadout) in registries {
+            if let Err(error) = self.install(&registry, &loadout) {
+                self.call(Call::Notify {
+                    text: format!("Warning: the extensions' tools were not installed: {error}"),
+                    level: "warning".to_owned(),
+                });
+            }
+        }
+    }
+}
+
+impl Sink {
+    fn install(&self, registry: &Registry, loadout: &Loadout) -> std::result::Result<(), Error> {
+        let tools: Vec<ToolRegistration> = lock(&self.tools).iter().map(registration).collect();
+        registry.install(loadout.with(&tools))
+    }
+}
+
+fn registration(info: &ToolInfo) -> ToolRegistration {
+    let name = info.name.clone();
+    let exposure = info
+        .exposure
+        .as_deref()
+        .and_then(|exposure| serde_json::from_value::<ToolExposure>(json!(exposure)).ok())
+        .unwrap_or_default();
+    let activated = matches!(exposure, ToolExposure::Direct | ToolExposure::ModelOnly)
+        && info.default_active != Some(false);
+    let execute: ToolExecute = Arc::new(move |args, api, cancel| match live() {
+        Some(live) => live.run_tool(&name, args, api, cancel),
+        None => Err(Error::Invalid("no extension host is running".to_owned())),
+    });
+    ToolRegistration {
+        tool: AgentTool {
+            name: info.name.clone(),
+            description: info.description.clone(),
+            parameters: info.parameters.clone(),
+            constrained_sampling: None,
+        },
+        replay: None,
+        execution_mode: info
+            .execution_mode
+            .as_deref()
+            .and_then(|mode| serde_json::from_value::<ToolExecutionMode>(json!(mode)).ok()),
+        output_limits: Some(OutputLimitsSpec {
+            max_bytes: Some(usize::MAX),
+            max_lines: Some(usize::MAX),
+            retain: None,
+        }),
+        prepare_arguments: None,
+        exposure,
+        hidden: !activated,
+        execute,
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Outcome {
+    #[serde(default)]
+    content: Vec<UserBlock>,
+    #[serde(default)]
+    details: Option<Value>,
+    #[serde(default)]
+    is_error: Option<bool>,
+    #[serde(default)]
+    terminate: Option<bool>,
+}
+
+fn failed_result(message: String) -> ToolExecutionResult {
+    ToolExecutionResult {
+        content: Some(vec![UserBlock::Text(TextContent {
+            kind: TextType,
+            text: message,
+            text_signature: None,
+        })]),
+        is_error: Some(true),
+        details: Some(json!({})),
+        ..ToolExecutionResult::default()
+    }
+}
+
+fn text_blocks(blocks: Option<&Value>) -> String {
+    blocks
+        .and_then(Value::as_array)
+        .map(|blocks| {
+            blocks
+                .iter()
+                .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|block| block.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default()
 }
 
 /// The child this process loads its extensions in, once main has found them.
@@ -340,11 +456,11 @@ pub fn live() -> Option<&'static Live> {
 
 impl Live {
     fn start(dir: &Path, cwd: &str, mode: &str, has_ui: bool) -> std::result::Result<Self, String> {
-        let host = pi_extensions::Host::start(dir, cwd)?;
-        let (jobs, queue) = mpsc::channel();
-        let inner = Arc::new(Inner {
-            jobs,
-            calls: Mutex::new(Vec::new()),
+        let sink = Arc::new(Sink::default());
+        let host = pi_extensions::Host::start(dir, cwd, Arc::clone(&sink) as Arc<dyn Peer>)?;
+        Ok(Self(Arc::new(Inner {
+            host,
+            sink,
             state: Mutex::new(pi_extensions::Ctx {
                 mode: mode.to_owned(),
                 has_ui,
@@ -354,21 +470,17 @@ impl Live {
                 updates: Map::new(),
             }),
             updates: Mutex::new(Map::new()),
-            models: Mutex::new(None),
             dead: AtomicBool::new(false),
             settled: AtomicBool::new(false),
             started: AtomicBool::new(false),
             commands: Mutex::new(Vec::new()),
-        });
-        let worker = Arc::clone(&inner);
-        std::thread::spawn(move || serve(host, &worker, queue));
-        Ok(Self(inner))
+        })))
     }
 
     /// What the next handler sees of the run: the session's cwd, whether a turn is going, and how
     /// many messages wait to be sent.
     pub fn set_state(&self, cwd: &str, streaming: bool, pending: u64) {
-        let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = lock(&self.0.state);
         state.cwd = cwd.to_owned();
         state.streaming = streaming;
         state.pending = pending;
@@ -409,7 +521,7 @@ impl Live {
                 "configured": models.configured,
             }),
         );
-        *self.0.models.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(models));
+        *lock(&self.0.sink.models) = Some(Arc::new(models));
     }
 
     pub fn set_tools(&self, builtin: &[ToolRegistration], mcp: &[ToolRegistration]) {
@@ -475,12 +587,19 @@ impl Live {
         self.update("tools", json!({ "active": active, "all": all }));
     }
 
+    pub fn attach(
+        &self,
+        registry: &Arc<Registry>,
+        loadout: Loadout,
+    ) -> std::result::Result<(), Error> {
+        let loadout = Arc::new(loadout);
+        self.0.sink.install(registry, &loadout)?;
+        lock(&self.0.sink.registries).push((Arc::downgrade(registry), loadout));
+        Ok(())
+    }
+
     fn update(&self, key: &str, value: Value) {
-        self.0
-            .updates
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(key.to_owned(), value);
+        lock(&self.0.updates).insert(key.to_owned(), value);
     }
 
     /// Loads what the settings and the flags named, in the child that goes on to serve events.
@@ -490,12 +609,110 @@ impl Live {
         dirs: &[String],
         paths: &[String],
     ) -> std::result::Result<Load, String> {
-        let value = self.dispatch(Op::Load {
-            agent_dir: agent_dir.to_owned(),
-            dirs: dirs.to_vec(),
-            paths: paths.to_vec(),
-        })?;
-        serde_json::from_value(value).map_err(|e| format!("the extension host answered {e}"))
+        let ctx = self.ctx();
+        let cwd = ctx.cwd.clone();
+        self.0.host.load(&cwd, agent_dir, dirs, paths, &ctx)
+    }
+
+    fn ctx(&self) -> pi_extensions::Ctx {
+        let mut ctx = lock(&self.0.state).clone();
+        ctx.updates = std::mem::take(&mut *lock(&self.0.updates));
+        ctx
+    }
+
+    fn begin(
+        &self,
+        start: impl FnOnce(
+            &pi_extensions::Host,
+            &pi_extensions::Ctx,
+        ) -> std::result::Result<Pending, String>,
+    ) -> std::result::Result<Pending, String> {
+        let mut updates = lock(&self.0.updates);
+        let mut ctx = lock(&self.0.state).clone();
+        ctx.updates = std::mem::take(&mut *updates);
+        let pending = start(&self.0.host, &ctx);
+        drop(updates);
+        pending.inspect_err(|_| self.died())
+    }
+
+    fn died(&self) {
+        if let Some(error) = self.0.host.failure()
+            && !self.0.dead.swap(true, Ordering::SeqCst)
+        {
+            self.0.sink.call(Call::Notify {
+                text: format!("Warning: {error}"),
+                level: "warning".to_owned(),
+            });
+        }
+    }
+
+    fn finish(
+        &self,
+        pending: std::result::Result<Pending, String>,
+    ) -> std::result::Result<Value, String> {
+        pending
+            .and_then(|pending| pending.wait(None, &mut |_| {}))
+            .inspect_err(|_| self.died())
+    }
+
+    fn run_tool(
+        &self,
+        name: &str,
+        args: Value,
+        api: &dyn ToolExecutionApi,
+        cancel: &CancelToken,
+    ) -> std::result::Result<ToolExecutionResult, Error> {
+        if cancel.is_cancelled() {
+            return Err(Error::Aborted);
+        }
+        let call_id = api.call_id().to_owned();
+        let pending = self
+            .begin(|host, ctx| host.tool(name, &call_id, args, ctx))
+            .map_err(Error::Invalid)?;
+        let mut shown = String::new();
+        let mut details: Option<Value> = None;
+        let answer = pending.wait(Some(cancel), &mut |partial| {
+            let text = text_blocks(partial.get("content"));
+            if let Some(added) = text.strip_prefix(shown.as_str())
+                && !added.is_empty()
+            {
+                let _ = api.output(OutputChunk::Text(added), None);
+                shown = text;
+            }
+            if let Some(next) = partial.get("details").filter(|next| !next.is_null())
+                && details.as_ref() != Some(next)
+            {
+                details = Some(next.clone());
+                let _ = api.details(next.clone(), cancel);
+            }
+        });
+        if cancel.is_cancelled() {
+            return Err(Error::Aborted);
+        }
+        let value = match answer {
+            Ok(value) => value,
+            Err(error) => {
+                self.died();
+                return Ok(failed_result(error));
+            }
+        };
+        let outcome: Outcome = match serde_json::from_value(value) {
+            Ok(outcome) => outcome,
+            Err(e) => return Ok(failed_result(format!("Tool {name} returned {e}"))),
+        };
+        Ok(ToolExecutionResult {
+            content: Some(outcome.content),
+            is_error: outcome.is_error,
+            details: Some(outcome.details.unwrap_or(Value::Null)),
+            control: outcome
+                .terminate
+                .filter(|terminate| *terminate)
+                .map(|_| ToolControl {
+                    terminate: true,
+                    ..ToolControl::default()
+                }),
+            ..ToolExecutionResult::default()
+        })
     }
 
     /// Hands one event to the extensions and waits for what they made of it.
@@ -542,10 +759,7 @@ impl Live {
 
     /// Runs the command an extension registered, with the text after its name.
     pub fn command(&self, name: &str, args: &str) {
-        let _ = self.dispatch(Op::Command {
-            name: name.to_owned(),
-            args: args.to_owned(),
-        });
+        let _ = self.finish(self.begin(|host, ctx| host.command(name, args, ctx)));
     }
 
     /// Runs the line as an extension command when it names one, as upstream's
@@ -555,13 +769,7 @@ impl Live {
             return false;
         };
         let (name, args) = typed.split_once(' ').unwrap_or((typed, ""));
-        let known = self
-            .0
-            .commands
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .any(|command| command == name);
+        let known = lock(&self.0.commands).iter().any(|command| command == name);
         if !known {
             return false;
         }
@@ -571,12 +779,7 @@ impl Live {
 
     /// `agent_settled`, once a run has ended and nothing is left to send.
     pub fn settle(&self, aborted: bool) {
-        let pending = self
-            .0
-            .state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .pending;
+        let pending = lock(&self.0.state).pending;
         if pending == 0 && self.0.settled.swap(false, Ordering::SeqCst) {
             self.event("agent_settled", json!({ "aborted": aborted }));
         }
@@ -584,7 +787,7 @@ impl Live {
 
     /// The calls the extensions made, in the order they made them.
     pub fn take_calls(&self) -> Vec<Call> {
-        std::mem::take(&mut *self.0.calls.lock().unwrap_or_else(|e| e.into_inner()))
+        std::mem::take(&mut *lock(&self.0.sink.calls))
     }
 
     /// The durable hooks: a streamed message, and one that may be replaced when it ends.
@@ -633,97 +836,6 @@ impl Live {
     }
 
     fn ask(&self, name: &str, payload: Value) -> std::result::Result<Value, String> {
-        self.dispatch(Op::Event {
-            name: name.to_owned(),
-            payload,
-        })
-    }
-
-    fn dispatch(&self, op: Op) -> std::result::Result<Value, String> {
-        let (reply, answer) = mpsc::channel();
-        self.0
-            .jobs
-            .send(Job { op, reply })
-            .map_err(|_| "the extension host is closed".to_owned())?;
-        answer
-            .recv_timeout(pi_extensions::EVENT_BUDGET + Duration::from_secs(1))
-            .map_err(|_| "the extension host did not answer".to_owned())?
-    }
-}
-
-fn serve(mut host: pi_extensions::Host, inner: &Inner, queue: mpsc::Receiver<Job>) {
-    while let Ok(Job { op, reply }) = queue.recv() {
-        let mut ctx = inner
-            .state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
-        ctx.updates = std::mem::take(&mut *inner.updates.lock().unwrap_or_else(|e| e.into_inner()));
-        let models = inner
-            .models
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
-        let mut ask = |name: &str, args: &Value| match &models {
-            Some(models) => models.call(name, args),
-            None => Err(format!("pi-rs has no model to answer {name} with yet")),
-        };
-        let answer = match &op {
-            Op::Load {
-                agent_dir,
-                dirs,
-                paths,
-            } => host
-                .load(&ctx.cwd, agent_dir, dirs, paths, &ctx)
-                .and_then(|load| {
-                    serde_json::to_value(load)
-                        .map(|value| pi_extensions::Reply {
-                            value,
-                            ..pi_extensions::Reply::default()
-                        })
-                        .map_err(|e| e.to_string())
-                }),
-            Op::Event { name, payload } => host.event(
-                &pi_extensions::Event {
-                    name,
-                    payload: payload.clone(),
-                    ctx: &ctx,
-                },
-                &mut ask,
-            ),
-            Op::Command { name, args } => host.command(name, args, &ctx, &mut ask),
-        };
-        let answer = match answer {
-            Ok(answer) => answer,
-            Err(error) => {
-                if !inner.dead.swap(true, Ordering::SeqCst) {
-                    inner.push(Call::Notify {
-                        text: format!("Warning: {error}"),
-                        level: "warning".to_owned(),
-                    });
-                }
-                let _ = reply.send(Err(error));
-                continue;
-            }
-        };
-        for failed in &answer.errors {
-            inner.push(Call::Notify {
-                text: format!("Extension error ({}): {}", failed.path, failed.error),
-                level: "error".to_owned(),
-            });
-        }
-        for call in answer.calls {
-            inner.push(call);
-        }
-        let _ = reply.send(Ok(answer.value));
-    }
-}
-
-impl Inner {
-    fn push(&self, call: Call) {
-        self.calls
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(call);
+        self.finish(self.begin(|host, ctx| host.event(name, payload, ctx)))
     }
 }

@@ -8,13 +8,13 @@ mod host;
 
 use std::time::Duration;
 
-pub use host::{Call, Ctx, Event, Failed, Host, Reply};
+pub use host::{Call, Ctx, Failed, Host, Peer, Pending};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// How long the child may take to import the extensions and run their factories.
 pub const LOAD_BUDGET: Duration = Duration::from_secs(20);
 
-/// How long one event handler or command handler may take; past it the child is dead to us.
 pub const EVENT_BUDGET: Duration = Duration::from_secs(10);
 
 /// One extension the child loaded, with what its factory registered.
@@ -42,9 +42,33 @@ pub struct LoadError {
     pub error: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolInfo {
+    pub name: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
+    pub parameters: Value,
+    #[serde(default)]
+    pub prompt_snippet: Option<String>,
+    #[serde(default)]
+    pub prompt_guidelines: Vec<String>,
+    #[serde(default)]
+    pub execution_mode: Option<String>,
+    #[serde(default)]
+    pub exposure: Option<String>,
+    #[serde(default)]
+    pub default_active: Option<bool>,
+    pub path: String,
+}
+
 /// What one load produced: upstream's `LoadExtensionsResult`, minus warnings.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Load {
     pub extensions: Vec<Loaded>,
     pub errors: Vec<LoadError>,
+    #[serde(default)]
+    pub tools: Vec<ToolInfo>,
 }

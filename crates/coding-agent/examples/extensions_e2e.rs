@@ -34,10 +34,10 @@ const BROKEN: &str = r#"export default function (): void {
 }
 "#;
 
-const TOOLS: &str = r#"import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+const UNSUPPORTED: &str = r#"import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI): void {
-	pi.registerTool({ name: "check_tool", description: "a tool", parameters: {} });
+	pi.registerShortcut("ctrl+k", { handler: () => {} });
 }
 "#;
 
@@ -240,7 +240,7 @@ fn main() -> Result<()> {
     let directory = package.parent().ok_or("no parent")?.to_path_buf();
     scratch.write("ext-package/index.ts", PACKAGE)?;
     let cli = scratch.write("plain/cli.ts", CLI)?;
-    let tools = scratch.write("tools/tool.ts", TOOLS)?;
+    let unsupported = scratch.write("unsupported/shortcut.ts", UNSUPPORTED)?;
     let broken = scratch.write("plain/broken.ts", BROKEN)?;
 
     scratch.settings(&json!({"packages": [directory.to_string_lossy()]}))?;
@@ -302,14 +302,15 @@ fn main() -> Result<()> {
     }
     println!("--no-extensions keeps --extension ok");
 
-    scratch
-        .settings(&json!({"extensions": [broken.to_string_lossy(), tools.to_string_lossy()]}))?;
+    scratch.settings(
+        &json!({"extensions": [broken.to_string_lossy(), unsupported.to_string_lossy()]}),
+    )?;
     let (list, stderr) = rpc(&bin, &scratch, ARGS)?;
     if !stderr.contains("Warning: Failed to load extension: this extension throws") {
         return fail(format!("the broken extension is not reported: {stderr}"));
     }
-    if !stderr.contains("uses registerTool, which pi-rs does not implement yet") {
-        return fail(format!("registerTool is not reported: {stderr}"));
+    if !stderr.contains("uses registerShortcut, which pi-rs does not implement yet") {
+        return fail(format!("registerShortcut is not reported: {stderr}"));
     }
     if !commands(&list).is_empty() {
         return fail(format!(
@@ -330,6 +331,8 @@ fn main() -> Result<()> {
     println!("nothing configured ok");
 
     events(&bin, &scratch)?;
+    tools(&bin, &scratch)?;
+    cancel(&bin, &scratch)?;
 
     std::fs::remove_dir_all(&scratch.root)?;
     println!("extensions e2e ok");
@@ -387,31 +390,35 @@ export default function (pi: any): void {
 
 /// An OpenAI-completions server on a real socket: it records each request body and answers with
 /// one sentence streamed back in two parts.
+fn request_body(stream: &std::net::TcpStream) -> Option<String> {
+    let mut reader = BufReader::new(stream.try_clone().ok()?);
+    let mut length = 0usize;
+    loop {
+        let mut line = String::new();
+        if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+            break;
+        }
+        let lower = line.to_ascii_lowercase();
+        if let Some(value) = lower.strip_prefix("content-length:") {
+            length = value.trim().parse().unwrap_or(0);
+        }
+    }
+    let mut body = vec![0u8; length];
+    reader.read_exact(&mut body).ok()?;
+    Some(String::from_utf8_lossy(&body).into_owned())
+}
+
 fn serve_events(bodies: Arc<Mutex<Vec<String>>>) -> Result<u16> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { return };
-            let Ok(copy) = stream.try_clone() else { return };
-            let mut reader = BufReader::new(copy);
-            let mut length = 0usize;
-            loop {
-                let mut line = String::new();
-                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
-                    break;
-                }
-                let lower = line.to_ascii_lowercase();
-                if let Some(value) = lower.strip_prefix("content-length:") {
-                    length = value.trim().parse().unwrap_or(0);
-                }
-            }
-            let mut body = vec![0u8; length];
-            if reader.read_exact(&mut body).is_err() {
+            let Some(body) = request_body(&stream) else {
                 return;
-            }
+            };
             if let Ok(mut bodies) = bodies.lock() {
-                bodies.push(String::from_utf8_lossy(&body).into_owned());
+                bodies.push(body);
             }
             let head =
                 "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n";
@@ -558,5 +565,314 @@ fn events(bin: &Path, scratch: &Scratch) -> Result<()> {
         return fail("print mode printed nothing for the replaced reply".to_owned());
     }
     println!("message_end replacement and input transform ok");
+    Ok(())
+}
+
+const TOOLS: &str = r#"import fs from "node:fs";
+import { Type } from "@earendil-works/pi-ai";
+import { defineTool } from "@earendil-works/pi-coding-agent";
+
+const note = (line: string): void => {
+	fs.appendFileSync(process.env.E2E_LOG, line + "\n");
+};
+
+export default function (pi: any): void {
+	pi.registerTool(
+		defineTool({
+			name: "load_echo",
+			label: "Load echo",
+			description: "registered while loading",
+			parameters: Type.Object({ text: Type.String() }),
+			async execute(_id: string, params: any) {
+				return { content: [{ type: "text", text: "load: " + params.text }], details: {} };
+			},
+		}),
+	);
+	pi.registerTool({
+		name: "wait_abort",
+		label: "Wait",
+		description: "waits until it is aborted",
+		parameters: Type.Object({}),
+		execute(_id: string, _params: any, signal: AbortSignal) {
+			note("wait_abort:started");
+			return new Promise((_resolve, reject) => {
+				signal.addEventListener("abort", () => {
+					note("wait_abort:aborted");
+					reject(new Error("aborted"));
+				});
+			});
+		},
+	});
+	pi.on("session_start", () => {
+		pi.registerTool({
+			name: "late_echo",
+			label: "Late echo",
+			description: "registered at session_start",
+			parameters: Type.Object({ text: Type.String() }),
+			async execute(id: string, params: any, _signal: AbortSignal, onUpdate: any, ctx: any) {
+				onUpdate({ content: [{ type: "text", text: "partial " }], details: { step: 1 } });
+				onUpdate({ content: [{ type: "text", text: "partial one" }], details: { step: 2 } });
+				note("late_echo:" + id + ":" + params.text + ":" + (ctx.cwd.length > 0));
+				return { content: [{ type: "text", text: "echo: " + params.text }], details: { echoed: params.text } };
+			},
+		});
+		note("active:" + pi.getActiveTools().join(","));
+	});
+}
+"#;
+
+enum Turn {
+    Text(&'static str),
+    Tool(&'static str, Value),
+}
+
+fn serve_script(turns: Vec<Turn>, bodies: Arc<Mutex<Vec<String>>>) -> Result<u16> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    std::thread::spawn(move || {
+        for (index, stream) in listener.incoming().enumerate() {
+            let Ok(mut stream) = stream else { return };
+            let Some(body) = request_body(&stream) else {
+                return;
+            };
+            if let Ok(mut bodies) = bodies.lock() {
+                bodies.push(body);
+            }
+            let head =
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n";
+            if stream.write_all(head.as_bytes()).is_err() {
+                return;
+            }
+            let (delta, finish) = match turns.get(index) {
+                Some(Turn::Tool(name, args)) => (
+                    json!({"role": "assistant", "tool_calls": [{
+                        "index": 0,
+                        "id": format!("call_{}", index + 1),
+                        "type": "function",
+                        "function": {"name": name, "arguments": args.to_string()},
+                    }]}),
+                    "tool_calls",
+                ),
+                Some(Turn::Text(text)) => (json!({"role": "assistant", "content": text}), "stop"),
+                None => (
+                    json!({"role": "assistant", "content": "unscripted"}),
+                    "stop",
+                ),
+            };
+            for chunk in [
+                json!({"id": "c1", "choices": [{"index": 0, "delta": delta}]}),
+                json!({"id": "c1", "choices": [{"index": 0, "delta": {}, "finish_reason": finish}]}),
+                json!({"id": "c1", "choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 2}}),
+            ] {
+                if writeln!(stream, "data: {chunk}\n").is_err() {
+                    return;
+                }
+            }
+            let _ = stream.write_all(b"data: [DONE]\n\n");
+        }
+    });
+    Ok(port)
+}
+
+fn scripted(scratch: &Scratch, turns: Vec<Turn>) -> Result<(Arc<Mutex<Vec<String>>>, PathBuf)> {
+    let bodies = Arc::new(Mutex::new(Vec::new()));
+    let port = serve_script(turns, Arc::clone(&bodies))?;
+    let models = json!({"providers": {"fake": {
+        "baseUrl": format!("http://127.0.0.1:{port}/v1"),
+        "apiKey": "sk-test",
+        "api": "openai-completions",
+        "models": [{"id": "fake-test", "contextWindow": 200000, "maxTokens": 8192}],
+    }}});
+    scratch.write("agent/models.json", &serde_json::to_string(&models)?)?;
+    let extension = scratch.write("tools/ext.ts", TOOLS)?;
+    scratch.settings(&json!({"extensions": [extension.to_string_lossy()]}))?;
+    let log = scratch.root.join("tools.log");
+    let _ = std::fs::remove_file(&log);
+    Ok((bodies, log))
+}
+
+fn launch(bin: &Path, scratch: &Scratch, log: &Path, args: &[&str]) -> Result<std::process::Child> {
+    Ok(Command::new(bin)
+        .args(args)
+        .args(["--provider", "fake", "--model", "fake-test", "--no-session"])
+        .current_dir(scratch.root.join("cwd"))
+        .env_clear()
+        .env("HOME", scratch.root.join("home"))
+        .env("PI_CODING_AGENT_DIR", scratch.root.join("agent"))
+        .env("PATH", "/nonexistent")
+        .env("E2E_LOG", log)
+        .envs(host_env())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?)
+}
+
+fn tools(bin: &Path, scratch: &Scratch) -> Result<()> {
+    let (bodies, log) = scripted(
+        scratch,
+        vec![
+            Turn::Tool("late_echo", json!({"text": "hi"})),
+            Turn::Text("done"),
+        ],
+    )?;
+    let mut child = launch(bin, scratch, &log, &["--mode", "json", "-p", "echo hi"])?;
+    drop(child.stdin.take());
+    let deadline = Instant::now() + Duration::from_secs(120);
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            return fail("pi-rs did not finish the tool run".to_owned());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let mut stdout = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        pipe.read_to_string(&mut stdout).ok();
+    }
+    let mut stderr = String::new();
+    if let Some(mut pipe) = child.stderr.take() {
+        pipe.read_to_string(&mut stderr).ok();
+    }
+    if !status.success() {
+        return fail(format!("pi-rs exited {status}: {stderr}"));
+    }
+    let events: Vec<Value> = stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let of = |kind: &str| {
+        events
+            .iter()
+            .filter(|event| event["type"] == kind && event["toolName"] == "late_echo")
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    if of("tool_execution_start").is_empty() {
+        return fail(format!("late_echo never started:\n{stdout}\n{stderr}"));
+    }
+    if !of("tool_execution_update")
+        .iter()
+        .any(|event| event["partialResult"]["details"]["step"] == 2)
+    {
+        return fail(format!("late_echo's progress never arrived:\n{stdout}"));
+    }
+    let end = of("tool_execution_end");
+    let Some(end) = end.first() else {
+        return fail(format!("late_echo never ended:\n{stdout}"));
+    };
+    if end["result"]["content"][0]["text"] != "echo: hi"
+        || end["result"]["details"]["echoed"] != "hi"
+        || end["isError"] == true
+    {
+        return fail(format!("late_echo ended with {end}"));
+    }
+    let seen = std::fs::read_to_string(&log).unwrap_or_default();
+    if !seen.lines().any(|line| line == "late_echo:call_1:hi:true") {
+        return fail(format!(
+            "late_echo did not run in the child:\n{seen}\n{stderr}"
+        ));
+    }
+    if !seen.lines().any(|line| {
+        line.starts_with("active:") && line.contains("load_echo") && line.contains("late_echo")
+    }) {
+        return fail(format!("the extension tools are not active:\n{seen}"));
+    }
+    let recorded = bodies.lock().map(|b| b.clone()).unwrap_or_default();
+    let first = recorded.first().ok_or("the model was never called")?;
+    if !first.contains("\"late_echo\"") || !first.contains("\"load_echo\"") {
+        return fail(format!(
+            "the model was not offered both extension tools: {first}"
+        ));
+    }
+    let second = recorded.get(1).ok_or("the model was called once")?;
+    if !second.contains("echo: hi") {
+        return fail(format!(
+            "the tool result is not in the next request: {second}"
+        ));
+    }
+    println!("extension tools ok");
+    Ok(())
+}
+
+fn cancel(bin: &Path, scratch: &Scratch) -> Result<()> {
+    let (_bodies, log) = scripted(
+        scratch,
+        vec![Turn::Tool("wait_abort", json!({})), Turn::Text("after")],
+    )?;
+    let mut child = launch(bin, scratch, &log, &["--mode", "rpc"])?;
+    let mut stdin = child.stdin.take().ok_or("no stdin")?;
+    let stdout = child.stdout.take().ok_or("no stdout")?;
+    let (sender, lines) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout)
+            .lines()
+            .map_while(std::result::Result::ok)
+        {
+            if sender.send(line).is_err() {
+                return;
+            }
+        }
+    });
+    writeln!(
+        stdin,
+        "{}",
+        json!({"type": "prompt", "id": "p", "message": "wait"})
+    )?;
+    stdin.flush()?;
+    let wait_for = |wanted: &dyn Fn(&Value) -> bool, what: &str| -> Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while Instant::now() < deadline {
+            let Ok(line) = lines.recv_timeout(deadline - Instant::now()) else {
+                break;
+            };
+            if serde_json::from_str::<Value>(&line).is_ok_and(|value| wanted(&value)) {
+                return Ok(());
+            }
+        }
+        fail(format!("no {what} from pi-rs"))
+    };
+    wait_for(
+        &|value| value["type"] == "tool_execution_start" && value["toolName"] == "wait_abort",
+        "tool_execution_start",
+    )?;
+    let started = Instant::now() + Duration::from_secs(30);
+    while !std::fs::read_to_string(&log)
+        .unwrap_or_default()
+        .contains("wait_abort:started")
+    {
+        if Instant::now() > started {
+            return fail("wait_abort never ran in the child".to_owned());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    writeln!(stdin, "{}", json!({"type": "abort", "id": "a"}))?;
+    stdin.flush()?;
+    wait_for(
+        &|value| value["type"] == "agent_end",
+        "agent_end after the abort",
+    )?;
+    drop(stdin);
+    let exited = Instant::now() + Duration::from_secs(30);
+    loop {
+        if child.try_wait()?.is_some() {
+            break;
+        }
+        if Instant::now() > exited {
+            let _ = child.kill();
+            return fail("pi-rs did not exit after the abort".to_owned());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let seen = std::fs::read_to_string(&log).unwrap_or_default();
+    if !seen.lines().any(|line| line == "wait_abort:aborted") {
+        return fail(format!(
+            "the abort never reached the tool's signal:\n{seen}"
+        ));
+    }
+    println!("extension tool cancellation ok");
     Ok(())
 }

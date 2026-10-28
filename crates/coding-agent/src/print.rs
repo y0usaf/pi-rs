@@ -122,7 +122,7 @@ pub fn extension(
     tool_names: &[String],
     sections: Vec<(String, String)>,
     settings: ToolSettings,
-) -> Extension {
+) -> Loadout {
     extension_with(tool_names, sections, settings, Vec::new())
 }
 
@@ -132,7 +132,7 @@ pub fn extension_with(
     sections: Vec<(String, String)>,
     settings: ToolSettings,
     extra: Vec<ToolRegistration>,
-) -> Extension {
+) -> Loadout {
     let settings = Arc::new(settings);
     let mut registrations: Vec<ToolRegistration> = tool_names
         .iter()
@@ -146,26 +146,45 @@ pub fn extension_with(
     let builtin = registrations.len();
     registrations.extend(extra);
     crate::codemode::set_inline_budget(settings.codemode_inline_budget);
-    crate::codemode::apply_loadout(
-        &mut registrations,
-        crate::codemode::Mode::parse(&settings.codemode_mode),
-    );
+    let mode = crate::codemode::Mode::parse(&settings.codemode_mode);
     if let Some(live) = crate::extensions::live() {
-        let (builtin, mcp) = registrations.split_at(builtin);
+        let mut loaded = registrations.clone();
+        crate::codemode::apply_loadout(&mut loaded, mode);
+        let (builtin, mcp) = loaded.split_at(builtin);
         live.set_tools(builtin, mcp);
     }
-    Extension {
-        name: "pi-coding-agent".to_owned(),
-        tools: registrations,
-        sections: sections
-            .into_iter()
-            .map(|(key, text)| fixed_section(&key, text))
-            .collect(),
-        wraps: Vec::new(),
-        hooks: crate::extensions::live()
-            .map(|live| vec![live.hooks()])
-            .unwrap_or_default(),
-        tasks: Vec::new(),
+    Loadout {
+        extension: Extension {
+            name: "pi-coding-agent".to_owned(),
+            tools: registrations,
+            sections: sections
+                .into_iter()
+                .map(|(key, text)| fixed_section(&key, text))
+                .collect(),
+            wraps: Vec::new(),
+            hooks: crate::extensions::live()
+                .map(|live| vec![live.hooks()])
+                .unwrap_or_default(),
+            tasks: Vec::new(),
+        },
+        mode,
+    }
+}
+
+pub struct Loadout {
+    extension: Extension,
+    mode: crate::codemode::Mode,
+}
+
+impl Loadout {
+    pub fn with(&self, added: &[ToolRegistration]) -> Extension {
+        let mut extension = self.extension.clone();
+        extension
+            .tools
+            .retain(|tool| !added.iter().any(|new| new.tool.name == tool.tool.name));
+        extension.tools.extend(added.iter().cloned());
+        crate::codemode::apply_loadout(&mut extension.tools, self.mode);
+        extension
     }
 }
 
@@ -445,7 +464,7 @@ static CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 pub fn open_harness(
     storage: Arc<dyn pi_durable::types::Storage>,
     providers: Providers,
-    extension: Extension,
+    extension: Loadout,
     compaction: CompactionOverrides,
 ) -> Result<Harness, Error> {
     open_harness_with(
@@ -466,13 +485,16 @@ pub fn open_harness(
 pub fn open_harness_with(
     storage: Arc<dyn pi_durable::types::Storage>,
     providers: Providers,
-    extension: Extension,
+    extension: Loadout,
     compaction: CompactionOverrides,
     report: pi_durable::harness::types::ErrorReport,
 ) -> Result<Harness, Error> {
     let mounted = crate::mount::open(providers);
     let registry = Arc::new(Registry::default());
-    registry.install(extension)?;
+    match crate::extensions::live() {
+        Some(live) => live.attach(&registry, extension)?,
+        None => registry.install(extension.with(&[]))?,
+    }
     for extension in mounted.extensions {
         registry.install(extension)?;
     }
