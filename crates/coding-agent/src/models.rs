@@ -65,7 +65,9 @@ impl ModelRegistry {
         let config = ModelConfig::load(&models_path);
         let _ = crate::auth::ensure_file(&crate::paths::join(agent_dir, "models-store.json"));
         let auth = AuthStore::open(&crate::paths::join(agent_dir, "auth.json"));
-        Self::new(config, auth, pi_durable::ai::catalog::all())
+        let mut catalog = pi_durable::ai::catalog::all();
+        catalog.extend(crate::mount::catalog().iter().cloned());
+        Self::new(config, auth, catalog)
     }
 
     pub fn new(config: ModelConfig, auth: AuthStore, catalog: Vec<Model>) -> Self {
@@ -240,6 +242,9 @@ impl ModelRegistry {
 
     /// `hasConfiguredAuth`: whether requests to this provider would get credentials.
     pub fn has_configured_auth(&self, provider: &str) -> bool {
+        if crate::mount::mounts(provider) {
+            return true;
+        }
         if self.runtime_keys.lock().unwrap().contains_key(provider) {
             return self.has_api_key_auth(provider);
         }

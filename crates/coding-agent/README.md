@@ -81,6 +81,10 @@ The events upstream hands extensions reach them through the harness. `session_st
 
 Each handler has ten seconds before the child is taken for wedged and the event dropped, so an extension that hangs cannot hang the TUI. Three shapes differ from upstream: `message_start` carries the first streamed chunk rather than an empty message, `message_end` answers only for assistant messages and `input` only for a prompt that is one text block, and `agent_end` and `agent_settled` carry no `messages`. `ctx.sessionManager` holds the current branch only, so `getEntries` is `getBranch` and `getTree` one chain; its entries carry the time they were read, `getLabel` answers nothing, and `buildContextEntries` and `buildSessionProjection` are missing. Print mode sends it between turns, so a handler inside a turn sees the session as the turn found it.
 
+## Embedding
+
+`pi_coding_agent::cli::main()` is the whole `pi-rs` binary. A program that calls `mount::set` before it adds models and pi-durable extensions written in Rust to every harness the run opens: the mount's catalog resolves with `--model` and lists as available without credentials, and its `open` gets the built-in providers and returns the models every request goes through, so it can answer for its own models and pass the rest on. `nix flake check`'s `mount-e2e` mounts a fake model and a tool and checks that a print-mode turn calls the tool through the mounted model, that `--list-models` lists the model, and that plain `pi-rs` does not know it.
+
 ## What matches upstream, and how it is checked
 
 `parity/run.sh` (with `PI_TS` pointing at an upstream checkout with `node_modules` installed, and the models catalog hydrated) runs each check against the TypeScript and against this crate:

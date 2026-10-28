@@ -418,13 +418,17 @@ pub fn open_harness_with(
     compaction: CompactionOverrides,
     report: pi_durable::harness::types::ErrorReport,
 ) -> Result<Harness, Error> {
+    let mounted = crate::mount::open(providers);
     let registry = Arc::new(Registry::default());
     registry.install(extension)?;
+    for extension in mounted.extensions {
+        registry.install(extension)?;
+    }
     CLOSING.store(false, std::sync::atomic::Ordering::SeqCst);
     Harness::open(
         storage,
         HarnessOptions {
-            models: Arc::new(providers),
+            models: mounted.models,
             registry,
             // Upstream's agent loop sends a bad call's error as bare text.
             settings: Some(HarnessSettings {
