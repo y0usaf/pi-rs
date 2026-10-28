@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
@@ -25,7 +26,6 @@ const UNSUPPORTED = [
 	"setSessionName",
 	"getSessionName",
 	"setLabel",
-	"exec",
 	"getSettings",
 	"setActiveTools",
 	"getCommands",
@@ -59,6 +59,96 @@ function ask(call, args) {
 
 function effect(call) {
 	send(call);
+}
+
+function waitForChild(child) {
+	return new Promise((resolve, reject) => {
+		let settled = false;
+		let exited = false;
+		let exitCode = null;
+		let timer;
+		let stdoutEnded = child.stdout === null;
+		let stderrEnded = child.stderr === null;
+		const finish = (code) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			child.stdout?.destroy();
+			child.stderr?.destroy();
+			resolve(code);
+		};
+		const afterExit = () => {
+			if (exited && stdoutEnded && stderrEnded) finish(exitCode);
+		};
+		const idle = () => {
+			clearTimeout(timer);
+			timer = setTimeout(() => finish(exitCode), 100);
+		};
+		const data = () => {
+			if (exited && !settled) idle();
+		};
+		child.stdout?.once("end", () => {
+			stdoutEnded = true;
+			afterExit();
+		});
+		child.stderr?.once("end", () => {
+			stderrEnded = true;
+			afterExit();
+		});
+		child.stdout?.on("data", data);
+		child.stderr?.on("data", data);
+		child.once("error", (error) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			reject(error);
+		});
+		child.once("exit", (code) => {
+			exited = true;
+			exitCode = code;
+			afterExit();
+			if (!settled) idle();
+		});
+		child.once("close", finish);
+	});
+}
+
+function execCommand(command, args, cwd, options) {
+	return new Promise((resolve) => {
+		const proc = spawn(command, args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+		let stdout = "";
+		let stderr = "";
+		let killed = false;
+		let timeoutId;
+		const kill = () => {
+			if (killed) return;
+			killed = true;
+			proc.kill("SIGTERM");
+			setTimeout(() => {
+				if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
+			}, 5000).unref();
+		};
+		if (options?.signal) {
+			if (options.signal.aborted) kill();
+			else options.signal.addEventListener("abort", kill, { once: true });
+		}
+		if (options?.timeout && options.timeout > 0) timeoutId = setTimeout(kill, options.timeout);
+		proc.stdout?.on("data", (chunk) => {
+			stdout += chunk.toString();
+		});
+		proc.stderr?.on("data", (chunk) => {
+			stderr += chunk.toString();
+		});
+		const done = (code) => {
+			clearTimeout(timeoutId);
+			options?.signal?.removeEventListener("abort", kill);
+			resolve({ stdout, stderr, code, killed });
+		};
+		waitForChild(proc).then(
+			(code) => done(code ?? 0),
+			() => done(1),
+		);
+	});
 }
 
 function stripBom(text) {
@@ -366,6 +456,10 @@ function apiFor(extension, runtime) {
 			}
 			extension.tools.set(tool.name, tool);
 			if (runtime.bound) effect({ call: "tools", tools: toolInfos() });
+		},
+		exec(command, args, options) {
+			bound();
+			return execCommand(command, args, options?.cwd ?? runtime.cwd, options);
 		},
 		sendUserMessage(content, options) {
 			bound();
