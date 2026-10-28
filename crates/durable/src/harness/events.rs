@@ -451,6 +451,23 @@ fn result_of<'a>(entries: &'a [EntryRecord], call_id: &str) -> Option<&'a EntryR
     })
 }
 
+fn call_args(entries: &[EntryRecord], call_id: &str) -> JsonObject {
+    entries
+        .iter()
+        .filter_map(
+            |entry| match entry.model.as_ref().and_then(|model| model.first()) {
+                Some(Message::Assistant(message)) => Some(message),
+                _ => None,
+            },
+        )
+        .flat_map(|message| message.content.iter())
+        .find_map(|block| match block {
+            AssistantBlock::ToolCall(call) if call.id == call_id => Some(call.arguments.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
 fn push_end(
     ends: &mut Vec<(Option<EntryId>, AgentEvent)>,
     entries: &[EntryRecord],
@@ -636,6 +653,17 @@ fn translate(
     }
     for slot in slots {
         if slot.status == SlotStatus::Done && find_slot(tools_before, &slot.call_id).is_none() {
+            let found = slot
+                .entry
+                .filter(|id| entries.iter().any(|entry| entry.id == *id));
+            tool_ends.push((
+                found,
+                AgentEvent::ToolExecutionStart {
+                    tool_call_id: slot.call_id.clone(),
+                    tool_name: slot.name.clone(),
+                    args: call_args(&entries, &slot.call_id),
+                },
+            ));
             push_end(
                 &mut tool_ends,
                 &entries,

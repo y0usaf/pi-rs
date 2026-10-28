@@ -836,7 +836,7 @@ pub fn harness_error(code: &str, message: &str) -> ToolExecutionResult {
 fn invalid(style: ToolErrorStyle, message: &str) -> ToolExecutionResult {
     match style {
         ToolErrorStyle::Diagnostics => harness_error("invalid_arguments", message),
-        ToolErrorStyle::Plain => plain_error(message),
+        ToolErrorStyle::Plain => loop_error(message),
     }
 }
 
@@ -846,7 +846,14 @@ pub fn unavailable_tool(style: ToolErrorStyle, name: &str) -> ToolExecutionResul
         ToolErrorStyle::Diagnostics => {
             harness_error("tool_unavailable", &format!("Tool {name} is not available"))
         }
-        ToolErrorStyle::Plain => plain_error(&format!("Tool {name} not found")),
+        ToolErrorStyle::Plain => loop_error(&format!("Tool {name} not found")),
+    }
+}
+
+fn loop_error(message: &str) -> ToolExecutionResult {
+    ToolExecutionResult {
+        details: Some(JsonValue::Object(JsonObject::new())),
+        ..plain_error(message)
     }
 }
 

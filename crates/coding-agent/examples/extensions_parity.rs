@@ -47,6 +47,8 @@ struct Turn {
 struct Call {
     name: String,
     arguments: Value,
+    #[serde(default)]
+    fails: bool,
 }
 
 struct Run {
@@ -410,7 +412,11 @@ fn problems(side: &str, run: &Run, requests: usize, fixture: &Fixture) -> Vec<St
         for (index, call) in turn.tool_calls.iter().enumerate() {
             let id = call_id(turn_index, index);
             match ends.iter().find(|event| event["toolCallId"] == id.as_str()) {
-                Some(end) if end["isError"] == false => {}
+                Some(end) if end["isError"] == call.fails => {}
+                Some(end) if call.fails => found.push(format!(
+                    "{side} ran {} ({id}), the fixture expects an error: {}",
+                    call.name, end["result"]
+                )),
                 Some(end) => found.push(format!(
                     "{side} never ran {} ({id}): {}",
                     call.name, end["result"]
