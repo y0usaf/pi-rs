@@ -1,9 +1,0 @@
-/home/y0usaf/dev/developing/pi-rs/examples/chat/target/release/deps/zbus_xml-89d61e2fc53efc0a.d: /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/lib.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/error.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/xml.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/telepathy.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/../README.md
-
-/home/y0usaf/dev/developing/pi-rs/examples/chat/target/release/deps/libzbus_xml-89d61e2fc53efc0a.rmeta: /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/lib.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/error.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/xml.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/telepathy.rs /home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/../README.md
-
-/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/lib.rs:
-/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/error.rs:
-/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/xml.rs:
-/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/telepathy.rs:
-/home/y0usaf/.local/share/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zbus_xml-5.2.1/src/../README.md:
