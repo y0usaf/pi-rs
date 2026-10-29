@@ -357,33 +357,34 @@ fn message_metadata(message: &mut Value) {
     }
 }
 
-/// Session entries carry a random id and the time they were written, upstream's as pi-rs's: each id
-/// becomes the order it first appears in the run, keeping which entry points at which, and the
-/// times go.
-fn session_entries(value: &mut Value, ids: &mut HashMap<String, usize>) {
+/// What two runs of one program differ in: the ids sessions and their entries draw at random, each
+/// becoming the order it first appears in the run so which entry points at which is still
+/// compared, and the clock's times and durations.
+fn volatile(value: &mut Value, ids: &mut HashMap<String, usize>) {
     match value {
         Value::Object(fields) => {
-            let entry = fields.contains_key("parentId")
-                && fields.get("id").is_some_and(Value::is_string)
-                && fields.get("timestamp").is_some_and(Value::is_string);
-            if entry {
-                fields.remove("timestamp");
-                for key in ["id", "parentId", "targetId"] {
-                    if let Some(Value::String(id)) = fields.get(key) {
+            let entry =
+                fields.contains_key("parentId") || fields.get("type") == Some(&json!("session"));
+            for (key, field) in fields.iter_mut() {
+                let names_entry = (entry && key == "id")
+                    || key == "parentId"
+                    || key == "targetId"
+                    || key.ends_with("EntryId");
+                match field {
+                    Value::String(id) if names_entry => {
                         let next = ids.len();
                         let order = *ids.entry(id.clone()).or_insert(next);
-                        fields.insert(key.to_owned(), json!(format!("<entry {order}>")));
+                        *field = json!(format!("<entry {order}>"));
                     }
-                }
-                if let Some(message) = fields.get_mut("message") {
-                    message_metadata(message);
+                    Value::Number(_) | Value::String(_) if key == "timestamp" => {
+                        *field = json!("<time>")
+                    }
+                    Value::Number(_) if key == "durationMs" => *field = json!("<duration>"),
+                    _ => volatile(field, ids),
                 }
             }
-            fields
-                .values_mut()
-                .for_each(|child| session_entries(child, ids));
         }
-        Value::Array(items) => items.iter_mut().for_each(|item| session_entries(item, ids)),
+        Value::Array(items) => items.iter_mut().for_each(|item| volatile(item, ids)),
         _ => {}
     }
 }
@@ -472,7 +473,7 @@ fn trace(run: &Run, root: &Path, docs: &Regex) -> Result<Vec<Value>> {
     }
     let mut ids = HashMap::new();
     for mut record in boundary(run.log.as_deref().unwrap_or_default())? {
-        session_entries(&mut record, &mut ids);
+        volatile(&mut record, &mut ids);
         events.push(canonical(record, &root, docs));
     }
     if !run.stderr.trim().is_empty() {
@@ -665,19 +666,7 @@ fn main() -> Result<()> {
     }
     fixtures.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let script: Script = Arc::new(Mutex::new(
-        fixtures
-            .iter()
-            .flat_map(|case| {
-                SIDES.map(|side| {
-                    (
-                        format!("{}/{side}", case.name),
-                        (case.fixture.turns.clone(), Vec::new()),
-                    )
-                })
-            })
-            .collect(),
-    ));
+    let script: Script = Arc::new(Mutex::new(HashMap::new()));
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
     let served = Arc::clone(&script);
@@ -699,16 +688,25 @@ fn main() -> Result<()> {
         let (name, fixture) = (&case.name, &case.fixture);
         let mut found = Vec::new();
         let mut traces = Vec::new();
+        // Both sides run at one path and one URL, so what derives from them (the prompt's cwd,
+        // its length, the tokens it counts) matches; each run then moves to its side's name.
+        let root = scratch.join(name).join("run");
+        let base_url = format!("http://127.0.0.1:{port}/{name}/v1");
         for (side, bin) in SIDES.iter().zip(&bins) {
-            let label = format!("{name}/{side}");
-            let root = scratch.join(&label);
-            let base_url = format!("http://127.0.0.1:{port}/{label}/v1");
-            match run(bin, &root, &base_url, case, &probe) {
+            script
+                .lock()
+                .map_err(|_| "script lock poisoned")?
+                .insert(name.clone(), (fixture.turns.clone(), Vec::new()));
+            let outcome = run(bin, &root, &base_url, case, &probe);
+            if root.exists() {
+                std::fs::rename(&root, scratch.join(name).join(side))?;
+            }
+            match outcome {
                 Ok(run) => {
                     let requests = script
                         .lock()
                         .map_err(|_| "script lock poisoned")?
-                        .get(&label)
+                        .get(name)
                         .map_or(0, |(_, requests)| requests.len());
                     found.extend(problems(side, &run, requests, fixture));
                     match trace(&run, &root, &docs) {
