@@ -10,6 +10,8 @@ use pi_durable::ai::types::{
 };
 use pi_durable::cancel::CancelToken;
 use pi_durable::chord::json::JsonObject;
+use pi_durable::harness::generation::Route;
+use pi_durable::harness::types::ModelRef;
 use pi_durable::tasks::{TaskOutcome, TaskState};
 use pi_durable::types::{EntryDraft, EntryQuery, ScanOrder};
 use serde::Deserialize;
@@ -49,7 +51,7 @@ struct Replaced {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Route {
+struct Routing {
     provider: String,
     id: String,
     thinking_level: ModelThinkingLevel,
@@ -80,11 +82,6 @@ struct StateData {
 #[serde(rename_all = "camelCase")]
 struct CompactArgs {
     custom_instructions: Option<String>,
-}
-
-pub struct Failure {
-    messages: Value,
-    message: AssistantMessage,
 }
 
 pub struct Virtual {
@@ -170,6 +167,32 @@ impl Live {
         }
     }
 
+    pub(super) fn routed(
+        &self,
+        model: &Model,
+        messages: &[Message],
+        selected: ModelThinkingLevel,
+        signal: &CancelToken,
+    ) -> Result<Option<Route>, String> {
+        if !is_virtual(model) {
+            return Ok(None);
+        }
+        let (target, thinking_level) =
+            self.decide(model, messages, selected, Origin::AgentLoop, Some(signal))?;
+        Ok(Some(Route {
+            model: ModelRef {
+                provider: target.provider,
+                model_id: target.id,
+            },
+            thinking_level,
+        }))
+    }
+
+    pub(super) fn responded(&self, message: &AssistantMessage) {
+        *lock(&self.0.sink.failed) =
+            (message.stop_reason == StopReason::Error).then(|| message.clone());
+    }
+
     fn route(
         &self,
         model: &Model,
@@ -181,18 +204,62 @@ impl Live {
         let models = lock(&self.0.sink.models)
             .clone()
             .ok_or("pi-rs has no model catalog to route a virtual model with yet")?;
-        let messages = serde_json::to_value(&context.messages).map_err(|e| e.to_string())?;
-        let agent = origin == Origin::AgentLoop;
-        let failed = agent.then(|| self.retried(&messages)).flatten();
-        let reason = match (agent, &failed) {
-            (false, _) => "direct",
-            (true, Some(_)) => "retry",
-            (true, None) if user_turn(&context.messages) => "user",
-            (true, None) => "continuation",
-        };
         let selected = options
             .reasoning
             .map_or(ModelThinkingLevel::Off, ModelThinkingLevel::from);
+        let (target, thinking_level) = self.decide(
+            model,
+            &context.messages,
+            selected,
+            origin,
+            options.signal.as_ref(),
+        )?;
+        options.reasoning = pi_durable::harness::generation::reasoning(thinking_level);
+        if origin != Origin::AgentLoop
+            && let Some(limit) = options.max_tokens
+            && target.max_tokens > 0
+        {
+            options.max_tokens = Some(limit.min(target.max_tokens));
+        }
+        if target.provider != model.provider {
+            options.api_key = None;
+            options.headers = None;
+            options.base_url = None;
+        }
+        let stream = models.providers.stream(&target, context, options, origin);
+        while let Some(event) = stream.next_event() {
+            let last = matches!(
+                event,
+                AssistantMessageEvent::Error { .. } | AssistantMessageEvent::Done { .. }
+            );
+            out.push(event);
+            if last {
+                out.end(None);
+            }
+        }
+        Ok(())
+    }
+
+    fn decide(
+        &self,
+        model: &Model,
+        messages: &[Message],
+        selected: ModelThinkingLevel,
+        origin: Origin,
+        signal: Option<&CancelToken>,
+    ) -> Result<(Model, ModelThinkingLevel), String> {
+        let models = lock(&self.0.sink.models)
+            .clone()
+            .ok_or("pi-rs has no model catalog to route a virtual model with yet")?;
+        let agent = origin == Origin::AgentLoop;
+        let failed = agent.then(|| lock(&self.0.sink.failed).take()).flatten();
+        let reason = match (agent, &failed) {
+            (false, _) => "direct",
+            (true, Some(_)) => "retry",
+            (true, None) if user_turn(messages) => "user",
+            (true, None) => "continuation",
+        };
+        let messages = serde_json::to_value(messages).map_err(|e| e.to_string())?;
         let mut request = json!({
             "provider": model.provider,
             "id": model.id,
@@ -208,9 +275,9 @@ impl Live {
         }
         let answer = self
             .begin(|host, ctx| host.route(request, ctx))
-            .and_then(|pending| pending.wait(options.signal.as_ref(), &mut |_| {}))
+            .and_then(|pending| pending.wait(signal, &mut |_| {}))
             .inspect_err(|_| self.died())?;
-        let route: Route = serde_json::from_value(answer)
+        let route: Routing = serde_json::from_value(answer)
             .map_err(|e| format!("the extension host answered a route with {e}"))?;
         let routed = format!(
             "Virtual model {}/{} routed to {}/{}",
@@ -227,46 +294,8 @@ impl Live {
         if let (true, Some(state)) = (agent, route.state) {
             self.store_router_state(model, state.value)?;
         }
-        options.reasoning = pi_durable::harness::generation::reasoning(clamp_thinking_level(
-            &target,
-            route.thinking_level,
-        ));
-        if !agent
-            && let Some(limit) = options.max_tokens
-            && target.max_tokens > 0
-        {
-            options.max_tokens = Some(limit.min(target.max_tokens));
-        }
-        if target.provider != model.provider {
-            options.api_key = None;
-            options.headers = None;
-            options.base_url = None;
-        }
-        let stream = models.providers.stream(&target, context, options, origin);
-        let mut failure = None;
-        while let Some(event) = stream.next_event() {
-            let last = match &event {
-                AssistantMessageEvent::Error { error, .. } => {
-                    failure = (error.stop_reason == StopReason::Error).then(|| error.clone());
-                    true
-                }
-                AssistantMessageEvent::Done { .. } => true,
-                _ => false,
-            };
-            out.push(event);
-            if last {
-                out.end(None);
-            }
-        }
-        if agent {
-            *lock(&self.0.sink.failed) = failure.map(|message| Failure { messages, message });
-        }
-        Ok(())
-    }
-
-    fn retried(&self, messages: &Value) -> Option<AssistantMessage> {
-        let failure = lock(&self.0.sink.failed).take()?;
-        (failure.messages == *messages).then_some(failure.message)
+        let thinking_level = clamp_thinking_level(&target, route.thinking_level);
+        Ok((target, thinking_level))
     }
 
     fn router_state(&self, model: &Model) -> Result<Option<Value>, String> {

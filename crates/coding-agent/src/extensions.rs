@@ -658,7 +658,7 @@ struct Sink {
     registries: Mutex<Vec<(Weak<Registry>, Arc<Loadout>)>>,
     sections: Mutex<Option<Vec<(String, String)>>>,
     registry: OnceLock<Arc<ModelRegistry>>,
-    failed: Mutex<Option<runtime::Failure>>,
+    failed: Mutex<Option<AssistantMessage>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -1009,6 +1009,7 @@ impl Live {
             return;
         }
         run.started = true;
+        *lock(&self.0.sink.failed) = None;
         self.event("agent_start", json!({}));
     }
 
@@ -1472,6 +1473,8 @@ impl Live {
         let ended = self.clone();
         let requested = self.clone();
         let finished = self.clone();
+        let router = self.clone();
+        let answered = self.clone();
         HookRegistration::new(
             &GENERATION_HOOK,
             GenerationHooks {
@@ -1479,6 +1482,18 @@ impl Live {
                     requested.turn_start();
                     Ok(requested.forced(messages))
                 })),
+                routes: Some(Box::new(crate::models::is_virtual)),
+                route: Some(Box::new(
+                    move |_api: &HookApi, model: &Model, messages: &[Message], level, signal| {
+                        router.routed(model, messages, level, signal)
+                    },
+                )),
+                after_response: Some(Box::new(
+                    move |_api: &HookApi, message: &AssistantMessage| {
+                        answered.responded(message);
+                        Ok(())
+                    },
+                )),
                 after_tools: Some(Box::new(
                     move |_api: &HookApi, _assistant: EntryId, _results: &[EntryId]| {
                         finished.turn_end();

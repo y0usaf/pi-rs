@@ -293,6 +293,7 @@ pub fn classify(
                             attempt,
                             compacted: Some(child),
                             overflow: Some(text),
+                            route: None,
                         },
                         on: vec![child],
                         policy: JoinPolicy::AllSettled,
@@ -430,6 +431,7 @@ fn recover_length(
                         "Truncated response recovery failed after one compact-and-retry attempt."
                             .to_owned(),
                     ),
+                    route: None,
                 },
                 on: vec![child],
                 policy: JoinPolicy::AllSettled,

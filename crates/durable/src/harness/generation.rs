@@ -3,9 +3,11 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::ai::event_stream::now_ms;
+use crate::ai::stream::new_output;
 use crate::ai::types::{
-    AssistantMessage, DeferredHandle, Message, ModelThinkingLevel, SimpleStreamOptions, StopReason,
-    ThinkingLevel,
+    AssistantMessage, DeferredHandle, Message, Model, ModelThinkingLevel, SimpleStreamOptions,
+    StopReason, ThinkingLevel,
 };
 use crate::cancel::CancelToken;
 use crate::entries::assistant_entry;
@@ -44,6 +46,8 @@ pub enum GenerationCheckpoint {
         compacted: Option<TaskId>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         overflow: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        route: Option<Route>,
     },
     Request {
         attempt: u64,
@@ -53,6 +57,8 @@ pub enum GenerationCheckpoint {
         thinking_level: ModelThinkingLevel,
         stream_options: ConversationStreamOptions,
         cutoff: EntryId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        route: Option<Route>,
     },
     Retry {
         attempt: u64,
@@ -82,6 +88,13 @@ pub struct GenerationResult {
     pub entry_id: EntryId,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Route {
+    pub model: ModelRef,
+    pub thinking_level: ModelThinkingLevel,
+}
+
 pub type Generation =
     HarnessTaskDefinition<GenerationInput, GenerationCheckpoint, GenerationResult, GenerationHooks>;
 
@@ -105,10 +118,24 @@ pub type OnYieldHook = Box<
 pub type AfterToolsHook = Box<dyn Fn(&HookApi, EntryId, &[EntryId]) -> Result<()> + Send + Sync>;
 pub type PartialHook = Arc<dyn Fn(&HookApi, Option<Arc<AssistantMessage>>) + Send + Sync>;
 pub type MessageEndHook = Arc<dyn Fn(&HookApi, &Message) -> Result<Option<Message>> + Send + Sync>;
+pub type RoutesHook = Box<dyn Fn(&Model) -> bool + Send + Sync>;
+pub type RouteHook = Box<
+    dyn Fn(
+            &HookApi,
+            &Model,
+            &[Message],
+            ModelThinkingLevel,
+            &CancelToken,
+        ) -> std::result::Result<Option<Route>, String>
+        + Send
+        + Sync,
+>;
 
 #[derive(Default)]
 pub struct GenerationHooks {
     pub before_request: Option<BeforeRequestHook>,
+    pub routes: Option<RoutesHook>,
+    pub route: Option<RouteHook>,
     pub after_response: Option<AfterResponseHook>,
     pub on_yield: Option<OnYieldHook>,
     pub after_tools: Option<AfterToolsHook>,
@@ -156,6 +183,7 @@ fn initial_checkpoint() -> GenerationCheckpoint {
         attempt: 1,
         compacted: None,
         overflow: None,
+        route: None,
     }
 }
 
@@ -553,6 +581,7 @@ fn prepare(
         attempt,
         compacted,
         overflow,
+        route,
     } = task.checkpoint().clone()
     else {
         return Err(mismatch("prepare"));
@@ -608,7 +637,7 @@ fn prepare(
         cancel,
     )?;
     let entries = plan_system_entries(&view, &desired, &tools, runtime.now());
-    let threshold = if compacted.is_none() {
+    let threshold = if compacted.is_none() && !routes(runtime, &resolved)? {
         threshold_compaction(
             &view,
             &entries,
@@ -633,6 +662,7 @@ fn prepare(
                         attempt,
                         compacted: Some(child),
                         overflow: None,
+                        route,
                     },
                     on: vec![child],
                     policy: crate::tasks::JoinPolicy::AllSettled,
@@ -682,6 +712,7 @@ fn prepare(
                     thinking_level,
                     stream_options,
                     cutoff,
+                    route,
                 },
             }))
         }),
@@ -701,6 +732,7 @@ fn request(
         thinking_level,
         stream_options,
         cutoff,
+        route,
     } = task.checkpoint().clone()
     else {
         return Err(mismatch("request"));
@@ -743,14 +775,64 @@ fn request(
         Ok(())
     })?;
     let messages = replaced.as_deref().unwrap_or(&view.messages);
-    let session_id = ensure_provider_session_id(runtime, cancel)?;
-    let options = simple_options(
-        &stream_options,
-        thinking_level,
-        runtime.signal(),
-        session_id,
+    let decided = match route.clone() {
+        Some(route) => Ok(Some(route)),
+        None => route_request(runtime, &api, &model, messages, thinking_level)?,
+    };
+    let (routed, refused) = match decided {
+        Ok(routed) => (routed, None),
+        Err(text) => (None, Some(text)),
+    };
+    let (target_ref, level) = routed.as_ref().map_or_else(
+        || (model_ref.clone(), thinking_level),
+        |routed| (routed.model.clone(), routed.thinking_level),
     );
-    let message = classify::stream_response(runtime, &model, messages, options, attempt, cancel)?;
+    let Some(target) = runtime
+        .models()
+        .get_model(&target_ref.provider, &target_ref.model_id)
+    else {
+        return fail_no_model(runtime, Some(&target_ref), cancel);
+    };
+    if route.is_none()
+        && compacted.is_none()
+        && let Some(routed) = routed
+    {
+        let agent = runtime.agent(cancel)?;
+        let threshold = threshold_compaction(
+            &view,
+            &[],
+            budgeted_window(target.context_window, agent.context_budget_tokens),
+            &runtime.settings().compaction,
+        );
+        if threshold == Some(Threshold::Blocking) {
+            return compact_routed(runtime, attempt, routed, cancel);
+        }
+        if threshold == Some(Threshold::Background) {
+            runtime.commit(
+                Box::new(move |tx, _task| {
+                    if read_live(tx, conversation_id)?.compactions.is_none() {
+                        create_compaction(tx, conversation_id, CompactionReason::Threshold, None)?;
+                    }
+                    Ok(None)
+                }),
+                cancel,
+            )?;
+        }
+    }
+    let message = match refused {
+        Some(text) => {
+            let mut message = new_output(&model);
+            message.stop_reason = StopReason::Error;
+            message.error_message = Some(text);
+            message.timestamp = now_ms();
+            message
+        }
+        None => {
+            let session_id = ensure_provider_session_id(runtime, cancel)?;
+            let options = simple_options(&stream_options, level, runtime.signal(), session_id);
+            classify::stream_response(runtime, &target, messages, options, attempt, cancel)?
+        }
+    };
     let ended = apply_message_end(
         &message_end_hooks(runtime)?,
         &api,
@@ -765,12 +847,72 @@ fn request(
     let request = classify::Request {
         attempt,
         compacted,
-        model: model_ref,
+        model: target_ref,
         cutoff,
         view: Some(view),
         poll_at: None,
     };
     classify::classify(runtime, &request, message, cancel)
+}
+
+fn routes(runtime: Runtime<'_>, model: &Model) -> Result<bool> {
+    let mut routed = false;
+    runtime.hooks().each(&mut |hooks| {
+        if let Some(routes) = hooks.routes.as_ref() {
+            routed |= routes(model);
+        }
+        Ok(())
+    })?;
+    Ok(routed)
+}
+
+fn route_request(
+    runtime: Runtime<'_>,
+    api: &HookApi,
+    model: &Model,
+    messages: &[Message],
+    level: ModelThinkingLevel,
+) -> Result<std::result::Result<Option<Route>, String>> {
+    let mut decided = Ok(None);
+    runtime.hooks().each(&mut |hooks| {
+        if let (Ok(None), Some(route)) = (&decided, hooks.route.as_ref()) {
+            decided = route(api, model, messages, level, runtime.signal());
+        }
+        Ok(())
+    })?;
+    Ok(decided)
+}
+
+fn compact_routed(
+    runtime: Runtime<'_>,
+    attempt: u64,
+    route: Route,
+    cancel: &CancelToken,
+) -> Result<()> {
+    let conversation_id = runtime.conversation_id();
+    let task_id = erase(runtime.task_id());
+    runtime.commit(
+        Box::new(move |tx, _task| {
+            edit_live(tx, conversation_id, |live| live.generation = None)?;
+            let child = create_compaction(
+                tx,
+                conversation_id,
+                CompactionReason::Threshold,
+                Some(task_id),
+            )?;
+            Ok(Some(NextTaskState::Waiting {
+                checkpoint: GenerationCheckpoint::Prepare {
+                    attempt,
+                    compacted: Some(child),
+                    overflow: None,
+                    route: Some(route),
+                },
+                on: vec![child],
+                policy: crate::tasks::JoinPolicy::AllSettled,
+            }))
+        }),
+        cancel,
+    )
 }
 
 fn retry(
@@ -805,6 +947,7 @@ fn retry(
                     attempt: attempt + 1,
                     compacted,
                     overflow: None,
+                    route: None,
                 },
             }))
         }),
