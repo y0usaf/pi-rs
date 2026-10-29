@@ -38,7 +38,7 @@ const BROKEN: &str = r#"export default function (): void {
 const UNSUPPORTED: &str = r#"import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI): void {
-	pi.registerShortcut("ctrl+k", { handler: () => {} });
+	pi.registerFlag("fast", { type: "boolean", description: "go fast" });
 }
 "#;
 
@@ -310,8 +310,8 @@ fn main() -> Result<()> {
     if !stderr.contains("Warning: Failed to load extension: this extension throws") {
         return fail(format!("the broken extension is not reported: {stderr}"));
     }
-    if !stderr.contains("uses registerShortcut, which pi-rs does not implement yet") {
-        return fail(format!("registerShortcut is not reported: {stderr}"));
+    if !stderr.contains("uses registerFlag, which pi-rs does not implement yet") {
+        return fail(format!("registerFlag is not reported: {stderr}"));
     }
     if !commands(&list).is_empty() {
         return fail(format!(
@@ -580,7 +580,7 @@ fn events(bin: &Path, scratch: &Scratch) -> Result<()> {
         "active:read,bash,edit,write",
         "all-has-ls:true",
         "dirname:true:true",
-        "require:true",
+        "require:false",
         "file:undefined",
         "branch:system,user,assistant",
         "branch:system,user,assistant,user,assistant",

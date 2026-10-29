@@ -195,21 +195,32 @@
         '';
       extensionHost =
         pkgs:
-        pkgs.runCommand "pi-extension-host"
-          {
-            nativeBuildInputs = [
-              pkgs.nodejs_24
-              pkgs.gnutar
-            ];
-          }
-          ''
-            mkdir -p $out/node_modules/@earendil-works
-            mkdir -p $out/node_modules/typebox
-            tar -xzf ${(oracleDeps pkgs).typebox} --strip-components=1 -C $out/node_modules/typebox
-            cp ${./crates/extensions/host}/host.mjs ${./crates/extensions/host}/register.mjs ${./crates/extensions/host}/common.mjs $out/
-            cp -r ${./crates/extensions/host}/shims/pi-ai ${./crates/extensions/host}/shims/pi-coding-agent ${./crates/extensions/host}/shims/pi-tui $out/node_modules/@earendil-works/
-            ln -s ${pkgs.nodejs_24}/bin/node $out/node
-          '';
+        let
+          modules = "${upstreamPi pkgs}/lib/pi/node_modules";
+          host = ./crates/extensions/host;
+        in
+        pkgs.runCommand "pi-extension-host" { } ''
+          mkdir -p $out/node_modules/@earendil-works
+          for module in ${modules}/*; do
+            [ "$(basename "$module")" = @earendil-works ] || ln -s "$module" $out/node_modules/
+          done
+          for module in ${modules}/@earendil-works/*; do
+            case "$(basename "$module")" in
+              pi-coding-agent | pi-ai) cp -r "$module" $out/node_modules/@earendil-works/ ;;
+              *) ln -s "$module" $out/node_modules/@earendil-works/ ;;
+            esac
+          done
+          chmod -R u+w $out/node_modules/@earendil-works
+          agent=$out/node_modules/@earendil-works/pi-coding-agent
+          mv $agent/dist/index.js $agent/dist/upstream.js
+          cp ${host}/index.mjs $agent/dist/index.js
+          cp ${host}/exec.mjs $agent/dist/core/exec.js
+          ai=$out/node_modules/@earendil-works/pi-ai
+          mv $ai/dist/providers/all.js $ai/dist/providers/all-upstream.js
+          cp ${host}/providers-all.mjs $ai/dist/providers/all.js
+          cp ${host}/host.mjs $out/
+          ln -s ${pkgs.nodejs_24}/bin/node $out/node
+        '';
     in
     {
       packages = forAll (pkgs: {

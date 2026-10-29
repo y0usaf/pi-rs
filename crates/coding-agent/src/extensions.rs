@@ -407,12 +407,13 @@ pub fn with_text(content: UserContent, text: String) -> UserContent {
 }
 
 /// The mode an extension sees: upstream's `ExtensionMode`, which says "tui" when one is.
-pub fn mode_name(mode: Option<crate::args::Mode>) -> &'static str {
+pub fn mode_name(mode: Option<crate::args::Mode>, tui: bool) -> &'static str {
     match mode {
         Some(crate::args::Mode::Rpc) => "rpc",
         Some(crate::args::Mode::Json) => "json",
         Some(crate::args::Mode::Text) => "print",
-        None => "tui",
+        None if tui => "tui",
+        None => "print",
     }
 }
 
