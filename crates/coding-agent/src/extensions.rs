@@ -29,6 +29,7 @@ use pi_durable::harness::types::{
     ToolExecutionMode, ToolExecutionResult, ToolExposure, ToolRegistration,
 };
 use pi_durable::ids::EntryId;
+use pi_durable::types::EntryRecord;
 use pi_extensions::{Call, Failed, Load, Peer, Pending, ProviderInfo, ToolInfo};
 use serde::de::{DeserializeOwned, IgnoredAny};
 use serde_json::{Map, Value, json};
@@ -684,6 +685,8 @@ struct Inner {
     resources: Mutex<Option<Resources>>,
     run: Mutex<RunState>,
     session: Mutex<Option<SessionSource>>,
+    announced: Mutex<Option<EntryId>>,
+    thinking: Mutex<Option<String>>,
 }
 
 #[derive(Default)]
@@ -734,6 +737,11 @@ struct Discovered {
 #[derive(serde::Deserialize)]
 struct DiscoveredPath {
     path: String,
+}
+
+#[derive(serde::Deserialize)]
+struct Transformed {
+    messages: Vec<Message>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1009,6 +1017,8 @@ impl Live {
             resources: Mutex::new(None),
             run: Mutex::new(RunState::default()),
             session: Mutex::new(None),
+            announced: Mutex::new(None),
+            thinking: Mutex::new(None),
         })))
     }
 
@@ -1128,6 +1138,12 @@ impl Live {
         cwd: &str,
         cancel: &CancelToken,
     ) {
+        let moved = lock(&self.0.session)
+            .as_ref()
+            .is_none_or(|source| source.root.id() != root.id());
+        if moved {
+            self.skip_announced(root, cancel);
+        }
         *lock(&self.0.session) = Some(SessionSource {
             root: root.clone(),
             path: path.map(str::to_owned),
@@ -1160,6 +1176,9 @@ impl Live {
     }
 
     pub fn before_agent_start(&self, content: &UserContent) -> std::result::Result<(), String> {
+        if let Some(root) = self.root() {
+            self.skip_announced(&root, &CancelToken::new());
+        }
         let Some(base) = self.0.sink.prompt() else {
             return Ok(());
         };
@@ -1295,6 +1314,9 @@ impl Live {
     }
 
     pub fn end_run(&self) {
+        if let Some(root) = self.root() {
+            self.announce(&root);
+        }
         self.turn_end();
         *lock(&self.0.run) = RunState::default();
     }
@@ -1646,9 +1668,17 @@ impl Live {
         HookRegistration::new(
             &GENERATION_HOOK,
             GenerationHooks {
-                before_request: Some(Box::new(move |_api: &HookApi, messages: &[Message]| {
+                before_request: Some(Box::new(move |api: &HookApi, messages: &[Message]| {
                     requested.turn_start();
-                    Ok(requested.forced(messages))
+                    let Some(root) = requested.root_of(api) else {
+                        return Ok(requested.forced(messages));
+                    };
+                    requested.remember_thinking(&root);
+                    requested.announce(&root);
+                    let context = requested.context(messages)?;
+                    Ok(requested
+                        .forced(context.as_deref().unwrap_or(messages))
+                        .or(context))
                 })),
                 routes: Some(Box::new(crate::models::is_virtual)),
                 route: Some(Box::new(
@@ -1663,7 +1693,10 @@ impl Live {
                     },
                 )),
                 after_tools: Some(Box::new(
-                    move |_api: &HookApi, _assistant: EntryId, _results: &[EntryId]| {
+                    move |api: &HookApi, _assistant: EntryId, _results: &[EntryId]| {
+                        if let Some(root) = finished.root_of(api) {
+                            finished.announce(&root);
+                        }
                         finished.turn_end();
                         Ok(())
                     },
@@ -1677,6 +1710,103 @@ impl Live {
                 ..GenerationHooks::default()
             },
         )
+    }
+
+    fn root(&self) -> Option<Conversation> {
+        lock(&self.0.session)
+            .as_ref()
+            .map(|source| source.root.clone())
+    }
+
+    fn root_of(&self, api: &HookApi) -> Option<Conversation> {
+        self.root().filter(|root| root.id() == api.conversation_id)
+    }
+
+    fn skip_announced(&self, root: &Conversation, cancel: &CancelToken) {
+        if let Ok(last) = crate::print::last_entry(root, cancel) {
+            *lock(&self.0.announced) = last;
+        }
+    }
+
+    fn remember_thinking(&self, root: &Conversation) {
+        if let Ok(agent) = root.agent(&CancelToken::new()) {
+            *lock(&self.0.thinking) = Some(crate::run_config::level_name(agent.thinking_level));
+        }
+    }
+
+    fn upstream(&self, message: &Message) -> std::result::Result<Value, String> {
+        let mut value = serde_json::to_value(message).map_err(|e| e.to_string())?;
+        if let Some(thinking) = lock(&self.0.thinking).as_deref() {
+            crate::sessions::export::upstream_message(&mut value, thinking);
+        }
+        Ok(value)
+    }
+
+    fn announce(&self, root: &Conversation) {
+        let messages = match self.unannounced(root) {
+            Ok(messages) => messages,
+            Err(error) => {
+                self.0.sink.call(Call::Notify {
+                    text: format!("Warning: the extensions were not told of new messages: {error}"),
+                    level: "warning".to_owned(),
+                });
+                return;
+            }
+        };
+        for message in messages {
+            self.event("message_start", json!({ "message": message }));
+            if let Some(Value::Object(_)) = self.event("message_end", json!({ "message": message }))
+            {
+                self.unported("a message_end handler replaced a message the session already holds");
+            }
+        }
+    }
+
+    fn unannounced(&self, root: &Conversation) -> std::result::Result<Vec<Value>, String> {
+        let records = {
+            let mut announced = lock(&self.0.announced);
+            let records =
+                crate::sessions::export::entries_after(root, *announced, &CancelToken::new())?;
+            if let Some(last) = records.last() {
+                *announced = Some(last.id);
+            }
+            records
+        };
+        let assistant = pi_durable::entries::assistant_entry();
+        let inputs: Vec<EntryRecord> = records
+            .into_iter()
+            .filter(|record| {
+                record.kind != assistant.kind() && record.kind != crate::bash_exec::KIND
+            })
+            .collect();
+        let thinking = lock(&self.0.thinking).clone().unwrap_or_default();
+        crate::sessions::export::run_messages(&inputs, &thinking)
+    }
+
+    fn context(&self, messages: &[Message]) -> std::result::Result<Option<Vec<Message>>, Error> {
+        if !self.handles("context") && !self.handles("context_with_system") {
+            return Ok(None);
+        }
+        let payload = messages
+            .iter()
+            .map(|message| self.upstream(message))
+            .collect::<std::result::Result<Vec<Value>, String>>()
+            .map_err(Error::Invalid)?;
+        let Ok(answer) = self.ask("context", json!({ "messages": payload })) else {
+            return Ok(None);
+        };
+        match serde_json::from_value::<Option<Transformed>>(answer) {
+            Ok(transformed) => Ok(transformed.map(|transformed| transformed.messages)),
+            Err(e) => {
+                self.0.sink.call(Call::Notify {
+                    text: format!(
+                        "Warning: a context handler returned {e}; the request keeps its messages"
+                    ),
+                    level: "warning".to_owned(),
+                });
+                Ok(None)
+            }
+        }
     }
 
     fn partial(&self, message: Option<&AssistantMessage>) {
@@ -1694,9 +1824,13 @@ impl Live {
     }
 
     fn replaced(&self, message: &Message) -> std::result::Result<Option<Message>, Error> {
-        self.0.started.store(false, Ordering::SeqCst);
+        let started = self.0.started.swap(false, Ordering::SeqCst);
+        let payload = self.upstream(message).map_err(Error::Invalid)?;
+        if !started {
+            self.event("message_start", json!({ "message": payload }));
+        }
         let answer = self
-            .ask("message_end", json!({ "message": message }))
+            .ask("message_end", json!({ "message": payload }))
             .map_err(Error::Invalid)?;
         let Some(next) = answer.get("message") else {
             return Ok(None);

@@ -5,7 +5,8 @@ use pi_durable::ai::types::{Message, TextType, UserBlock, UserContent};
 use pi_durable::cancel::CancelToken;
 use pi_durable::harness::compaction::{SUMMARY_PREFIX, SUMMARY_SUFFIX};
 use pi_durable::harness::harness::Conversation;
-use pi_durable::types::{ContextAction, EntryRecord};
+use pi_durable::ids::EntryId;
+use pi_durable::types::{ContextAction, EntryQuery, EntryRecord, ScanOrder};
 use serde_json::{Map, Value};
 
 use crate::paths::{PathInput, dirname, resolve_path};
@@ -217,15 +218,68 @@ fn mapped(
     Ok(Some(entry))
 }
 
+pub fn entries_after(
+    root: &Conversation,
+    after: Option<EntryId>,
+    cancel: &CancelToken,
+) -> Result<Vec<EntryRecord>, String> {
+    let query = EntryQuery {
+        conversation_id: root.id(),
+        min_entry_id: after.map(|id| EntryId(id.0 + 1)),
+        max_entry_id: None,
+        order: Some(ScanOrder::Ascending),
+    };
+    let mut records = Vec::new();
+    let mut cursor = None;
+    loop {
+        let page = root
+            .entries(query.clone(), 256, cursor, cancel)
+            .map_err(|e| e.to_string())?;
+        records.extend(page.items);
+        match page.next {
+            Some(next) => cursor = Some(next),
+            None => return Ok(records),
+        }
+    }
+}
+
+pub fn run_messages(records: &[EntryRecord], thinking: &str) -> Result<Vec<Value>, String> {
+    let timestamp = iso8601(now_ms());
+    let mut messages: Vec<Value> = Vec::new();
+    let mut inputs = 0;
+    for record in records {
+        let Some(mut entry) = mapped(record, &timestamp, thinking)? else {
+            continue;
+        };
+        let Some(message) = entry.remove("message") else {
+            continue;
+        };
+        match message.get("role").and_then(Value::as_str) {
+            Some("system") => messages.insert(messages.len() - inputs, message),
+            Some("user") => {
+                inputs += 1;
+                messages.push(message);
+            }
+            _ => {
+                inputs = 0;
+                messages.push(message);
+            }
+        }
+    }
+    Ok(messages)
+}
+
 /// A message as upstream writes it: pi-rs's own fields dropped, the thinking level upstream
 /// records on an assistant message added, and whole-number costs printed as JavaScript prints
 /// them, without the fraction Rust would write.
-fn upstream_message(message: &mut Value, thinking: &str) {
+pub fn upstream_message(message: &mut Value, thinking: &str) {
     let Some(object) = message.as_object_mut() else {
         return;
     };
     if object.get("role").and_then(Value::as_str) == Some("assistant") {
-        object.insert("thinkingLevel".into(), thinking.into());
+        object
+            .entry("thinkingLevel")
+            .or_insert_with(|| thinking.into());
     }
     let Some(cost) = object
         .get_mut("usage")

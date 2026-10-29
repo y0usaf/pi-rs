@@ -752,6 +752,11 @@ async function emitEvent(request) {
 		const message = await runner.emitMessageEnd(event);
 		return message ? { message } : null;
 	}
+	if (request.name === "context") {
+		const before = JSON.stringify(event.messages);
+		const messages = await runner.emitContext(event.messages);
+		return JSON.stringify(messages) === before ? null : { messages: convertToLlm(messages) };
+	}
 	if (request.name === "input") {
 		return await runner.emitInput(event.text, event.images, event.source ?? "interactive", event.streamingBehavior);
 	}
