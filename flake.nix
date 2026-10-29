@@ -170,6 +170,7 @@
           cp -r ${./crates/ai/parity/stubs} $out/parity-ai/stubs
         '';
       upstreamPi = pkgs: pkgs.callPackage "${piExtensions}/nix/package.nix" { source = piExtensions; };
+      upstreamPackage = pkgs: "${upstreamPi pkgs}/lib/pi/node_modules/@earendil-works/pi-coding-agent";
       extensionsParityFixtures =
         pkgs:
         let
@@ -326,7 +327,9 @@
               }
               ''
                 PI_UPSTREAM_BIN=${upstreamPi pkgs}/bin/pi \
+                  PI_UPSTREAM_PACKAGE_DIR=${upstreamPackage pkgs} \
                   PI_RS_BIN=${self.packages.${system}.default}/bin/pi-rs \
+                  PI_RS_PACKAGE_DIR=${self.packages.${system}.default}/bin \
                   PI_EXTENSION_HOST=${extensionHost pkgs} \
                   PI_PARITY_FIXTURES=${extensionsParityFixtures pkgs} \
                   ${examples}/bin/extensions_parity
@@ -334,7 +337,9 @@
               '';
           extensions-parity-baseline = pkgs.runCommand "${pname}-extensions-parity-baseline" { } ''
             PI_UPSTREAM_BIN=${upstreamPi pkgs}/bin/pi \
+              PI_UPSTREAM_PACKAGE_DIR=${upstreamPackage pkgs} \
               PI_RS_BIN=${upstreamPi pkgs}/bin/pi \
+              PI_RS_PACKAGE_DIR=${upstreamPackage pkgs} \
               PI_PARITY_FIXTURES=${extensionsParityFixtures pkgs} \
               ${examples}/bin/extensions_parity
             touch $out

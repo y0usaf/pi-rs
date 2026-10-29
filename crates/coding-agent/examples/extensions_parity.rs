@@ -121,6 +121,15 @@ fn env_path(name: &str) -> Result<PathBuf> {
     }
 }
 
+fn env_dir(name: &str) -> Result<PathBuf> {
+    let dir = env_path(name)?;
+    if dir.is_dir() {
+        Ok(dir)
+    } else {
+        Err(format!("{name}: {} is not a directory", dir.display()).into())
+    }
+}
+
 fn call_id(turn: usize, call: usize) -> String {
     format!("call_{turn}_{call}")
 }
@@ -220,10 +229,17 @@ fn serve(mut stream: TcpStream, script: &Script) -> Result<()> {
     Ok(())
 }
 
-fn run(bin: &Path, root: &Path, base_url: &str, case: &Case, probe: &Path) -> Result<Run> {
+fn run(
+    (bin, package): &(PathBuf, PathBuf),
+    root: &Path,
+    base_url: &str,
+    case: &Case,
+    probe: &Path,
+) -> Result<Run> {
     for dir in ["home", "agent", "cwd"] {
         std::fs::create_dir_all(root.join(dir))?;
     }
+    std::os::unix::fs::symlink(package, root.join("pkg"))?;
     let extension = root.join("wrap.ts");
     std::fs::write(
         &extension,
@@ -265,6 +281,7 @@ fn run(bin: &Path, root: &Path, base_url: &str, case: &Case, probe: &Path) -> Re
         .env_clear()
         .env("HOME", root.join("home"))
         .env("PI_CODING_AGENT_DIR", root.join("agent"))
+        .env("PI_PACKAGE_DIR", root.join("pkg"))
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .env("PI_OFFLINE", "1")
         .env("PI_SKIP_VERSION_CHECK", "1")
@@ -595,7 +612,13 @@ fn problems(side: &str, run: &Run, requests: usize, fixture: &Fixture) -> Vec<St
 }
 
 fn main() -> Result<()> {
-    let bins = [env_path("PI_UPSTREAM_BIN")?, env_path("PI_RS_BIN")?];
+    let programs = [
+        (
+            env_path("PI_UPSTREAM_BIN")?,
+            env_dir("PI_UPSTREAM_PACKAGE_DIR")?,
+        ),
+        (env_path("PI_RS_BIN")?, env_dir("PI_RS_PACKAGE_DIR")?),
+    ];
     let fixtures_dir = env_path("PI_PARITY_FIXTURES")?;
     let probe = fixtures_dir.join("probe.ts");
     let only: Vec<String> = std::env::args().skip(1).collect();
@@ -692,12 +715,12 @@ fn main() -> Result<()> {
         // its length, the tokens it counts) matches; each run then moves to its side's name.
         let root = scratch.join(name).join("run");
         let base_url = format!("http://127.0.0.1:{port}/{name}/v1");
-        for (side, bin) in SIDES.iter().zip(&bins) {
+        for (side, program) in SIDES.iter().zip(&programs) {
             script
                 .lock()
                 .map_err(|_| "script lock poisoned")?
                 .insert(name.clone(), (fixture.turns.clone(), Vec::new()));
-            let outcome = run(bin, &root, &base_url, case, &probe);
+            let outcome = run(program, &root, &base_url, case, &probe);
             if root.exists() {
                 std::fs::rename(&root, scratch.join(name).join(side))?;
             }
