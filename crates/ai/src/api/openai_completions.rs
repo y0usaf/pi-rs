@@ -80,7 +80,7 @@ fn run(
         retention,
         session_id: options.session_id.as_deref(),
     };
-    let body = request::build(model, &compat, &context, &settings);
+    let body = options.payload(model, request::build(model, &compat, &context, &settings))?;
     let mut request = Request::new(
         "POST",
         format!("{}/chat/completions", base_url.trim_end_matches('/')),
@@ -98,7 +98,16 @@ fn run(
         let body = response.text().map_err(|error| error.to_string())?;
         return Err(format_provider_error(None, Some(status), "", Some(&body)));
     }
-    stream::consume(out, output, model, &compat, cancel, response.into_reader())
+    options.responded(model, &response.provider_response())?;
+    stream::consume(
+        out,
+        output,
+        model,
+        &compat,
+        cancel,
+        response.into_reader(),
+        &|chunk| options.streamed(model, chunk),
+    )
 }
 
 fn model_level(level: ThinkingLevel) -> ModelThinkingLevel {

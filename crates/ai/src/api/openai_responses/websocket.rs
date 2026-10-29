@@ -47,6 +47,7 @@ pub(super) struct Attempt<'a> {
     pub transport: Option<Transport>,
     pub timeout: Option<Duration>,
     pub signal: Option<&'a CancelToken>,
+    pub seen: &'a dyn Fn(&Value),
 }
 
 #[derive(Default)]
@@ -172,6 +173,7 @@ fn stream(
         att.signal,
         out,
         output,
+        att.seen,
     );
     let (terminal, failed) = (frames.terminal, frames.failed);
     if failed && !cancelled(att) {
@@ -200,8 +202,13 @@ fn response_items(att: &Attempt, output: &AssistantMessage) -> Result<Vec<Value>
     let context = TranscriptContext {
         messages: vec![Message::Assistant(Arc::new(output.clone()))],
     };
-    let body = request::build(att.model, &context, att.compat, att.turn)?;
-    Ok(body["input"].as_array().cloned().unwrap_or_default())
+    let payload = request::build(att.model, &context, att.compat, att.turn)?;
+    Ok(payload
+        .body
+        .get("input")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
 }
 
 fn open(lease: &mut Lease, att: &Attempt, cached: bool) -> io::Result<String> {

@@ -10,8 +10,9 @@ use crate::cost::calculate_cost;
 use crate::event_stream::{ABORTED_TEXT, AssistantMessageEventStream};
 use crate::sse::SseReader;
 use crate::types::{
-    AssistantBlock, AssistantMessage, AssistantMessageEvent, Model, ModelCost, StopReason,
-    TextContent, TextType, ThinkingContent, ThinkingType, Tool, ToolCall, ToolCallType, Usage,
+    AssistantBlock, AssistantMessage, AssistantMessageEvent, Model, ModelCost, SimpleStreamOptions,
+    StopReason, TextContent, TextType, ThinkingContent, ThinkingType, Tool, ToolCall, ToolCallType,
+    Usage,
 };
 use crate::utils::streaming_json::ToolCallArgumentsStream;
 use pi_rt::cancel::CancelToken;
@@ -28,8 +29,9 @@ pub fn read(
     model: &Model,
     oauth: bool,
     tools: &[Tool],
-    signal: Option<&CancelToken>,
+    options: &SimpleStreamOptions,
 ) -> Result<(), String> {
+    let signal = options.signal.as_ref();
     let mut priced = model.clone();
     let mut scratch: Vec<Scratch> = Vec::new();
     let mut saw_start = false;
@@ -61,6 +63,9 @@ pub fn read(
                 event.data
             )
         })?;
+        if name != "ping" {
+            options.streamed(model, &data);
+        }
         match name {
             "message_start" => {
                 saw_start = true;

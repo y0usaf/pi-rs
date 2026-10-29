@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::openai_responses::request::{render_update, short_hash};
 use crate::error_body::{MAX_PROVIDER_ERROR_BODY_CHARS, truncate_error_text};
@@ -18,8 +18,8 @@ use crate::thinking::{clamp_thinking_level, level_name};
 use crate::transform::{ToolCallIdNormalizer, transform_messages};
 use crate::types::{
     AssistantBlock, AssistantMessage, CacheRetention, ImageContent, Message, Model,
-    ModelThinkingLevel, SimpleStreamOptions, Tool, ToolResultMessage, TranscriptContext, UserBlock,
-    UserContent,
+    ModelThinkingLevel, Payload, SimpleStreamOptions, Tool, ToolResultMessage, TranscriptContext,
+    UserBlock, UserContent,
 };
 use crate::utils::text::system_message_text;
 use crate::utils::transcript::{
@@ -91,29 +91,31 @@ fn run(
     ));
 
     let tools = get_current_tools(&messages);
-    let mut body = json!({
-        "model": model.id,
-        "stream": true,
-        "messages": wire,
-    });
+    let mut body = Map::new();
+    body.insert("model".to_owned(), json!(model.id));
+    body.insert("stream".to_owned(), json!(true));
+    body.insert("messages".to_owned(), Value::Array(wire));
     if !tools.is_empty() {
-        body["tools"] = Value::Array(tools.iter().map(convert_tool).collect());
+        body.insert(
+            "tools".to_owned(),
+            Value::Array(tools.iter().map(convert_tool).collect()),
+        );
     }
     if let Some(max_tokens) = options.max_tokens.filter(|tokens| *tokens > 0) {
-        body["max_tokens"] = json!(max_tokens);
+        body.insert("max_tokens".to_owned(), json!(max_tokens));
     }
     if let Some(temperature) = options.temperature {
-        body["temperature"] = json!(temperature);
+        body.insert("temperature".to_owned(), json!(temperature));
     }
     if let Some(choice) = &options.tool_choice {
-        body["tool_choice"] = json!(choice);
+        body.insert("tool_choice".to_owned(), json!(choice));
     }
     let (effort, prompt_mode) = reasoning(model, options);
     if let Some(effort) = effort {
-        body["reasoning_effort"] = json!(effort);
+        body.insert("reasoning_effort".to_owned(), json!(effort));
     }
     if let Some(prompt_mode) = prompt_mode {
-        body["prompt_mode"] = json!(prompt_mode);
+        body.insert("prompt_mode".to_owned(), json!(prompt_mode));
     }
     let session = options
         .session_id
@@ -121,7 +123,7 @@ fn run(
         .filter(|session| !session.is_empty());
     let caching = cache_retention(options) != CacheRetention::None;
     if let Some(session) = session.filter(|_| caching) {
-        body["prompt_cache_key"] = json!(session);
+        body.insert("prompt_cache_key".to_owned(), json!(session));
     }
 
     let base = Some(model.base_url.as_str())
@@ -143,8 +145,9 @@ fn run(
     for (name, value) in options.headers.iter().flatten() {
         set_header(&mut headers, name, value.clone());
     }
+    let body = options.payload(model, Payload::new(body))?;
     let mut request = Request::new("POST", chat_completions_url(base))
-        .json(&body)
+        .json(&Value::Object(body))
         .timeout(Some(Duration::from_millis(
             options.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS),
         )));
@@ -153,6 +156,7 @@ fn run(
     }
 
     let response = send(&request, options.signal.as_ref()).map_err(|error| error.to_string())?;
+    options.responded(model, &response.provider_response())?;
     if !response.ok() {
         let status = response.status;
         let text = response.text().map_err(|error| error.to_string())?;
@@ -164,6 +168,7 @@ fn run(
         model,
         options.signal.as_ref(),
         response.into_reader(),
+        &|chunk| options.streamed(model, chunk),
     )
 }
 

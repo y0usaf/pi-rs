@@ -16,7 +16,7 @@ use crate::http::{Request, RetryPolicy, send_retrying};
 use crate::registry::Api;
 use crate::stream::spawn;
 use crate::types::{
-    AssistantMessage, AssistantMessageEvent, Model, SimpleStreamOptions, TranscriptContext,
+    AssistantMessage, AssistantMessageEvent, Model, Payload, SimpleStreamOptions, TranscriptContext,
 };
 use crate::utils::text::system_message_text;
 use crate::utils::transcript::{
@@ -74,7 +74,16 @@ fn run(
         .filter(|text| !text.is_empty());
     let contents = request::contents(model, without_initial_system_message(messages));
     let tools = get_current_tools(messages);
-    let body = request::build(model, contents, system_prompt, &tools, options)?;
+    let body = options.payload(
+        model,
+        Payload::new(request::build(
+            model,
+            contents,
+            system_prompt,
+            &tools,
+            options,
+        )?),
+    )?;
     let target = if vertex {
         vertex::target(model, options)?
     } else {
@@ -86,7 +95,7 @@ fn run(
         model.id.strip_prefix("models/").unwrap_or(&model.id)
     );
     let mut request = Request::new("POST", url)
-        .json(&body)
+        .json(&Value::Object(body))
         .timeout(options.timeout_ms.map(Duration::from_millis));
     for (name, value) in target.headers {
         request = request.header(&name, value);
@@ -114,6 +123,7 @@ fn run(
         model,
         vertex,
         options.signal.as_ref(),
+        &|chunk| options.streamed(model, chunk),
     )
 }
 

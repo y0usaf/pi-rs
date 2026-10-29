@@ -1,18 +1,17 @@
 mod events;
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
 use crate::event_stream::{ABORTED_TEXT, AssistantMessageEventStream, now_ms};
-use crate::http::{Request, Response, send};
+use crate::http::{Request, send};
 use crate::registry::Api;
 use crate::sse::SseReader;
 use crate::stream::spawn;
 use crate::types::{
-    AssistantMessage, AssistantMessageDiagnostic, CacheRetention, DiagnosticError, Model,
+    AssistantMessage, AssistantMessageDiagnostic, CacheRetention, DiagnosticError, Model, Payload,
     SimpleStreamOptions, ThinkingLevel, TranscriptContext,
 };
 use pi_chord::json::JsonObject;
@@ -21,8 +20,6 @@ use events::Converter;
 
 const ERROR_BODY_DETAIL_UNITS: usize = 8192;
 
-pub type OnResponse = Arc<dyn Fn(&ResponseInfo) -> Result<(), String> + Send + Sync>;
-
 #[derive(Clone, Default)]
 pub struct Config {
     pub base_url: Option<String>,
@@ -30,12 +27,6 @@ pub struct Config {
     pub debug: bool,
     pub temperature: Option<f64>,
     pub tool_choice: Option<Value>,
-    pub on_response: Option<OnResponse>,
-}
-
-pub struct ResponseInfo {
-    pub status: u16,
-    pub headers: BTreeMap<String, String>,
 }
 
 pub fn api() -> Arc<dyn Api> {
@@ -96,11 +87,19 @@ fn run(
     if base_url.is_empty() {
         return Err(format!("No base URL for model {}", model.id));
     }
-    let body = json!({
-        "model": model.id,
-        "context": { "messages": context.messages },
-        "options": Value::Object(payload_options(options, config)),
-    });
+    let mut payload = Payload::new(Map::new());
+    payload.body.insert("model".to_owned(), json!(model.id));
+    payload.body.insert(
+        "context".to_owned(),
+        json!({ "messages": context.messages }),
+    );
+    payload
+        .body
+        .insert("options".to_owned(), Value::Object(Map::new()));
+    for (key, value) in payload_options(options, config) {
+        payload.declare(&["options", key], value);
+    }
+    let body = Value::Object(options.payload(model, payload)?);
     let mut url = format!("{}/messages", base_url.trim_end_matches('/'));
     if config.debug {
         url.push_str("?debug=1");
@@ -122,9 +121,7 @@ fn run(
     }
 
     let response = send(&request, options.signal.as_ref()).map_err(|error| error.to_string())?;
-    if let Some(on_response) = &config.on_response {
-        on_response(&response_info(&response))?;
-    }
+    options.responded(model, &response.provider_response())?;
     if !response.ok() {
         let status = response.status;
         let text = response.text().map_err(|error| error.to_string())?;
@@ -157,6 +154,7 @@ fn run(
         if !truthy(&value) {
             continue;
         }
+        options.streamed(model, &value);
         if converter.apply(out, output, &value)? {
             return Ok(());
         }
@@ -167,44 +165,11 @@ fn run(
     ))
 }
 
-fn response_info(response: &Response) -> ResponseInfo {
-    let mut headers = BTreeMap::new();
-    for (name, value) in &response.headers {
-        let key = name.to_ascii_lowercase();
-        let joined = match headers.get(&key) {
-            Some(previous) if key != "set-cookie" => format!("{previous}, {value}"),
-            _ => value.clone(),
-        };
-        headers.insert(key, joined);
-    }
-    ResponseInfo {
-        status: response.status,
-        headers,
-    }
-}
-
-fn payload_options(options: &SimpleStreamOptions, config: &Config) -> Map<String, Value> {
-    let mut fields = Map::new();
-    if let Some(temperature) = options.temperature.or(config.temperature) {
-        fields.insert("temperature".to_owned(), json!(temperature));
-    }
-    if let Some(max_tokens) = options.max_tokens.filter(|tokens| *tokens > 0) {
-        fields.insert("maxTokens".to_owned(), json!(max_tokens));
-    }
-    if let Some(level) = options.reasoning {
-        fields.insert("reasoning".to_owned(), json!(thinking_name(level)));
-    }
-    if let Some(retention) = cache_retention_field(options) {
-        fields.insert("cacheRetention".to_owned(), json!(retention));
-    }
-    if let Some(session) = options
-        .session_id
-        .as_deref()
-        .filter(|session| !session.is_empty())
-    {
-        fields.insert("sessionId".to_owned(), json!(session));
-    }
-    if let Some(choice) = options
+fn payload_options(
+    options: &SimpleStreamOptions,
+    config: &Config,
+) -> [(&'static str, Option<Value>); 6] {
+    let tool_choice = options
         .tool_choice
         .as_deref()
         .map(|choice| json!(choice))
@@ -213,11 +178,37 @@ fn payload_options(options: &SimpleStreamOptions, config: &Config) -> Map<String
                 .tool_choice
                 .clone()
                 .filter(|choice| !choice.is_null())
-        })
-    {
-        fields.insert("toolChoice".to_owned(), choice);
-    }
-    fields
+        });
+    [
+        (
+            "temperature",
+            options.temperature.or(config.temperature).map(|t| json!(t)),
+        ),
+        (
+            "maxTokens",
+            options
+                .max_tokens
+                .filter(|tokens| *tokens > 0)
+                .map(|tokens| json!(tokens)),
+        ),
+        (
+            "reasoning",
+            options.reasoning.map(|level| json!(thinking_name(level))),
+        ),
+        (
+            "cacheRetention",
+            cache_retention_field(options).map(|retention| json!(retention)),
+        ),
+        (
+            "sessionId",
+            options
+                .session_id
+                .as_deref()
+                .filter(|session| !session.is_empty())
+                .map(|session| json!(session)),
+        ),
+        ("toolChoice", tool_choice),
+    ]
 }
 
 fn thinking_name(level: ThinkingLevel) -> &'static str {

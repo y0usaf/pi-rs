@@ -22,6 +22,7 @@ pub fn read(
     model: &Model,
     vertex: bool,
     signal: Option<&CancelToken>,
+    seen: &dyn Fn(&Value),
 ) -> Result<(), String> {
     let mut folder = Folder {
         out,
@@ -32,7 +33,7 @@ pub fn read(
         saw_tool_call: false,
         finish: None,
     };
-    let result = folder.consume(body, model, signal);
+    let result = folder.consume(body, model, signal, seen);
     folder.end_text();
     folder.end_thinking();
     result
@@ -54,6 +55,7 @@ impl Folder<'_> {
         body: impl BufRead,
         model: &Model,
         signal: Option<&CancelToken>,
+        seen: &dyn Fn(&Value),
     ) -> Result<(), String> {
         for event in SseReader::new(body) {
             if signal.is_some_and(CancelToken::is_cancelled) {
@@ -66,6 +68,7 @@ impl Folder<'_> {
             let chunk: Value = serde_json::from_str(&event.data)
                 .map_err(|error| format!("google: invalid SSE JSON: {error}"))?;
             check_chunk_error(&chunk)?;
+            seen(&chunk);
             self.handle(&chunk, model);
         }
         if signal.is_some_and(CancelToken::is_cancelled) {

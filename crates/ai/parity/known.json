@@ -10,7 +10,6 @@
 	"openai-completions:requests[].headers.user-agent": "Rust sends http.rs:445 pi-durable/<version>; TS sets User-Agent getPiUserAgent() (openai-completions.ts:766)",
 	"openai-completions:requests[].body.temperature": "Rust build() never reads options.temperature (src/ai/api/openai_completions/request.rs:33-60); TS sets it (openai-completions.ts:851-852)",
 	"openai-completions:requests[].body.tool_choice": "Rust build() never reads options.tool_choice (src/ai/api/openai_completions/request.rs:33-60); TS sets it (openai-completions.ts:870)",
-	"openai-completions:requests[].body.tools[].function.strict": "Rust defaults supports_strict_mode to true (src/ai/api/openai_completions/compat.rs:145) and emits strict:false (request.rs:261-262); TS detection defaults supportsStrictMode false (openai-completions.ts:1675) and omits it",
 	"openai-completions:requests[].body.reasoning": "Rust off_value() returns None when the model has no thinkingLevelMap (src/ai/api/openai_completions/request.rs:161-166); TS sends reasoning.effort = thinkingLevelMap?.off ?? \"none\" (openai-completions.ts:946)",
 	"openai-completions:message.errorMessage": "Rust prints `<status>: <text>` and keeps the whole JSON body (src/ai/error_body.rs:38); TS uses the SDK APIError: `<status> <text>` for plain text and body.error for JSON",
 	"openai-completions-0017:message.stopReason": "Rust serde_json rejects a lone UTF-16 surrogate escape split across chunks and fails the stream (src/ai/api/openai_completions/stream.rs:52); V8 JSON.parse accepts it",

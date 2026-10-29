@@ -142,7 +142,7 @@ impl Compat {
                 || is_ant_ling),
             supports_usage_in_streaming: true,
             supports_finish_reason: true,
-            supports_strict_mode: true,
+            supports_strict_mode: false,
             legacy_max_tokens,
             requires_tool_result_name: false,
             requires_assistant_after_tool_result: false,

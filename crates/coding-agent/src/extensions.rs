@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 
 use pi_durable::ai::event_stream::AssistantMessageEventStream;
 use pi_durable::ai::models::Models as ModelsTrait;
-use pi_durable::ai::registry::{Api, Providers};
+use pi_durable::ai::registry::{Api, Origin, Providers};
 use pi_durable::ai::stream::{fail, new_output};
 use pi_durable::ai::types::{
     AssistantMessage, AssistantMessageEvent, CachePoint, CacheRetention, Context, Message, Model,
@@ -32,6 +32,10 @@ use pi_durable::ids::EntryId;
 use pi_extensions::{Call, Failed, Load, Peer, Pending, ProviderInfo, ToolInfo};
 use serde::de::{DeserializeOwned, IgnoredAny};
 use serde_json::{Map, Value, json};
+
+mod runtime;
+
+pub use runtime::request_hooks;
 
 use crate::config::CONFIG_DIR_NAME;
 use crate::models::ModelRegistry;
@@ -296,7 +300,15 @@ fn options_of(value: &Value, signal: Option<CancelToken>) -> SimpleStreamOptions
         cache_points,
         temperature: take(value, "temperature"),
         tool_choice: take(value, "toolChoice"),
+        hooks: Default::default(),
     }
+}
+
+struct Streamed {
+    model: Value,
+    context: Value,
+    options: Value,
+    hooks: bool,
 }
 
 /// A provider an extension registered with its own `streamSimple`: each request goes to the child.
@@ -325,11 +337,12 @@ impl Api for Routed {
         if let Some(signal) = &signal {
             out.bind_cancel_with(signal, new_output(model));
         }
-        let request = (
-            serde_json::to_value(model).unwrap_or_default(),
-            json!({ "messages": context.messages }),
-            options_json(&options),
-        );
+        let request = Streamed {
+            model: serde_json::to_value(model).unwrap_or_default(),
+            context: json!({ "messages": context.messages }),
+            options: options_json(&options),
+            hooks: options.hooks.any(),
+        };
         let (live, provider, model, sink) = (
             live.clone(),
             self.provider.clone(),
@@ -458,12 +471,14 @@ fn resolve(path: &str, cwd: &str) -> String {
 }
 
 /// Loads what the settings and the flags name; nothing at all when they name nothing.
+#[allow(clippy::too_many_arguments)]
 pub fn load(
     cwd: &str,
     agent_dir: &str,
     cli: &[String],
     no_extensions: bool,
     settings: &SettingsManager,
+    registry: &Arc<ModelRegistry>,
     mode: &str,
     has_ui: bool,
 ) -> Extensions {
@@ -507,6 +522,8 @@ pub fn load(
         }
     };
     host.update("providers", builtin_providers());
+    host.update("models", json!({ "list": registry.models().as_ref() }));
+    let _ = host.0.sink.registry.set(Arc::clone(registry));
     let load = match host.load(agent_dir, &dirs, &paths) {
         Ok(load) => load,
         Err(error) => {
@@ -640,6 +657,8 @@ struct Sink {
     providers: Mutex<Vec<ProviderInfo>>,
     registries: Mutex<Vec<(Weak<Registry>, Arc<Loadout>)>>,
     sections: Mutex<Option<Vec<(String, String)>>>,
+    registry: OnceLock<Arc<ModelRegistry>>,
+    failed: Mutex<Option<runtime::Failure>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -654,6 +673,11 @@ impl Peer for Sink {
         update: &mut dyn FnMut(Value),
         cancel: &CancelToken,
     ) -> std::result::Result<Value, String> {
+        if call == "compact" {
+            return live()
+                .ok_or("no extension host is running")?
+                .compact(args, cancel);
+        }
         let models = lock(&self.models).clone();
         match models {
             Some(models) if call == "refreshModels" => {
@@ -668,6 +692,27 @@ impl Peer for Sink {
 
     fn providers(&self, providers: Vec<ProviderInfo>) {
         *lock(&self.providers) = providers;
+    }
+
+    fn virtual_models(&self, models: Vec<Value>) {
+        let Some(registry) = self.registry.get() else {
+            return;
+        };
+        let mut parsed = Vec::new();
+        for model in models {
+            match serde_json::from_value::<Model>(model) {
+                Ok(model) => parsed.push(model),
+                Err(e) => self.call(Call::Notify {
+                    text: format!("Warning: a virtual model pi-rs cannot read: {e}"),
+                    level: "warning".to_owned(),
+                }),
+            }
+        }
+        registry.set_virtual(parsed);
+        let handed = lock(&self.models).clone();
+        if let (Some(live), Some(handed)) = (live(), handed) {
+            live.hand_models(&handed.registry, &handed.current);
+        }
     }
 
     fn call(&self, call: Call) {
@@ -871,27 +916,25 @@ impl Live {
     }
 
     fn refresh_session(&self, cancel: &CancelToken) {
-        let Some(source) = lock(&self.0.session).clone() else {
-            return;
-        };
+        if let Some(session) = self.session_update(cancel) {
+            self.update("session", session);
+        }
+    }
+
+    fn session_update(&self, cancel: &CancelToken) -> Option<Value> {
+        let source = lock(&self.0.session).clone()?;
         let path = source.path.as_deref();
         let session_id = crate::sessions::export::session_id(path);
-        let Ok(mut entries) =
-            crate::sessions::export::lines(&source.root, cancel, &session_id, &source.cwd)
-        else {
-            return;
-        };
+        let mut entries =
+            crate::sessions::export::lines(&source.root, cancel, &session_id, &source.cwd).ok()?;
         let header = entries.remove(0);
-        self.update(
-            "session",
-            json!({
-                "header": header,
-                "entries": entries,
-                "file": path,
-                "dir": path.map(crate::paths::dirname),
-                "name": source.name,
-            }),
-        );
+        Some(json!({
+            "header": header,
+            "entries": entries,
+            "file": path,
+            "dir": path.map(crate::paths::dirname),
+            "name": source.name,
+        }))
     }
 
     pub fn before_agent_start(&self, content: &UserContent) -> std::result::Result<(), String> {
@@ -1063,15 +1106,18 @@ impl Live {
         self.set_models(ExtensionModels::of(registry, model));
     }
 
-    /// The API requests to `provider` go through when an extension registered it with its own
-    /// `streamSimple`.
-    pub fn provider_api(&self, provider: &str) -> Option<Arc<dyn Api>> {
+    /// The API requests to `model` go through when an extension registered it as a virtual model,
+    /// or registered its provider with its own `streamSimple`.
+    pub fn provider_api(&self, model: &Model, origin: Origin) -> Option<Arc<dyn Api>> {
+        if crate::models::is_virtual(model) {
+            return Some(Arc::new(runtime::Virtual { origin }));
+        }
         lock(&self.0.sink.providers)
             .iter()
-            .any(|info| info.id == provider && info.streams)
+            .any(|info| info.id == model.provider && info.streams)
             .then(|| {
                 Arc::new(Routed {
-                    provider: provider.to_owned(),
+                    provider: model.provider.clone(),
                 }) as Arc<dyn Api>
             })
     }
@@ -1091,7 +1137,7 @@ impl Live {
         &self,
         provider: &str,
         model: &Model,
-        (model_json, context, options): (Value, Value, Value),
+        request: Streamed,
         signal: Option<&CancelToken>,
         out: &AssistantMessageEventStream,
     ) {
@@ -1099,7 +1145,13 @@ impl Live {
         let answer = self
             .0
             .host
-            .stream(provider, model_json, context, options)
+            .stream(
+                provider,
+                request.model,
+                request.context,
+                request.options,
+                request.hooks,
+            )
             .and_then(|pending| {
                 pending.wait(signal, &mut |event| match serde_json::from_value::<
                     AssistantMessageEvent,

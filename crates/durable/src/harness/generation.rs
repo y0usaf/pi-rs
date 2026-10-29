@@ -460,6 +460,7 @@ pub fn simple_options(
         metadata: stream.metadata.clone(),
         temperature: None,
         tool_choice: None,
+        hooks: Default::default(),
     }
 }
 

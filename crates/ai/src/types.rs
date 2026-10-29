@@ -625,6 +625,109 @@ pub struct SimpleStreamOptions {
     pub cache_points: Vec<CachePoint>,
     pub temperature: Option<f64>,
     pub tool_choice: Option<String>,
+    pub hooks: RequestHooks,
+}
+
+impl SimpleStreamOptions {
+    pub fn payload(&self, model: &Model, payload: Payload) -> Result<JsonObject, String> {
+        match &self.hooks.payload {
+            Some(hook) => hook(payload, model),
+            None => Ok(payload.wire()),
+        }
+    }
+
+    pub fn responded(&self, model: &Model, response: &ProviderResponse) -> Result<(), String> {
+        match &self.hooks.response {
+            Some(hook) => hook(response, model),
+            None => Ok(()),
+        }
+    }
+
+    pub fn streamed(&self, model: &Model, event: &JsonValue) {
+        if let Some(hook) = &self.hooks.stream_event {
+            hook(event, model);
+        }
+    }
+}
+
+pub type OnPayload = Arc<dyn Fn(Payload, &Model) -> Result<JsonObject, String> + Send + Sync>;
+pub type OnResponse = Arc<dyn Fn(&ProviderResponse, &Model) -> Result<(), String> + Send + Sync>;
+pub type OnStreamEvent = Arc<dyn Fn(&JsonValue, &Model) + Send + Sync>;
+
+#[derive(Clone, Default)]
+pub struct RequestHooks {
+    pub payload: Option<OnPayload>,
+    pub response: Option<OnResponse>,
+    pub stream_event: Option<OnStreamEvent>,
+}
+
+impl RequestHooks {
+    pub fn or(self, other: &RequestHooks) -> RequestHooks {
+        RequestHooks {
+            payload: self.payload.or_else(|| other.payload.clone()),
+            response: self.response.or_else(|| other.response.clone()),
+            stream_event: self.stream_event.or_else(|| other.stream_event.clone()),
+        }
+    }
+
+    pub fn any(&self) -> bool {
+        self.payload.is_some() || self.response.is_some() || self.stream_event.is_some()
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Payload {
+    pub body: JsonObject,
+    pub unset: Vec<Vec<String>>,
+}
+
+impl Payload {
+    pub fn new(body: JsonObject) -> Self {
+        Payload {
+            body,
+            unset: Vec::new(),
+        }
+    }
+
+    pub fn declare(&mut self, path: &[&str], value: Option<JsonValue>) {
+        let Some((key, parents)) = path.split_last() else {
+            return;
+        };
+        let mut at = &mut self.body;
+        for parent in parents {
+            match at.get_mut(*parent).and_then(JsonValue::as_object_mut) {
+                Some(next) => at = next,
+                None => return,
+            }
+        }
+        if value.is_none() {
+            self.unset
+                .push(path.iter().map(|part| (*part).to_owned()).collect());
+        }
+        at.insert((*key).to_owned(), value.unwrap_or(JsonValue::Null));
+    }
+
+    pub fn wire(mut self) -> JsonObject {
+        for path in &self.unset {
+            let Some((key, parents)) = path.split_last() else {
+                continue;
+            };
+            let mut at = Some(&mut self.body);
+            for parent in parents {
+                at = at.and_then(|map| map.get_mut(parent).and_then(JsonValue::as_object_mut));
+            }
+            if let Some(map) = at {
+                map.shift_remove(key);
+            }
+        }
+        self.body
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderResponse {
+    pub status: u16,
+    pub headers: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

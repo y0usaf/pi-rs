@@ -88,6 +88,7 @@ pub trait Peer: Send + Sync {
     fn failed(&self, failed: Failed);
     fn tools(&self, tools: Vec<ToolInfo>);
     fn providers(&self, providers: Vec<ProviderInfo>);
+    fn virtual_models(&self, models: Vec<Value>);
 }
 
 /// The run an event sees: upstream's `ExtensionContext` minus what pi-rs fills in per extension.
@@ -281,6 +282,7 @@ impl Host {
         model: Value,
         context: Value,
         options: Value,
+        hooks: bool,
     ) -> Result<Pending, String> {
         let request = json!({
             "op": "stream",
@@ -288,8 +290,15 @@ impl Host {
             "model": model,
             "context": context,
             "options": options,
+            "hooks": hooks,
         });
         self.begin(request, Limit::Unbounded)
+    }
+
+    pub fn route(&self, request: Value, ctx: &Ctx) -> Result<Pending, String> {
+        let mut message = with_ctx(json!({ "op": "route" }), ctx);
+        message["route"] = request;
+        self.begin(message, Limit::Unbounded)
     }
 
     fn begin(&self, mut message: Value, limit: Limit) -> Result<Pending, String> {
@@ -509,6 +518,13 @@ impl Shared {
                 if let Ok(failed) = serde_json::from_value(value) {
                     peer.failed(failed);
                 }
+            }
+            "virtualModels" => {
+                let models = match value.get("models") {
+                    Some(Value::Array(models)) => models.clone(),
+                    _ => Vec::new(),
+                };
+                peer.virtual_models(models);
             }
             "tools" => {
                 let tools = value.get("tools").cloned().unwrap_or(Value::Null);

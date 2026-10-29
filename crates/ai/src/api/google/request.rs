@@ -51,13 +51,20 @@ pub fn build(
     system_prompt: Option<String>,
     tools: &[Tool],
     options: &SimpleStreamOptions,
-) -> Result<Value, String> {
-    let mut body = json!({"contents": contents});
+) -> Result<Map<String, Value>, String> {
+    let mut body = Map::new();
+    body.insert("contents".to_owned(), Value::Array(contents));
     if let Some(text) = system_prompt {
-        body["systemInstruction"] = json!({"role": "user", "parts": [{"text": text}]});
+        body.insert(
+            "systemInstruction".to_owned(),
+            json!({"role": "user", "parts": [{"text": text}]}),
+        );
     }
     if !tools.is_empty() {
-        body["tools"] = json!([{"functionDeclarations": declarations(tools)}]);
+        body.insert(
+            "tools".to_owned(),
+            json!([{"functionDeclarations": declarations(tools)}]),
+        );
         if let Some(mode) = options
             .tool_choice
             .as_deref()
@@ -68,7 +75,10 @@ pub fn build(
                 _ => "AUTO",
             })
         {
-            body["toolConfig"] = json!({"functionCallingConfig": {"mode": mode}});
+            body.insert(
+                "toolConfig".to_owned(),
+                json!({"functionCallingConfig": {"mode": mode}}),
+            );
         }
     }
     let mut generation = Map::new();
@@ -82,7 +92,7 @@ pub fn build(
         generation.insert("thinkingConfig".to_owned(), thinking_config(model, level)?);
     }
     if !generation.is_empty() {
-        body["generationConfig"] = Value::Object(generation);
+        body.insert("generationConfig".to_owned(), Value::Object(generation));
     }
     Ok(body)
 }

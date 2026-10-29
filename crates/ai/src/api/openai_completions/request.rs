@@ -8,7 +8,7 @@ use crate::simple_options::{
 use crate::thinking::level_name;
 use crate::transform::{ToolCallIdNormalizer, transform_messages};
 use crate::types::{
-    AssistantBlock, AssistantMessage, CacheRetention, Message, Model, ModelThinkingLevel,
+    AssistantBlock, AssistantMessage, CacheRetention, Message, Model, ModelThinkingLevel, Payload,
     SystemMessage, ThinkingContent, ThinkingLevel, Tool, ToolCall, ToolResultMessage,
     TranscriptContext, UserBlock, UserContent,
 };
@@ -35,7 +35,7 @@ pub fn build(
     compat: &Compat,
     context: &TranscriptContext,
     settings: &Settings,
-) -> JsonObject {
+) -> Payload {
     let transcript = resolve_transcript(context, compat.mid_convo_system_messages);
     let support = if compat.mid_convo_system_messages && compat.mid_convo_tool_additions {
         ToolSupport::Additions
@@ -55,20 +55,26 @@ pub fn build(
     let cache_key_wanted = (settings.base_url.contains(OPENAI_HOST)
         && settings.retention != CacheRetention::None)
         || long_retention;
-    if let Some(session) = settings.session_id.filter(|_| cache_key_wanted) {
-        body.insert(
-            "prompt_cache_key".to_owned(),
-            json!(
-                session
-                    .chars()
-                    .take(PROMPT_CACHE_KEY_MAX_CHARS)
-                    .collect::<String>()
-            ),
-        );
-    }
-    if long_retention {
-        body.insert("prompt_cache_retention".to_owned(), json!("24h"));
-    }
+    let mut payload = Payload::new(body);
+    payload.declare(
+        &["prompt_cache_key"],
+        settings
+            .session_id
+            .filter(|_| cache_key_wanted)
+            .map(|session| {
+                json!(
+                    session
+                        .chars()
+                        .take(PROMPT_CACHE_KEY_MAX_CHARS)
+                        .collect::<String>()
+                )
+            }),
+    );
+    payload.declare(
+        &["prompt_cache_retention"],
+        long_retention.then(|| json!("24h")),
+    );
+    let body = &mut payload.body;
     if compat.supports_usage_in_streaming {
         body.insert("stream_options".to_owned(), json!({"include_usage": true}));
     }
@@ -95,7 +101,7 @@ pub fn build(
         body.insert("priority".to_owned(), priority.clone());
     }
     if model.reasoning {
-        thinking_params(&mut body, model, compat, settings.effort);
+        thinking_params(body, model, compat, settings.effort);
         if let (Some(field), Some(level)) = (
             compat.thinking_token_budget_field.as_deref(),
             settings.effort.and_then(budget_level),
@@ -133,7 +139,7 @@ pub fn build(
     for (key, value) in sampling.into_iter().flatten() {
         body.insert(key, value);
     }
-    body
+    payload
 }
 
 fn budget_level(level: ModelThinkingLevel) -> Option<ThinkingLevel> {

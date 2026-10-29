@@ -1,11 +1,11 @@
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::simple_options::resolve_sampling_params;
 use crate::thinking::level_name;
 use crate::transform::{ToolCallIdNormalizer, transform_messages};
 use crate::types::{
     AssistantBlock, AssistantMessage, CacheRetention, ImageContent, Message, Model,
-    ModelThinkingLevel, SystemMessage, Tool, TranscriptContext, UserBlock, UserContent,
+    ModelThinkingLevel, Payload, SystemMessage, Tool, TranscriptContext, UserBlock, UserContent,
 };
 use crate::utils::text::{system_content_text, system_message_text, utf16_len};
 use crate::utils::transcript::{ToolSupport, resolve_transcript_tools};
@@ -88,65 +88,81 @@ pub fn build(
     context: &TranscriptContext,
     compat: &Compat,
     turn: &Turn,
-) -> Result<Value, String> {
+) -> Result<Payload, String> {
     let plain = !turn.chatgpt_sign_in && !compat.codex;
     let support = compat.tool_support();
     let transcript_tools = resolve_transcript_tools(&context.messages, support);
-    let mut params = json!({
-        "model": turn.request_model.as_deref().unwrap_or(&model.id),
-        "input": input(
-            model,
-            context,
-            compat,
-            support,
-            transcript_tools.folded_system_messages,
-        )?,
-        "stream": true,
-        "store": false,
-    });
-    if let Some(key) = &turn.cache_key {
-        params["prompt_cache_key"] = json!(key);
-    }
-    if plain {
-        if turn.retention == CacheRetention::Long && compat.long_cache && !compat.explicit_cache {
-            params["prompt_cache_retention"] = json!("24h");
-        }
-        if compat.explicit_cache {
-            match turn.retention {
-                CacheRetention::None => {
-                    params["prompt_cache_options"] = json!({"mode": "explicit"})
-                }
-                CacheRetention::Long if compat.long_cache => {
-                    params["prompt_cache_options"] = json!({"ttl": "30m"});
-                }
-                _ => {}
-            }
-        }
-        if compat.max_output && turn.max_tokens > 0 {
-            params["max_output_tokens"] = json!(turn.max_tokens.max(MIN_OUTPUT_TOKENS));
-        }
-    }
+    let model_id = json!(turn.request_model.as_deref().unwrap_or(&model.id));
+    let input = input(
+        model,
+        context,
+        compat,
+        support,
+        transcript_tools.folded_system_messages,
+    )?;
+    let cache_key = turn.cache_key.as_ref().map(|key| json!(key));
+    let mut payload = Payload::new(Map::new());
     if compat.codex {
-        params["instructions"] = json!(instructions(context));
-        params["text"] = json!({"verbosity": "low"});
-        params["tool_choice"] = json!("auto");
-        params["parallel_tool_calls"] = json!(true);
-        params["include"] = json!(["reasoning.encrypted_content"]);
+        payload.body.insert("model".to_owned(), model_id);
+        payload.body.insert("store".to_owned(), json!(false));
+        payload.body.insert("stream".to_owned(), json!(true));
+        payload
+            .body
+            .insert("instructions".to_owned(), json!(instructions(context)));
+        payload.body.insert("input".to_owned(), Value::Array(input));
+        payload
+            .body
+            .insert("text".to_owned(), json!({"verbosity": "low"}));
+        payload
+            .body
+            .insert("include".to_owned(), json!(["reasoning.encrypted_content"]));
+        payload.declare(&["prompt_cache_key"], cache_key);
+        payload.body.insert("tool_choice".to_owned(), json!("auto"));
+        payload
+            .body
+            .insert("parallel_tool_calls".to_owned(), json!(true));
+    } else {
+        payload.body.insert("model".to_owned(), model_id);
+        payload.body.insert("input".to_owned(), Value::Array(input));
+        payload.body.insert("stream".to_owned(), json!(true));
+        payload.declare(&["prompt_cache_key"], cache_key);
+        let retention = (plain
+            && turn.retention == CacheRetention::Long
+            && compat.long_cache
+            && !compat.explicit_cache)
+            .then(|| json!("24h"));
+        payload.declare(&["prompt_cache_retention"], retention);
+        let cache_options = match turn.retention {
+            _ if !plain || !compat.explicit_cache => None,
+            CacheRetention::None => Some(json!({"mode": "explicit"})),
+            CacheRetention::Long if compat.long_cache => Some(json!({"ttl": "30m"})),
+            _ => None,
+        };
+        payload.declare(&["prompt_cache_options"], cache_options);
+        payload.body.insert("store".to_owned(), json!(false));
+        if plain && compat.max_output && turn.max_tokens > 0 {
+            payload.body.insert(
+                "max_output_tokens".to_owned(),
+                json!(turn.max_tokens.max(MIN_OUTPUT_TOKENS)),
+            );
+        }
     }
+    let params = &mut payload.body;
     if !transcript_tools.request_tools.is_empty() {
-        params["tools"] = Value::Array(tool_items(&transcript_tools.request_tools, compat, false));
+        params.insert(
+            "tools".to_owned(),
+            Value::Array(tool_items(&transcript_tools.request_tools, compat, false)),
+        );
     }
     if model.reasoning {
-        reasoning(model, turn.effort, &mut params);
+        reasoning(model, turn.effort, params);
     }
     if let Some(sampling) =
         resolve_sampling_params(model, turn.effort.unwrap_or(ModelThinkingLevel::Off), None)
     {
-        for (key, value) in sampling {
-            params[key] = value;
-        }
+        params.extend(sampling);
     }
-    Ok(params)
+    Ok(payload)
 }
 
 fn instructions(context: &TranscriptContext) -> String {
@@ -161,7 +177,7 @@ fn instructions(context: &TranscriptContext) -> String {
     }
 }
 
-fn reasoning(model: &Model, effort: Option<ModelThinkingLevel>, params: &mut Value) {
+fn reasoning(model: &Model, effort: Option<ModelThinkingLevel>, params: &mut Map<String, Value>) {
     let map = model.thinking_level_map.as_ref();
     let mapped = |name: &str| {
         map.and_then(|map| map.get(name))
@@ -172,19 +188,22 @@ fn reasoning(model: &Model, effort: Option<ModelThinkingLevel>, params: &mut Val
         Some(level) => {
             let name = level_name(level);
             let effort = mapped(name).unwrap_or_else(|| json!(name));
-            params["reasoning"] = json!({"effort": effort, "summary": "auto"});
-            params["include"] = json!(["reasoning.encrypted_content"]);
+            params.insert(
+                "reasoning".to_owned(),
+                json!({"effort": effort, "summary": "auto"}),
+            );
+            params.insert("include".to_owned(), json!(["reasoning.encrypted_content"]));
         }
         None if model.provider != "github-copilot"
             && map.and_then(|map| map.get("off")) != Some(&Value::Null) =>
         {
             let effort = mapped("off").unwrap_or_else(|| json!("none"));
-            params["reasoning"] = json!({"effort": effort});
+            params.insert("reasoning".to_owned(), json!({"effort": effort}));
         }
         None => {}
     }
     if model.provider == "xai" {
-        params["include"] = json!(["reasoning.encrypted_content"]);
+        params.insert("include".to_owned(), json!(["reasoning.encrypted_content"]));
     }
 }
 

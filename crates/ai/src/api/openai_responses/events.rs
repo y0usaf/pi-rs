@@ -39,6 +39,7 @@ pub fn process(
     signal: Option<&CancelToken>,
     out: &AssistantMessageEventStream,
     output: &mut AssistantMessage,
+    seen: &dyn Fn(&Value),
 ) -> Result<(), String> {
     let mut state = Process {
         model,
@@ -62,6 +63,7 @@ pub fn process(
         }
         let value: Value = serde_json::from_str(&event.data)
             .map_err(|error| format!("invalid stream event: {error}"))?;
+        seen(&value);
         state.handle(&value)?;
     }
     state.finish()

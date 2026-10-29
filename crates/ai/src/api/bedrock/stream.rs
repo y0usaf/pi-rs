@@ -38,6 +38,7 @@ pub fn read(
     mut body: impl Read,
     model: &Model,
     signal: Option<&CancelToken>,
+    seen: &dyn Fn(&Value),
 ) -> Result<(), String> {
     let mut slots: Vec<Slot> = Vec::new();
     loop {
@@ -54,7 +55,11 @@ pub fn read(
             serde_json::from_slice(&payload)
                 .map_err(|error| format!("Could not parse Bedrock event {kind}: {error}"))?
         };
-        handle(out, output, &mut slots, model, &kind, &data)?;
+        let mut item = serde_json::Map::new();
+        item.insert(kind.clone(), data);
+        let item = Value::Object(item);
+        seen(&item);
+        handle(out, output, &mut slots, model, &kind, &item[&kind])?;
     }
     if signal.is_some_and(CancelToken::is_cancelled) {
         return Err(ABORTED_TEXT.to_owned());

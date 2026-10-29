@@ -11,8 +11,8 @@ use crate::event_stream::AssistantMessageEventStream;
 use crate::models::{Models, ModelsError};
 use crate::types::{
     AssistantBlock, AssistantMessage, AssistantMessageEvent, CacheRetention, Cost, DeferredHandle,
-    DoneReason, ErrorReason, Message, Model, SimpleStreamOptions, StopReason, SystemMessage,
-    TextContent, TextType, ThinkingContent, ThinkingType, ToolCall, ToolCallType,
+    DoneReason, ErrorReason, Message, Model, ProviderResponse, SimpleStreamOptions, StopReason,
+    SystemMessage, TextContent, TextType, ThinkingContent, ThinkingType, ToolCall, ToolCallType,
     TranscriptContext, Usage, UserBlock, UserContent,
 };
 use crate::utils::js;
@@ -299,6 +299,13 @@ fn produce(
     options: &SimpleStreamOptions,
     out: &AssistantMessageEventStream,
 ) -> Result<(), String> {
+    options.responded(
+        model,
+        &ProviderResponse {
+            status: 200,
+            headers: Default::default(),
+        },
+    )?;
     let Some(response) = response else {
         let message = with_usage(
             core,

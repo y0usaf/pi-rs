@@ -16,7 +16,7 @@ use crate::oauth::anthropic::is_oauth_token;
 use crate::registry::Api;
 use crate::stream::spawn;
 use crate::types::{
-    AssistantMessage, AssistantMessageEvent, Model, SimpleStreamOptions, TranscriptContext,
+    AssistantMessage, AssistantMessageEvent, Model, Payload, SimpleStreamOptions, TranscriptContext,
 };
 use crate::utils::transcript::{get_current_tools, resolve_transcript};
 
@@ -67,12 +67,14 @@ fn run(
     if !built.betas.is_empty() {
         set_header(&mut headers, "anthropic-beta", &built.betas.join(","));
     }
+    let mut body = options.payload(model, Payload::new(built.body))?;
+    body.insert("stream".to_owned(), Value::Bool(true));
     let base = options.base_url.as_deref().unwrap_or(&model.base_url);
     let mut request = Request::new(
         "POST",
         format!("{}/v1/messages?beta=true", base.trim_end_matches('/')),
     )
-    .json(&built.body)
+    .json(&Value::Object(body))
     .timeout(options.timeout_ms.map(Duration::from_millis));
     for (name, value) in &headers {
         request = request.header(name, value);
@@ -101,6 +103,7 @@ fn run(
             Some(&text),
         ));
     }
+    options.responded(model, &response.provider_response())?;
     out.push(AssistantMessageEvent::Start {
         partial: output.clone(),
     });
@@ -112,7 +115,7 @@ fn run(
         model,
         oauth,
         &tools,
-        options.signal.as_ref(),
+        &options,
     )
 }
 

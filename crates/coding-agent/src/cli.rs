@@ -315,6 +315,7 @@ fn run() -> Result<ExitCode, String> {
         parsed.extensions.as_deref().unwrap_or(&[]),
         parsed.no_extensions,
         &settings,
+        &registry,
         extensions::mode_name(parsed.mode, tui),
         tui,
     );

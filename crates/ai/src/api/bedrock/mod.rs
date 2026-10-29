@@ -71,7 +71,13 @@ fn run(
         .filter(|text| !text.is_empty());
     let tools = get_current_tools(messages);
     let built = request::build(model, messages, system.as_deref(), &tools, &options)?;
-    let body = serde_json::to_vec(&built).map_err(|error| error.to_string())?;
+    let mut input = options.payload(model, built)?;
+    let model_id = match input.shift_remove("modelId") {
+        None => model.id.clone(),
+        Some(Value::String(id)) => id,
+        Some(other) => return Err(format!("the request's modelId is not a string: {other}")),
+    };
+    let body = serde_json::to_vec(&input).map_err(|error| error.to_string())?;
 
     let configured = options
         .base_url
@@ -92,7 +98,7 @@ fn run(
     };
     let path = format!(
         "/model/{}/converse-stream",
-        sigv4::uri_encode(&model.id, false)
+        sigv4::uri_encode(&model_id, false)
     );
     let url = format!("{endpoint}{path}");
     let host = authority(&url).to_owned();
@@ -172,6 +178,7 @@ fn run(
             Some(&text),
         ));
     }
+    options.responded(model, &response.provider_response())?;
     out.push(AssistantMessageEvent::Start {
         partial: output.clone(),
     });
@@ -181,6 +188,7 @@ fn run(
         response.into_reader(),
         model,
         options.signal.as_ref(),
+        &|item| options.streamed(model, item),
     )
 }
 

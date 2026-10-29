@@ -213,9 +213,10 @@ pub fn providers(registry: Arc<ModelRegistry>, chosen: &Model) -> Providers {
         })
     }));
     providers.set_auth(Arc::new(move |model: &Model| registry.resolve_auth(model)));
-    providers.set_router(Arc::new(|model: &Model| {
-        crate::extensions::live()?.provider_api(&model.provider)
+    providers.set_router(Arc::new(|model: &Model, origin| {
+        crate::extensions::live()?.provider_api(model, origin)
     }));
+    providers.set_hooks(crate::extensions::request_hooks());
     providers
 }
 

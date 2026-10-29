@@ -47,6 +47,9 @@ const { convertToLlm } = await import(new URL("core/messages.js", dist));
 const { killAll } = await import(new URL("core/exec.js", dist));
 const { initTheme } = await import(new URL("modes/interactive/theme/theme.js", dist));
 const { flowOf } = await import(new URL("./node_modules/@earendil-works/pi-ai/dist/providers/all.js", import.meta.url));
+const usage = await import(new URL("core/compaction/compaction.js", dist));
+const { getLatestCompactionEntry } = await import(new URL("core/session-manager.js", dist));
+const { createVirtualModel, findLatestResponse, isVirtualModel } = await import(new URL("core/virtual-models.js", dist));
 
 function exit() {
 	killAll();
@@ -156,6 +159,7 @@ const state = {
 let runner;
 const providers = new Map();
 const registrants = new Map();
+const virtualModels = new Map();
 
 function absorb(request) {
 	Object.assign(state, request.updates);
@@ -348,6 +352,67 @@ const actions = {
 	setThinkingLevel: thrower("pi.setThinkingLevel"),
 };
 
+function physicalModel(provider, id) {
+	return (state.models?.list ?? []).find(
+		(model) => model.provider === provider && model.id === id && !isVirtualModel(model),
+	);
+}
+
+function limitsModel() {
+	const selected = state.models?.current;
+	if (!selected || !isVirtualModel(selected)) return selected;
+	const latest = findLatestResponse(session.buildSessionProjection().messages);
+	return (latest && physicalModel(latest.provider, latest.model)) ?? selected;
+}
+
+function contextUsage() {
+	const model = limitsModel();
+	if (!model) return undefined;
+	const contextWindow = model.contextWindow ?? 0;
+	if (contextWindow <= 0) return undefined;
+	const projection = session.buildSessionProjection();
+	const branch = session.getBranch();
+	const latestCompaction = getLatestCompactionEntry(branch);
+	if (latestCompaction) {
+		const projectedAssistants = new Set(
+			projection.entries.flatMap((entry) =>
+				entry.messages.some(
+					(message) =>
+						message.role === "assistant" &&
+						message.stopReason !== "aborted" &&
+						message.stopReason !== "error" &&
+						usage.calculateContextTokens(message.usage) > 0,
+				)
+					? [entry.sourceEntry.id]
+					: [],
+			),
+		);
+		const compactionIndex = branch.findIndex((entry) => entry.id === latestCompaction.id);
+		const hasPostCompactionUsage = branch
+			.slice(compactionIndex + 1)
+			.some((entry) => projectedAssistants.has(entry.id));
+		if (!hasPostCompactionUsage) return { tokens: null, contextWindow, percent: null };
+	}
+	const estimate = usage.estimateProjectedContextTokens(projection, branch);
+	return { tokens: estimate.tokens, contextWindow, percent: (estimate.tokens / contextWindow) * 100 };
+}
+
+async function compact(customInstructions) {
+	const answer = await ask("compact", { customInstructions });
+	absorb({ updates: { session: answer.session } });
+	const entry = getLatestCompactionEntry(session.getBranch());
+	if (!entry) throw new Error("the compaction left no compaction entry");
+	const projected = session.buildSessionProjection().messages;
+	return {
+		summary: entry.summary,
+		firstKeptEntryId: entry.firstKeptEntryId,
+		tokensBefore: entry.tokensBefore,
+		estimatedTokensAfter: projected.reduce((sum, message) => sum + usage.estimateTokens(message), 0),
+		usage: entry.usage,
+		details: entry.details,
+	};
+}
+
 const contextActions = {
 	getModel: () => state.models?.current,
 	getScopedModels: thrower("ctx.scopedModels"),
@@ -357,8 +422,17 @@ const contextActions = {
 	abort: () => effect({ call: "abort" }),
 	hasPendingMessages: () => state.pending > 0,
 	shutdown: () => effect({ call: "shutdown" }),
-	getContextUsage: thrower("ctx.getContextUsage"),
-	compact: thrower("ctx.compact"),
+	getContextUsage: contextUsage,
+	compact: (options) => {
+		void (async () => {
+			try {
+				const result = await compact(options?.customInstructions);
+				options?.onComplete?.(result);
+			} catch (error) {
+				options?.onError?.(error instanceof Error ? error : new Error(String(error)));
+			}
+		})();
+	},
 	getSystemPrompt: thrower("ctx.getSystemPrompt"),
 	getSystemPromptOptions: thrower("ctx.getSystemPromptOptions"),
 	executeTool: rejecter("ctx.executeTool"),
@@ -371,9 +445,63 @@ const providerActions = {
 	unregisterProvider: (name) => {
 		if (providers.delete(name)) effect({ call: "providers", providers: providerInfos() });
 	},
-	registerVirtualModel: thrower("pi.registerVirtualModel"),
-	unregisterVirtualModel: thrower("pi.unregisterVirtualModel"),
+	registerVirtualModel: (definition) => {
+		const { provider, id } = definition;
+		if (!provider.trim() || !id.trim()) throw new Error("Virtual model provider and id must not be empty.");
+		const existing = (state.models?.list ?? []).find((model) => model.provider === provider && model.id === id);
+		if (existing && !isVirtualModel(existing)) {
+			throw new Error(`Virtual model ${provider}/${id} conflicts with a physical model.`);
+		}
+		const models = virtualModels.get(provider) ?? new Map();
+		models.set(id, { model: createVirtualModel(definition), route: (request) => definition.route(request) });
+		virtualModels.set(provider, models);
+		reportVirtualModels();
+	},
+	unregisterVirtualModel: (provider, id) => {
+		const models = virtualModels.get(provider);
+		if (!models?.delete(id)) return;
+		if (models.size === 0) virtualModels.delete(provider);
+		reportVirtualModels();
+	},
 };
+
+function reportVirtualModels() {
+	const models = [...virtualModels.values()].flatMap((byId) => [...byId.values()].map((entry) => entry.model));
+	effect({ call: "virtualModels", models });
+}
+
+async function route(request) {
+	absorb(request);
+	const { provider, id, reason, thinkingLevel, messages, failed } = request.route;
+	const virtual = virtualModels.get(provider)?.get(id);
+	if (!virtual) throw new Error(`Virtual model ${provider}/${id} is not registered.`);
+	const stored = request.route.state;
+	const asked = { reason, thinkingLevel, signal: current.getStore()?.signal };
+	if (reason !== "direct") asked.state = stored;
+	const latest = findLatestResponse(messages);
+	const previousModel = latest && physicalModel(latest.provider, latest.model);
+	const failedModel = failed && physicalModel(failed.provider, failed.model);
+	const routed = await virtual.route({
+		...asked,
+		model: virtual.model,
+		previous: previousModel && { model: previousModel, thinkingLevel: latest?.thinkingLevel },
+		failed: failedModel && failed && { model: failedModel, thinkingLevel: failed.thinkingLevel, message: failed },
+		messages,
+	});
+	const changed = reason !== "direct" && routed.state !== undefined && routed.state !== stored;
+	return {
+		provider: routed.model.provider,
+		id: routed.model.id,
+		thinkingLevel: routed.thinkingLevel,
+		state: changed ? { value: routed.state } : null,
+	};
+}
+
+function unset(payload, path) {
+	let parent = payload;
+	for (const key of path.slice(0, -1)) parent = parent?.[key];
+	if (parent && typeof parent === "object") parent[path.at(-1)] = undefined;
+}
 
 const commandActions = {
 	waitForIdle: rejecter("ctx.waitForIdle"),
@@ -428,6 +556,8 @@ async function load(request) {
 	initTheme(request.theme, false);
 	runner?.invalidate();
 	providers.clear();
+	const hadVirtualModels = virtualModels.size > 0;
+	virtualModels.clear();
 	const result = await loadExtensions(resolvePaths(request), state.cwd, createEventBus());
 	registrants.clear();
 	for (const { name, extensionPath } of result.runtime.pendingProviderRegistrations) registrants.set(name, extensionPath);
@@ -439,6 +569,7 @@ async function load(request) {
 		effect({ call: "error", path: error.extensionPath, event: error.event ?? "", error: error.error }),
 	);
 	runner.bindCore(actions, contextActions, providerActions);
+	if (hadVirtualModels && virtualModels.size === 0) reportVirtualModels();
 	runner.setUIContext(undefined, state.mode);
 	if (state.hasUI) runner.setUIContext(uiOf(runner.getUIContext()), state.mode);
 	runner.bindCommandContext(commandActions);
@@ -452,6 +583,11 @@ async function load(request) {
 
 async function emitEvent(request) {
 	absorb(request);
+	if (request.name === "before_provider_request") {
+		const { payload, unset: declared } = request.event;
+		for (const path of declared) unset(payload, path);
+		return { payload: await runner.emitBeforeProviderRequest(payload) };
+	}
 	const event = { type: request.name, ...request.event };
 	if (request.name === "message_end") {
 		const message = await runner.emitMessageEnd(event);
@@ -556,6 +692,18 @@ async function runStream(request) {
 		throw new Error(`No extension registered a provider ${request.provider} that streams`);
 	}
 	const options = { ...request.options, signal: current.getStore()?.signal };
+	if (request.hooks) {
+		options.onPayload = (payload) =>
+			runner.hasHandlers("before_provider_request") ? runner.emitBeforeProviderRequest(payload) : payload;
+		options.onResponse = async (response) => {
+			if (!runner.hasHandlers("after_provider_response")) return;
+			await runner.emit({ type: "after_provider_response", status: response.status, headers: response.headers });
+		};
+		options.onProviderStreamEvent = async (data, model) => {
+			if (!runner.hasHandlers("provider_stream_event")) return;
+			await runner.emit({ data, type: "provider_stream_event", provider: model.provider, api: model.api, model: model.id });
+		};
+	}
 	for await (const event of provider.streamSimple(request.model, request.context, options)) {
 		send({ id: request.id, update: event });
 	}
@@ -574,6 +722,8 @@ async function handle(request) {
 			return await runTool(request);
 		case "stream":
 			return await runStream(request);
+		case "route":
+			return await route(request);
 		case "shutdown":
 			exit();
 		default:

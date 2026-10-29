@@ -1,4 +1,4 @@
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::config::env;
 use crate::simple_options::{
@@ -7,7 +7,7 @@ use crate::simple_options::{
 use crate::thinking::level_name;
 use crate::types::{
     AssistantBlock, CachePoint, CacheRetention, ImageContent, Message, Model, ModelThinkingLevel,
-    SimpleStreamOptions, ThinkingLevel, Tool, ToolResultMessage, UserBlock, UserContent,
+    Payload, SimpleStreamOptions, ThinkingLevel, Tool, ToolResultMessage, UserBlock, UserContent,
 };
 use crate::utils::transcript::without_initial_system_message;
 
@@ -32,7 +32,7 @@ pub fn build(
     system: Option<&str>,
     tools: &[Tool],
     options: &SimpleStreamOptions,
-) -> Result<Value, String> {
+) -> Result<Payload, String> {
     let claude = has(model, &["claude"]);
     let retention = cache_retention(options);
     let caching = retention != CacheRetention::None && prompt_caching(model);
@@ -48,34 +48,42 @@ pub fn build(
         Vec::new()
     };
     let wire = conversation_json(conversation, &targets, mark.as_ref(), claude)?;
-    let mut body = json!({
-        "messages": wire,
-        "inferenceConfig": {},
-    });
     let max_tokens = options
         .max_tokens
         .filter(|tokens| *tokens > 0)
         .or(claude.then_some(model.max_tokens))
         .filter(|tokens| *tokens > 0);
+    let mut inference = Map::new();
     if let Some(tokens) = max_tokens {
-        body["inferenceConfig"]["maxTokens"] = json!(tokens);
+        inference.insert("maxTokens".to_owned(), json!(tokens));
     }
     if let Some(temperature) = temperature(model, options) {
-        body["inferenceConfig"]["temperature"] = json!(temperature);
+        inference.insert("temperature".to_owned(), json!(temperature));
     }
-    if let Some(text) = system.filter(|text| !text.is_empty()) {
+    let system = system.filter(|text| !text.is_empty()).map(|text| {
         let mut blocks = vec![json!({ "text": text })];
         blocks.extend(mark);
-        body["system"] = Value::Array(blocks);
-    }
-    if !tools.is_empty() {
+        Value::Array(blocks)
+    });
+    let tool_config = (!tools.is_empty()).then(|| {
         let specs: Vec<Value> = tools.iter().map(tool_spec).collect();
-        body["toolConfig"] = json!({ "tools": specs });
-    }
-    if let Some(fields) = additional_fields(model, options) {
-        body["additionalModelRequestFields"] = fields;
-    }
-    Ok(body)
+        json!({ "tools": specs })
+    });
+    let mut payload = Payload::new(Map::new());
+    payload.body.insert("modelId".to_owned(), json!(model.id));
+    payload
+        .body
+        .insert("messages".to_owned(), Value::Array(wire));
+    payload.declare(&["system"], system);
+    payload
+        .body
+        .insert("inferenceConfig".to_owned(), Value::Object(inference));
+    payload.declare(&["toolConfig"], tool_config);
+    payload.declare(
+        &["additionalModelRequestFields"],
+        additional_fields(model, options),
+    );
+    Ok(payload)
 }
 
 fn temperature(model: &Model, options: &SimpleStreamOptions) -> Option<f64> {

@@ -1,7 +1,7 @@
 //! Request shaping for the Anthropic Messages API: transcript to wire messages, tools, thinking,
 //! cache breakpoints and beta features, as pi-ai's Anthropic adapter builds them.
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::simple_options::{adjust_max_tokens_for_thinking, clamp_max_tokens_to_context};
 use crate::thinking::level_name;
@@ -48,7 +48,7 @@ pub enum Reasoning {
 }
 
 pub struct Built {
-    pub body: Value,
+    pub body: Map<String, Value>,
     pub betas: Vec<String>,
     pub provider_thinking_level: Option<String>,
 }
@@ -123,12 +123,11 @@ pub fn build(
     } else {
         converted
     };
-    let mut body = json!({
-        "model": model.id,
-        "messages": messages_json,
-        "max_tokens": max_tokens,
-        "stream": true,
-    });
+    let mut body = Map::new();
+    body.insert("model".to_owned(), json!(model.id));
+    body.insert("messages".to_owned(), Value::Array(messages_json));
+    body.insert("max_tokens".to_owned(), json!(max_tokens));
+    body.insert("stream".to_owned(), json!(true));
     let mut system = Vec::new();
     if oauth {
         system.push(text_block(CLAUDE_CODE_IDENTITY, cache.as_ref()));
@@ -137,7 +136,7 @@ pub fn build(
         system.push(text_block(&system_text, cache.as_ref()));
     }
     if !system.is_empty() {
-        body["system"] = Value::Array(system);
+        body.insert("system".to_owned(), Value::Array(system));
     }
     if !tools.is_empty() {
         let tool_cache = cache
@@ -147,30 +146,39 @@ pub fn build(
         if native {
             definitions.push(deferred_placeholder());
         }
-        body["tools"] = Value::Array(definitions);
+        body.insert("tools".to_owned(), Value::Array(definitions));
     }
     if mid_effort {
-        body["thinking"] = json!({
-            "type": "adaptive",
-            "display": "summarized",
-            "block_binding": {"prefix_mismatch_behavior": "drop_block"},
-        });
-        body["output_config"] = json!({"effort": "low"});
+        body.insert(
+            "thinking".to_owned(),
+            json!({
+                "type": "adaptive",
+                "display": "summarized",
+                "block_binding": {"prefix_mismatch_behavior": "drop_block"},
+            }),
+        );
+        body.insert("output_config".to_owned(), json!({"effort": "low"}));
     } else if model.reasoning {
         match &reasoning {
             Some(Reasoning::Adaptive(effort)) if flag(model, "forceAdaptiveThinking", false) => {
-                body["thinking"] = json!({"type": "adaptive", "display": "summarized"});
-                body["output_config"] = json!({"effort": effort});
+                body.insert(
+                    "thinking".to_owned(),
+                    json!({"type": "adaptive", "display": "summarized"}),
+                );
+                body.insert("output_config".to_owned(), json!({"effort": effort}));
             }
             Some(Reasoning::Budget(tokens)) => {
-                body["thinking"] = json!({
-                    "type": "enabled",
-                    "budget_tokens": tokens,
-                    "display": "summarized",
-                });
+                body.insert(
+                    "thinking".to_owned(),
+                    json!({
+                        "type": "enabled",
+                        "budget_tokens": tokens,
+                        "display": "summarized",
+                    }),
+                );
             }
             None if !off_is_null(model) => {
-                body["thinking"] = json!({"type": "disabled"});
+                body.insert("thinking".to_owned(), json!({"type": "disabled"}));
             }
             _ => {}
         }
@@ -181,11 +189,11 @@ pub fn build(
         .and_then(|metadata| metadata.get("user_id"))
         .and_then(Value::as_str)
     {
-        body["metadata"] = json!({"user_id": user_id});
+        body.insert("metadata".to_owned(), json!({"user_id": user_id}));
     }
     let fallbacks = fallback_models(model);
     if !fallbacks.is_empty() {
-        body["fallbacks"] = Value::Array(fallbacks.clone());
+        body.insert("fallbacks".to_owned(), Value::Array(fallbacks.clone()));
     }
     let fine_grained = !tools.is_empty() && !flag(model, "supportsEagerToolInputStreaming", true);
     let interleaved = model.reasoning
@@ -312,12 +320,15 @@ fn user_block_kept(block: &UserBlock) -> bool {
     }
 }
 
-fn keep_last_prefix_mark(body: &mut Value) {
-    let system_marked = body["system"].as_array().is_some_and(|blocks| {
-        blocks
-            .iter()
-            .any(|block| block.get("cache_control").is_some())
-    });
+fn keep_last_prefix_mark(body: &mut Map<String, Value>) {
+    let system_marked = body
+        .get("system")
+        .and_then(Value::as_array)
+        .is_some_and(|blocks| {
+            blocks
+                .iter()
+                .any(|block| block.get("cache_control").is_some())
+        });
     if !system_marked {
         return;
     }
@@ -328,7 +339,7 @@ fn keep_last_prefix_mark(body: &mut Value) {
             }
         }
     }
-    if let Some(blocks) = body["system"].as_array_mut() {
+    if let Some(blocks) = body.get_mut("system").and_then(Value::as_array_mut) {
         let last = blocks
             .iter()
             .rposition(|block| block.get("cache_control").is_some());

@@ -54,6 +54,13 @@ pub struct ModelRegistry {
     composition_errors: RwLock<BTreeMap<String, String>>,
     auth: Mutex<AuthStore>,
     runtime_keys: Mutex<BTreeMap<String, String>>,
+    virtuals: Mutex<Vec<Model>>,
+}
+
+pub const VIRTUAL_API: &str = "pi-virtual";
+
+pub fn is_virtual(model: &Model) -> bool {
+    model.api == VIRTUAL_API
 }
 
 #[derive(Default)]
@@ -132,6 +139,7 @@ impl ModelRegistry {
             composition_errors: RwLock::new(BTreeMap::new()),
             auth: Mutex::new(auth),
             runtime_keys: Mutex::new(BTreeMap::new()),
+            virtuals: Mutex::new(Vec::new()),
         };
         registry.compose();
         registry
@@ -153,6 +161,16 @@ impl ModelRegistry {
                     models.extend(base);
                 }
             }
+        }
+        for virtual_model in self.virtuals.lock().unwrap().iter() {
+            models.retain(|model| {
+                model.provider != virtual_model.provider || model.id != virtual_model.id
+            });
+            let at = models
+                .iter()
+                .rposition(|model| model.provider == virtual_model.provider)
+                .map_or(models.len(), |last| last + 1);
+            models.insert(at, virtual_model.clone());
         }
         self.listed.lock().unwrap().extend(
             models
@@ -239,6 +257,22 @@ impl ModelRegistry {
         self.compose();
         refreshed.aborted = cancel.is_cancelled();
         refreshed
+    }
+
+    pub fn set_virtual(&self, models: Vec<Model>) {
+        *self.virtuals.lock().unwrap() = models;
+        self.compose();
+    }
+
+    fn only_virtual(&self, provider: &str) -> bool {
+        !self.builtin.contains(provider)
+            && !self.config.providers.contains_key(provider)
+            && self
+                .virtuals
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|model| model.provider == provider)
     }
 
     pub fn models(&self) -> Arc<Vec<Model>> {
@@ -389,7 +423,7 @@ impl ModelRegistry {
 
     /// `hasConfiguredAuth`: whether requests to this provider would get credentials.
     pub fn has_configured_auth(&self, provider: &str) -> bool {
-        if crate::mount::mounts(provider) {
+        if crate::mount::mounts(provider) || self.only_virtual(provider) {
             return true;
         }
         if self.runtime_keys.lock().unwrap().contains_key(provider) {

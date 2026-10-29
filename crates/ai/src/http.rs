@@ -331,6 +331,22 @@ impl Response {
         (200..300).contains(&self.status)
     }
 
+    pub fn provider_response(&self) -> crate::types::ProviderResponse {
+        let mut headers = std::collections::BTreeMap::new();
+        for (name, value) in &self.headers {
+            let key = name.to_ascii_lowercase();
+            let joined = match headers.get(&key) {
+                Some(previous) if key != "set-cookie" => format!("{previous}, {value}"),
+                _ => value.clone(),
+            };
+            headers.insert(key, joined);
+        }
+        crate::types::ProviderResponse {
+            status: self.status,
+            headers,
+        }
+    }
+
     pub fn into_body(self) -> Body {
         self.body
     }

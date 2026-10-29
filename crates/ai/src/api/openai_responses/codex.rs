@@ -154,11 +154,16 @@ pub fn send_with_retries(
     request: &Request,
     cancel: Option<&CancelToken>,
     policy: RetryPolicy,
+    responded: &dyn Fn(&Response) -> Result<(), String>,
 ) -> Result<Response, String> {
     let max = policy.max_delay.filter(|delay| !delay.is_zero());
     let mut attempt = 0u32;
     loop {
-        let delay = match send(request, cancel) {
+        let sent = send(request, cancel);
+        if let Ok(response) = &sent {
+            responded(response)?;
+        }
+        let delay = match sent {
             Ok(response) if response.ok() => return Ok(response),
             Ok(response) => {
                 let status = response.status;

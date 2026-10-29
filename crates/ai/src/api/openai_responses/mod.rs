@@ -72,7 +72,8 @@ pub(crate) fn run(
     }
     let retention = cache_retention(options);
     let turn = turn(model, &context, options, retention, api_key, route);
-    let body = request::build(model, &context, &compat, &turn)?;
+    let body =
+        Value::Object(options.payload(model, request::build(model, &context, &compat, &turn)?)?);
     let url = match route {
         Some(route) => route.url.clone(),
         None if compat.codex => endpoint(&model.base_url),
@@ -109,6 +110,7 @@ pub(crate) fn run(
             transport: options.transport,
             timeout: options.timeout_ms.map(Duration::from_millis),
             signal: options.signal.as_ref(),
+            seen: &|event| options.streamed(model, event),
         };
         if let Some(result) = websocket::run(&attempt, out, output) {
             return result;
@@ -125,7 +127,12 @@ pub(crate) fn run(
         request = request.header(&name, value);
     }
     let response = if compat.codex {
-        codex::send_with_retries(&request, options.signal.as_ref(), retry_policy(options))?
+        codex::send_with_retries(
+            &request,
+            options.signal.as_ref(),
+            retry_policy(options),
+            &|response| options.responded(model, &response.provider_response()),
+        )?
     } else {
         send_retrying(&request, options.signal.as_ref(), retry_policy(options))
             .map_err(|error| error.to_string())?
@@ -134,6 +141,9 @@ pub(crate) fn run(
         let status = response.status;
         let text = response.text().map_err(|error| error.to_string())?;
         return Err(status_error(&model.provider, status, &text));
+    }
+    if !compat.codex {
+        options.responded(model, &response.provider_response())?;
     }
     out.push(AssistantMessageEvent::Start {
         partial: output.clone(),
@@ -144,6 +154,7 @@ pub(crate) fn run(
         options.signal.as_ref(),
         out,
         output,
+        &|event| options.streamed(model, event),
     )
 }
 

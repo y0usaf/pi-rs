@@ -42,6 +42,7 @@ pub fn consume(
     model: &Model,
     cancel: Option<&CancelToken>,
     reader: impl BufRead,
+    seen: &dyn Fn(&Value),
 ) -> Result<(), String> {
     let cancelled = || cancel.is_some_and(CancelToken::is_cancelled);
     out.push(AssistantMessageEvent::Start {
@@ -62,6 +63,7 @@ pub fn consume(
         }
         let chunk: Value =
             serde_json::from_str(data).map_err(|error| format!("invalid stream chunk: {error}"))?;
+        seen(&chunk);
         blocks.chunk(out, output, model, &chunk)?;
     }
     if cancelled() {

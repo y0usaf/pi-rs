@@ -5,7 +5,7 @@ use super::event_stream::AssistantMessageEventStream;
 use super::models::{Models, ModelsError};
 use super::stream::error_stream;
 use super::types::{
-    AssistantMessage, DeferredHandle, Model, SimpleStreamOptions, TranscriptContext,
+    AssistantMessage, DeferredHandle, Model, RequestHooks, SimpleStreamOptions, TranscriptContext,
 };
 use pi_rt::cancel::CancelToken;
 
@@ -29,7 +29,13 @@ pub struct Auth {
 pub type AuthResolver = Arc<dyn Fn(&Model) -> Result<Auth, String> + Send + Sync>;
 
 /// The API a provider registered at runtime streams a model with, when one did.
-pub type Router = Arc<dyn Fn(&Model) -> Option<Arc<dyn Api>> + Send + Sync>;
+pub type Router = Arc<dyn Fn(&Model, Origin) -> Option<Arc<dyn Api>> + Send + Sync>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    AgentLoop,
+    Direct,
+}
 
 pub type Lookup = Arc<dyn Fn(&str, &str) -> Option<Model> + Send + Sync>;
 
@@ -40,6 +46,7 @@ pub struct Providers {
     auth: Option<AuthResolver>,
     router: Option<Router>,
     lookup: Option<Lookup>,
+    hooks: RequestHooks,
 }
 
 impl Providers {
@@ -108,6 +115,11 @@ impl Providers {
         self
     }
 
+    pub fn set_hooks(&mut self, hooks: RequestHooks) -> &mut Self {
+        self.hooks = hooks;
+        self
+    }
+
     pub fn models(&self) -> &[Model] {
         &self.models
     }
@@ -119,19 +131,31 @@ impl Providers {
         context: TranscriptContext,
         options: SimpleStreamOptions,
     ) -> AssistantMessageEventStream {
-        self.dispatch(model, context, options, false)
+        self.dispatch(model, context, options, None)
+    }
+
+    pub fn stream(
+        &self,
+        model: &Model,
+        context: TranscriptContext,
+        options: SimpleStreamOptions,
+        origin: Origin,
+    ) -> AssistantMessageEventStream {
+        self.dispatch(model, context, options, Some(origin))
     }
 
     fn dispatch(
         &self,
         model: &Model,
         context: TranscriptContext,
-        options: SimpleStreamOptions,
-        routed: bool,
+        mut options: SimpleStreamOptions,
+        origin: Option<Origin>,
     ) -> AssistantMessageEventStream {
-        let api = match routed
-            .then(|| self.router.as_ref().and_then(|route| route(model)))
-            .flatten()
+        if origin == Some(Origin::AgentLoop) {
+            options.hooks = options.hooks.or(&self.hooks);
+        }
+        let api = match origin
+            .and_then(|origin| self.router.as_ref().and_then(|route| route(model, origin)))
         {
             Some(api) => api,
             None => match self.apis.get(&model.api) {
@@ -195,7 +219,20 @@ impl Models for Providers {
         context: TranscriptContext,
         options: SimpleStreamOptions,
     ) -> AssistantMessageEventStream {
-        self.dispatch(model, context, options, true)
+        self.stream(model, context, options, Origin::AgentLoop)
+    }
+
+    fn complete_simple(
+        &self,
+        model: &Model,
+        context: TranscriptContext,
+        options: SimpleStreamOptions,
+    ) -> Result<AssistantMessage, ModelsError> {
+        let stream = self.stream(model, context, options, Origin::Direct);
+        while stream.next_event().is_some() {}
+        stream
+            .result()
+            .ok_or_else(|| ModelsError("stream ended without a final message".to_owned()))
     }
 
     fn fetch_deferred(
