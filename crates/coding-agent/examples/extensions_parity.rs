@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -28,9 +28,29 @@ const COMPARED_EVENTS: [&str; 8] = [
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Fixture {
-    extension: PathBuf,
     prompt: String,
     turns: Vec<Turn>,
+    #[serde(default)]
+    files: BTreeMap<String, String>,
+}
+
+impl Default for Fixture {
+    fn default() -> Self {
+        Fixture {
+            files: BTreeMap::new(),
+            prompt: "hi".into(),
+            turns: vec![Turn {
+                text: Some("done".into()),
+                tool_calls: Vec::new(),
+            }],
+        }
+    }
+}
+
+struct Case {
+    name: String,
+    entry: PathBuf,
+    fixture: Fixture,
 }
 
 #[derive(Clone, Deserialize)]
@@ -56,6 +76,40 @@ struct Run {
     stdout: String,
     stderr: String,
     log: Option<String>,
+    files: BTreeMap<String, String>,
+}
+
+fn seeded(root: &Path, path: &str) -> Result<PathBuf> {
+    let relative = Path::new(path);
+    if !relative
+        .components()
+        .all(|part| matches!(part, std::path::Component::Normal(_)))
+    {
+        return Err(format!("seeded file {path} is not a plain path under the cwd").into());
+    }
+    Ok(root.join("cwd").join(relative))
+}
+
+fn snapshot(dir: &Path, prefix: &str, out: &mut BTreeMap<String, String>) -> Result<()> {
+    for item in std::fs::read_dir(dir)? {
+        let path = item?.path();
+        let name = format!(
+            "{prefix}{}",
+            path.file_name().ok_or("unnamed file")?.to_string_lossy()
+        );
+        if name == ".git" {
+            continue;
+        }
+        if path.is_dir() {
+            snapshot(&path, &format!("{name}/"), out)?;
+        } else {
+            out.insert(
+                name,
+                String::from_utf8_lossy(&std::fs::read(&path)?).into_owned(),
+            );
+        }
+    }
+    Ok(())
 }
 
 type Script = Arc<Mutex<HashMap<String, (Vec<Turn>, Vec<Value>)>>>;
@@ -166,9 +220,25 @@ fn serve(mut stream: TcpStream, script: &Script) -> Result<()> {
     Ok(())
 }
 
-fn run(bin: &Path, root: &Path, base_url: &str, extension: &Path, prompt: &str) -> Result<Run> {
+fn run(bin: &Path, root: &Path, base_url: &str, case: &Case, probe: &Path) -> Result<Run> {
     for dir in ["home", "agent", "cwd"] {
         std::fs::create_dir_all(root.join(dir))?;
+    }
+    let extension = root.join("wrap.ts");
+    std::fs::write(
+        &extension,
+        format!(
+            "import * as entry from {};\nimport {{ wrap }} from {};\nexport default wrap(entry.default);\n",
+            json!(case.entry.to_string_lossy()),
+            json!(probe.to_string_lossy()),
+        ),
+    )?;
+    for (path, content) in &case.fixture.files {
+        let target = seeded(root, path)?;
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(target, content)?;
     }
     let models = json!({"providers": {"fake": {
         "baseUrl": base_url,
@@ -189,8 +259,8 @@ fn run(bin: &Path, root: &Path, base_url: &str, extension: &Path, prompt: &str) 
             "-p",
             "-e",
         ])
-        .arg(extension)
-        .arg(prompt)
+        .arg(&extension)
+        .arg(&case.fixture.prompt)
         .current_dir(root.join("cwd"))
         .env_clear()
         .env("HOME", root.join("home"))
@@ -231,11 +301,14 @@ fn run(bin: &Path, root: &Path, base_url: &str, extension: &Path, prompt: &str) 
     let stderr = stderr.join().map_err(|_| "stderr reader panicked")??;
     std::fs::write(root.join("stdout.jsonl"), &stdout)?;
     std::fs::write(root.join("stderr.txt"), &stderr)?;
+    let mut files = BTreeMap::new();
+    snapshot(&root.join("cwd"), "", &mut files)?;
     Ok(Run {
         status,
         stdout,
         stderr,
         log: std::fs::read_to_string(root.join("extension.log")).ok(),
+        files,
     })
 }
 
@@ -284,6 +357,54 @@ fn message_metadata(message: &mut Value) {
     }
 }
 
+fn boundary(log: &str) -> Result<Vec<Value>> {
+    let mut records: Vec<Value> = Vec::new();
+    let mut at: HashMap<u64, usize> = HashMap::new();
+    for (index, line) in log.lines().enumerate() {
+        let mut record: Value = serde_json::from_str(line)
+            .map_err(|error| format!("probe log line {}: {error}", index + 1))?;
+        let id = record["id"]
+            .as_u64()
+            .ok_or_else(|| format!("probe log line {}: no id", index + 1))?;
+        match record["kind"].as_str() {
+            Some("return" | "resolve" | "throw" | "reject") => {
+                let slot = at
+                    .get(&id)
+                    .ok_or_else(|| format!("probe log line {}: outcome of no call", index + 1))?;
+                if let Value::Object(fields) = &mut record {
+                    fields.remove("id");
+                }
+                records[*slot]["outcome"] = record;
+            }
+            _ => {
+                at.insert(id, records.len());
+                records.push(record);
+            }
+        }
+    }
+    records.sort_by_key(|record| record["id"].as_u64());
+    for record in &mut records {
+        if let Value::Object(fields) = record {
+            fields.remove("id");
+        }
+    }
+    Ok(records)
+}
+
+fn loaded(run: &Run) -> bool {
+    run.log.as_deref().is_some_and(|log| {
+        boundary(log).is_ok_and(|records| {
+            records.iter().any(|record| {
+                record["kind"] == "load"
+                    && matches!(
+                        record["outcome"]["kind"].as_str(),
+                        Some("return" | "resolve")
+                    )
+            })
+        })
+    })
+}
+
 fn trace(run: &Run, root: &Path, docs: &Regex) -> Result<Vec<Value>> {
     let root = root.to_string_lossy();
     let mut events = Vec::new();
@@ -318,12 +439,18 @@ fn trace(run: &Run, root: &Path, docs: &Regex) -> Result<Vec<Value>> {
         }
         events.push(canonical(event, &root, docs));
     }
-    if let Some(log) = &run.log {
+    for record in boundary(run.log.as_deref().unwrap_or_default())? {
+        events.push(canonical(record, &root, docs));
+    }
+    if !run.stderr.trim().is_empty() {
         events.push(canonical(
-            json!({"extension_log": log.lines().collect::<Vec<_>>()}),
+            json!({"stderr": run.stderr.lines().collect::<Vec<_>>()}),
             &root,
             docs,
         ));
+    }
+    if !run.files.is_empty() {
+        events.push(canonical(json!({"files": run.files}), &root, docs));
     }
     Ok(events)
 }
@@ -393,8 +520,10 @@ fn problems(side: &str, run: &Run, requests: usize, fixture: &Fixture) -> Vec<St
     if !run.status.success() {
         found.push(format!("{side} exited {}", run.status));
     }
-    if !run.stderr.trim().is_empty() {
-        found.push(format!("{side} stderr:\n{}", run.stderr.trim_end()));
+    if side == SIDES[0] && !loaded(run) {
+        found.push(format!(
+            "{side} did not load the entry, so this case measures nothing"
+        ));
     }
     if requests != fixture.turns.len() {
         found.push(format!(
@@ -434,42 +563,83 @@ fn problems(side: &str, run: &Run, requests: usize, fixture: &Fixture) -> Vec<St
 fn main() -> Result<()> {
     let bins = [env_path("PI_UPSTREAM_BIN")?, env_path("PI_RS_BIN")?];
     let fixtures_dir = env_path("PI_PARITY_FIXTURES")?;
-    let mut fixtures = Vec::new();
-    for entry in std::fs::read_dir(&fixtures_dir)? {
-        let path = entry?.path();
-        if path.extension().is_some_and(|ext| ext == "json") {
-            let fixture: Fixture = serde_json::from_str(&std::fs::read_to_string(&path)?)
-                .map_err(|error| format!("{}: {error}", path.display()))?;
-            let extension = fixtures_dir.join(&fixture.extension);
-            if !extension.is_file() {
-                return Err(format!(
-                    "{}: no extension at {}",
-                    path.display(),
-                    extension.display()
-                )
-                .into());
+    let probe = fixtures_dir.join("probe.ts");
+    let only: Vec<String> = std::env::args().skip(1).collect();
+    let mut entries = Vec::new();
+    for item in std::fs::read_dir(fixtures_dir.join("upstream"))? {
+        let path = item?.path();
+        let name = path
+            .file_stem()
+            .ok_or("entry without a name")?
+            .to_string_lossy()
+            .into_owned();
+        if path.is_dir() {
+            let index = path.join("index.ts");
+            if !index.is_file() {
+                return Err(
+                    format!("{}: a directory entry without index.ts", path.display()).into(),
+                );
             }
-            let name = path
-                .file_stem()
-                .ok_or("fixture without a name")?
-                .to_string_lossy()
-                .into_owned();
-            fixtures.push((name, extension, fixture));
+            entries.push((name, index));
+        } else if path.extension().is_some_and(|ext| ext == "ts") {
+            entries.push((name, path));
+        }
+    }
+    if entries.is_empty() {
+        return Err(format!("no entries in {}/upstream", fixtures_dir.display()).into());
+    }
+    let mut scenarios: HashMap<String, Vec<(String, Fixture)>> = HashMap::new();
+    for item in std::fs::read_dir(&fixtures_dir)? {
+        let path = item?.path();
+        if path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let fixture: Fixture = serde_json::from_str(&std::fs::read_to_string(&path)?)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        let name = path
+            .file_stem()
+            .ok_or("scenario without a name")?
+            .to_string_lossy()
+            .into_owned();
+        let entry = name
+            .split_once('.')
+            .map_or(name.as_str(), |(entry, _)| entry);
+        if !entries.iter().any(|(known, _)| known == entry) {
+            return Err(format!("{}: names no entry in upstream/", path.display()).into());
+        }
+        scenarios
+            .entry(entry.to_owned())
+            .or_default()
+            .push((name, fixture));
+    }
+    let mut fixtures: Vec<Case> = Vec::new();
+    for (entry, path) in &entries {
+        let cases = scenarios
+            .remove(entry)
+            .unwrap_or_else(|| vec![(entry.clone(), Fixture::default())]);
+        for (name, fixture) in cases {
+            if only.is_empty() || only.iter().any(|want| *want == name || want == entry) {
+                fixtures.push(Case {
+                    name,
+                    entry: path.clone(),
+                    fixture,
+                });
+            }
         }
     }
     if fixtures.is_empty() {
-        return Err(format!("no fixtures in {}", fixtures_dir.display()).into());
+        return Err(format!("no case matches {}", only.join(" ")).into());
     }
-    fixtures.sort_by(|a, b| a.0.cmp(&b.0));
+    fixtures.sort_by(|a, b| a.name.cmp(&b.name));
 
     let script: Script = Arc::new(Mutex::new(
         fixtures
             .iter()
-            .flat_map(|(name, _, fixture)| {
+            .flat_map(|case| {
                 SIDES.map(|side| {
                     (
-                        format!("{name}/{side}"),
-                        (fixture.turns.clone(), Vec::new()),
+                        format!("{}/{side}", case.name),
+                        (case.fixture.turns.clone(), Vec::new()),
                     )
                 })
             })
@@ -492,14 +662,15 @@ fn main() -> Result<()> {
     let docs = Regex::new(r"(Main documentation|Additional docs|Examples): /\S+")?;
     let scratch = std::env::temp_dir().join(format!("extensions-parity-{}", std::process::id()));
     let mut failed = Vec::new();
-    for (name, extension, fixture) in &fixtures {
+    for case in &fixtures {
+        let (name, fixture) = (&case.name, &case.fixture);
         let mut found = Vec::new();
         let mut traces = Vec::new();
         for (side, bin) in SIDES.iter().zip(&bins) {
             let label = format!("{name}/{side}");
             let root = scratch.join(&label);
             let base_url = format!("http://127.0.0.1:{port}/{label}/v1");
-            match run(bin, &root, &base_url, extension, &fixture.prompt) {
+            match run(bin, &root, &base_url, case, &probe) {
                 Ok(run) => {
                     let requests = script
                         .lock()
@@ -536,9 +707,14 @@ fn main() -> Result<()> {
         }
         failed.push(name.as_str());
     }
+    println!(
+        "extensions parity: {} of {} cases same",
+        fixtures.len() - failed.len(),
+        fixtures.len()
+    );
     if !failed.is_empty() {
         return Err(format!(
-            "{} of {} fixtures differ: {} (raw output kept under {})",
+            "{} of {} cases differ: {} (raw output kept under {})",
             failed.len(),
             fixtures.len(),
             failed.join(", "),
@@ -547,6 +723,5 @@ fn main() -> Result<()> {
         .into());
     }
     std::fs::remove_dir_all(&scratch)?;
-    println!("extensions parity ok: {} fixtures", fixtures.len());
     Ok(())
 }
