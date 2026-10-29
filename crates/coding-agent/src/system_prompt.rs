@@ -3,12 +3,15 @@
 
 use std::path::Path;
 
+use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
+
 use crate::config::CONFIG_DIR_NAME;
 use crate::paths::{PathInput, dirname, join, normalize_path, resolve};
 use crate::settings::canonicalize;
 use crate::skills::{Skill, format_skills_for_prompt};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextFile {
     pub path: String,
     pub content: String,
@@ -212,22 +215,49 @@ pub fn package_dir() -> String {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PromptInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_prompt: Option<String>,
     pub selected_tools: Vec<String>,
     /// Tool snippets in tool registry order (tools without a snippet are not listed).
-    pub tool_snippets: Vec<(String, String)>,
-    pub tool_guidelines: Vec<(String, Vec<String>)>,
+    pub tool_snippets: IndexMap<String, String>,
+    pub tool_guidelines: IndexMap<String, Vec<String>>,
     pub prompt_guidelines: Vec<String>,
     pub append_system_prompt: String,
+    pub sections: IndexMap<String, String>,
     pub cwd: String,
     pub context_files: Vec<ContextFile>,
     pub skills: Vec<Skill>,
+    #[serde(skip)]
     pub package_dir: String,
 }
 
-fn build_rules(tools: &[String], guidelines: &[(String, Vec<String>)], extra: &[String]) -> String {
+impl PromptInput {
+    pub fn check_sections(&self) -> Result<(), String> {
+        let valid = |name: &str| {
+            let mut chars = name.chars();
+            chars.next().is_some_and(|first| first.is_ascii_lowercase())
+                && chars
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+        };
+        match self
+            .sections
+            .keys()
+            .find(|name| !valid(name) || *name == "preamble")
+        {
+            Some(name) => Err(format!("Invalid system prompt section name: {name}")),
+            None => Ok(()),
+        }
+    }
+}
+
+fn build_rules(
+    tools: &[String],
+    guidelines: &IndexMap<String, Vec<String>>,
+    extra: &[String],
+) -> String {
     let mut rules: Vec<String> = Vec::new();
     let mut add = |rule: &str| {
         let r = rule.trim();
@@ -248,10 +278,8 @@ fn build_rules(tools: &[String], guidelines: &[(String, Vec<String>)], extra: &[
         }
     }
     for name in tools {
-        for (_, list) in guidelines.iter().filter(|(n, _)| n == name) {
-            for rule in list {
-                add(rule);
-            }
+        for rule in guidelines.get(name).into_iter().flatten() {
+            add(rule);
         }
     }
     for rule in extra {
@@ -280,9 +308,9 @@ pub fn build_sections(input: &PromptInput) -> Vec<(String, String)> {
                 .filter_map(|name| {
                     input
                         .tool_snippets
-                        .iter()
-                        .find(|(n, s)| n == name && !s.is_empty())
-                        .map(|(n, s)| format!("- {n}: {s}"))
+                        .get(name)
+                        .filter(|snippet| !snippet.is_empty())
+                        .map(|snippet| format!("- {name}: {snippet}"))
                 })
                 .collect();
             let tools = if listed.is_empty() {
@@ -331,6 +359,12 @@ pub fn build_sections(input: &PromptInput) -> Vec<(String, String)> {
         }
     }
     raw.push(("cwd", input.cwd.replace('\\', "/")));
+    for (name, text) in input.sections.iter().filter(|(_, text)| !text.is_empty()) {
+        match raw.iter_mut().find(|(known, _)| known == name) {
+            Some(slot) => slot.1 = text.clone(),
+            None => raw.push((name, text.clone())),
+        }
+    }
     raw.into_iter()
         .map(|(name, text)| {
             let text = if name == "preamble" {
@@ -408,32 +442,29 @@ pub fn assemble(o: &AssembleOptions) -> Assembled {
         no_skills: o.no_skills,
         cli_paths: o.skill_paths,
     });
-    let mut tool_snippets = Vec::new();
-    let mut tool_guidelines = Vec::new();
-    for name in crate::tools::ALL_TOOL_NAMES {
-        if let Some(spec) = crate::tools::spec(name) {
-            if !spec.prompt.snippet.is_empty() {
-                tool_snippets.push((name.to_string(), spec.prompt.snippet.to_string()));
-            }
-            tool_guidelines.push((
-                name.to_string(),
-                spec.prompt
-                    .guidelines
-                    .iter()
-                    .map(|g| g.to_string())
-                    .collect(),
-            ));
+    let mut tool_snippets = IndexMap::new();
+    let mut tool_guidelines = IndexMap::new();
+    let codemode = crate::codemode::prompt_contribution();
+    let contributions = crate::tools::ALL_TOOL_NAMES
+        .iter()
+        .filter_map(|name| crate::tools::spec(name))
+        .map(|spec| (spec.name, spec.prompt.snippet, spec.prompt.guidelines))
+        .chain([(
+            crate::codemode::TOOL_NAME,
+            codemode.snippet,
+            codemode.guidelines,
+        )]);
+    for (name, snippet, guidelines) in contributions {
+        if !snippet.is_empty() {
+            tool_snippets.insert(name.to_owned(), snippet.to_owned());
+        }
+        if !guidelines.is_empty() {
+            tool_guidelines.insert(
+                name.to_owned(),
+                guidelines.iter().map(|g| g.to_string()).collect(),
+            );
         }
     }
-    let codemode = crate::codemode::prompt_contribution();
-    tool_snippets.push((
-        crate::codemode::TOOL_NAME.to_owned(),
-        codemode.snippet.to_owned(),
-    ));
-    tool_guidelines.push((
-        crate::codemode::TOOL_NAME.to_owned(),
-        codemode.guidelines.iter().map(|g| g.to_string()).collect(),
-    ));
     let known: Vec<String> = o
         .tools
         .iter()
@@ -448,6 +479,7 @@ pub fn assemble(o: &AssembleOptions) -> Assembled {
             tool_guidelines,
             prompt_guidelines: Vec::new(),
             append_system_prompt: append.join("\n\n"),
+            sections: IndexMap::new(),
             cwd,
             context_files,
             skills: loaded.skills,

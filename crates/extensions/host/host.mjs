@@ -43,6 +43,7 @@ const { loadExtensions } = await import(new URL("core/extensions/loader.js", dis
 const { ExtensionRunner } = await import(new URL("core/extensions/runner.js", dist));
 const { createEventBus } = await import(new URL("core/event-bus.js", dist));
 const { SessionManager } = await import(new URL("core/session-manager.js", dist));
+const { convertToLlm } = await import(new URL("core/messages.js", dist));
 const { killAll } = await import(new URL("core/exec.js", dist));
 const { initTheme } = await import(new URL("modes/interactive/theme/theme.js", dist));
 const { flowOf } = await import(new URL("./node_modules/@earendil-works/pi-ai/dist/providers/all.js", import.meta.url));
@@ -459,8 +460,61 @@ async function emitEvent(request) {
 	if (request.name === "input") {
 		return await runner.emitInput(event.text, event.images, event.source ?? "interactive", event.streamingBehavior);
 	}
+	if (request.name === "before_agent_start") {
+		const trigger = { messageType: "user", prompt: event.prompt, images: event.images };
+		return await runner.emitBeforeAgentStart(trigger, event.systemPromptOptions);
+	}
+	if (request.name === "turn_end") return await turnEnd(event.turnIndex);
 	await runner.emit(event);
 	return null;
+}
+
+function boundaryContext() {
+	const projection = session.buildSessionProjection();
+	const llmMessages = convertToLlm(projection.messages);
+	const finalRole = llmMessages.at(-1)?.role;
+	const runnable = llmMessages.some((message) => message.role !== "system") && finalRole !== "assistant";
+	return {
+		contextEntries: projection.entries,
+		contextMessages: projection.messages,
+		llmMessages,
+		pendingMessages: [],
+		canContinue: runnable || state.pending > 0,
+	};
+}
+
+async function turnEnd(turnIndex) {
+	if (!runner.hasHandlers("turn_end")) return null;
+	const branch = session.getBranch();
+	const at = branch.findLastIndex((entry) => entry.type === "message" && entry.message.role === "assistant");
+	if (at < 0) {
+		runner.emitError({
+			extensionPath: "<boundary>",
+			event: "turn_end",
+			error: "turn_end could not resolve the persisted assistant entry ID",
+		});
+		return null;
+	}
+	const results = [];
+	for (const entry of branch.slice(at + 1)) {
+		if (entry.type !== "message" || entry.message.role !== "toolResult") break;
+		results.push(entry);
+	}
+	const message = branch[at].message;
+	const outcome = message.stopReason === "aborted" ? "aborted" : message.stopReason === "error" ? "error" : "completed";
+	const boundary = await runner.emitBoundary(
+		{
+			type: "turn_end",
+			turnIndex,
+			message,
+			toolResults: results.map((entry) => entry.message),
+			messageEntryId: branch[at].id,
+			toolResultEntryIds: results.map((entry) => entry.id),
+			outcome,
+		},
+		boundaryContext,
+	);
+	return { entries: boundary.entries, continue: boundary.continue };
 }
 
 async function runCommand(request) {

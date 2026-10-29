@@ -489,6 +489,11 @@ fn submit(
     if run_config::is_unknown_model(model) {
         return Err(crate::list_models::no_api_key_found(&model.provider));
     }
+    if let Some(live) = live
+        && !busy
+    {
+        live.before_agent_start(&content)?;
+    }
     root.submit(
         SubmissionDraft::Input {
             request_id: None,

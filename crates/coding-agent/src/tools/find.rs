@@ -33,6 +33,7 @@ pub fn spec() -> ToolSpec {
             guidelines: &[],
         },
         prepare_arguments: None,
+        constrained_sampling: None,
         execute,
     }
 }

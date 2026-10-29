@@ -22,6 +22,7 @@ pub fn spec() -> ToolSpec {
             guidelines: &["Use write only for new files or complete rewrites."],
         },
         prepare_arguments: None,
+        constrained_sampling: super::json_schema_sampling(),
         execute,
     }
 }

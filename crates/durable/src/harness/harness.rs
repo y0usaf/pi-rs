@@ -69,6 +69,7 @@ struct Inner {
 
 pub struct Harness(Arc<Inner>);
 
+#[derive(Clone)]
 pub struct Conversation {
     id: ConversationId,
     inner: Arc<Inner>,

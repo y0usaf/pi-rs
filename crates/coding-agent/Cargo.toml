@@ -18,6 +18,7 @@ pi-extensions = { path = "../extensions" }
 pi-tui = { path = "../tui" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+indexmap = { version = "2", features = ["serde"] }
 regex = "1"
 unicode-normalization = "0.1"
 ring = "0.17"

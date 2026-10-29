@@ -2,6 +2,7 @@
 //! the `packages` setting, the `extensions` setting, `--extension` and the two standard
 //! directories name, and the child that loads them.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
@@ -15,7 +16,7 @@ use pi_durable::ai::types::{
     SimpleStreamOptions, SystemContent, SystemMessage, SystemRole, TextContent, TextType,
     Tool as AgentTool, TranscriptContext, UserBlock, UserContent,
 };
-use pi_durable::ai::utils::transcript::normalize_context;
+use pi_durable::ai::utils::transcript::{get_current_system_message, normalize_context};
 use pi_durable::cancel::CancelToken;
 use pi_durable::errors::Error;
 use pi_durable::harness::events::AgentEvent;
@@ -27,8 +28,9 @@ use pi_durable::harness::types::{
     HookApi, HookRegistration, OutputLimitsSpec, ToolControl, ToolExecute, ToolExecutionApi,
     ToolExecutionMode, ToolExecutionResult, ToolExposure, ToolRegistration,
 };
+use pi_durable::ids::EntryId;
 use pi_extensions::{Call, Failed, Load, Peer, Pending, ProviderInfo, ToolInfo};
-use serde::de::DeserializeOwned;
+use serde::de::{DeserializeOwned, IgnoredAny};
 use serde_json::{Map, Value, json};
 
 use crate::config::CONFIG_DIR_NAME;
@@ -36,6 +38,7 @@ use crate::models::ModelRegistry;
 use crate::paths::join;
 use crate::print::Loadout;
 use crate::settings::SettingsManager;
+use crate::system_prompt::PromptInput;
 
 /// What an extension sees of the models: the session's own, the catalog `find` searches, and the
 /// providers whose credentials are configured.
@@ -515,6 +518,7 @@ pub fn load(
         for command in &extension.commands {
             lock(&host.0.commands).push(command.name.clone());
         }
+        lock(&host.0.handled).extend(extension.events.iter().cloned());
     }
     host.0.sink.tools(load.tools.clone());
     host.0.sink.providers(load.providers.clone());
@@ -578,6 +582,54 @@ struct Inner {
     settled: AtomicBool,
     started: AtomicBool,
     commands: Mutex<Vec<String>>,
+    handled: Mutex<HashSet<String>>,
+    prompt: Mutex<Option<PromptInput>>,
+    run: Mutex<RunState>,
+    session: Mutex<Option<SessionSource>>,
+}
+
+#[derive(Default)]
+struct RunState {
+    started: bool,
+    turn: Option<usize>,
+    next: usize,
+    forced: Option<String>,
+}
+
+#[derive(Clone)]
+struct SessionSource {
+    root: Conversation,
+    path: Option<String>,
+    cwd: String,
+    name: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Started {
+    messages: Vec<IgnoredAny>,
+    system_prompt_options: RunPrompt,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RunPrompt {
+    #[serde(flatten)]
+    input: PromptInput,
+    #[serde(default)]
+    force_system_prompt: Option<String>,
+}
+
+struct Prepared {
+    sections: Vec<(String, String)>,
+    forced: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct Boundary {
+    entries: Vec<IgnoredAny>,
+    #[serde(rename = "continue")]
+    proceed: bool,
 }
 
 #[derive(Default)]
@@ -587,6 +639,7 @@ struct Sink {
     tools: Mutex<Vec<ToolInfo>>,
     providers: Mutex<Vec<ProviderInfo>>,
     registries: Mutex<Vec<(Weak<Registry>, Arc<Loadout>)>>,
+    sections: Mutex<Option<Vec<(String, String)>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -630,6 +683,23 @@ impl Peer for Sink {
 
     fn tools(&self, tools: Vec<ToolInfo>) {
         *lock(&self.tools) = tools;
+        if let Err(error) = self.reinstall() {
+            self.call(Call::Notify {
+                text: format!("Warning: the extensions' tools were not installed: {error}"),
+                level: "warning".to_owned(),
+            });
+        }
+    }
+}
+
+impl Sink {
+    fn install(&self, registry: &Registry, loadout: &Loadout) -> std::result::Result<(), Error> {
+        let tools: Vec<ToolRegistration> = lock(&self.tools).iter().map(registration).collect();
+        let sections = lock(&self.sections).clone();
+        registry.install(loadout.with(&tools, sections.as_deref()))
+    }
+
+    fn reinstall(&self) -> std::result::Result<(), Error> {
         let registries: Vec<(Arc<Registry>, Arc<Loadout>)> = {
             let mut registries = lock(&self.registries);
             registries.retain(|(registry, _)| registry.strong_count() > 0);
@@ -638,21 +708,13 @@ impl Peer for Sink {
                 .filter_map(|(registry, loadout)| Some((registry.upgrade()?, Arc::clone(loadout))))
                 .collect()
         };
-        for (registry, loadout) in registries {
-            if let Err(error) = self.install(&registry, &loadout) {
-                self.call(Call::Notify {
-                    text: format!("Warning: the extensions' tools were not installed: {error}"),
-                    level: "warning".to_owned(),
-                });
+        let mut outcome = Ok(());
+        for (registry, loadout) in &registries {
+            if let Err(error) = self.install(registry, loadout) {
+                outcome = Err(error);
             }
         }
-    }
-}
-
-impl Sink {
-    fn install(&self, registry: &Registry, loadout: &Loadout) -> std::result::Result<(), Error> {
-        let tools: Vec<ToolRegistration> = lock(&self.tools).iter().map(registration).collect();
-        registry.install(loadout.with(&tools))
+        outcome
     }
 }
 
@@ -760,7 +822,26 @@ impl Live {
             settled: AtomicBool::new(false),
             started: AtomicBool::new(false),
             commands: Mutex::new(Vec::new()),
+            handled: Mutex::new(HashSet::new()),
+            prompt: Mutex::new(None),
+            run: Mutex::new(RunState::default()),
+            session: Mutex::new(None),
         })))
+    }
+
+    pub fn set_prompt(&self, input: PromptInput) {
+        *lock(&self.0.prompt) = Some(input);
+    }
+
+    fn handles(&self, event: &str) -> bool {
+        lock(&self.0.handled).contains(event)
+    }
+
+    fn unported(&self, what: &str) {
+        self.0.sink.call(Call::Notify {
+            text: format!("Warning: {what}, which pi-rs does not implement yet"),
+            level: "warning".to_owned(),
+        });
     }
 
     /// What the next handler sees of the run: the session's cwd, whether a turn is going, and how
@@ -780,8 +861,24 @@ impl Live {
         cwd: &str,
         cancel: &CancelToken,
     ) {
+        *lock(&self.0.session) = Some(SessionSource {
+            root: root.clone(),
+            path: path.map(str::to_owned),
+            cwd: cwd.to_owned(),
+            name: crate::session_info::name(harness, cancel),
+        });
+        self.refresh_session(cancel);
+    }
+
+    fn refresh_session(&self, cancel: &CancelToken) {
+        let Some(source) = lock(&self.0.session).clone() else {
+            return;
+        };
+        let path = source.path.as_deref();
         let session_id = crate::sessions::export::session_id(path);
-        let Ok(mut entries) = crate::sessions::export::lines(root, cancel, &session_id, cwd) else {
+        let Ok(mut entries) =
+            crate::sessions::export::lines(&source.root, cancel, &session_id, &source.cwd)
+        else {
             return;
         };
         let header = entries.remove(0);
@@ -792,9 +889,172 @@ impl Live {
                 "entries": entries,
                 "file": path,
                 "dir": path.map(crate::paths::dirname),
-                "name": crate::session_info::name(harness, cancel),
+                "name": source.name,
             }),
         );
+    }
+
+    pub fn before_agent_start(&self, content: &UserContent) -> std::result::Result<(), String> {
+        let Some(base) = lock(&self.0.prompt).clone() else {
+            return Ok(());
+        };
+        if !self.handles("before_agent_start") {
+            return Ok(());
+        }
+        lock(&self.0.run).forced = None;
+        *lock(&self.0.sink.sections) = None;
+        let outcome = match self.run_prompt(base, content) {
+            Ok(Some(prompt)) => {
+                lock(&self.0.run).forced = prompt.forced;
+                *lock(&self.0.sink.sections) = Some(prompt.sections);
+                Ok(())
+            }
+            Ok(None) => Ok(()),
+            Err(error) => Err(error),
+        };
+        self.0
+            .sink
+            .reinstall()
+            .map_err(|e| format!("the run's system prompt was not installed: {e}"))?;
+        outcome
+    }
+
+    fn run_prompt(
+        &self,
+        base: PromptInput,
+        content: &UserContent,
+    ) -> std::result::Result<Option<Prepared>, String> {
+        let images: Vec<&UserBlock> = match content {
+            UserContent::Blocks(blocks) => blocks
+                .iter()
+                .filter(|block| matches!(block, UserBlock::Image(_)))
+                .collect(),
+            UserContent::Text(_) => Vec::new(),
+        };
+        let mut event = json!({ "prompt": text_of(content).unwrap_or_default() });
+        if !images.is_empty() {
+            event["images"] = json!(images);
+        }
+        event["systemPromptOptions"] = serde_json::to_value(&base).map_err(|e| e.to_string())?;
+        let Ok(answer) = self.ask("before_agent_start", event) else {
+            return Ok(None);
+        };
+        let started: Started = serde_json::from_value(answer)
+            .map_err(|e| format!("the extension host answered before_agent_start with {e}"))?;
+        let RunPrompt {
+            input: mut options,
+            force_system_prompt,
+        } = started.system_prompt_options;
+        options.check_sections()?;
+        if options.selected_tools != base.selected_tools {
+            self.unported("a before_agent_start handler changed systemPromptOptions.selectedTools");
+            options.selected_tools = base.selected_tools;
+        }
+        if !started.messages.is_empty() {
+            self.unported("a before_agent_start handler returned a message");
+        }
+        options.package_dir = base.package_dir;
+        Ok(Some(Prepared {
+            sections: crate::system_prompt::build_sections(&options),
+            forced: force_system_prompt,
+        }))
+    }
+
+    pub fn start_run(&self) {
+        let mut run = lock(&self.0.run);
+        if run.started {
+            return;
+        }
+        run.started = true;
+        self.event("agent_start", json!({}));
+    }
+
+    fn turn_start(&self) {
+        self.start_run();
+        let index = {
+            let mut run = lock(&self.0.run);
+            if run.turn.is_some() {
+                return;
+            }
+            run.turn = Some(run.next);
+            run.next
+        };
+        self.event(
+            "turn_start",
+            json!({ "turnIndex": index, "timestamp": now_ms() }),
+        );
+    }
+
+    fn turn_end(&self) {
+        let index = {
+            let mut run = lock(&self.0.run);
+            let Some(index) = run.turn.take() else {
+                return;
+            };
+            run.next = index + 1;
+            index
+        };
+        if !self.handles("turn_end") {
+            return;
+        }
+        self.refresh_session(&CancelToken::new());
+        let Ok(answer) = self.ask("turn_end", json!({ "turnIndex": index })) else {
+            return;
+        };
+        let boundary = match serde_json::from_value::<Option<Boundary>>(answer) {
+            Ok(Some(boundary)) => boundary,
+            Ok(None) => return,
+            Err(e) => {
+                self.0.sink.call(Call::Notify {
+                    text: format!("Warning: the extension host answered turn_end with {e}"),
+                    level: "warning".to_owned(),
+                });
+                return;
+            }
+        };
+        if !boundary.entries.is_empty() {
+            self.unported("a turn_end handler returned session entries");
+        }
+        if boundary.proceed {
+            self.unported("a turn_end handler asked the run to continue");
+        }
+    }
+
+    pub fn end_run(&self) {
+        self.turn_end();
+        *lock(&self.0.run) = RunState::default();
+        let overridden = lock(&self.0.sink.sections).take().is_some();
+        if overridden && let Err(error) = self.0.sink.reinstall() {
+            self.0.sink.call(Call::Notify {
+                text: format!("Warning: the base system prompt was not restored: {error}"),
+                level: "warning".to_owned(),
+            });
+        }
+    }
+
+    fn forced(&self, messages: &[Message]) -> Option<Vec<Message>> {
+        let forced = lock(&self.0.run).forced.clone()?;
+        let current = get_current_system_message(messages);
+        let head = SystemMessage {
+            role: SystemRole,
+            content: SystemContent::Text(forced),
+            sections: None,
+            tools_added: current
+                .as_ref()
+                .and_then(|current| current.tools_added.clone()),
+            tools_removed: None,
+            timestamp: current.map_or_else(now_ms, |current| current.timestamp),
+        };
+        Some(
+            std::iter::once(Message::System(head))
+                .chain(
+                    messages
+                        .iter()
+                        .filter(|message| !matches!(message, Message::System(_)))
+                        .cloned(),
+                )
+                .collect(),
+        )
     }
 
     /// Hands the extensions the models they see: the session's own, the catalog `find` searches,
@@ -1083,24 +1343,24 @@ impl Live {
     /// Hands one event to the extensions and waits for what they made of it.
     pub fn event(&self, name: &str, payload: Value) -> Option<Value> {
         let answer = self.ask(name, payload).ok();
-        if name == "agent_end" {
-            self.0.settled.store(true, Ordering::SeqCst);
+        match name {
+            "agent_end" => self.0.settled.store(true, Ordering::SeqCst),
+            "session_shutdown" => *lock(&self.0.session) = None,
+            _ => {}
         }
         answer
     }
 
     /// The durable events that are extension events too: a run starting and ending.
     pub fn observe(&self, event: &AgentEvent) {
-        let name = match event {
-            AgentEvent::RunStart { .. } => "agent_start",
-            AgentEvent::RunEnd { .. } => "agent_end",
-            _ => return,
-        };
-        let payload = match event {
-            AgentEvent::RunEnd { .. } => json!({ "messages": [] }),
-            _ => json!({}),
-        };
-        self.event(name, payload);
+        match event {
+            AgentEvent::RunStart { .. } => self.start_run(),
+            AgentEvent::RunEnd { .. } => {
+                self.end_run();
+                self.event("agent_end", json!({ "messages": [] }));
+            }
+            _ => {}
+        }
     }
 
     /// Upstream's `input`: what the user typed, which a handler may rewrite or swallow. `None`
@@ -1155,13 +1415,24 @@ impl Live {
         std::mem::take(&mut *lock(&self.0.sink.calls))
     }
 
-    /// The durable hooks: a streamed message, and one that may be replaced when it ends.
     pub fn hooks(&self) -> HookRegistration {
         let streamed = self.clone();
         let ended = self.clone();
+        let requested = self.clone();
+        let finished = self.clone();
         HookRegistration::new(
             &GENERATION_HOOK,
             GenerationHooks {
+                before_request: Some(Box::new(move |_api: &HookApi, messages: &[Message]| {
+                    requested.turn_start();
+                    Ok(requested.forced(messages))
+                })),
+                after_tools: Some(Box::new(
+                    move |_api: &HookApi, _assistant: EntryId, _results: &[EntryId]| {
+                        finished.turn_end();
+                        Ok(())
+                    },
+                )),
                 on_partial: Some(Arc::new(move |_api: &HookApi, message| {
                     streamed.partial(message.as_deref())
                 })),

@@ -94,7 +94,12 @@ pub struct ToolSpec {
     pub prompt: PromptContribution,
     /// Repairs malformed arguments before validation (`prepareArguments`).
     pub prepare_arguments: Option<fn(Value) -> Value>,
+    pub constrained_sampling: Option<Value>,
     pub execute: Execute,
+}
+
+fn json_schema_sampling() -> Option<Value> {
+    Some(serde_json::json!({ "type": "json_schema", "strict": "prefer" }))
 }
 
 /// Upstream's `allToolNames` minus `powershell` (Windows only).

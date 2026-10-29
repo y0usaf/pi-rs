@@ -388,7 +388,7 @@ fn run() -> Result<ExitCode, String> {
         &tools,
         crate::codemode::Mode::parse(settings.codemode_mode()),
     );
-    let assembled = system_prompt::assemble(&AssembleOptions {
+    let mut assembled = system_prompt::assemble(&AssembleOptions {
         cwd: &cwd,
         agent_dir: &agent_dir,
         project_trusted: trusted,
@@ -402,12 +402,15 @@ fn run() -> Result<ExitCode, String> {
     for w in &assembled.warnings {
         eprintln!("{w}");
     }
-    let mut sections = system_prompt::build_sections(&assembled.input);
     if let Some(section) = mcp.section() {
-        sections.push((
-            "mcp_servers".to_owned(),
-            format!("<mcp_servers>\n{section}\n</mcp_servers>"),
-        ));
+        assembled
+            .input
+            .sections
+            .insert("mcp_servers".to_owned(), section);
+    }
+    let sections = system_prompt::build_sections(&assembled.input);
+    if let Some(live) = extensions::live() {
+        live.set_prompt(assembled.input.clone());
     }
 
     // A first look at the stored conversation, for --continue's model and thinking level.

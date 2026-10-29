@@ -42,6 +42,7 @@ pub fn spec() -> ToolSpec {
             ],
         },
         prepare_arguments: Some(prepare_arguments),
+        constrained_sampling: super::json_schema_sampling(),
         execute,
     }
 }

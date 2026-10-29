@@ -90,7 +90,7 @@ fn registration(spec: ToolSpec, settings: Arc<ToolSettings>) -> ToolRegistration
             name: spec.name.to_owned(),
             description: spec.description,
             parameters: spec.parameters,
-            constrained_sampling: None,
+            constrained_sampling: spec.constrained_sampling,
         },
         replay: None,
         execution_mode: None,
@@ -177,12 +177,22 @@ pub struct Loadout {
 }
 
 impl Loadout {
-    pub fn with(&self, added: &[ToolRegistration]) -> Extension {
+    pub fn with(
+        &self,
+        added: &[ToolRegistration],
+        sections: Option<&[(String, String)]>,
+    ) -> Extension {
         let mut extension = self.extension.clone();
         extension
             .tools
             .retain(|tool| !added.iter().any(|new| new.tool.name == tool.tool.name));
         extension.tools.extend(added.iter().cloned());
+        if let Some(sections) = sections {
+            extension.sections = sections
+                .iter()
+                .map(|(key, text)| fixed_section(key, text.clone()))
+                .collect();
+        }
         crate::codemode::apply_loadout(&mut extension.tools, self.mode);
         extension
     }
@@ -374,7 +384,11 @@ pub fn run_turns(
             _ => content,
         };
         if let Some(live) = live {
-            live.event("agent_start", serde_json::json!({}));
+            if let Err(error) = live.before_agent_start(&content) {
+                eprintln!("{error}");
+                continue;
+            }
+            live.start_run();
         }
         conversation.submit(
             SubmissionDraft::Input {
@@ -389,6 +403,7 @@ pub fn run_turns(
             continue;
         };
         refresh(live);
+        live.end_run();
         live.event("agent_end", serde_json::json!({ "messages": [] }));
         for call in live.take_calls() {
             match call {
@@ -507,7 +522,7 @@ pub fn open_harness_with(
     let registry = Arc::new(Registry::default());
     match crate::extensions::live() {
         Some(live) => live.attach(&registry, extension)?,
-        None => registry.install(extension.with(&[]))?,
+        None => registry.install(extension.with(&[], None))?,
     }
     for extension in mounted.extensions {
         registry.install(extension)?;

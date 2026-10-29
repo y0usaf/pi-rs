@@ -396,6 +396,15 @@ pub fn run(
         harness,
         root,
     };
+    if let Some(live) = crate::extensions::live() {
+        live.set_session(
+            &open.harness,
+            &open.root,
+            open.path.as_deref(),
+            &options.cwd,
+            cancel,
+        );
+    }
 
     // A thread reads stdin, so a running `bash` command's output and `abort_bash` reach the
     // client while nothing is typed.
@@ -460,6 +469,9 @@ fn sink(output: &Output, state: &Arc<Mutex<State>>) -> Sink {
     let mut mapper = json_event::Mapper::default();
     Box::new(move |events, _| {
         for event in events {
+            if let Some(live) = crate::extensions::live() {
+                live.observe(event);
+            }
             if let Ok(mut state) = shared.lock() {
                 state.apply(event);
             }
@@ -515,6 +527,15 @@ fn switch(
         .and_then(|agent| agent.cwd)
         .unwrap_or_else(|| options.cwd.clone());
     run_config::apply_agent(&open.root, cancel, &model, thinking, &cwd)?;
+    if let Some(live) = crate::extensions::live() {
+        live.set_session(
+            &open.harness,
+            &open.root,
+            open.path.as_deref(),
+            &cwd,
+            cancel,
+        );
+    }
     let mut shared = state
         .lock()
         .map_err(|_| "the session state is poisoned".to_owned())?;
@@ -554,9 +575,17 @@ fn handle(
                     _ => WhenBusy::FollowUp,
                 },
             };
+            let content = user_content(command, &options.templates);
+            let starts = kind == "prompt" && !state.lock().is_ok_and(|state| state.streaming);
+            if starts
+                && let Some(live) = crate::extensions::live()
+                && let Err(error) = live.before_agent_start(&content)
+            {
+                return Some(failure(id, kind, error));
+            }
             let draft = SubmissionDraft::Input {
                 request_id: id.map(|id| id.to_string()),
-                content: user_content(command, &options.templates),
+                content,
                 when_busy,
             };
             match root.submit(draft, cancel) {

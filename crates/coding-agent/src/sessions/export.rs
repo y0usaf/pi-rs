@@ -13,6 +13,9 @@ use crate::paths::{PathInput, dirname, resolve_path};
 /// `CURRENT_SESSION_VERSION`: the header version every reader understands.
 const VERSION: u64 = 3;
 
+const MODEL_CHANGE_ID: u64 = 0xffff_ffff;
+const THINKING_CHANGE_ID: u64 = 0xffff_fffe;
+
 /// `getPathCommandArgument`: the first argument after `/export` or `/import`, unquoted.
 pub fn path_argument(text: &str, command: &str) -> Option<String> {
     let rest = text.strip_prefix(command)?.strip_prefix(' ')?.trim_start();
@@ -72,21 +75,19 @@ pub fn lines(
     };
     // Durable records no model or thinking change: both live in the agent document, so the
     // branch carries the conversation's current pair at its head, where upstream writes them
-    // for a new session. Ids after the branch's own keep the chain unique.
-    let base = view
-        .entries
-        .iter()
-        .map(|entry| entry.id.0)
-        .max()
-        .unwrap_or_default();
+    // for a new session.
     if let Some(model) = &agent.model {
-        let mut change = plain("model_change", &short_id(base + 1), &timestamp);
+        let mut change = plain("model_change", &short_id(MODEL_CHANGE_ID), &timestamp);
         change.insert("provider".into(), model.provider.as_str().into());
         change.insert("modelId".into(), model.model_id.as_str().into());
         push(change, &mut lines);
     }
     let phrase = crate::run_config::level_name(agent.thinking_level);
-    let mut change = plain("thinking_level_change", &short_id(base + 2), &timestamp);
+    let mut change = plain(
+        "thinking_level_change",
+        &short_id(THINKING_CHANGE_ID),
+        &timestamp,
+    );
     change.insert("thinkingLevel".into(), phrase.as_str().into());
     push(change, &mut lines);
     // The system prompt is appended when the first run starts, after the message that started
@@ -223,7 +224,6 @@ fn upstream_message(message: &mut Value, thinking: &str) {
     let Some(object) = message.as_object_mut() else {
         return;
     };
-    object.remove("durationMs");
     if object.get("role").and_then(Value::as_str) == Some("assistant") {
         object.insert("thinkingLevel".into(), thinking.into());
     }

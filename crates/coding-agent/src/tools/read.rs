@@ -33,6 +33,7 @@ pub fn spec() -> ToolSpec {
             guidelines: &["Use read to examine files instead of cat or sed."],
         },
         prepare_arguments: None,
+        constrained_sampling: super::json_schema_sampling(),
         execute,
     }
 }
