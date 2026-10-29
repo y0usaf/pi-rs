@@ -1,53 +1,19 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
-import { register } from "node:module";
-import { pathToFileURL } from "node:url";
-
-import { drain } from "./common.mjs";
-
-register("./register.mjs", import.meta.url);
 
 const protocol = process.stdout.write.bind(process.stdout);
 process.stdout.write = (chunk, encoding, callback) => process.stderr.write(chunk, encoding, callback);
-
-const UNSUPPORTED = [
-	"registerShortcut",
-	"registerFlag",
-	"getFlag",
-	"registerMessageRenderer",
-	"registerMarkdownTransformer",
-	"registerEntryRenderer",
-	"registerToolRenderer",
-	"sendMessage",
-	"appendEntry",
-	"setSessionName",
-	"getSessionName",
-	"setLabel",
-	"getSettings",
-	"setActiveTools",
-	"getCommands",
-	"setModel",
-	"getThinkingLevel",
-	"setThinkingLevel",
-	"registerMcpServer",
-	"unregisterMcpServer",
-	"getMcpServers",
-	"registerVirtualModel",
-	"unregisterVirtualModel",
-	"route",
-];
-
-function send(message) {
-	protocol(JSON.stringify(message) + "\n");
-}
 
 const answers = new Map();
 let nextCallId = 1;
 const current = new AsyncLocalStorage();
 const inflight = new Map();
+
+function send(message) {
+	protocol(JSON.stringify(message) + "\n");
+}
 
 function askStream(call, args, update) {
 	const callId = nextCallId++;
@@ -64,143 +30,26 @@ function effect(call) {
 	send(call);
 }
 
-const groups = new Set();
-let pruning;
-
-function signalGroup(child, name) {
-	if (child.pid === undefined) return;
-	try {
-		process.kill(-child.pid, name);
-	} catch (error) {
-		if (error.code !== "ESRCH") throw error;
-	}
+/** A member of upstream's API pi-rs does not back yet: reported to pi-rs, and thrown to the caller. */
+function unported(member) {
+	effect({ call: "unsupported", member });
+	return new Error(`pi-rs does not implement ${member} yet`);
 }
 
-function alive(child) {
-	try {
-		process.kill(-child.pid, 0);
-		return true;
-	} catch (error) {
-		if (error.code === "ESRCH" || error.code === "EPERM") return false;
-		throw error;
-	}
-}
+globalThis.__piHost = { effect, unported };
 
-function prune() {
-	for (const child of groups) {
-		if (alive(child)) continue;
-		groups.delete(child);
-		effect({ call: "ungroup", pid: child.pid });
-	}
-	if (groups.size > 0) return;
-	clearInterval(pruning);
-	pruning = undefined;
-}
-
-function track(child) {
-	if (child.pid === undefined) return;
-	groups.add(child);
-	effect({ call: "group", pid: child.pid });
-	pruning ??= setInterval(prune, 10000).unref();
-}
+const dist = new URL("./node_modules/@earendil-works/pi-coding-agent/dist/", import.meta.url);
+const { loadExtensions } = await import(new URL("core/extensions/loader.js", dist));
+const { ExtensionRunner } = await import(new URL("core/extensions/runner.js", dist));
+const { createEventBus } = await import(new URL("core/event-bus.js", dist));
+const { SessionManager } = await import(new URL("core/session-manager.js", dist));
+const { killAll } = await import(new URL("core/exec.js", dist));
+const { initTheme } = await import(new URL("modes/interactive/theme/theme.js", dist));
+const { flowOf } = await import(new URL("./node_modules/@earendil-works/pi-ai/dist/providers/all.js", import.meta.url));
 
 function exit() {
-	prune();
-	for (const child of groups) signalGroup(child, "SIGKILL");
+	killAll();
 	process.exit(0);
-}
-
-function waitForChild(child, stopped) {
-	return new Promise((resolve, reject) => {
-		let settled = false;
-		let exited = false;
-		let exitCode = null;
-		let timer;
-		let stdoutEnded = child.stdout === null;
-		let stderrEnded = child.stderr === null;
-		const finish = (code) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			child.stdout?.destroy();
-			child.stderr?.destroy();
-			resolve(code);
-		};
-		const afterExit = () => {
-			if (exited && stdoutEnded && stderrEnded) finish(exitCode);
-		};
-		const idle = () => {
-			clearTimeout(timer);
-			timer = setTimeout(() => finish(exitCode), 100);
-		};
-		const data = () => {
-			if (exited && !settled && !stopped()) idle();
-		};
-		child.stdout?.once("end", () => {
-			stdoutEnded = true;
-			afterExit();
-		});
-		child.stderr?.once("end", () => {
-			stderrEnded = true;
-			afterExit();
-		});
-		child.stdout?.on("data", data);
-		child.stderr?.on("data", data);
-		child.once("error", (error) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			reject(error);
-		});
-		child.once("exit", (code) => {
-			exited = true;
-			exitCode = code;
-			afterExit();
-			if (!settled) idle();
-		});
-		child.once("close", finish);
-	});
-}
-
-function execCommand(command, args, cwd, options) {
-	return new Promise((resolve) => {
-		const proc = spawn(command, args, { cwd, detached: true, shell: false, stdio: ["ignore", "pipe", "pipe"] });
-		track(proc);
-		let stdout = "";
-		let stderr = "";
-		let killed = false;
-		let timeoutId;
-		const kill = () => {
-			if (killed) return;
-			killed = true;
-			signalGroup(proc, "SIGTERM");
-			setTimeout(() => {
-				signalGroup(proc, "SIGKILL");
-				prune();
-			}, 5000).unref();
-		};
-		if (options?.signal) {
-			if (options.signal.aborted) kill();
-			else options.signal.addEventListener("abort", kill, { once: true });
-		}
-		if (options?.timeout && options.timeout > 0) timeoutId = setTimeout(kill, options.timeout);
-		proc.stdout?.on("data", (chunk) => {
-			stdout += chunk.toString();
-		});
-		proc.stderr?.on("data", (chunk) => {
-			stderr += chunk.toString();
-		});
-		const done = (code) => {
-			prune();
-			clearTimeout(timeoutId);
-			options?.signal?.removeEventListener("abort", kill);
-			resolve({ stdout, stderr, code, killed });
-		};
-		waitForChild(proc, () => killed).then(
-			(code) => done(code ?? 0),
-			() => done(1),
-		);
-	});
 }
 
 function stripBom(text) {
@@ -291,72 +140,57 @@ function resolvePaths(request) {
 	return all;
 }
 
-function create(extensionPath) {
-	return {
-		path: extensionPath,
-		resolvedPath: extensionPath,
-		events: [],
-		commands: [],
-		unsupported: [],
-		eventHandlers: new Map(),
-		commandHandlers: new Map(),
-		tools: new Map(),
-		providers: new Map(),
-	};
+const state = {
+	mode: "print",
+	hasUI: false,
+	cwd: process.cwd(),
+	trusted: false,
+	streaming: false,
+	pending: 0,
+	session: undefined,
+	models: { current: undefined, list: [], configured: [] },
+	tools: { active: [], all: [] },
+};
+
+let runner;
+const providers = new Map();
+const registrants = new Map();
+
+function absorb(request) {
+	Object.assign(state, request.updates);
+	if (typeof request.mode === "string") state.mode = request.mode;
+	if (typeof request.hasUI === "boolean") state.hasUI = request.hasUI;
+	if (typeof request.cwd === "string") state.cwd = request.cwd;
+	if (typeof request.streaming === "boolean") state.streaming = request.streaming;
+	if (typeof request.pending === "number") state.pending = request.pending;
+	if (request.updates?.session) session.refresh();
 }
 
-/** The providers extensions registered, by id; a later registration of an id wins. */
-function registeredProviders() {
-	const found = new Map();
-	for (const extension of loaded.values()) {
-		for (const provider of extension.providers.values()) found.set(provider.id, { extension, provider });
-	}
-	return found;
-}
+const WRITES = /^(append|branch|reset|new|set|create)/;
 
-function providerInfos() {
-	return [...registeredProviders().values()].map(({ extension, provider }) => {
-		const oauth = provider.auth?.oauth ?? provider.oauth;
-		return {
-			id: provider.id,
-			name: provider.name ?? provider.id,
-			oauth: oauth ? { name: oauth.name ?? provider.name ?? provider.id, flow: oauth.id } : null,
-			streams: typeof provider.streamSimple === "function",
-			path: extension.path,
-		};
-	});
-}
-
-function plain(value) {
-	return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
-}
-
-function registeredTools() {
-	const found = new Map();
-	for (const extension of loaded.values()) {
-		for (const tool of extension.tools.values()) {
-			if (!found.has(tool.name)) found.set(tool.name, { extension, tool });
+/** `ctx.sessionManager`: upstream's own SessionManager over the entries pi-rs last sent, refusing writes. */
+const session = (() => {
+	const view = SessionManager.inMemory(state.cwd);
+	const load = view._loadEntries.bind(view);
+	for (const name of Object.getOwnPropertyNames(SessionManager.prototype)) {
+		if (WRITES.test(name)) {
+			view[name] = () => {
+				throw unported(`sessionManager.${name}`);
+			};
 		}
 	}
-	return [...found.values()];
-}
+	view.getSessionFile = () => state.session?.file ?? undefined;
+	view.getSessionDir = () => state.session?.dir ?? "";
+	view.isPersisted = () => typeof state.session?.file === "string";
+	view.getSessionName = () => state.session?.name ?? undefined;
+	view.refresh = () => {
+		const entries = state.session?.header ? [state.session.header, ...(state.session.entries ?? [])] : [];
+		if (entries.length > 0) load(entries);
+	};
+	return view;
+})();
 
-function toolInfos() {
-	return registeredTools().map(({ extension, tool }) => ({
-		name: tool.name,
-		label: tool.label ?? tool.name,
-		description: tool.description ?? "",
-		parameters: plain(tool.parameters),
-		promptSnippet: tool.promptSnippet,
-		promptGuidelines: tool.promptGuidelines ?? [],
-		executionMode: tool.executionMode,
-		exposure: tool.exposure,
-		defaultActive: tool.defaultActive,
-		path: extension.path,
-	}));
-}
-
-const UNIMPLEMENTED_REGISTRY = [
+const REGISTRY_UNPORTED = [
 	"stream",
 	"streamSimple",
 	"classify",
@@ -370,17 +204,21 @@ const UNIMPLEMENTED_REGISTRY = [
 	"getAvailableOfType",
 	"getApiKeyAndHeaders",
 	"getApiKeyForProvider",
+	"registerProvider",
+	"unregisterProvider",
+	"registerVirtualModel",
+	"unregisterVirtualModel",
 ];
 
-/** `ctx.modelRegistry`: the models `find` searches, and a `complete` pi-rs runs. */
-function registryOf() {
-	const list = () => runtime.models?.list ?? [];
-	const configured = () => new Set(runtime.models?.configured ?? []);
+/** `ctx.modelRegistry`: the catalog and logins pi-rs last sent, with requests pi-rs runs. */
+const modelRegistry = (() => {
+	const list = () => state.models?.list ?? [];
+	const configured = () => new Set(state.models?.configured ?? []);
 	const registry = {
 		getAll: () => list().map((model) => ({ ...model })),
 		getAvailable: () => {
-			const providers = configured();
-			return list().filter((model) => providers.has(model.provider));
+			const ids = configured();
+			return list().filter((model) => ids.has(model.provider));
 		},
 		find: (provider, modelId) => list().find((model) => model.provider === provider && model.id === modelId),
 		hasConfiguredAuth: (model) => configured().has(model?.provider),
@@ -392,446 +230,282 @@ function registryOf() {
 				force: options?.force,
 				providers: options?.providers ? [...options.providers] : undefined,
 			});
-			runtime.models = { ...runtime.models, list: answer.list, configured: answer.configured };
+			state.models = { ...state.models, list: answer.list, configured: answer.configured };
 			const errors = Object.entries(answer.errors ?? {}).map(([id, message]) => [id, new Error(message)]);
 			return { aborted: answer.aborted, errors: new Map(errors) };
 		},
-		complete: (model, context, options) =>
-			ask("complete", {
+		complete: (model, context, options) => {
+			const forwarded = new Set(["maxTokens", "reasoningEffort", "signal"]);
+			const dropped = Object.keys(options ?? {}).filter((key) => !forwarded.has(key));
+			if (dropped.length > 0) throw unported(`modelRegistry.complete options ${dropped.join(", ")}`);
+			return ask("complete", {
 				provider: model?.provider,
 				modelId: model?.id,
 				context,
-				options: {
-					maxTokens: options?.maxTokens,
-					reasoningEffort: options?.reasoningEffort,
-				},
-			}),
+				options: { maxTokens: options?.maxTokens, reasoningEffort: options?.reasoningEffort },
+			});
+		},
 	};
-	for (const member of UNIMPLEMENTED_REGISTRY) {
+	for (const member of REGISTRY_UNPORTED) {
 		registry[member] = () => {
-			effect({ call: "unsupported", member: `modelRegistry.${member}` });
-			return Promise.resolve(undefined);
+			throw unported(`modelRegistry.${member}`);
 		};
 	}
 	return registry;
+})();
+
+function plain(value) {
+	return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 }
 
-function sessionManagerOf(session) {
-	const entries = session?.entries ?? [];
-	const entry = (id) => entries.find((candidate) => candidate.id === id);
-	return {
-		getCwd: () => session?.header?.cwd ?? runtime.cwd,
-		getSessionDir: () => session?.dir ?? "",
-		getSessionId: () => session?.header?.id ?? "",
-		getSessionFile: () => session?.file ?? undefined,
-		getLeafId: () => entries.at(-1)?.id ?? null,
-		getLeafEntry: () => entries.at(-1),
-		getEntry: entry,
-		getLabel: () => undefined,
-		getBranch(fromId) {
-			const end = fromId === undefined ? entries.length : entries.findIndex((candidate) => candidate.id === fromId) + 1;
-			return entries.slice(0, end);
-		},
-		getHeader: () => session?.header ?? null,
-		getEntries: () => [...entries],
-		getTree() {
-			let node;
-			for (const leaf of [...entries].reverse()) node = { entry: leaf, children: node ? [node] : [] };
-			return node ? [node] : [];
-		},
-		getSessionName: () => session?.name ?? undefined,
-	};
+function toolInfos() {
+	return (runner?.getAllRegisteredTools() ?? []).map(({ definition, sourceInfo }) => ({
+		name: definition.name,
+		label: definition.label ?? definition.name,
+		description: definition.description ?? "",
+		parameters: plain(definition.parameters),
+		promptSnippet: definition.promptSnippet,
+		promptGuidelines: definition.promptGuidelines ?? [],
+		executionMode: definition.executionMode,
+		exposure: definition.exposure,
+		defaultActive: definition.defaultActive,
+		path: sourceInfo?.path ?? "",
+	}));
 }
 
-function contextOf() {
-	const call = effect;
-	const unsupported = (member) => effect({ call: "unsupported", member });
-	const signal = current.getStore()?.signal ?? new AbortController().signal;
-	return {
-		ui: {
-			notify(message, type) {
-				call({ call: "notify", text: String(message), level: type ?? "info" });
-			},
-			setStatus() {
-				unsupported("ui.setStatus");
-			},
-			select() {
-				unsupported("ui.select");
-				return Promise.resolve(undefined);
-			},
-			confirm() {
-				unsupported("ui.confirm");
-				return Promise.resolve(false);
-			},
-			input() {
-				unsupported("ui.input");
-				return Promise.resolve(undefined);
-			},
-			custom() {
-				unsupported("ui.custom");
-				return Promise.resolve(undefined);
-			},
-			onTerminalInput() {
-				return () => {};
-			},
-			setWidget() {
-				unsupported("ui.setWidget");
-			},
-			setTheme() {},
-			getTheme() {
-				return undefined;
-			},
-		},
-		mode: runtime.mode,
-		hasUI: runtime.hasUI,
-		cwd: runtime.cwd,
-		sessionManager: sessionManagerOf(runtime.session),
-		modelRegistry: registryOf(),
-		model: runtime.models?.current,
-		scopedModels: [],
-		isIdle: () => !runtime.streaming,
-		isProjectTrusted: () => runtime.trusted,
-		signal,
-		abort() {
-			call({ call: "abort" });
-		},
-		hasPendingMessages: () => runtime.pending > 0,
-		shutdown() {
-			call({ call: "shutdown" });
-		},
-		getContextUsage: () => undefined,
-		compact() {},
-		getSystemPrompt: () => "",
-	};
-}
-
-function apiFor(extension, runtime) {
-	const note = (member) => {
-		if (!extension.unsupported.includes(member)) extension.unsupported.push(member);
-	};
-	const api = {
-		on(name, handler) {
-			extension.events.push(name);
-			const handlers = extension.eventHandlers.get(name) ?? [];
-			handlers.push(handler);
-			extension.eventHandlers.set(name, handlers);
-			return () => {
-				const registered = extension.eventHandlers.get(name);
-				if (!registered) return;
-				const index = registered.indexOf(handler);
-				if (index >= 0) registered.splice(index, 1);
-			};
-		},
-		registerCommand(name, options) {
-			if (typeof name !== "string" || name.length === 0) {
-				throw new Error(
-					`Command registered by extension "${extension.path}" must have a non-empty string name. Use pi.registerCommand("name", { description, handler }).`,
-				);
-			}
-			if (typeof options?.handler !== "function") {
-				throw new Error(`Command "/${name}" registered by extension "${extension.path}" must define handler().`);
-			}
-			extension.commands.push({ name, description: options?.description ?? "" });
-			extension.commandHandlers.set(name, options?.handler);
-		},
-		registerTool(tool) {
-			if (typeof tool?.parameters !== "object" || tool.parameters === null || Array.isArray(tool.parameters)) {
-				throw new Error(
-					`Tool "${tool?.name}" registered by extension "${extension.path}" must define an object parameter schema.`,
-				);
-			}
-			extension.tools.set(tool.name, tool);
-			if (runtime.bound) effect({ call: "tools", tools: toolInfos() });
-		},
-		registerProvider(providerOrName, config) {
-			const provider = typeof providerOrName === "string" ? { ...config, id: providerOrName } : providerOrName;
-			if (typeof provider?.id !== "string" || provider.id.length === 0) {
-				throw new Error(`Provider registered by extension "${extension.path}" must have a non-empty string id.`);
-			}
-			extension.providers.set(provider.id, provider);
-			if (runtime.bound) effect({ call: "providers", providers: providerInfos() });
-		},
-		unregisterProvider(id) {
-			if (extension.providers.delete(id) && runtime.bound) {
-				effect({ call: "providers", providers: providerInfos() });
-			}
-		},
-		exec(command, args, options) {
-			bound();
-			return execCommand(command, args, options?.cwd ?? runtime.cwd, options);
-		},
-		sendUserMessage(content, options) {
-			bound();
-			const parts = typeof content === "string" ? [{ type: "text", text: content }] : content;
-			effect({
-				call: "sendUserMessage",
-				content: parts,
-				deliverAs: options?.deliverAs ?? null,
-			});
-			return Promise.resolve();
-		},
-		getActiveTools() {
-			bound();
-			const active = new Set(runtime.tools.active);
-			for (const { tool } of registeredTools()) if (activated(tool)) active.add(tool.name);
-			return [...active];
-		},
-		getAllTools() {
-			bound();
-			const all = runtime.tools.all.map((tool) => ({ ...tool }));
-			for (const { extension, tool } of registeredTools()) {
-				const info = {
-					name: tool.name,
-					description: tool.description ?? "",
-					parameters: tool.parameters,
-					exposure: tool.exposure ?? "direct",
-					sourceInfo: { path: extension.path, source: "extension", scope: "temporary", origin: "top-level" },
-				};
-				const index = all.findIndex((existing) => existing.name === tool.name);
-				if (index >= 0) all[index] = info;
-				else all.push(info);
-			}
-			return all;
-		},
-		events: {
-			on() {
-				return () => {};
-			},
-			emit() {},
-		},
-	};
-	for (const member of UNSUPPORTED) api[member] = () => note(member);
-	return api;
-}
-
-function bound() {
-	if (!runtime.bound) {
-		throw new Error("Extension runtime not initialized. Action methods cannot be called during extension loading.");
-	}
-}
-
-function activated(tool) {
-	const exposure = tool.exposure ?? "direct";
-	if (exposure !== "direct" && exposure !== "model-only") return false;
-	return tool.defaultActive !== false;
-}
-
-function summary(extension) {
-	return {
-		path: extension.path,
-		resolvedPath: extension.resolvedPath,
-		events: extension.events,
-		commands: extension.commands,
-		unsupported: extension.unsupported,
-	};
-}
-
-const loaded = new Map();
-let runtime = {
-	mode: "print",
-	hasUI: false,
-	cwd: process.cwd(),
-	trusted: false,
-	bound: false,
-	streaming: false,
-	pending: 0,
-	session: undefined,
-	models: { current: undefined, list: [], configured: [] },
-	providers: [],
-	tools: { active: [], all: [] },
-};
-
-globalThis.__piHost = {
-	askStream,
-	effect,
-	providers: () => runtime.providers ?? [],
-	models: () => runtime.models?.list ?? [],
-};
-
-async function load(request) {
-	Object.assign(runtime, request.updates);
-	const loadErrors = [];
-	globalThis.__piExtensionAgentDir = request.agentDir;
-	if (typeof request.mode === "string") runtime.mode = request.mode;
-	runtime.hasUI = request.hasUI === true;
-	runtime.cwd = request.cwd ?? runtime.cwd;
-	runtime.trusted = request.trusted === true;
-	const extensions = [];
-	const found = [];
-	for (const extensionPath of resolvePaths(request)) {
-		try {
-			if (loaded.has(extensionPath)) {
-				extensions.push(summary(loaded.get(extensionPath)));
-				found.push(loaded.get(extensionPath));
-				continue;
-			}
-			const module = await import(pathToFileURL(extensionPath).href);
-			const factory = module.default;
-			if (typeof factory !== "function") {
-				loadErrors.push({
-					path: extensionPath,
-					error: `Extension does not export a valid factory function: ${extensionPath}`,
-				});
-				continue;
-			}
-			const extension = create(extensionPath);
-			drain();
-			await factory(apiFor(extension, runtime));
-			for (const name of drain()) {
-				if (!extension.unsupported.includes(name)) extension.unsupported.push(name);
-			}
-			loaded.set(extensionPath, extension);
-			extensions.push(summary(extension));
-			found.push(extension);
-		} catch (error) {
-			loadErrors.push({
-				path: extensionPath,
-				error: `Failed to load extension: ${error instanceof Error ? error.message : String(error)}`,
-			});
-		}
-	}
-	runtime.bound = true;
-	return { value: { extensions, errors: loadErrors, tools: toolInfos(), providers: providerInfos() } };
-}
-
-function handlersOf(name) {
-	const found = [];
-	for (const extension of loaded.values()) {
-		for (const handler of extension.eventHandlers.get(name) ?? []) {
-			found.push({ extension, handler });
-		}
-	}
-	return found;
-}
-
-function sameRole(a, b) {
-	return (a?.role ?? "") === (b?.role ?? "");
-}
-
-function failed(extension, name, error) {
-	effect({
-		call: "error",
-		path: extension.path,
-		event: name,
-		error: error instanceof Error ? error.message : String(error),
+function providerInfos() {
+	return [...providers.values()].map(({ provider, path: extensionPath }) => {
+		const oauth = provider.auth?.oauth ?? provider.oauth;
+		return {
+			id: provider.id,
+			name: provider.name ?? provider.id,
+			oauth: oauth ? { name: oauth.name ?? provider.name ?? provider.id, flow: flowOf(oauth) ?? null } : null,
+			streams: typeof provider.streamSimple === "function",
+			path: extensionPath,
+		};
 	});
 }
 
-async function emitMessageEnd(request) {
-	let message = request.event.message;
-	let replaced = false;
-	for (const { extension, handler } of handlersOf("message_end")) {
-		const ctx = contextOf();
-		try {
-			const result = await handler({ ...request.event, message }, ctx);
-			if (!result?.message) continue;
-			if (!sameRole(result.message, message)) {
-				failed(
-					extension,
-					"message_end",
-					new Error("message_end handlers must return a message with the same role"),
-				);
-				continue;
-			}
-			message = result.message;
-			replaced = true;
-		} catch (error) {
-			failed(extension, "message_end", error);
-		}
-	}
-	return { value: replaced ? { message } : null };
+function activated(definition) {
+	const exposure = definition.exposure ?? "direct";
+	if (exposure !== "direct" && exposure !== "model-only") return false;
+	return definition.defaultActive !== false;
 }
 
-async function emitInput(request) {
-	let text = request.event.text;
-	let images = request.event.images;
-	for (const { extension, handler } of handlersOf("input")) {
-		const ctx = contextOf();
-		try {
-			const result = await handler({ ...request.event, text, images }, ctx);
-			if (result?.action === "handled") return { value: { action: "handled" } };
-			if (result?.action === "transform") {
-				text = result.text ?? text;
-				images = result.images ?? images;
-			}
-		} catch (error) {
-			failed(extension, "input", error);
-		}
+function registerProvider(provider, extensionPath = "") {
+	if (typeof provider?.id !== "string" || provider.id.length === 0) {
+		throw new Error(`Provider registered by extension "${extensionPath}" must have a non-empty string id.`);
 	}
-	const changed = text !== request.event.text || images !== request.event.images;
-	return { value: changed ? { action: "transform", text, images } : { action: "continue" } };
+	providers.set(provider.id, { provider, path: extensionPath });
+	effect({ call: "providers", providers: providerInfos() });
+}
+
+const thrower = (member) => () => {
+	throw unported(member);
+};
+const rejecter = (member) => async () => {
+	throw unported(member);
+};
+
+const actions = {
+	sendMessage: thrower("pi.sendMessage"),
+	sendUserMessage: (content, options) => {
+		const parts = typeof content === "string" ? [{ type: "text", text: content }] : content;
+		effect({ call: "sendUserMessage", content: parts, deliverAs: options?.deliverAs ?? null });
+	},
+	appendEntry: thrower("pi.appendEntry"),
+	setSessionName: thrower("pi.setSessionName"),
+	getSessionName: () => state.session?.name ?? undefined,
+	setLabel: thrower("pi.setLabel"),
+	getActiveTools: () => {
+		const active = new Set(state.tools.active);
+		for (const { definition } of runner.getAllRegisteredTools()) if (activated(definition)) active.add(definition.name);
+		return [...active];
+	},
+	getAllTools: () => {
+		const all = state.tools.all.map((tool) => ({ ...tool }));
+		for (const { definition, sourceInfo } of runner.getAllRegisteredTools()) {
+			const info = {
+				name: definition.name,
+				description: definition.description ?? "",
+				parameters: definition.parameters,
+				exposure: definition.exposure ?? "direct",
+				sourceInfo,
+			};
+			const index = all.findIndex((existing) => existing.name === definition.name);
+			if (index >= 0) all[index] = info;
+			else all.push(info);
+		}
+		return all;
+	},
+	getSettings: thrower("pi.getSettings"),
+	setActiveTools: thrower("pi.setActiveTools"),
+	refreshTools: () => effect({ call: "tools", tools: toolInfos() }),
+	getCommands: thrower("pi.getCommands"),
+	setModel: rejecter("pi.setModel"),
+	getThinkingLevel: thrower("pi.getThinkingLevel"),
+	setThinkingLevel: thrower("pi.setThinkingLevel"),
+};
+
+const contextActions = {
+	getModel: () => state.models?.current,
+	getScopedModels: thrower("ctx.scopedModels"),
+	isIdle: () => !state.streaming,
+	isProjectTrusted: () => state.trusted,
+	getSignal: () => current.getStore()?.signal,
+	abort: () => effect({ call: "abort" }),
+	hasPendingMessages: () => state.pending > 0,
+	shutdown: () => effect({ call: "shutdown" }),
+	getContextUsage: thrower("ctx.getContextUsage"),
+	compact: thrower("ctx.compact"),
+	getSystemPrompt: thrower("ctx.getSystemPrompt"),
+	getSystemPromptOptions: thrower("ctx.getSystemPromptOptions"),
+	executeTool: rejecter("ctx.executeTool"),
+	getCallableTools: thrower("ctx.tools"),
+};
+
+const providerActions = {
+	registerProvider: (name, config) => registerProvider({ ...config, id: name }, registrants.get(name)),
+	registerNativeProvider: (provider) => registerProvider(provider, registrants.get(provider?.id)),
+	unregisterProvider: (name) => {
+		if (providers.delete(name)) effect({ call: "providers", providers: providerInfos() });
+	},
+	registerVirtualModel: thrower("pi.registerVirtualModel"),
+	unregisterVirtualModel: thrower("pi.unregisterVirtualModel"),
+};
+
+const commandActions = {
+	waitForIdle: rejecter("ctx.waitForIdle"),
+	newSession: rejecter("ctx.newSession"),
+	fork: rejecter("ctx.fork"),
+	navigateTree: rejecter("ctx.navigateTree"),
+	switchSession: rejecter("ctx.switchSession"),
+	reload: rejecter("ctx.reload"),
+};
+
+/** The UI pi-rs draws: `notify`; each other member of upstream's UI context is reported and thrown. */
+function uiOf(noOp) {
+	const ui = {};
+	for (const [name, value] of Object.entries(noOp)) {
+		ui[name] = typeof value === "function" ? thrower(`ctx.ui.${name}`) : value;
+	}
+	ui.notify = (message, type) => effect({ call: "notify", text: String(message), level: type ?? "info" });
+	return ui;
+}
+
+/** What an extension registered that upstream acts on in this mode and pi-rs does not yet; renderers and shortcuts only act in the TUI. */
+function unconsumed(extension, servers) {
+	const used = [];
+	if (extension.flags.size > 0) used.push("registerFlag");
+	if (servers.some((server) => server.extensionPath === extension.path)) used.push("registerMcpServer");
+	if (state.mode !== "tui") return used;
+	if (extension.shortcuts.size > 0) used.push("registerShortcut");
+	if (extension.messageRenderers.size > 0) used.push("registerMessageRenderer");
+	if (extension.toolRenderers?.length > 0) used.push("registerToolRenderer");
+	if (extension.entryRenderers?.size > 0) used.push("registerEntryRenderer");
+	if (extension.markdownTransformer) used.push("registerMarkdownTransformer");
+	return used;
+}
+
+function summary(extension, servers) {
+	return {
+		path: extension.path,
+		resolvedPath: extension.resolvedPath,
+		events: [...extension.handlers.keys()],
+		commands: [...extension.commands.values()].map((command) => ({
+			name: command.name,
+			description: command.description ?? "",
+		})),
+		unsupported: unconsumed(extension, servers),
+	};
+}
+
+async function load(request) {
+	absorb(request);
+	state.trusted = request.trusted === true;
+	if (request.agentDir) process.env.PI_CODING_AGENT_DIR = request.agentDir;
+	initTheme(request.theme, false);
+	runner?.invalidate();
+	providers.clear();
+	const result = await loadExtensions(resolvePaths(request), state.cwd, createEventBus());
+	registrants.clear();
+	for (const { name, extensionPath } of result.runtime.pendingProviderRegistrations) registrants.set(name, extensionPath);
+	for (const { provider, extensionPath } of result.runtime.pendingNativeProviderRegistrations) {
+		registrants.set(provider?.id, extensionPath);
+	}
+	runner = new ExtensionRunner(result.extensions, result.runtime, state.cwd, session, modelRegistry);
+	runner.onError((error) =>
+		effect({ call: "error", path: error.extensionPath, event: error.event ?? "", error: error.error }),
+	);
+	runner.bindCore(actions, contextActions, providerActions);
+	runner.setUIContext(undefined, state.mode);
+	if (state.hasUI) runner.setUIContext(uiOf(runner.getUIContext()), state.mode);
+	runner.bindCommandContext(commandActions);
+	return {
+		extensions: result.extensions.map((extension) => summary(extension, result.runtime.mcpServers.list())),
+		errors: result.errors,
+		tools: toolInfos(),
+		providers: providerInfos(),
+	};
 }
 
 async function emitEvent(request) {
-	const name = request.name;
-	runtime.streaming = request.streaming === true;
-	runtime.pending = request.pending ?? 0;
-	Object.assign(runtime, request.updates);
-	if (name === "message_end") return await emitMessageEnd(request);
-	if (name === "input") return await emitInput(request);
-	for (const { extension, handler } of handlersOf(name)) {
-		const ctx = contextOf();
-		try {
-			await handler(request.event, ctx);
-		} catch (error) {
-			failed(extension, name, error);
-		}
+	absorb(request);
+	const event = { type: request.name, ...request.event };
+	if (request.name === "message_end") {
+		const message = await runner.emitMessageEnd(event);
+		return message ? { message } : null;
 	}
-	return { value: null };
+	if (request.name === "input") {
+		return await runner.emitInput(event.text, event.images, event.source ?? "interactive", event.streamingBehavior);
+	}
+	await runner.emit(event);
+	return null;
 }
 
 async function runCommand(request) {
-	const name = request.name;
-	Object.assign(runtime, request.updates);
-	for (const extension of loaded.values()) {
-		const handler = extension.commandHandlers.get(name);
-		if (!handler) continue;
-		const ctx = contextOf();
-		try {
-			await handler(request.args ?? "", ctx);
-		} catch (error) {
-			effect({
-				call: "error",
-				path: `command:${name}`,
-				event: "command",
-				error: error instanceof Error ? error.message : String(error),
-			});
-		}
-		return { value: null };
+	absorb(request);
+	const command = runner.getCommand(request.name);
+	if (!command) return null;
+	try {
+		await command.handler(request.args ?? "", runner.createCommandContext());
+	} catch (error) {
+		runner.emitError({
+			extensionPath: `command:${request.name}`,
+			event: "command",
+			error: error instanceof Error ? error.message : String(error),
+		});
 	}
-	return { value: null };
+	return null;
 }
 
 async function runTool(request) {
-	Object.assign(runtime, request.updates);
-	const found = registeredTools().find(({ tool }) => tool.name === request.name);
-	if (!found) throw new Error(`Tool ${request.name} not found`);
-	const onUpdate = (partial) => {
-		try {
-			send({ id: request.id, update: partial ?? null });
-		} catch {}
-	};
-	const result = await found.tool.execute(
+	absorb(request);
+	const definition = runner.getToolDefinition(request.name);
+	if (!definition) throw new Error(`Tool ${request.name} not found`);
+	const signal = current.getStore()?.signal;
+	const onUpdate = (partial) => send({ id: request.id, update: partial ?? null });
+	const result = await definition.execute(
 		request.toolCallId,
 		request.params,
-		current.getStore()?.signal,
+		signal,
 		onUpdate,
-		contextOf(),
+		runner.createToolContext(request.toolCallId, signal),
 	);
-	return { value: result ?? null };
+	return result ?? null;
 }
 
 /** One request to a provider an extension registered, each event its stream yields sent as it comes. */
 async function runStream(request) {
-	const found = registeredProviders().get(request.provider);
-	if (typeof found?.provider.streamSimple !== "function") {
+	const provider = providers.get(request.provider)?.provider;
+	if (typeof provider?.streamSimple !== "function") {
 		throw new Error(`No extension registered a provider ${request.provider} that streams`);
 	}
 	const options = { ...request.options, signal: current.getStore()?.signal };
-	for await (const event of found.provider.streamSimple(request.model, request.context, options)) {
+	for await (const event of provider.streamSimple(request.model, request.context, options)) {
 		send({ id: request.id, update: event });
 	}
-	return { value: null };
+	return null;
 }
 
 async function handle(request) {
@@ -881,8 +555,8 @@ input.on("line", (line) => {
 	inflight.set(request.id, controller);
 	current.run({ id: request.id, signal: controller.signal }, async () => {
 		try {
-			const answer = await handle(request);
-			send({ id: request.id, ok: true, value: answer.value ?? null });
+			const value = await handle(request);
+			send({ id: request.id, ok: true, value: value ?? null });
 		} catch (error) {
 			send({ id: request.id, ok: false, error: error instanceof Error ? error.message : String(error) });
 		} finally {

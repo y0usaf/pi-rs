@@ -1,8 +1,9 @@
 //! Upstream `core/extensions`: the user's extension packages, run in one Node child.
 //!
-//! The child loads each path as TypeScript, calls the factory with the API pi-rs implements, and
-//! reports what it registered. Nothing here decides *which* paths to load; that is the agent's
-//! `extensions` module, which knows the settings and the flags.
+//! The child runs upstream's own loader and `ExtensionRunner` over upstream's packages, with what
+//! reads or changes the agent's state calling back into pi-rs, and reports what each extension
+//! registered. Nothing here decides *which* paths to load; that is the agent's `extensions`
+//! module, which knows the settings and the flags.
 
 mod host;
 
@@ -25,7 +26,7 @@ pub struct Loaded {
     pub resolved_path: String,
     pub events: Vec<String>,
     pub commands: Vec<Command>,
-    /// The API members the factory reached for that pi-rs does not implement yet.
+    /// What the extension registered that upstream acts on in this mode and pi-rs does not yet.
     pub unsupported: Vec<String>,
 }
 

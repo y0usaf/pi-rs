@@ -304,14 +304,19 @@ fn run() -> Result<ExitCode, String> {
     // Upstream reports MCP trouble through the UI, which print mode does not have.
     let mut mcp_notices: Vec<String> = mcp.problems();
     mcp_notices.extend(mcp.unreachable_warning());
+    // Upstream's resolveAppMode: the TUI without -p or --mode when stdin and stdout are terminals.
+    let tui = !parsed.print
+        && parsed.mode.is_none()
+        && std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal();
     let extensions = extensions::load(
         &cwd,
         &agent_dir,
         parsed.extensions.as_deref().unwrap_or(&[]),
         parsed.no_extensions,
         &settings,
-        extensions::mode_name(parsed.mode),
-        parsed.mode.is_none(),
+        extensions::mode_name(parsed.mode, tui),
+        tui,
     );
 
     // The session: a durable sqlite file, or memory with --no-session.
