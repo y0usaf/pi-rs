@@ -1,0 +1,11 @@
+{
+  "prompt": "hi",
+  "turns": [
+    {
+      "text": "done"
+    }
+  ],
+  "files": {
+    ".pi/.keep": ""
+  }
+}

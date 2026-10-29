@@ -6,6 +6,10 @@
     url = "github:earendil-works/pi/f1b2e77f5b13b2a199b1052cb79c235451afe7d7";
     flake = false;
   };
+  inputs.piExtensions = {
+    url = "github:earendil-works/pi/4a080252f06caf63a525d7873c5d94d3c23887e0";
+    flake = false;
+  };
   inputs.piAi = {
     url = "github:earendil-works/pi/bdb151774ed6bef2b5676bbff4669f20a0c233fe";
     flake = false;
@@ -16,6 +20,7 @@
       self,
       nixpkgs,
       pi,
+      piExtensions,
       piAi,
     }:
     let
@@ -164,13 +169,29 @@
           cp ${./crates/ai/parity/loader.mjs} $out/parity-ai/loader.mjs
           cp -r ${./crates/ai/parity/stubs} $out/parity-ai/stubs
         '';
-      upstreamPi = pkgs: pkgs.callPackage "${pi}/nix/package.nix" { source = pi; };
+      upstreamPi = pkgs: pkgs.callPackage "${piExtensions}/nix/package.nix" { source = piExtensions; };
       extensionsParityFixtures =
         pkgs:
+        let
+          examples = "${piExtensions}/packages/coding-agent/examples/extensions";
+          locked = builtins.filter (name: builtins.pathExists "${examples}/${name}/package-lock.json") (
+            builtins.attrNames (pkgs.lib.filterAttrs (_: kind: kind == "directory") (builtins.readDir examples))
+          );
+          modules =
+            name:
+            pkgs.importNpmLock.buildNodeModules {
+              npmRoot = "${examples}/${name}";
+              nodejs = pkgs.nodejs_24;
+            };
+        in
         pkgs.runCommand "pi-extensions-parity-fixtures" { } ''
           cp -r ${./crates/coding-agent/parity/extensions} $out
           chmod u+w $out
-          cp -r ${pi}/packages/coding-agent/examples/extensions $out/upstream
+          cp -r ${examples} $out/upstream
+          chmod -R u+w $out/upstream
+          ${pkgs.lib.concatMapStrings (name: ''
+            ln -s ${modules name}/node_modules $out/upstream/${name}/node_modules
+          '') locked}
         '';
       extensionHost =
         pkgs:

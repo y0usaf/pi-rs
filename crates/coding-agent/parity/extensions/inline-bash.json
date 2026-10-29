@@ -1,5 +1,4 @@
 {
-  "extension": "upstream/inline-bash.ts",
   "prompt": "say !{printf hi} and !{echo oops >&2; exit 3} and !{no-such-command-xyz}",
   "turns": [
     {
