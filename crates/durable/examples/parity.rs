@@ -6,7 +6,7 @@ use pi_durable::ai::providers::faux::{Faux, FauxOptions, FauxResponse};
 use pi_durable::cancel::CancelToken;
 use pi_durable::harness::agent::{AgentChange, Change};
 use pi_durable::harness::harness::Harness;
-use pi_durable::harness::live::live_doc;
+use pi_durable::harness::live::{LiveState, SlotStatus, live_doc};
 use pi_durable::harness::registry::Registry;
 use pi_durable::harness::submissions::{SubmissionDraft, WhenBusy};
 use pi_durable::harness::types::{
@@ -14,6 +14,7 @@ use pi_durable::harness::types::{
     RootOptions, ToolExecutionResult, ToolRegistration,
 };
 use pi_durable::ids::TaskId;
+use pi_durable::session::kernel::doc_ref;
 use pi_durable::storage::memory::MemoryStorage;
 use pi_durable::storage::sqlite::SqliteStorage;
 use pi_durable::types::Storage;
@@ -114,6 +115,41 @@ fn sleep() -> ToolRegistration {
     )
 }
 
+fn after() -> ToolRegistration {
+    let parameters =
+        json!({"type": "object", "required": ["call"], "properties": {"call": {"type": "string"}}});
+    tool(
+        "after",
+        "after tool",
+        parameters,
+        Arc::new(|args, api, cancel| {
+            let call: String = serde_json::from_value(args["call"].clone())?;
+            let token = live_doc()?;
+            let owner = Some(api.conversation_id().0);
+            pi_durable::turn::pause(|| {
+                wait_until(|| {
+                    let Some(live) = api.snapshot(doc_ref(&token, owner, None), cancel)? else {
+                        return Ok(false);
+                    };
+                    let live: LiveState = serde_json::from_value(Value::Object(live))?;
+                    Ok(live
+                        .tools
+                        .unwrap_or_default()
+                        .iter()
+                        .any(|slot| slot.call_id == call && slot.status == SlotStatus::Done))
+                })
+            })
+            .map_err(|error| pi_durable::errors::Error::Invalid(error.to_string()))?;
+            Ok(ToolExecutionResult {
+                content: Some(vec![serde_json::from_value(
+                    json!({"type": "text", "text": format!("after:{call}")}),
+                )?]),
+                ..Default::default()
+            })
+        }),
+    )
+}
+
 fn settings(case: &Value) -> Result<HarnessSettings> {
     let mut out = HarnessSettings::default();
     if let Some(retry) = case["settings"].get("retry") {
@@ -191,6 +227,9 @@ fn run_case(case: &Value, kind: &str, db: &str, phase: &str) -> Result<Value> {
     }
     if wanted.contains(&"sleep") {
         tools.push(sleep());
+    }
+    if wanted.contains(&"after") {
+        tools.push(after());
     }
     let registry = Arc::new(Registry::default());
     registry.install(Extension {

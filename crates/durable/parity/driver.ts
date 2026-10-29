@@ -26,7 +26,16 @@ const sleep = defineTool({
 		return { content: [{ type: "text", text: "slept:" + args.ms }] };
 	},
 });
-const TOOLS: Record<string, any> = { echo, sleep };
+const after = defineTool({
+	name: "after",
+	description: "after tool",
+	parameters: Type.Object({ call: Type.String() }),
+	execute: async (args: { call: string }, api, context) => {
+		await until(async () => (await api.snapshot(LiveDoc, api.conversationId, context))?.tools?.some((slot) => slot.callId === args.call && slot.status === "done") ?? false);
+		return { content: [{ type: "text", text: "after:" + args.call }] };
+	},
+});
+const TOOLS: Record<string, any> = { echo, sleep, after };
 
 function block(b: any) {
 	return b.type === "toolCall" ? fauxToolCall(b.name, b.arguments, { id: b.id }) : fauxText(b.text);

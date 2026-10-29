@@ -43,7 +43,8 @@
   "name": "f2-tool-parallel",
   "family": 2,
   "tools": [
-   "echo"
+   "echo",
+   "after"
   ],
   "responses": [
    {
@@ -51,9 +52,9 @@
      {
       "type": "toolCall",
       "id": "c1",
-      "name": "echo",
+      "name": "after",
       "arguments": {
-       "text": "a"
+       "call": "c2"
       }
      },
      {
