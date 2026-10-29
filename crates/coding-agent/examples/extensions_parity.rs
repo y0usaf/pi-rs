@@ -357,6 +357,37 @@ fn message_metadata(message: &mut Value) {
     }
 }
 
+/// Session entries carry a random id and the time they were written, upstream's as pi-rs's: each id
+/// becomes the order it first appears in the run, keeping which entry points at which, and the
+/// times go.
+fn session_entries(value: &mut Value, ids: &mut HashMap<String, usize>) {
+    match value {
+        Value::Object(fields) => {
+            let entry = fields.contains_key("parentId")
+                && fields.get("id").is_some_and(Value::is_string)
+                && fields.get("timestamp").is_some_and(Value::is_string);
+            if entry {
+                fields.remove("timestamp");
+                for key in ["id", "parentId", "targetId"] {
+                    if let Some(Value::String(id)) = fields.get(key) {
+                        let next = ids.len();
+                        let order = *ids.entry(id.clone()).or_insert(next);
+                        fields.insert(key.to_owned(), json!(format!("<entry {order}>")));
+                    }
+                }
+                if let Some(message) = fields.get_mut("message") {
+                    message_metadata(message);
+                }
+            }
+            fields
+                .values_mut()
+                .for_each(|child| session_entries(child, ids));
+        }
+        Value::Array(items) => items.iter_mut().for_each(|item| session_entries(item, ids)),
+        _ => {}
+    }
+}
+
 fn boundary(log: &str) -> Result<Vec<Value>> {
     let mut records: Vec<Value> = Vec::new();
     let mut at: HashMap<u64, usize> = HashMap::new();
@@ -439,7 +470,9 @@ fn trace(run: &Run, root: &Path, docs: &Regex) -> Result<Vec<Value>> {
         }
         events.push(canonical(event, &root, docs));
     }
-    for record in boundary(run.log.as_deref().unwrap_or_default())? {
+    let mut ids = HashMap::new();
+    for mut record in boundary(run.log.as_deref().unwrap_or_default())? {
+        session_entries(&mut record, &mut ids);
         events.push(canonical(record, &root, docs));
     }
     if !run.stderr.trim().is_empty() {
