@@ -332,6 +332,13 @@
                   ${examples}/bin/extensions_parity
                 touch $out
               '';
+          extensions-parity-baseline = pkgs.runCommand "${pname}-extensions-parity-baseline" { } ''
+            PI_UPSTREAM_BIN=${upstreamPi pkgs}/bin/pi \
+              PI_RS_BIN=${upstreamPi pkgs}/bin/pi \
+              PI_PARITY_FIXTURES=${extensionsParityFixtures pkgs} \
+              ${examples}/bin/extensions_parity
+            touch $out
+          '';
           codemode-e2e = pkgs.runCommand "${pname}-codemode-e2e" { } ''
             PI_RS_BIN=${self.packages.${system}.default}/bin/pi-rs ${examples}/bin/codemode_e2e
             touch $out
