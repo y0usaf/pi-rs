@@ -350,18 +350,21 @@ pub fn run_turns(
     };
     if let Some(live) = live {
         refresh(live);
-        live.event("session_start", serde_json::json!({}));
+        live.event("session_start", serde_json::json!({ "reason": "startup" }));
     }
-    let mut queued: VecDeque<UserContent> = prompts.into();
+    let mut queued: VecDeque<_> = prompts
+        .into_iter()
+        .map(|content| (content, "interactive"))
+        .collect();
     let mut aborted = false;
-    while let Some(content) = queued.pop_front() {
+    while let Some((content, source)) = queued.pop_front() {
         if let Some(text) = crate::extensions::text_of(&content)
             && live.is_some_and(|live| live.run_command(text.trim()))
         {
             continue;
         }
         let content = match (live, crate::extensions::text_of(&content)) {
-            (Some(live), Some(text)) => match live.input(&text, "print") {
+            (Some(live), Some(text)) => match live.input(&text, source) {
                 None => continue,
                 Some(replaced) if replaced != text => {
                     crate::extensions::with_text(content, replaced)
@@ -395,7 +398,7 @@ pub fn run_turns(
                 }
                 Call::Notify { text, .. } => eprintln!("{text}"),
                 Call::SendUserMessage { content, .. } => {
-                    queued.push_back(crate::extensions::content_of(&content));
+                    queued.push_back((crate::extensions::content_of(&content), "extension"));
                 }
                 Call::Shutdown => queued.clear(),
                 Call::Unsupported { .. } => {}

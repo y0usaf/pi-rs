@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -172,8 +172,31 @@ impl Host {
         let collected = Arc::new(Mutex::new(Vec::new()));
         let kept = Arc::clone(&collected);
         std::thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                keep(&kept, line);
+            let mut stderr = stderr;
+            let mut buffer = [0; 4096];
+            let mut line = Vec::new();
+            loop {
+                let count = match stderr.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => count,
+                };
+                let bytes = &buffer[..count];
+                let _ = std::io::stderr().lock().write_all(bytes);
+                for part in bytes.split_inclusive(|byte| *byte == b'\n') {
+                    line.extend_from_slice(part);
+                    if part.ends_with(b"\n") {
+                        keep(
+                            &kept,
+                            String::from_utf8_lossy(&line)
+                                .trim_end_matches(['\r', '\n'])
+                                .to_owned(),
+                        );
+                        line.clear();
+                    }
+                }
+            }
+            if !line.is_empty() {
+                keep(&kept, String::from_utf8_lossy(&line).into_owned());
             }
         });
 

@@ -416,7 +416,7 @@ fn text_input(text: &str, images: &[UserBlock]) -> UserContent {
 struct Calls<'a> {
     root: &'a Conversation,
     chat: &'a mut Chat,
-    pending: &'a mut Vec<UserContent>,
+    pending: &'a mut Vec<(UserContent, &'static str)>,
     quit: &'a mut bool,
     cwd: &'a str,
     interrupted: &'a mut bool,
@@ -455,7 +455,7 @@ fn serve_extension_calls(live: &crate::extensions::Live, calls: Calls<'_>) -> bo
                 drew = true;
             }
             Call::SendUserMessage { content, .. } => {
-                pending.push(crate::extensions::content_of(&content));
+                pending.push((crate::extensions::content_of(&content), "extension"));
             }
             Call::Shutdown => *quit = true,
             Call::Unsupported { member } => {
@@ -473,12 +473,13 @@ fn submit(
     root: &Conversation,
     model: &Model,
     content: UserContent,
+    source: &str,
     busy: bool,
     cancel: &CancelToken,
     live: Option<&crate::extensions::Live>,
 ) -> Result<(), String> {
     let content = match (live, crate::extensions::text_of(&content)) {
-        (Some(live), Some(text)) => match live.input(&text, "interactive") {
+        (Some(live), Some(text)) => match live.input(&text, source) {
             None => return Ok(()),
             Some(replaced) if replaced != text => crate::extensions::with_text(content, replaced),
             Some(_) => content,
@@ -930,11 +931,11 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     parts.mount(&mut tui, None);
     tui.start();
 
-    let mut pending: Vec<UserContent> = Vec::new();
+    let mut pending: Vec<(UserContent, &'static str)> = Vec::new();
     if let Some((text, images)) = &initial {
-        pending.push(text_input(text, images));
+        pending.push((text_input(text, images), "interactive"));
     }
-    pending.extend(messages.iter().map(|m| text_input(m, &[])));
+    pending.extend(messages.iter().map(|m| (text_input(m, &[]), "interactive")));
     let (catalogs, refreshed) = std::sync::mpsc::channel();
     if registry.network {
         let registry = Arc::clone(&registry);
@@ -961,7 +962,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             &cwd,
             &cancel,
         );
-        live.event("session_start", json!({}));
+        live.event("session_start", json!({ "reason": "startup" }));
     }
     let mut interrupted = false;
     let mut last_clear: Option<Instant> = None;
@@ -970,8 +971,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     while !quit {
         // Queued command-line messages go one per idle turn, as print mode sends them.
         if !chat.working && !pending.is_empty() {
-            let content = pending.remove(0);
-            match submit(&open.root, &model, content, false, &cancel, live) {
+            let (content, source) = pending.remove(0);
+            match submit(&open.root, &model, content, source, false, &cancel, live) {
                 Ok(()) => chat.working = true,
                 Err(e) => chat.notice("error", &format!("Error: {e}")),
             }
@@ -1118,6 +1119,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                             &open.root,
                             &model,
                             text_input(&expanded, &[]),
+                            "interactive",
                             false,
                             &cancel,
                             live,
@@ -2101,6 +2103,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 &open.root,
                 &model,
                 text_input(&expanded, &[]),
+                "interactive",
                 chat.working,
                 &cancel,
                 live,
