@@ -7,16 +7,16 @@ drive() {
 	local impl="$1"
 	shift
 	if [ "$impl" = ts ]; then
-		node --import "$PARITY_TS/register.mjs" "$PARITY_TS/driver.ts" "$@"
+		exec node --import "$PARITY_TS/register.mjs" "$PARITY_TS/driver.ts" "$@"
 	else
-		"$PARITY_RS" "$@"
+		exec "$PARITY_RS" "$@"
 	fi
 }
 for storage in memory sqlite; do
 	mkdir -p "$out/db/$storage"
 	for file in "$here"/scenarios/*.json; do
 		for impl in ts rs; do
-			drive "$impl" "$file" "$out/$storage/$impl" "$storage" "$out/db/$storage" >/dev/null
+			(drive "$impl" "$file" "$out/$storage/$impl" "$storage" "$out/db/$storage") >/dev/null
 		done
 	done
 done
@@ -34,7 +34,7 @@ for writer in ts rs; do
 			grep -q READY "$log" || { echo "writer $cell $name never reached its crash point" >&2; kill -9 "$pid"; exit 1; }
 			kill -9 "$pid"
 			wait "$pid" 2>/dev/null || true
-			drive "$reader" "$file" "$out/cross/$cell" sqlite "$db" "$name" resume >/dev/null
+			(drive "$reader" "$file" "$out/cross/$cell" sqlite "$db" "$name" resume) >/dev/null
 		done <<<"$crash_cases"
 	done
 done
