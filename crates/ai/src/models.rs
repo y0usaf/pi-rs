@@ -33,7 +33,9 @@ pub trait Models: Sync {
         context: TranscriptContext,
         options: SimpleStreamOptions,
     ) -> Result<AssistantMessage, ModelsError> {
-        self.stream_simple(model, context, options)
+        let stream = self.stream_simple(model, context, options);
+        while stream.next_event().is_some() {}
+        stream
             .result()
             .ok_or_else(|| ModelsError("stream ended without a final message".to_owned()))
     }
