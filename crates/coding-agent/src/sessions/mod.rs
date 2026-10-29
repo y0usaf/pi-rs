@@ -59,7 +59,7 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 }
 
 /// The days since 1970-01-01 of a calendar date, Hinnant's `days_from_civil`.
-fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+pub(crate) fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     let y = if month <= 2 { year - 1 } else { year };
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = y - era * 400;

@@ -284,7 +284,7 @@ fn print_credential(
                     Some(&text),
                     None,
                     false,
-                    registry.models(),
+                    &registry.models(),
                     &|p: &str| registry.has_configured_auth(p),
                 );
                 if let Some(error) = resolved.error {
@@ -304,7 +304,8 @@ fn print_credential(
             return Err("Unable to resolve an auth provider".to_owned());
         };
         let mut providers: Vec<&str> = Vec::new();
-        for entry in registry.models() {
+        let models = registry.models();
+        for entry in models.iter() {
             if stored.contains_key(&entry.provider) && !providers.contains(&entry.provider.as_str())
             {
                 providers.push(&entry.provider);
@@ -318,7 +319,7 @@ fn print_credential(
                 fuzzy: true,
             };
             if let Reference::Resolved { model, .. } =
-                model_resolver::resolve_model_reference(&request, registry.models(), &|_| true)
+                model_resolver::resolve_model_reference(&request, &models, &|_| true)
             {
                 targets.push(model.provider.clone());
             }
@@ -407,7 +408,7 @@ fn check(
             Some(text),
             None,
             false,
-            registry.models(),
+            &registry.models(),
             &|p: &str| registry.has_configured_auth(p),
         );
         match resolved.model.filter(|_| resolved.error.is_none()) {

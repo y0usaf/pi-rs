@@ -25,6 +25,7 @@ pub mod output_files;
 pub mod paths;
 pub mod print;
 pub mod prompt_templates;
+pub mod remote_catalog;
 pub mod run_config;
 pub mod session_fork;
 pub mod session_info;

@@ -361,7 +361,6 @@ const UNIMPLEMENTED_REGISTRY = [
 	"streamSimple",
 	"classify",
 	"generateImages",
-	"refresh",
 	"getError",
 	"getProvider",
 	"getProviderDisplayName",
@@ -387,6 +386,16 @@ function registryOf() {
 		hasConfiguredAuth: (model) => configured().has(model?.provider),
 		getProviderAuthStatus: (provider) => ({ configured: configured().has(provider) }),
 		getProviderAuth: async (provider) => (await ask("providerAuth", { provider })) ?? undefined,
+		refresh: async (options) => {
+			const answer = await ask("refreshModels", {
+				allowNetwork: options?.allowNetwork,
+				force: options?.force,
+				providers: options?.providers ? [...options.providers] : undefined,
+			});
+			runtime.models = { ...runtime.models, list: answer.list, configured: answer.configured };
+			const errors = Object.entries(answer.errors ?? {}).map(([id, message]) => [id, new Error(message)]);
+			return { aborted: answer.aborted, errors: new Map(errors) };
+		},
 		complete: (model, context, options) =>
 			ask("complete", {
 				provider: model?.provider,

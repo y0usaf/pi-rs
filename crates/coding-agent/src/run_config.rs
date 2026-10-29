@@ -132,7 +132,7 @@ pub fn choose_model(
     let scoped: Vec<ScopedModel> = if patterns.is_empty() {
         Vec::new()
     } else {
-        let available: Vec<Model> = registry.available().into_iter().cloned().collect();
+        let available: Vec<Model> = registry.available();
         let (scoped, diags) = resolve_model_scope(&patterns, &available);
         for d in diags {
             eprintln!("Warning: {}", d.message);
@@ -151,7 +151,7 @@ pub fn choose_model(
             args.model.as_deref(),
             args.thinking.as_deref(),
             args.api_key.is_some(),
-            registry.models(),
+            &registry.models(),
             &has_auth,
         );
         if let Some(w) = resolved.warning {
@@ -201,7 +201,8 @@ pub fn choose_model(
         model = session_model;
     }
     if model.is_none() {
-        let available = registry.available();
+        let models = registry.available();
+        let available: Vec<&Model> = models.iter().collect();
         let initial = find_initial_model(
             &[],
             &InitialModelSources {
@@ -209,7 +210,7 @@ pub fn choose_model(
                 default_model_id: settings.default_model(),
                 default_thinking: settings.default_thinking_level(),
                 model_thinking: &|p, id| settings.model_thinking_level(p, id).map(str::to_string),
-                get_model: &|p, id| registry.get_model(p, id).cloned(),
+                get_model: &|p, id| registry.get_model(p, id),
                 has_auth: &has_auth,
                 available: &available,
             },
@@ -253,7 +254,7 @@ pub fn is_unknown_model(model: &Model) -> bool {
 
 /// The models a session may switch to: every model the catalog has.
 pub fn available(registry: &ModelRegistry) -> Vec<Model> {
-    registry.available().into_iter().cloned().collect()
+    registry.available()
 }
 
 /// The session's scoped models: `enabledModels` resolved over the available models, or none when
@@ -308,10 +309,7 @@ pub fn recorded_agent(
     let Some(reference) = agent.model else {
         return Ok(None);
     };
-    let Some(found) = registry
-        .get_model(&reference.provider, &reference.model_id)
-        .cloned()
-    else {
+    let Some(found) = registry.get_model(&reference.provider, &reference.model_id) else {
         return Ok(None);
     };
     let level = clamp_thinking_level(&found, agent.thinking_level);

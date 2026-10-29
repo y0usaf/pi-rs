@@ -48,6 +48,50 @@ struct ExtensionModels {
 }
 
 impl ExtensionModels {
+    fn of(registry: &Arc<ModelRegistry>, model: &Model) -> Self {
+        let mut configured: Vec<String> = registry
+            .available()
+            .into_iter()
+            .map(|model| model.provider)
+            .collect();
+        configured.extend(
+            registry
+                .stored_credentials()
+                .into_iter()
+                .map(|(provider, _)| provider)
+                .filter(|provider| registry.has_configured_auth(provider)),
+        );
+        configured.sort();
+        configured.dedup();
+        ExtensionModels {
+            providers: crate::print::providers(Arc::clone(registry), model),
+            registry: Arc::clone(registry),
+            current: model.clone(),
+            list: registry.models().to_vec(),
+            configured,
+        }
+    }
+
+    fn refresh(&self, args: &Value, cancel: &CancelToken) -> (Value, ExtensionModels) {
+        let allow_network = args
+            .get("allowNetwork")
+            .and_then(Value::as_bool)
+            .unwrap_or(self.registry.network);
+        let force = args.get("force").and_then(Value::as_bool).unwrap_or(false);
+        let only: Option<Vec<String>> = take(args, "providers");
+        let refreshed = self
+            .registry
+            .refresh(allow_network, force, only.as_deref(), cancel);
+        let next = ExtensionModels::of(&self.registry, &self.current);
+        let answer = json!({
+            "aborted": refreshed.aborted,
+            "errors": refreshed.errors,
+            "list": next.list,
+            "configured": next.configured,
+        });
+        (answer, next)
+    }
+
     /// One call the child made while a handler waited on it, answered here.
     fn call(
         &self,
@@ -558,6 +602,11 @@ impl Peer for Sink {
     ) -> std::result::Result<Value, String> {
         let models = lock(&self.models).clone();
         match models {
+            Some(models) if call == "refreshModels" => {
+                let (answer, next) = models.refresh(args, cancel);
+                *lock(&self.models) = Some(Arc::new(next));
+                Ok(answer)
+            }
             Some(models) => models.call(call, args, update, cancel),
             None => Err(format!("pi-rs has no model to answer {call} with yet")),
         }
@@ -750,27 +799,7 @@ impl Live {
     /// Hands the extensions the models they see: the session's own, the catalog `find` searches,
     /// and the providers whose credentials are configured, logins without models included.
     pub fn hand_models(&self, registry: &Arc<ModelRegistry>, model: &Model) {
-        let mut configured: Vec<String> = registry
-            .available()
-            .iter()
-            .map(|model| model.provider.clone())
-            .collect();
-        configured.extend(
-            registry
-                .stored_credentials()
-                .into_iter()
-                .map(|(provider, _)| provider)
-                .filter(|provider| registry.has_configured_auth(provider)),
-        );
-        configured.sort();
-        configured.dedup();
-        self.set_models(ExtensionModels {
-            providers: crate::print::providers(Arc::clone(registry), model),
-            registry: Arc::clone(registry),
-            current: model.clone(),
-            list: registry.models().to_vec(),
-            configured,
-        });
+        self.set_models(ExtensionModels::of(registry, model));
     }
 
     /// The API requests to `provider` go through when an extension registered it with its own

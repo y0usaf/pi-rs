@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import datetime
 import hashlib
 import io
 import json
@@ -12,6 +13,7 @@ VERSION = "1.3.0"
 INTEGRITY = "sha512-KaBI8x7q7sPoFUXICNGD9efHzDG+oRNwVvkA9jdIsSQWH1RjFssOlEGsbLtewUPPgCrvmz0l2KTgSLXTyj3acw=="
 
 URL = f"https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-{VERSION}.tgz"
+OUT = pathlib.Path(__file__).resolve().parents[1] / "src" / "catalog"
 SCHEMA = 6
 DATA = "package/dist/providers/data/"
 FIELDS = (
@@ -63,7 +65,10 @@ def catalog(archive):
     for name in sorted(manifest["files"], key=lambda name: pathlib.PurePosixPath(name).stem):
         for group in read(archive, name).values():
             models.extend(model(raw) for raw in group.values() if raw["type"] == "chat")
-    return models
+    generated = datetime.datetime.fromisoformat(manifest["generatedAt"].replace("Z", "+00:00"))
+    return models, round(generated.timestamp() * 1000)
 
 
-sys.stdout.write(json.dumps(catalog(fetch()), indent=2, sort_keys=True, ensure_ascii=False) + "\n")
+models, generated_at = catalog(fetch())
+(OUT / "models.json").write_text(json.dumps(models, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
+(OUT / "generated_at").write_text(f"{generated_at}\n")

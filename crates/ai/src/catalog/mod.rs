@@ -1,5 +1,7 @@
 use crate::types::Model;
 
+pub const GENERATED_AT_MS: i64 = include!("generated_at");
+
 pub fn all() -> Vec<Model> {
     let values: Vec<serde_json::Value> = serde_json::from_str(include_str!("models.json"))
         .unwrap_or_else(|error| panic!("catalog models.json: not a JSON array: {error}"));

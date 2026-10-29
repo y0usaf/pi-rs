@@ -58,10 +58,11 @@ pub fn list(registry: &ModelRegistry, search: Option<&str>) -> Result<(), String
     if let Some(error) = registry.error() {
         eprintln!("Warning: errors loading models.json:\n{error}");
     }
-    let models = registry.available();
-    if models.is_empty() {
+    let available = registry.available();
+    if available.is_empty() {
         return stdout::write(&format!("{}\n", no_models_available()));
     }
+    let models: Vec<&Model> = available.iter().collect();
     let mut models: Vec<&Model> = match search {
         Some(pattern) => fuzzy_filter(&models, pattern, |m| format!("{} {}", m.provider, m.id)),
         None => models,

@@ -149,7 +149,7 @@ fn read_map(path: &str) -> Result<Map<String, Value>, String> {
     }
 }
 
-fn write_private(path: &str, text: &str) -> Result<(), String> {
+pub(crate) fn write_private(path: &str, text: &str) -> Result<(), String> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let mut file = std::fs::OpenOptions::new()

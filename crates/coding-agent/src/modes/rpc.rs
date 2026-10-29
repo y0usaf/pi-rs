@@ -737,7 +737,7 @@ fn handle(
         "set_model" => {
             let provider = command["provider"].as_str().unwrap_or_default();
             let model_id = command["modelId"].as_str().unwrap_or_default();
-            match options.registry.get_model(provider, model_id).cloned() {
+            match options.registry.get_model(provider, model_id) {
                 None => failure(id, kind, format!("Model not found: {provider}/{model_id}")),
                 Some(model) => {
                     let thinking = thinking_of(state);
@@ -797,12 +797,7 @@ fn handle(
         }
 
         "get_available_models" => {
-            let models: Vec<Value> = options
-                .registry
-                .available()
-                .into_iter()
-                .map(value)
-                .collect();
+            let models: Vec<Value> = options.registry.available().iter().map(value).collect();
             success(id, kind, Some(json!({ "models": models })))
         }
 

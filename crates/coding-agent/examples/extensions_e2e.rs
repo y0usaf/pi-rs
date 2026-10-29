@@ -1,6 +1,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
@@ -335,6 +336,7 @@ fn main() -> Result<()> {
     cancel(&bin, &scratch)?;
     exec(&bin, &scratch)?;
     providers(&bin, &scratch)?;
+    catalog(&bin, &scratch)?;
 
     std::fs::remove_dir_all(&scratch.root)?;
     println!("extensions e2e ok");
@@ -1334,6 +1336,264 @@ fn providers(bin: &Path, scratch: &Scratch) -> Result<()> {
     }
     println!(
         "extension providers ok: a registered provider fails over to a second login through the built-in client"
+    );
+    Ok(())
+}
+
+const CATALOG: &str = r#"import fs from "node:fs";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+const log = process.env.E2E_LOG;
+const note = (line: string): void => {
+	if (log) fs.appendFileSync(log, `${line}\n`);
+};
+
+export default function (pi: ExtensionAPI): void {
+	pi.registerCommand("catalog-check", {
+		description: "refreshes the model catalog",
+		handler: async (_args, ctx) => {
+			const registry = ctx.modelRegistry;
+			const added = () => registry.find("anthropic", "claude-e2e-new")?.contextWindow;
+			const haiku = () => registry.find("anthropic", "claude-haiku-4-5")?.contextWindow;
+			const image = () => registry.getAll().some((model) => model.id === "claude-e2e-image");
+			note(`before ${added()}`);
+			const first = await registry.refresh({ allowNetwork: true, force: true });
+			const failed = [...first.errors].map(([id, error]) => `${id}: ${error.message}`);
+			note(`first aborted=${first.aborted} errors=${failed.join("|")}`);
+			note(`after ${added()} haiku=${haiku()} image=${image()}`);
+			const second = await registry.refresh({ allowNetwork: true, providers: ["anthropic"] });
+			note(`throttled errors=${second.errors.size}`);
+			const third = await registry.refresh({ allowNetwork: true, force: true, providers: ["anthropic"] });
+			note(`revalidated errors=${third.errors.size} ${added()}`);
+		},
+	});
+	pi.registerCommand("catalog-withdrawn", {
+		description: "refreshes a provider pi.dev no longer lists",
+		handler: async (_args, ctx) => {
+			const added = () => ctx.modelRegistry.find("anthropic", "claude-e2e-new")?.contextWindow;
+			const model = ctx.modelRegistry.find("anthropic", "claude-e2e-new");
+			note(`listed ${added()}`);
+			const result = await ctx.modelRegistry.refresh({ allowNetwork: true, force: true, providers: ["anthropic"] });
+			note(`withdrawn errors=${result.errors.size} ${added()}`);
+			const sent = await ctx.modelRegistry.complete(model, { messages: [] }).then(() => "sent", (error) => error.message);
+			note(`request ${sent}`);
+		},
+	});
+}
+"#;
+
+fn serve_catalog(seen: Arc<Mutex<Vec<String>>>, withdrawn: Arc<AtomicBool>) -> Result<u16> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut reader = BufReader::new(match stream.try_clone() {
+                Ok(clone) => clone,
+                Err(_) => return,
+            });
+            let mut target = String::new();
+            if reader.read_line(&mut target).unwrap_or(0) == 0 {
+                continue;
+            }
+            let target = target
+                .split_whitespace()
+                .nth(1)
+                .unwrap_or_default()
+                .to_owned();
+            let mut validator = String::new();
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("if-none-match:") {
+                    validator = value.trim().to_owned();
+                }
+            }
+            if let Ok(mut seen) = seen.lock() {
+                seen.push(format!("{target} {validator}").trim_end().to_owned());
+            }
+            let model = |id: &str, window: u64| {
+                json!({"id": id, "name": id, "api": "anthropic-messages", "provider": "anthropic",
+                    "baseUrl": "https://api.anthropic.com", "reasoning": true, "input": ["text"],
+                    "cost": {"input": 1, "output": 5, "cacheRead": 0.1, "cacheWrite": 1.25},
+                    "contextWindow": window, "maxTokens": 4096})
+            };
+            let mut image = model("claude-e2e-image", 1);
+            image["type"] = json!("image");
+            let catalog = json!({"models": [model("claude-e2e-new", 123456), image, model("claude-haiku-4-5", 777777)]}).to_string();
+            let types = "?types=chat%2Cimage%2Cclassifier";
+            let head = if target == format!("/api/models/providers/anthropic{types}") {
+                if withdrawn.load(Ordering::SeqCst) {
+                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n".to_owned()
+                } else if validator == "\"e2e-1\"" {
+                    "HTTP/1.1 304 Not Modified\r\nContent-Length: 0\r\n".to_owned()
+                } else {
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nETag: \"e2e-1\"\r\nLast-Modified: Thu, 01 Jan 2099 00:00:00 GMT\r\nContent-Length: {}\r\n",
+                        catalog.len()
+                    )
+                }
+            } else if target == format!("/api/models/providers/openai{types}") {
+                "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n".to_owned()
+            } else {
+                "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n".to_owned()
+            };
+            let body = if head.starts_with("HTTP/1.1 200") {
+                catalog.as_str()
+            } else {
+                ""
+            };
+            let _ = write!(stream, "{head}Connection: close\r\n\r\n{body}");
+        }
+    });
+    Ok(port)
+}
+
+fn catalog(bin: &Path, scratch: &Scratch) -> Result<()> {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let withdrawn = Arc::new(AtomicBool::new(false));
+    let port = serve_catalog(Arc::clone(&seen), Arc::clone(&withdrawn))?;
+    model(scratch)?;
+    let auth = json!({
+        "anthropic": {"type": "api_key", "key": "sk-ant-e2e"},
+        "openai": {"type": "api_key", "key": "sk-e2e"},
+    });
+    scratch.write("agent/auth.json", &serde_json::to_string(&auth)?)?;
+    let _ = std::fs::remove_file(scratch.root.join("agent/models-store.json"));
+    let extension = scratch.write("catalog/ext.ts", CATALOG)?;
+    scratch.settings(&json!({"extensions": [extension.to_string_lossy()]}))?;
+    let log = scratch.root.join("catalog.log");
+    let run =
+        |command: &str, provider: &str, model: &str| -> Result<(std::process::Output, String)> {
+            let _ = std::fs::remove_file(&log);
+            let out = Command::new(bin)
+                .args([
+                    "-p",
+                    command,
+                    "--provider",
+                    provider,
+                    "--model",
+                    model,
+                    "--no-session",
+                ])
+                .current_dir(scratch.root.join("cwd"))
+                .env_clear()
+                .env("HOME", scratch.root.join("home"))
+                .env("PI_CODING_AGENT_DIR", scratch.root.join("agent"))
+                .env("PATH", "/nonexistent")
+                .env("PI_CATALOG_URL", format!("http://127.0.0.1:{port}"))
+                .env("E2E_LOG", &log)
+                .envs(host_env())
+                .stdin(Stdio::null())
+                .output()?;
+            Ok((out, std::fs::read_to_string(&log).unwrap_or_default()))
+        };
+    let (out, noted) = run("/catalog-check", "fake", "fake-test")?;
+    let expected = [
+        "before undefined",
+        "first aborted=false errors=openai: Model catalog request failed for openai: 503",
+        "after 123456 haiku=777777 image=false",
+        "throttled errors=0",
+        "revalidated errors=0 123456",
+    ];
+    if !out.status.success() || noted.lines().collect::<Vec<_>>() != expected {
+        return fail(format!(
+            "the refresh run exited {}: stderr {:?}, log:\n{noted}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    let seen = seen.lock().map(|seen| seen.clone()).unwrap_or_default();
+    let types = "?types=chat%2Cimage%2Cclassifier";
+    let anthropic = format!("/api/models/providers/anthropic{types}");
+    let openai = format!("/api/models/providers/openai{types}");
+    let mut wanted = vec![
+        anthropic.clone(),
+        format!("{anthropic} \"e2e-1\""),
+        openai.clone(),
+        openai.clone(),
+        openai,
+    ];
+    let mut got = seen.clone();
+    wanted.sort();
+    got.sort();
+    if got != wanted {
+        return fail(format!("the catalog server saw {seen:?}"));
+    }
+    let store: Value = serde_json::from_str(&std::fs::read_to_string(
+        scratch.root.join("agent/models-store.json"),
+    )?)?;
+    let entry = &store["anthropic"];
+    let ids: Vec<&str> = entry["models"]
+        .as_array()
+        .map(|models| {
+            models
+                .iter()
+                .filter_map(|model| model["id"].as_str())
+                .collect()
+        })
+        .unwrap_or_default();
+    if entry["etag"] != "\"e2e-1\""
+        || entry["lastModified"] != 4_070_908_800_000u64
+        || ids != ["claude-e2e-new", "claude-e2e-image", "claude-haiku-4-5"]
+        || store["openai"]["checkedAt"].as_u64().is_none()
+        || !store["openai"]["lastModified"].is_null()
+    {
+        return fail(format!("models-store.json holds {store}"));
+    }
+    let list = || -> Result<String> {
+        let listed = Command::new(bin)
+            .args(["--list-models", "claude-e2e"])
+            .current_dir(scratch.root.join("cwd"))
+            .env_clear()
+            .env("HOME", scratch.root.join("home"))
+            .env("PI_CODING_AGENT_DIR", scratch.root.join("agent"))
+            .env("PATH", "/nonexistent")
+            .env("PI_OFFLINE", "1")
+            .output()?;
+        Ok(String::from_utf8_lossy(&listed.stdout).into_owned())
+    };
+    let listed = list()?;
+    if !listed.contains("claude-e2e-new") || listed.contains("claude-e2e-image") {
+        return fail(format!("a restarted pi-rs lists {listed:?}"));
+    }
+    let mut stale = store.clone();
+    stale["anthropic"]["lastModified"] = json!(pi_durable::ai::catalog::GENERATED_AT_MS);
+    scratch.write("agent/models-store.json", &stale.to_string())?;
+    let listed = list()?;
+    if listed.contains("claude-e2e-new") {
+        return fail(format!(
+            "a catalog no newer than the built-in one still lists {listed:?}"
+        ));
+    }
+    scratch.write("agent/models-store.json", &store.to_string())?;
+    withdrawn.store(true, Ordering::SeqCst);
+    let (out, noted) = run("/catalog-withdrawn", "anthropic", "claude-e2e-new")?;
+    let store: Value = serde_json::from_str(&std::fs::read_to_string(
+        scratch.root.join("agent/models-store.json"),
+    )?)?;
+    if !out.status.success()
+        || noted.lines().collect::<Vec<_>>()
+            != [
+                "listed 123456",
+                "withdrawn errors=0 undefined",
+                "request no model anthropic/claude-e2e-new is configured",
+            ]
+        || store["anthropic"]["lastModified"] != 0
+        || !store["anthropic"]["etag"].is_null()
+    {
+        return fail(format!(
+            "the withdrawn run exited {}: stderr {:?}, log:\n{noted}, store {store}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    std::fs::remove_file(scratch.root.join("agent/auth.json"))?;
+    println!(
+        "model catalog refresh ok: {} requests, the new model listed after a restart, dropped once the built-in catalog is as new and at once, the session's own model included, when pi.dev withdraws its provider",
+        seen.len()
     );
     Ok(())
 }

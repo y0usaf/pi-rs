@@ -9,11 +9,13 @@
 use crate::auth::{AuthStore, Credential, OAUTH_MINIMUM_VALIDITY_MS};
 use crate::config_value::{self, Env};
 use crate::model_config::{self, ModelConfig};
+use crate::remote_catalog::{self, Store};
 use pi_durable::ai::registry::Auth;
 use pi_durable::ai::types::Model;
+use pi_durable::cancel::CancelToken;
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, RwLock};
 
 /// Providers whose built-in definition has an OAuth login upstream.
 const OAUTH_PROVIDERS: [&str; 9] = [
@@ -41,11 +43,23 @@ const OAUTH_REFRESH: [&str; 8] = [
 
 pub struct ModelRegistry {
     pub config: ModelConfig,
-    models: Vec<Model>,
+    pub network: bool,
+    catalog: Vec<(String, Vec<Model>)>,
+    remote: BTreeSet<String>,
+    store: Option<Store>,
+    overlays: Mutex<BTreeMap<String, Vec<Model>>>,
+    models: RwLock<Arc<Vec<Model>>>,
+    listed: Mutex<BTreeSet<(String, String)>>,
     builtin: BTreeSet<String>,
-    composition_errors: BTreeMap<String, String>,
+    composition_errors: RwLock<BTreeMap<String, String>>,
     auth: Mutex<AuthStore>,
     runtime_keys: Mutex<BTreeMap<String, String>>,
+}
+
+#[derive(Default)]
+pub struct Refreshed {
+    pub aborted: bool,
+    pub errors: BTreeMap<String, String>,
 }
 
 fn env_names(provider: &str) -> Vec<&'static str> {
@@ -63,11 +77,21 @@ impl ModelRegistry {
     pub fn load(agent_dir: &str) -> Self {
         let models_path = crate::paths::join(agent_dir, "models.json");
         let config = ModelConfig::load(&models_path);
-        let _ = crate::auth::ensure_file(&crate::paths::join(agent_dir, "models-store.json"));
+        let store_path = crate::paths::join(agent_dir, "models-store.json");
+        let _ = crate::auth::ensure_file(&store_path);
         let auth = AuthStore::open(&crate::paths::join(agent_dir, "auth.json"));
         let mut catalog = pi_durable::ai::catalog::all();
+        let remote = catalog
+            .iter()
+            .map(|model| model.provider.clone())
+            .filter(|provider| remote_catalog::extends(provider))
+            .collect();
         catalog.extend(crate::mount::catalog().iter().cloned());
-        Self::new(config, auth, catalog)
+        let mut registry = Self::new(config, auth, catalog);
+        registry.remote = remote;
+        registry.store = Some(Store::at(&store_path));
+        registry.refresh(false, false, None, &CancelToken::new());
+        registry
     }
 
     pub fn new(config: ModelConfig, auth: AuthStore, catalog: Vec<Model>) -> Self {
@@ -88,30 +112,137 @@ impl ModelRegistry {
                 order.push(id.clone());
             }
         }
+        let catalog = order
+            .into_iter()
+            .map(|provider| {
+                let models = by_provider.remove(&provider).unwrap_or_default();
+                (provider, models)
+            })
+            .collect();
+        let registry = Self {
+            config,
+            network: std::env::var_os("PI_OFFLINE").is_none_or(|value| value.is_empty()),
+            catalog,
+            remote: BTreeSet::new(),
+            store: None,
+            overlays: Mutex::new(BTreeMap::new()),
+            models: RwLock::new(Arc::new(Vec::new())),
+            listed: Mutex::new(BTreeSet::new()),
+            builtin,
+            composition_errors: RwLock::new(BTreeMap::new()),
+            auth: Mutex::new(auth),
+            runtime_keys: Mutex::new(BTreeMap::new()),
+        };
+        registry.compose();
+        registry
+    }
+
+    fn compose(&self) {
+        let overlays = self.overlays.lock().unwrap();
         let mut models = Vec::new();
-        let mut composition_errors = BTreeMap::new();
-        for provider in &order {
-            let base = by_provider.get(provider).cloned().unwrap_or_default();
-            match model_config::compose(provider, &base, config.providers.get(provider)) {
+        let mut errors = BTreeMap::new();
+        for (provider, builtin) in &self.catalog {
+            let base = match overlays.get(provider) {
+                Some(overlay) if !overlay.is_empty() => remote_catalog::merge(builtin, overlay),
+                _ => builtin.clone(),
+            };
+            match model_config::compose(provider, &base, self.config.providers.get(provider)) {
                 Ok(composed) => models.extend(composed),
                 Err(e) => {
-                    composition_errors.insert(provider.clone(), e);
+                    errors.insert(provider.clone(), e);
                     models.extend(base);
                 }
             }
         }
-        Self {
-            config,
-            models,
-            builtin,
-            composition_errors,
-            auth: Mutex::new(auth),
-            runtime_keys: Mutex::new(BTreeMap::new()),
-        }
+        self.listed.lock().unwrap().extend(
+            models
+                .iter()
+                .map(|model| (model.provider.clone(), model.id.clone())),
+        );
+        *self.models.write().unwrap() = Arc::new(models);
+        *self.composition_errors.write().unwrap() = errors;
     }
 
-    pub fn models(&self) -> &[Model] {
-        &self.models
+    /// Whether the catalog has held this model at any point since pi-rs started.
+    pub fn has_listed(&self, provider: &str, id: &str) -> bool {
+        self.listed
+            .lock()
+            .unwrap()
+            .contains(&(provider.to_owned(), id.to_owned()))
+    }
+
+    pub fn refresh(
+        &self,
+        allow_network: bool,
+        force: bool,
+        only: Option<&[String]>,
+        cancel: &CancelToken,
+    ) -> Refreshed {
+        let mut refreshed = Refreshed::default();
+        let Some(store) = &self.store else {
+            return refreshed;
+        };
+        let providers: Vec<&String> = self
+            .remote
+            .iter()
+            .filter(|provider| only.is_none_or(|only| only.contains(provider)))
+            .collect();
+        let entries = store.entries();
+        let stored = |provider: &str| entries.get(provider).and_then(Value::as_object);
+        {
+            let mut overlays = self.overlays.lock().unwrap();
+            for provider in &providers {
+                let overlay = stored(provider)
+                    .map(|entry| remote_catalog::overlay(provider, entry))
+                    .unwrap_or_default();
+                overlays.insert((*provider).clone(), overlay);
+            }
+        }
+        if allow_network && !cancel.is_cancelled() {
+            let online: Vec<&String> = providers
+                .into_iter()
+                .filter(|provider| self.has_configured_auth(provider))
+                .collect();
+            let results: Vec<(String, Result<Option<remote_catalog::Entry>, String>)> =
+                std::thread::scope(|scope| {
+                    let running: Vec<_> = online
+                        .iter()
+                        .map(|provider| {
+                            let entry = stored(provider);
+                            scope.spawn(move || {
+                                let result =
+                                    remote_catalog::fetch(provider, entry, force, store, cancel);
+                                ((*provider).clone(), result)
+                            })
+                        })
+                        .collect();
+                    running
+                        .into_iter()
+                        .filter_map(|thread| thread.join().ok())
+                        .collect()
+                });
+            let mut overlays = self.overlays.lock().unwrap();
+            for (provider, result) in results {
+                match result {
+                    Ok(Some(entry)) => {
+                        overlays
+                            .insert(provider.clone(), remote_catalog::overlay(&provider, &entry));
+                    }
+                    Ok(None) => {}
+                    Err(error) if !cancel.is_cancelled() => {
+                        refreshed.errors.insert(provider, error);
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+        self.compose();
+        refreshed.aborted = cancel.is_cancelled();
+        refreshed
+    }
+
+    pub fn models(&self) -> Arc<Vec<Model>> {
+        Arc::clone(&self.models.read().unwrap())
     }
 
     /// `AuthStorage.read`: the provider's stored credential.
@@ -138,7 +269,7 @@ impl ModelRegistry {
     pub fn provider_exists(&self, provider: &str) -> bool {
         self.builtin.contains(provider)
             || self.config.providers.contains_key(provider)
-            || self.models.iter().any(|m| m.provider == provider)
+            || self.models().iter().any(|m| m.provider == provider)
     }
 
     /// `checkAuth`: the credential type requests to `provider` would use, if any.
@@ -163,20 +294,21 @@ impl ModelRegistry {
 
     /// The number of providers with auth, as the footer counts them.
     pub fn provider_count(&self) -> usize {
-        let mut providers: Vec<&str> = self
+        let mut providers: Vec<String> = self
             .available()
-            .iter()
-            .map(|model| model.provider.as_str())
+            .into_iter()
+            .map(|model| model.provider)
             .collect();
         providers.sort();
         providers.dedup();
         providers.len()
     }
 
-    pub fn get_model(&self, provider: &str, id: &str) -> Option<&Model> {
-        self.models
+    pub fn get_model(&self, provider: &str, id: &str) -> Option<Model> {
+        self.models()
             .iter()
             .find(|m| m.provider == provider && m.id == id)
+            .cloned()
     }
 
     /// `getError()`: models.json and composition problems.
@@ -184,6 +316,8 @@ impl ModelRegistry {
         let mut errors: Vec<String> = self.config.error.iter().cloned().collect();
         errors.extend(
             self.composition_errors
+                .read()
+                .unwrap()
                 .iter()
                 .map(|(p, e)| format!("Provider \"{p}\": {e}")),
         );
@@ -199,10 +333,13 @@ impl ModelRegistry {
     }
 
     fn provider_config(&self, provider: &str) -> Option<&model_config::ProviderConfig> {
-        self.config
-            .providers
-            .get(provider)
-            .filter(|_| !self.composition_errors.contains_key(provider))
+        self.config.providers.get(provider).filter(|_| {
+            !self
+                .composition_errors
+                .read()
+                .unwrap()
+                .contains_key(provider)
+        })
     }
 
     fn has_oauth(&self, provider: &str) -> bool {
@@ -280,15 +417,16 @@ impl ModelRegistry {
     }
 
     /// `getAvailableSnapshot()`: models whose provider has auth, in catalog order.
-    pub fn available(&self) -> Vec<&Model> {
-        let mut cache: BTreeMap<&str, bool> = BTreeMap::new();
-        self.models
+    pub fn available(&self) -> Vec<Model> {
+        let mut cache: BTreeMap<String, bool> = BTreeMap::new();
+        self.models()
             .iter()
             .filter(|m| {
                 *cache
-                    .entry(m.provider.as_str())
+                    .entry(m.provider.clone())
                     .or_insert_with(|| self.has_configured_auth(&m.provider))
             })
+            .cloned()
             .collect()
     }
 

@@ -194,6 +194,14 @@ pub fn providers(registry: Arc<ModelRegistry>, chosen: &Model) -> Providers {
     let mut providers = Providers::builtin();
     providers.add_models(registry.models().iter().cloned());
     providers.add_models([chosen.clone()]);
+    let catalog = Arc::clone(&registry);
+    let custom = chosen.clone();
+    providers.set_lookup(Arc::new(move |provider: &str, id: &str| {
+        catalog.get_model(provider, id).or_else(|| {
+            (custom.provider == provider && custom.id == id && !catalog.has_listed(provider, id))
+                .then(|| custom.clone())
+        })
+    }));
     providers.set_auth(Arc::new(move |model: &Model| registry.resolve_auth(model)));
     providers.set_router(Arc::new(|model: &Model| {
         crate::extensions::live()?.provider_api(&model.provider)

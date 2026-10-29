@@ -5,7 +5,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::mpsc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -722,7 +722,7 @@ fn login_default(registry: &ModelRegistry, provider: &str, label: &str) -> Resul
             "{label}, but no default model is configured for provider \"{provider}\". Use /model to select a model."
         ));
     };
-    let provider_models: Vec<&Model> = registry
+    let provider_models: Vec<Model> = registry
         .available()
         .into_iter()
         .filter(|found| found.provider == provider)
@@ -735,7 +735,6 @@ fn login_default(registry: &ModelRegistry, provider: &str, label: &str) -> Resul
     provider_models
         .into_iter()
         .find(|found| found.id == default_id)
-        .cloned()
         .ok_or_else(|| {
             format!(
                 "{label}, but its default model \"{default_id}\" is not available. Use /model to select a model."
@@ -936,6 +935,20 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         pending.push(text_input(text, images));
     }
     pending.extend(messages.iter().map(|m| text_input(m, &[])));
+    let (catalogs, refreshed) = std::sync::mpsc::channel();
+    if registry.network {
+        let registry = Arc::clone(&registry);
+        std::thread::spawn(move || {
+            let cancel = CancelToken::new();
+            let timer = cancel.clone();
+            std::thread::spawn(move || {
+                timer.wait_timeout(Duration::from_secs(15));
+                timer.cancel();
+            });
+            registry.refresh(true, false, None, &cancel);
+            let _ = catalogs.send(());
+        });
+    }
     let live = crate::extensions::live();
     let mut handed: Option<(String, String)> = None;
     if let Some(live) = live {
@@ -962,6 +975,13 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 Ok(()) => chat.working = true,
                 Err(e) => chat.notice("error", &format!("Error: {e}")),
             }
+            dirty.set(true);
+        }
+        if refreshed.try_recv().is_ok() {
+            if let Some(live) = live {
+                live.hand_models(&registry, &model);
+            }
+            footer.borrow_mut().state.provider_count = registry.provider_count();
             dirty.set(true);
         }
         if let Some(live) = live {
@@ -1477,7 +1497,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                     persist,
                 } => {
                     close = true;
-                    match registry.get_model(&provider, &id).cloned() {
+                    match registry.get_model(&provider, &id) {
                         Some(found) => match apply_model(
                             &open.root,
                             &cancel,

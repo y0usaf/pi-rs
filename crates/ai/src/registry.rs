@@ -31,12 +31,15 @@ pub type AuthResolver = Arc<dyn Fn(&Model) -> Result<Auth, String> + Send + Sync
 /// The API a provider registered at runtime streams a model with, when one did.
 pub type Router = Arc<dyn Fn(&Model) -> Option<Arc<dyn Api>> + Send + Sync>;
 
+pub type Lookup = Arc<dyn Fn(&str, &str) -> Option<Model> + Send + Sync>;
+
 #[derive(Default)]
 pub struct Providers {
     models: Vec<Model>,
     apis: BTreeMap<String, Arc<dyn Api>>,
     auth: Option<AuthResolver>,
     router: Option<Router>,
+    lookup: Option<Lookup>,
 }
 
 impl Providers {
@@ -97,6 +100,11 @@ impl Providers {
 
     pub fn set_router(&mut self, router: Router) -> &mut Self {
         self.router = Some(router);
+        self
+    }
+
+    pub fn set_lookup(&mut self, lookup: Lookup) -> &mut Self {
+        self.lookup = Some(lookup);
         self
     }
 
@@ -172,6 +180,9 @@ impl Providers {
 
 impl Models for Providers {
     fn get_model(&self, provider: &str, id: &str) -> Option<Model> {
+        if let Some(lookup) = &self.lookup {
+            return lookup(provider, id);
+        }
         self.models
             .iter()
             .find(|model| model.provider == provider && model.id == id)

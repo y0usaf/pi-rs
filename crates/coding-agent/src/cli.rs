@@ -294,7 +294,11 @@ fn run() -> Result<ExitCode, String> {
     let templates = loaded_templates.templates;
 
     let tools = run_config::select_tools(&parsed, &settings)?;
-    let registry = Arc::new(ModelRegistry::load(&agent_dir));
+    let mut registry = ModelRegistry::load(&agent_dir);
+    if parsed.offline {
+        registry.network = false;
+    }
+    let registry = Arc::new(registry);
     let mcp = mcp::Servers::start(&agent_dir, &cwd, trusted, parsed.no_mcp);
     let mcp_tools = mcp.registrations();
     // Upstream reports MCP trouble through the UI, which print mode does not have.
@@ -429,7 +433,7 @@ fn run() -> Result<ExitCode, String> {
             let model = agent
                 .model
                 .filter(|_| has_messages)
-                .and_then(|m| registry.get_model(&m.provider, &m.model_id).cloned());
+                .and_then(|m| registry.get_model(&m.provider, &m.model_id));
             let thinking = has_messages.then_some(agent.thinking_level);
             print::close(&probe, &cancel).map_err(|e| e.to_string())?;
             (model, thinking)
@@ -508,16 +512,7 @@ fn run() -> Result<ExitCode, String> {
     }
     if interactive {
         let (sender, incoming) = std::sync::mpsc::channel();
-        let provider_count = {
-            let mut providers: Vec<&str> = registry
-                .available()
-                .iter()
-                .map(|m| m.provider.as_str())
-                .collect();
-            providers.sort();
-            providers.dedup();
-            providers.len()
-        };
+        let provider_count = registry.provider_count();
         let opener = interactive::run::Opener {
             source: session_open::Source {
                 registry: Arc::clone(&registry),
