@@ -359,6 +359,25 @@
               ${examples}/bin/tui_parity
             touch $out
           '';
+          extensions-queue-parity = pkgs.runCommand "${pname}-extensions-queue-parity" { } ''
+            PI_UPSTREAM_BIN=${upstreamPi pkgs}/bin/pi \
+              PI_RS_BIN=${self.packages.${system}.default}/bin/pi-rs \
+              PI_EXTENSION_HOST=${extensionHost pkgs} \
+              PI_PARITY_PROBE=${./crates/coding-agent/parity/extensions/probe.ts} \
+              PI_QUEUE_EXTENSION=${./crates/coding-agent/parity/queue/extension.ts} \
+              ${examples}/bin/extensions_queue_parity
+            touch $out
+          '';
+          extensions-queue-parity-baseline =
+            pkgs.runCommand "${pname}-extensions-queue-parity-baseline" { }
+              ''
+                PI_UPSTREAM_BIN=${upstreamPi pkgs}/bin/pi \
+                  PI_RS_BIN=${upstreamPi pkgs}/bin/pi \
+                  PI_PARITY_PROBE=${./crates/coding-agent/parity/extensions/probe.ts} \
+                  PI_QUEUE_EXTENSION=${./crates/coding-agent/parity/queue/extension.ts} \
+                  ${examples}/bin/extensions_queue_parity
+                touch $out
+              '';
           codemode-e2e = pkgs.runCommand "${pname}-codemode-e2e" { } ''
             PI_RS_BIN=${self.packages.${system}.default}/bin/pi-rs ${examples}/bin/codemode_e2e
             touch $out
