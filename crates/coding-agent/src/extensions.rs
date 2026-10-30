@@ -1896,8 +1896,6 @@ impl Live {
         }
     }
 
-    /// Prints the session events an extension's calls cause, such as `thinking_level_changed`;
-    /// none while `session_start` runs, as upstream's JSON and RPC modes subscribe after it.
     pub fn print_events(&self, printer: Printer) {
         *lock(&self.0.printer) = Some(printer);
     }
@@ -1912,7 +1910,6 @@ impl Live {
         }
     }
 
-    /// The thinking level an extension set since the last call, for a mode that keeps its own copy.
     pub fn take_thinking_change(&self) -> Option<pi_durable::ai::types::ModelThinkingLevel> {
         lock(&self.0.thinking_change).take()
     }
