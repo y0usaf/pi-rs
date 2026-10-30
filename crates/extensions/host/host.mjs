@@ -246,6 +246,7 @@ function absorb(request) {
 	if (typeof request.streaming === "boolean") state.streaming = request.streaming;
 	if (typeof request.pending === "number") state.pending = request.pending;
 	if (request.updates?.session) session.refresh();
+	if (request.updates?.models) state.models = shapedModels(state.models);
 }
 
 const WRITES = /^(append|branch|reset|new|set|create)/;
@@ -280,6 +281,18 @@ const session = (() => {
 const { classifierErrorResult, getModelType } = await import(
 	new URL("./node_modules/@earendil-works/pi-ai/dist/utils/model-operations.js", import.meta.url)
 );
+
+function shapedModels(models) {
+	const shaped = (model) => {
+		const keys = models.keys?.[model?.provider]?.[model?.id];
+		if (!keys) return model;
+		const out = {};
+		for (const key of keys) out[key] = model[key];
+		for (const key of Object.keys(model)) if (!(key in out)) out[key] = model[key];
+		return out;
+	};
+	return { ...models, list: models.list?.map(shaped), current: models.current && shaped(models.current) };
+}
 
 function askAbortable(call, args, signal) {
 	const { callId, answer } = askStream(call, args);
@@ -361,7 +374,13 @@ const modelRegistry = (() => {
 				force: options?.force,
 				providers: options?.providers ? [...options.providers] : undefined,
 			});
-			state.models = { ...state.models, list: answer.list, typed: answer.typed, configured: answer.configured };
+			state.models = shapedModels({
+				...state.models,
+				list: answer.list,
+				typed: answer.typed,
+				keys: answer.keys,
+				configured: answer.configured,
+			});
 			const errors = Object.entries(answer.errors ?? {}).map(([id, message]) => [id, new Error(message)]);
 			return { aborted: answer.aborted, errors: new Map(errors) };
 		},

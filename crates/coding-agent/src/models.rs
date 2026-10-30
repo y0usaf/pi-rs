@@ -351,6 +351,26 @@ impl ModelRegistry {
             .cloned()
     }
 
+    pub fn model_keys(&self) -> Value {
+        let mut out = Map::new();
+        for model in self.models().iter() {
+            if is_virtual(model) {
+                continue;
+            }
+            let Some(config) = self.provider_config(&model.provider) else {
+                continue;
+            };
+            let keys = model_config::own_keys(model, config);
+            if let Value::Object(ids) = out
+                .entry(model.provider.clone())
+                .or_insert_with(|| Value::Object(Map::new()))
+            {
+                ids.insert(model.id.clone(), Value::from(keys));
+            }
+        }
+        Value::Object(out)
+    }
+
     pub fn typed_models(&self) -> Vec<Value> {
         pi_durable::ai::catalog::typed()
             .iter()

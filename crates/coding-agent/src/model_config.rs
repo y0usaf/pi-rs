@@ -387,6 +387,73 @@ pub fn compose(
     Ok(models)
 }
 
+const MODEL_FROM_JSON_KEYS: [&str; 17] = [
+    "id",
+    "name",
+    "api",
+    "provider",
+    "baseUrl",
+    "reasoning",
+    "thinkingLevelMap",
+    "input",
+    "inputLimits",
+    "cost",
+    "promptCache",
+    "contextWindow",
+    "maxTokens",
+    "samplingParams",
+    "samplingParamsByThinkingLevel",
+    "headers",
+    "compat",
+];
+
+const OVERRIDE_KEYS: [&str; 12] = [
+    "name",
+    "reasoning",
+    "thinkingLevelMap",
+    "input",
+    "inputLimits",
+    "cost",
+    "promptCache",
+    "contextWindow",
+    "maxTokens",
+    "samplingParams",
+    "samplingParamsByThinkingLevel",
+    "compat",
+];
+
+pub fn own_keys(model: &Model, config: &ProviderConfig) -> Vec<String> {
+    let defined = config
+        .get("models")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|def| def.get("id").and_then(Value::as_str) == Some(model.id.as_str()));
+    let mut keys: Vec<String> = if defined {
+        MODEL_FROM_JSON_KEYS.map(str::to_owned).to_vec()
+    } else {
+        match serde_json::to_value(model) {
+            Ok(Value::Object(fields)) => fields.keys().cloned().collect(),
+            _ => Vec::new(),
+        }
+    };
+    let overridden = config
+        .get("modelOverrides")
+        .and_then(|overrides| overrides.get(&model.id))
+        .is_some_and(Value::is_object);
+    let added: &[&str] = if overridden {
+        &OVERRIDE_KEYS
+    } else {
+        &["compat"]
+    };
+    for key in added {
+        if !keys.iter().any(|known| known == key) {
+            keys.push((*key).to_owned());
+        }
+    }
+    keys
+}
+
 /// The headers models.json sets for one model: `modelOverrides[id].headers`, then the model
 /// definition's (`rawModelHeaders`). Values are still unresolved.
 pub fn model_headers(

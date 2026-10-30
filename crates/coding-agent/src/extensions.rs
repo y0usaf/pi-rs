@@ -110,6 +110,7 @@ impl ExtensionModels {
             "errors": refreshed.errors,
             "list": next.list,
             "typed": next.registry.typed_models(),
+            "keys": next.registry.model_keys(),
             "configured": next.configured,
         });
         (answer, next)
@@ -637,7 +638,11 @@ pub fn load(
     host.update("providers", builtin_providers());
     host.update(
         "models",
-        json!({ "list": registry.models().as_ref(), "typed": registry.typed_models() }),
+        json!({
+            "list": registry.models().as_ref(),
+            "typed": registry.typed_models(),
+            "keys": registry.model_keys(),
+        }),
     );
     let _ = host.0.sink.registry.set(Arc::clone(registry));
     let sources = pi_extensions::Sources {
@@ -1775,6 +1780,7 @@ impl Live {
                 "current": models.current,
                 "list": models.list,
                 "typed": models.registry.typed_models(),
+                "keys": models.registry.model_keys(),
                 "configured": models.configured,
             }),
         );
