@@ -55,7 +55,6 @@ pub struct Options {
     pub commands: Vec<Value>,
     /// The prompt templates a `prompt` may invoke by name.
     pub templates: Vec<crate::prompt_templates::PromptTemplate>,
-    pub created: bool,
 }
 
 /// A `bash` command running on its own thread, kept so the loop carries on reading commands
@@ -428,7 +427,6 @@ pub fn run(
         stream: attach(&root, &output, &state, cancel)?,
         harness,
         root,
-        created: options.created,
     };
     if let Some(live) = crate::extensions::live() {
         let printer = output.clone();
