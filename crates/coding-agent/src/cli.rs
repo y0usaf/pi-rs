@@ -325,7 +325,7 @@ fn run() -> Result<ExitCode, String> {
         &settings,
         &registry,
         extension_mode,
-        tui,
+        tui || matches!(parsed.mode, Some(Mode::Rpc)),
     );
     if !extensions.errors.is_empty() {
         for error in &extensions.errors {

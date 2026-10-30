@@ -71,6 +71,17 @@ impl Source {
             Some(path) => store(path)?,
             None => Arc::new(MemoryStorage::new()),
         };
+        self.open_in(storage, path, report, sink, cancel)
+    }
+
+    pub fn open_in(
+        &self,
+        storage: Arc<dyn Storage>,
+        path: Option<&str>,
+        report: ErrorReport,
+        sink: Sink,
+        cancel: &CancelToken,
+    ) -> std::result::Result<Open, String> {
         let mut settings = self.tool_settings.clone();
         settings.env.retain(|(key, _)| key != "PI_SESSION_FILE");
         if let Some(path) = path {
@@ -127,6 +138,21 @@ impl Open {
         let _ = self.root.wait_for_idle(cancel);
         self.shutdown(cancel)?;
         *self = source.open(target, report, sink, cancel)?;
+        Ok(())
+    }
+
+    pub fn swap_in(
+        &mut self,
+        source: &Source,
+        storage: Arc<dyn Storage>,
+        report: ErrorReport,
+        sink: Sink,
+        cancel: &CancelToken,
+    ) -> std::result::Result<(), String> {
+        let _ = self.root.abort(false, cancel);
+        let _ = self.root.wait_for_idle(cancel);
+        self.shutdown(cancel)?;
+        *self = source.open_in(storage, None, report, sink, cancel)?;
         Ok(())
     }
 }

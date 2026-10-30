@@ -9,12 +9,13 @@ use std::sync::Arc;
 
 use pi_durable::cancel::CancelToken;
 use pi_durable::ids::EntryId;
-use pi_durable::session::kernel::open_session;
+use pi_durable::session::kernel::{Session, open_session};
 use pi_durable::session::transaction::TransactionScope;
 use pi_durable::session::types::Tx;
+use pi_durable::storage::memory::MemoryStorage;
 use pi_durable::storage::sqlite;
 use pi_durable::storage::sqlite::SqliteStorage;
-use pi_durable::types::{ContextEdit, EntryDraft, EntryRecord};
+use pi_durable::types::{ContextEdit, EntryDraft, EntryRecord, Storage};
 
 /// Copy `source` into `dir` under a new id and return the new file. A session whose run is still in
 /// flight is refused: its copy would resume that run.
@@ -75,60 +76,80 @@ pub fn branch_from(
         .and_then(Path::to_str)
         .map(str::to_owned)
         .unwrap_or_else(|| ".".to_owned());
-    let path: Vec<EntryRecord> = point
+    branch(&dir, &active_path(tree, point))
+}
+
+pub fn branch_in_memory(
+    tree: &crate::session_tree::Tree,
+    point: Option<EntryId>,
+) -> Result<Arc<dyn Storage>, String> {
+    let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+    let session = open_session(Arc::clone(&storage), None, None);
+    write(&session, &active_path(tree, point), &CancelToken::new())
+        .map_err(|e| format!("Cannot fork: {e}"))?;
+    Ok(storage)
+}
+
+fn active_path(tree: &crate::session_tree::Tree, point: Option<EntryId>) -> Vec<EntryRecord> {
+    point
         .map(|at| tree.path_to(at))
         .unwrap_or_default()
         .into_iter()
         .filter_map(|id| tree.entry(id).cloned())
-        .collect();
-    branch(&dir, &path)
+        .collect()
 }
 
 fn replay(path_out: &str, path: &[EntryRecord]) -> Result<(), String> {
     let storage = SqliteStorage::open(path_out, &Default::default()).map_err(|e| e.to_string())?;
     let session = open_session(Arc::new(storage), None, None);
     let cancel = CancelToken::new();
-    let written = session.commit_with(
-        |tx| {
-            let conversation = tx.create_root_conversation()?;
-            pi_durable::harness::harness::seed_conversation(tx, &conversation)?;
-            let mut moved: BTreeMap<EntryId, EntryId> = BTreeMap::new();
-            for entry in path {
-                let edits = entry
-                    .edits
-                    .as_ref()
-                    .map(|edits| {
-                        edits
-                            .iter()
-                            .filter_map(|edit| {
-                                moved.get(&edit.target).map(|target| ContextEdit {
-                                    target: *target,
-                                    action: edit.action.clone(),
-                                })
-                            })
-                            .collect::<Vec<ContextEdit>>()
-                    })
-                    .filter(|edits| !edits.is_empty());
-                let added = tx.append_entry(
-                    conversation.id,
-                    EntryDraft {
-                        kind: entry.kind.clone(),
-                        model: entry.model.clone(),
-                        data: entry.data.clone(),
-                        head: None,
-                        edits,
-                    },
-                )?;
-                moved.insert(entry.id, added.id);
-            }
-            Ok(())
-        },
-        &cancel,
-        TransactionScope::default(),
-    );
+    let written = write(&session, path, &cancel);
     let closed = session.close(&cancel);
-    written.map_err(|e| e.to_string())?;
+    written?;
     closed.map_err(|e| e.to_string())
+}
+
+fn write(session: &Session, path: &[EntryRecord], cancel: &CancelToken) -> Result<(), String> {
+    session
+        .commit_with(
+            |tx| {
+                let conversation = tx.create_root_conversation()?;
+                pi_durable::harness::harness::seed_conversation(tx, &conversation)?;
+                let mut moved: BTreeMap<EntryId, EntryId> = BTreeMap::new();
+                for entry in path {
+                    let edits = entry
+                        .edits
+                        .as_ref()
+                        .map(|edits| {
+                            edits
+                                .iter()
+                                .filter_map(|edit| {
+                                    moved.get(&edit.target).map(|target| ContextEdit {
+                                        target: *target,
+                                        action: edit.action.clone(),
+                                    })
+                                })
+                                .collect::<Vec<ContextEdit>>()
+                        })
+                        .filter(|edits| !edits.is_empty());
+                    let added = tx.append_entry(
+                        conversation.id,
+                        EntryDraft {
+                            kind: entry.kind.clone(),
+                            model: entry.model.clone(),
+                            data: entry.data.clone(),
+                            head: None,
+                            edits,
+                        },
+                    )?;
+                    moved.insert(entry.id, added.id);
+                }
+                Ok(())
+            },
+            cancel,
+            TransactionScope::default(),
+        )
+        .map_err(|e| e.to_string())
 }
 
 fn new_path(dir: &str) -> String {

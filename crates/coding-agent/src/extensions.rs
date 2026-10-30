@@ -444,6 +444,21 @@ pub struct Extensions {
     pub loaded: Vec<LoadedExtension>,
 }
 
+pub trait Ui: Send + Sync {
+    fn show(&self, request: Value);
+    fn ask(&self, request: Value, cancel: &CancelToken) -> std::result::Result<Value, String>;
+    fn failed(&self, failed: &Failed);
+}
+
+#[derive(Clone)]
+struct Reload {
+    agent_dir: String,
+    cli: Vec<String>,
+    flags: Vec<(String, Option<String>)>,
+    trusted: bool,
+    settings: Value,
+}
+
 #[derive(Clone)]
 pub struct Resources {
     pub cwd: String,
@@ -635,6 +650,7 @@ pub fn load(
             return extensions;
         }
     };
+    lock(&host.0.state).has_ui = has_ui;
     host.update("providers", builtin_providers());
     host.update(
         "models",
@@ -660,6 +676,13 @@ pub fn load(
             return extensions;
         }
     };
+    *lock(&host.0.reload) = Some(Reload {
+        agent_dir: agent_dir.to_owned(),
+        cli: cli.to_vec(),
+        flags: flags.clone(),
+        trusted: sources.trusted,
+        settings: view.clone(),
+    });
     extensions.errors = load.flag_errors.clone();
     extensions.loaded = load
         .extensions
@@ -669,14 +692,7 @@ pub fn load(
             source_info: serde_json::from_value(extension.source_info.clone()).ok(),
         })
         .collect();
-    for extension in &load.extensions {
-        for command in &extension.commands {
-            lock(&host.0.commands).push(command.name.clone());
-        }
-        lock(&host.0.handled).extend(extension.events.iter().cloned());
-    }
-    host.0.sink.tools(load.tools.clone());
-    host.0.sink.providers(load.providers.clone());
+    host.adopt(&load);
     let _ = LIVE.set(host);
     for error in &load.errors {
         extensions.notices.push(format!("Warning: {}", error.error));
@@ -818,6 +834,7 @@ struct Inner {
     starting: AtomicBool,
     round: Mutex<calls::Round>,
     ahead: Mutex<Option<calls::Ahead>>,
+    reload: Mutex<Option<Reload>>,
 }
 
 #[derive(Default)]
@@ -902,6 +919,7 @@ struct Sink {
     loadouts: Mutex<Vec<(Weak<Registry>, Arc<Loadout>)>>,
     registry: OnceLock<Arc<ModelRegistry>>,
     failed: Mutex<Option<AssistantMessage>>,
+    ui: Mutex<Option<Arc<dyn Ui>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -949,6 +967,12 @@ impl Peer for Sink {
                 .ok_or("no extension host is running")?
                 .name_session(args, cancel);
         }
+        if call == "ui" {
+            let ui = lock(&self.ui)
+                .clone()
+                .ok_or("this mode draws no extension UI")?;
+            return ui.ask(args.get("line").cloned().unwrap_or(Value::Null), cancel);
+        }
         let models = lock(&self.models).clone();
         match models {
             Some(models) if call == "refreshModels" => {
@@ -990,7 +1014,19 @@ impl Peer for Sink {
         lock(&self.calls).push(call);
     }
 
+    fn ui(&self, request: Value) {
+        let ui = lock(&self.ui).clone();
+        if let Some(ui) = ui {
+            ui.show(request);
+        }
+    }
+
     fn failed(&self, failed: Failed) {
+        let ui = lock(&self.ui).clone();
+        if let Some(ui) = ui {
+            ui.failed(&failed);
+            return;
+        }
         self.call(Call::Failed(failed));
     }
 
@@ -1187,7 +1223,61 @@ impl Live {
             starting: AtomicBool::new(false),
             round: Mutex::new(calls::Round::default()),
             ahead: Mutex::new(None),
+            reload: Mutex::new(None),
         })))
+    }
+
+    fn adopt(&self, load: &Load) {
+        let mut commands = lock(&self.0.commands);
+        let mut handled = lock(&self.0.handled);
+        commands.clear();
+        handled.clear();
+        for extension in &load.extensions {
+            commands.extend(
+                extension
+                    .commands
+                    .iter()
+                    .map(|command| command.name.clone()),
+            );
+            handled.extend(extension.events.iter().cloned());
+        }
+        drop((commands, handled));
+        self.0.sink.tools(load.tools.clone());
+        self.0.sink.providers(load.providers.clone());
+    }
+
+    pub fn reload(&self) -> std::result::Result<(), String> {
+        let Some(stored) = lock(&self.0.reload).clone() else {
+            return Ok(());
+        };
+        let sources = pi_extensions::Sources {
+            dirs: &[],
+            paths: &stored.cli,
+            cli: &stored.cli,
+            flags: &stored.flags,
+            trusted: stored.trusted,
+            settings: &stored.settings,
+        };
+        let load = self.load(&stored.agent_dir, &sources)?;
+        self.adopt(&load);
+        for error in load.errors {
+            self.0.sink.call(Call::Notify {
+                text: format!("Warning: {}", error.error),
+                level: "warning".to_owned(),
+            });
+        }
+        Ok(())
+    }
+
+    pub fn set_ui(&self, ui: Arc<dyn Ui>) {
+        *lock(&self.0.sink.ui) = Some(ui);
+    }
+
+    pub fn cancels(&self, name: &str, payload: Value) -> bool {
+        self.handles(name)
+            && self
+                .event(name, payload)
+                .is_some_and(|answer| answer.get("cancel").and_then(Value::as_bool) == Some(true))
     }
 
     pub fn set_resources(&self, resources: Resources) {
@@ -1962,16 +2052,21 @@ impl Live {
     /// Runs the line as an extension command when it names one, as upstream's
     /// `_tryExecuteExtensionCommand` does: the prompt is then not sent to the model.
     pub fn run_command(&self, typed: &str) -> bool {
-        let Some(typed) = typed.strip_prefix('/') else {
+        let Some(name) = self.command_named(typed) else {
             return false;
         };
-        let (name, args) = typed.split_once(' ').unwrap_or((typed, ""));
-        let known = lock(&self.0.commands).iter().any(|command| command == name);
-        if !known {
-            return false;
-        }
-        self.command(name, args);
+        let args = typed.split_once(' ').map_or("", |(_, args)| args);
+        self.command(&name, args);
         true
+    }
+
+    pub fn command_named(&self, typed: &str) -> Option<String> {
+        let typed = typed.strip_prefix('/')?;
+        let name = typed.split_once(' ').map_or(typed, |(name, _)| name);
+        lock(&self.0.commands)
+            .iter()
+            .any(|command| command == name)
+            .then(|| name.to_owned())
     }
 
     /// `agent_settled`, once a run has ended and nothing is left to send.

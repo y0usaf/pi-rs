@@ -93,6 +93,7 @@ pub trait Peer: Send + Sync {
     fn tools(&self, tools: Vec<ToolInfo>);
     fn providers(&self, providers: Vec<ProviderInfo>);
     fn virtual_models(&self, models: Vec<Value>);
+    fn ui(&self, request: Value);
 }
 
 /// The run an event sees: upstream's `ExtensionContext` minus what pi-rs fills in per extension.
@@ -584,6 +585,7 @@ impl Shared {
                     peer.failed(failed);
                 }
             }
+            "ui" => peer.ui(value.get("line").cloned().unwrap_or(Value::Null)),
             "virtualModels" => {
                 let models = match value.get("models") {
                     Some(Value::Array(models)) => models.clone(),

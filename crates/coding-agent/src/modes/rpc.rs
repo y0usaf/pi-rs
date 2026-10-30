@@ -5,11 +5,13 @@
 //! upstream does.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::BufRead;
 use std::rc::Rc;
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
-use pi_durable::ai::thinking::supported_thinking_levels;
+use pi_durable::ai::thinking::{clamp_thinking_level, supported_thinking_levels};
 use pi_durable::ai::types::{
     AssistantBlock, ImageContent, Message, Model, ModelThinkingLevel, TextContent, TextType,
     UserBlock, UserContent,
@@ -23,7 +25,8 @@ use pi_durable::harness::inbox::{InboxItem, InboxState, inbox_doc, withdraw_queu
 use pi_durable::harness::submissions::{SubmissionDraft, WhenBusy};
 use pi_durable::harness::types::{ErrorReport, ModelRef};
 use pi_durable::harness::util::read_draft;
-use pi_durable::types::{EntryQuery, ScanOrder};
+use pi_durable::types::{EntryQuery, ScanOrder, Storage};
+use pi_extensions::Failed;
 use serde_json::{Value, json};
 
 use super::{Output, json_event, value};
@@ -138,6 +141,73 @@ fn drain_bash(runs: &mut Vec<BashRun>, root: &Conversation, cancel: &CancelToken
         } else {
             index += 1;
         }
+    }
+}
+
+struct Dialogs {
+    output: Output,
+    pending: Mutex<Option<HashMap<String, Sender<Option<Value>>>>>,
+}
+
+impl Dialogs {
+    fn waiting(&self) -> std::sync::MutexGuard<'_, Option<HashMap<String, Sender<Option<Value>>>>> {
+        self.pending.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn close(&self) {
+        for waiting in self
+            .waiting()
+            .take()
+            .into_iter()
+            .flat_map(HashMap::into_values)
+        {
+            let _ = waiting.send(None);
+        }
+    }
+
+    fn answer(&self, response: Value) {
+        let waiting = response["id"]
+            .as_str()
+            .and_then(|id| self.waiting().as_mut()?.remove(id));
+        if let Some(waiting) = waiting {
+            let _ = waiting.send(Some(response));
+        }
+    }
+}
+
+impl crate::extensions::Ui for Dialogs {
+    fn show(&self, request: Value) {
+        self.output.line(&request);
+    }
+
+    fn ask(&self, request: Value, cancel: &CancelToken) -> Result<Value, String> {
+        let id = request["id"]
+            .as_str()
+            .ok_or("an extension UI request without an id")?
+            .to_owned();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.waiting()
+            .as_mut()
+            .ok_or("the RPC client closed its input")?
+            .insert(id.clone(), sender.clone());
+        let _cancelled = cancel.subscribe(move || {
+            let _ = sender.send(None);
+        });
+        self.output.line(&request);
+        let answer = receiver.recv().ok().flatten();
+        if let Some(waiting) = self.waiting().as_mut() {
+            waiting.remove(&id);
+        }
+        answer.ok_or_else(|| "the dialog closed without an answer".to_owned())
+    }
+
+    fn failed(&self, failed: &Failed) {
+        self.output.line(&json!({
+            "type": "extension_error",
+            "extensionPath": failed.path,
+            "event": failed.event,
+            "error": failed.error,
+        }));
     }
 }
 
@@ -428,9 +498,36 @@ pub fn run(
         harness,
         root,
     };
+    let dialogs = Arc::new(Dialogs {
+        output: output.clone(),
+        pending: Mutex::new(Some(HashMap::new())),
+    });
+
+    // A thread reads stdin, so a running `bash` command's output and `abort_bash` reach the
+    // client while nothing is typed, and a dialog's answer reaches the extension waiting on it,
+    // startup's session_start handlers included.
+    let (lines, reading) = std::sync::mpsc::channel::<String>();
+    let answers = Arc::clone(&dialogs);
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else {
+                break;
+            };
+            if let Ok(parsed) = serde_json::from_str::<Value>(&line)
+                && parsed["type"] == "extension_ui_response"
+            {
+                answers.answer(parsed);
+            } else if lines.send(line).is_err() {
+                break;
+            }
+        }
+        answers.close();
+    });
+
     if let Some(live) = crate::extensions::live() {
         let printer = output.clone();
         live.print_events(Arc::new(move |event| printer.line(event)));
+        live.set_ui(dialogs as Arc<dyn crate::extensions::Ui>);
         live.set_session(
             &open.harness,
             &open.root,
@@ -438,23 +535,8 @@ pub fn run(
             &options.cwd,
             cancel,
         );
+        live.event("session_start", json!({ "reason": "startup" }));
     }
-
-    // A thread reads stdin, so a running `bash` command's output and `abort_bash` reach the
-    // client while nothing is typed.
-    let (lines, reading) = std::sync::mpsc::channel::<String>();
-    std::thread::spawn(move || {
-        for line in std::io::stdin().lock().lines() {
-            match line {
-                Ok(line) => {
-                    if lines.send(line).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
     let mut runs: Vec<BashRun> = Vec::new();
     loop {
         let received = reading.recv_timeout(std::time::Duration::from_millis(20));
@@ -470,12 +552,9 @@ pub fn run(
                             format!("Failed to parse command: {error}"),
                         )),
                         Ok(parsed) => {
-                            if parsed["type"] != "extension_ui_response"
-                                && let Some(response) = handle(
-                                    &mut open, &output, &options, &state, &parsed, cancel,
-                                    &mut runs,
-                                )
-                            {
+                            if let Some(response) = handle(
+                                &mut open, &output, &options, &state, &parsed, cancel, &mut runs,
+                            ) {
                                 output.line(&response);
                             }
                         }
@@ -490,6 +569,10 @@ pub fn run(
 
     open.stream.stop();
     let _ = open.root.wait_for_idle(cancel);
+    observe(&state);
+    if let Some(live) = crate::extensions::live() {
+        live.event("session_shutdown", json!({ "reason": "quit" }));
+    }
     open.shutdown(cancel)
 }
 
@@ -541,19 +624,51 @@ fn attach(
     Ok(stream)
 }
 
-/// Replace the session with the one at target, then point it at the model and thinking level it
+enum Next {
+    File(Option<String>),
+    Memory(Arc<dyn Storage>),
+}
+
+/// Replace the session with the next one, then point it at the model and thinking level it
 /// recorded for itself, or at this run's when it recorded none: upstream's switchSession,
-/// newSession, fork and clone.
-fn switch(
+/// newSession, fork and clone, with their session_shutdown, reloaded extensions and
+/// session_start.
+fn replace(
     open: &mut Open,
     output: &Output,
     options: &Options,
     state: &Arc<Mutex<State>>,
-    target: Option<&str>,
+    reason: &str,
+    next: Next,
     cancel: &CancelToken,
 ) -> Result<(), String> {
-    let next = sink(output, state);
-    open.swap(&options.source, target, report(), next, cancel)?;
+    let previous = open.path.clone();
+    let _ = open.root.abort(false, cancel);
+    let _ = open.root.wait_for_idle(cancel);
+    observe(state);
+    let live = crate::extensions::live();
+    if let Some(live) = live {
+        let target = match &next {
+            Next::File(target) => target.clone(),
+            Next::Memory(_) => None,
+        };
+        live.event(
+            "session_shutdown",
+            json!({ "reason": reason, "targetSessionFile": target }),
+        );
+    }
+    let events = sink(output, state);
+    match next {
+        Next::File(target) => {
+            open.swap(&options.source, target.as_deref(), report(), events, cancel)?
+        }
+        Next::Memory(storage) => {
+            open.swap_in(&options.source, storage, report(), events, cancel)?
+        }
+    }
+    if let Some(live) = live {
+        live.reload()?;
+    }
     let recorded = run_config::recorded_agent(&open.root, cancel, &options.registry)?;
     let (model, thinking) = match recorded {
         Some(recorded) => recorded,
@@ -571,7 +686,15 @@ fn switch(
         .and_then(|agent| agent.cwd)
         .unwrap_or_else(|| options.cwd.clone());
     run_config::apply_agent(&open.root, cancel, &model, thinking, &cwd)?;
-    if let Some(live) = crate::extensions::live() {
+    {
+        let mut shared = state
+            .lock()
+            .map_err(|_| "the session state is poisoned".to_owned())?;
+        shared.model = model.clone();
+        shared.thinking = thinking;
+    }
+    if let Some(live) = live {
+        live.hand_models(&options.registry, &model);
         live.set_session(
             &open.harness,
             &open.root,
@@ -579,13 +702,57 @@ fn switch(
             &cwd,
             cancel,
         );
+        let start = json!({ "reason": reason, "previousSessionFile": previous });
+        live.event("session_start", start.clone());
+        live.event("session_start", start);
     }
-    let mut shared = state
-        .lock()
-        .map_err(|_| "the session state is poisoned".to_owned())?;
-    shared.model = model;
-    shared.thinking = thinking;
     Ok(())
+}
+
+fn branch(
+    source: Option<&str>,
+    tree: &Tree,
+    point: Option<pi_durable::ids::EntryId>,
+) -> Result<Next, String> {
+    match source {
+        Some(_) => {
+            session_fork::branch_from(source, tree, point).map(|path| Next::File(Some(path)))
+        }
+        None => session_fork::branch_in_memory(tree, point).map(Next::Memory),
+    }
+}
+
+fn thinking_changed(output: &Output, previous: ModelThinkingLevel, level: ModelThinkingLevel) {
+    if previous != level {
+        output.line(&json!({ "type": "thinking_level_changed", "level": level_name(level) }));
+    }
+}
+
+fn cancelled(event: &str, payload: Value) -> bool {
+    crate::extensions::live().is_some_and(|live| live.cancels(event, payload))
+}
+
+fn select_model(registry: &Arc<ModelRegistry>, model: &Model, previous: &Model, source: &str) {
+    if model.provider == previous.provider && model.id == previous.id {
+        return;
+    }
+    if let Some(live) = crate::extensions::live() {
+        live.hand_models(registry, model);
+        live.event(
+            "model_select",
+            json!({ "model": value(model), "previousModel": value(previous), "source": source }),
+        );
+    }
+}
+
+fn entry_label(entry: &Value) -> Value {
+    let parsed = entry
+        .as_u64()
+        .or_else(|| entry.as_str().and_then(|entry| entry.parse().ok()));
+    match parsed {
+        Some(entry) => json!(crate::sessions::export::short_id(entry)),
+        None => entry.clone(),
+    }
 }
 
 /// The thinking level the session is at, for the model switches that keep it.
@@ -619,6 +786,25 @@ fn handle(
                     _ => WhenBusy::FollowUp,
                 },
             };
+            let live = crate::extensions::live();
+            if let Some(text) = command["message"].as_str()
+                && let Some(live) = live
+            {
+                if kind == "prompt" && live.run_command(text) {
+                    return Some(success(id, kind, Some(json!({ "disposition": "handled" }))));
+                }
+                if kind != "prompt"
+                    && let Some(name) = live.command_named(text)
+                {
+                    return Some(failure(
+                        id,
+                        kind,
+                        format!(
+                            "Extension command \"/{name}\" cannot be queued. Use prompt() or execute the command when not streaming."
+                        ),
+                    ));
+                }
+            }
             let content = user_content(command, &options.templates);
             let starts = kind == "prompt" && !state.lock().is_ok_and(|state| state.streaming);
             observe(state);
@@ -633,7 +819,8 @@ fn handle(
                 content,
                 when_busy,
             };
-            match root.submit(draft, cancel) {
+            output.hold();
+            let response = match root.submit(draft, cancel) {
                 Ok(handle) => match handle.status(cancel) {
                     Ok(record) => {
                         let queued = matches!(
@@ -654,7 +841,9 @@ fn handle(
                     Err(error) => failure(id, kind, error.to_string()),
                 },
                 Err(error) => failure(id, kind, error.to_string()),
-            }
+            };
+            output.release(&response);
+            return None;
         }
 
         "abort" => match root.abort(false, cancel) {
@@ -672,11 +861,25 @@ fn handle(
         },
 
         "new_session" => {
+            if cancelled(
+                "session_before_switch",
+                json!({ "reason": "new", "targetSessionFile": null }),
+            ) {
+                return Some(success(id, kind, Some(json!({ "cancelled": true }))));
+            }
             let target = open
                 .path
                 .as_ref()
                 .map(|_| session_list::new_path(&options.session_dir));
-            match switch(open, output, options, state, target.as_deref(), cancel) {
+            match replace(
+                open,
+                output,
+                options,
+                state,
+                "new",
+                Next::File(target),
+                cancel,
+            ) {
                 Err(error) => failure(id, kind, error),
                 Ok(()) => {
                     if let Some(parent) = command["parentSession"].as_str()
@@ -692,6 +895,12 @@ fn handle(
 
         "switch_session" => {
             let session_path = command["sessionPath"].as_str().unwrap_or_default();
+            if cancelled(
+                "session_before_switch",
+                json!({ "reason": "resume", "targetSessionFile": session_path }),
+            ) {
+                return Some(success(id, kind, Some(json!({ "cancelled": true }))));
+            }
             if !std::path::Path::new(session_path).is_file() {
                 return Some(failure(
                     id,
@@ -699,13 +908,21 @@ fn handle(
                     format!("Session not found: {session_path}"),
                 ));
             }
-            match switch(open, output, options, state, Some(session_path), cancel) {
+            let next = Next::File(Some(session_path.to_owned()));
+            match replace(open, output, options, state, "resume", next, cancel) {
                 Ok(()) => success(id, kind, Some(json!({ "cancelled": false }))),
                 Err(error) => failure(id, kind, error),
             }
         }
 
         "fork" => {
+            let label = entry_label(&command["entryId"]);
+            if cancelled(
+                "session_before_fork",
+                json!({ "entryId": label, "position": "before" }),
+            ) {
+                return Some(success(id, kind, Some(json!({ "cancelled": true }))));
+            }
             let tree = match Tree::build(&open.root, cancel) {
                 Err(error) => return Some(failure(id, kind, error.to_string())),
                 Ok(tree) => tree,
@@ -728,12 +945,11 @@ fn handle(
                 .node(entry)
                 .and_then(|node| node.parent)
                 .map(|parent| tree.nodes[parent].entry.id);
-            let path = match session_fork::branch_from(open.path.as_deref(), &tree, point) {
+            let next = match branch(open.path.as_deref(), &tree, point) {
                 Err(error) => return Some(failure(id, kind, error)),
-                Ok(path) => path,
+                Ok(next) => next,
             };
-            let (text, path) = (text, path);
-            match switch(open, output, options, state, Some(&path), cancel) {
+            match replace(open, output, options, state, "fork", next, cancel) {
                 Err(error) => failure(id, kind, error),
                 Ok(()) => success(id, kind, Some(json!({ "text": text, "cancelled": false }))),
             }
@@ -751,11 +967,17 @@ fn handle(
                     "Cannot clone session: no current entry selected",
                 ));
             };
-            let path = match session_fork::branch_from(open.path.as_deref(), &tree, Some(leaf)) {
+            if cancelled(
+                "session_before_fork",
+                json!({ "entryId": entry_label(&json!(leaf.0)), "position": "at" }),
+            ) {
+                return Some(success(id, kind, Some(json!({ "cancelled": true }))));
+            }
+            let next = match branch(open.path.as_deref(), &tree, Some(leaf)) {
                 Err(error) => return Some(failure(id, kind, error)),
-                Ok(path) => path,
+                Ok(next) => next,
             };
-            match switch(open, output, options, state, Some(&path), cancel) {
+            match replace(open, output, options, state, "fork", next, cancel) {
                 Ok(()) => success(id, kind, Some(json!({ "cancelled": false }))),
                 Err(error) => failure(id, kind, error),
             }
@@ -819,9 +1041,15 @@ fn handle(
                     match run_config::set_model(root, cancel, &settings, &model, thinking) {
                         Err(error) => failure(id, kind, error),
                         Ok(level) => {
-                            if let Ok(mut state) = state.lock() {
-                                state.model = model.clone();
-                                state.thinking = level;
+                            let previous = state.lock().ok().map(|mut state| {
+                                (
+                                    std::mem::replace(&mut state.thinking, level),
+                                    std::mem::replace(&mut state.model, model.clone()),
+                                )
+                            });
+                            if let Some((thinking, previous)) = previous {
+                                thinking_changed(output, thinking, level);
+                                select_model(&options.registry, &model, &previous, "set");
                             }
                             success(id, kind, Some(value(&model)))
                         }
@@ -855,6 +1083,8 @@ fn handle(
                                 state.model = next.clone();
                                 state.thinking = level;
                             }
+                            thinking_changed(output, thinking, level);
+                            select_model(&options.registry, &next, &current, "cycle");
                             success(
                                 id,
                                 kind,
@@ -879,13 +1109,20 @@ fn handle(
             Some(level) if is_valid_thinking_level(level) => {
                 match serde_json::from_value::<ModelThinkingLevel>(json!(level)) {
                     Err(error) => failure(id, kind, error.to_string()),
-                    Ok(level) => match run_config::set_thinking(root, cancel, level) {
-                        Err(error) => failure(id, kind, error),
-                        Ok(()) => {
-                            if let Ok(mut state) = state.lock() {
-                                state.thinking = level;
+                    Ok(level) => match state.lock().ok().map(|s| (s.model.clone(), s.thinking)) {
+                        None => failure(id, kind, "the session state is poisoned"),
+                        Some((model, previous)) => {
+                            let level = clamp_thinking_level(&model, level);
+                            match run_config::set_thinking(root, cancel, level) {
+                                Err(error) => failure(id, kind, error),
+                                Ok(()) => {
+                                    if let Ok(mut state) = state.lock() {
+                                        state.thinking = level;
+                                    }
+                                    thinking_changed(output, previous, level);
+                                    success(id, kind, None)
+                                }
                             }
-                            success(id, kind, None)
                         }
                     },
                 }
@@ -913,6 +1150,7 @@ fn handle(
                         if let Ok(mut state) = state.lock() {
                             state.thinking = next;
                         }
+                        thinking_changed(output, thinking, next);
                         success(id, kind, Some(json!({ "level": level_name(next) })))
                     }
                 }

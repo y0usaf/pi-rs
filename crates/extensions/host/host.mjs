@@ -94,7 +94,7 @@ function unported(member) {
 globalThis.__piHost = { effect, unported };
 
 const dist = new URL("./node_modules/@earendil-works/pi-coding-agent/dist/", import.meta.url);
-const { loadExtensions } = await import(new URL("core/extensions/loader.js", dist));
+const { loadExtensionsCached } = await import(new URL("core/extensions/loader.js", dist));
 const { ExtensionRunner } = await import(new URL("core/extensions/runner.js", dist));
 const { emitProjectTrustEvent } = await import(new URL("core/extensions/runner.js", dist));
 const { canonicalizePath, resolvePath } = await import(new URL("utils/paths.js", dist));
@@ -862,6 +862,84 @@ function uiOf(noOp) {
 	return ui;
 }
 
+/** RPC mode's UI: upstream's createExtensionUIContext in modes/rpc/rpc-mode.ts, each request a line pi-rs writes and each dialog answered by the client's extension_ui_response. */
+function rpcUI(noOp) {
+	const request = (fields) => ({ type: "extension_ui_request", id: crypto.randomUUID(), ...fields });
+	const show = (fields) => effect({ call: "ui", line: request(fields) });
+	const dialog = (opts, fallback, fields, parse) => {
+		if (opts?.signal?.aborted) return Promise.resolve(fallback);
+		const { callId, answer } = askStream("ui", { line: request(fields) });
+		return new Promise((resolve, reject) => {
+			let timeoutId;
+			const cleanup = () => {
+				if (timeoutId) clearTimeout(timeoutId);
+				opts?.signal?.removeEventListener("abort", onAbort);
+			};
+			const onAbort = () => {
+				cleanup();
+				effect({ call: "cancel", ask: callId });
+				resolve(fallback);
+			};
+			opts?.signal?.addEventListener("abort", onAbort, { once: true });
+			if (opts?.timeout) timeoutId = setTimeout(onAbort, opts.timeout);
+			answer.then(
+				(response) => {
+					cleanup();
+					resolve(parse(response));
+				},
+				(error) => {
+					cleanup();
+					reject(error);
+				},
+			);
+		});
+	};
+	const chosen = (response) => (response.cancelled ? undefined : "value" in response ? response.value : undefined);
+	return {
+		select: (title, options, opts) =>
+			dialog(opts, undefined, { method: "select", title, options, timeout: opts?.timeout }, chosen),
+		confirm: (title, message, opts) =>
+			dialog(opts, false, { method: "confirm", title, message, timeout: opts?.timeout }, (response) =>
+				response.cancelled ? false : "confirmed" in response ? response.confirmed : false,
+			),
+		input: (title, placeholder, opts) =>
+			dialog(opts, undefined, { method: "input", title, placeholder, timeout: opts?.timeout }, chosen),
+		notify: (message, type) => show({ method: "notify", message, notifyType: type }),
+		onTerminalInput: () => () => {},
+		setStatus: (key, text) => show({ method: "setStatus", statusKey: key, statusText: text }),
+		setWorkingMessage: () => {},
+		setWorkingVisible: () => {},
+		setWorkingIndicator: () => {},
+		setHiddenThinkingLabel: () => {},
+		setWidget: (key, content, options) => {
+			if (content === undefined || Array.isArray(content)) {
+				show({ method: "setWidget", widgetKey: key, widgetLines: content, widgetPlacement: options?.placement });
+			}
+		},
+		setFooter: () => {},
+		setHeader: () => {},
+		setTitle: (title) => show({ method: "setTitle", title }),
+		custom: async () => undefined,
+		pasteToEditor(text) {
+			this.setEditorText(text);
+		},
+		setEditorText: (text) => show({ method: "set_editor_text", text }),
+		getEditorText: () => "",
+		editor: (title, prefill) => dialog(undefined, undefined, { method: "editor", title, prefill }, chosen),
+		addAutocompleteProvider: () => {},
+		setEditorComponent: () => {},
+		getEditorComponent: () => undefined,
+		get theme() {
+			return noOp.theme;
+		},
+		getAllThemes: () => [],
+		getTheme: () => undefined,
+		setTheme: () => ({ success: false, error: "Theme switching not supported in RPC mode" }),
+		getToolsExpanded: () => false,
+		setToolsExpanded: () => {},
+	};
+}
+
 /** What an extension registered that upstream acts on in this mode and pi-rs does not yet; renderers and shortcuts only act in the TUI. */
 function unconsumed(extension, servers) {
 	const used = [];
@@ -914,7 +992,10 @@ async function load(request) {
 	runner.bindCore(actions, contextActions, providerActions);
 	if (hadVirtualModels && virtualModels.size === 0) reportVirtualModels();
 	runner.setUIContext(undefined, state.mode);
-	if (state.hasUI) runner.setUIContext(uiOf(runner.getUIContext()), state.mode);
+	if (state.hasUI) {
+		const noOp = runner.getUIContext();
+		runner.setUIContext(state.mode === "rpc" ? rpcUI(noOp) : uiOf(noOp), state.mode);
+	}
 	runner.bindCommandContext(commandActions);
 	return {
 		extensions: result.extensions.map((extension) => summary(extension, result.runtime.mcpServers.list())),
@@ -953,7 +1034,7 @@ async function projectTrust(request) {
 	initTheme(request.theme, false);
 	const bus = createEventBus();
 	const resources = await settingsResources(request, false);
-	const result = await loadExtensions(withResources(resolvePaths(request), resources), state.cwd, bus);
+	const result = await loadExtensionsCached(withResources(resolvePaths(request), resources), state.cwd, bus);
 	preTrusted = { result, bus };
 	const answer = await emitProjectTrustEvent(result, { type: "project_trust", cwd: state.cwd }, trustContext());
 	return {
@@ -965,12 +1046,12 @@ async function projectTrust(request) {
 async function loadSet(paths) {
 	const pre = preTrusted;
 	preTrusted = undefined;
-	if (!pre) return await loadExtensions(paths, state.cwd, createEventBus());
+	if (!pre) return await loadExtensionsCached(paths, state.cwd, createEventBus());
 	const key = (entry) => resolvePath(entry, state.cwd, { normalizeUnicodeSpaces: true });
 	const preloaded = new Map(pre.result.extensions.map((extension) => [extension.resolvedPath, extension]));
 	const failed = new Set(pre.result.errors.map((error) => key(error.path)));
 	const remaining = paths.filter((entry) => !preloaded.has(key(entry)) && !failed.has(key(entry)));
-	const rest = await loadExtensions(remaining, state.cwd, pre.bus, pre.result.runtime);
+	const rest = await loadExtensionsCached(remaining, state.cwd, pre.bus, pre.result.runtime);
 	const loaded = new Map(preloaded);
 	for (const extension of rest.extensions) loaded.set(extension.resolvedPath, extension);
 	return {
@@ -989,6 +1070,7 @@ async function emitEvent(request) {
 		return { payload: await runner.emitBeforeProviderRequest(payload) };
 	}
 	const event = { type: request.name, ...request.event };
+	for (const key of ["targetSessionFile", "previousSessionFile"]) if (event[key] === null) event[key] = undefined;
 	if (event.message?.role === "custom") event.message = custom(event.message);
 	if (request.name === "agent_end") {
 		event.messages = (event.messages ?? []).map((message) => (message.role === "custom" ? custom(message) : message));
@@ -1021,8 +1103,7 @@ async function emitEvent(request) {
 	if (request.name === "resources_discover") return await runner.emitResourcesDiscover(event.cwd, event.reason);
 	if (request.name === "tool_call") return await toolCall(event);
 	if (request.name === "tool_result") return await toolResult(event);
-	await runner.emit(event);
-	return null;
+	return (await runner.emit(event)) ?? null;
 }
 
 async function toolCall(event) {

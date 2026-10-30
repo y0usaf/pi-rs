@@ -18,13 +18,33 @@ use crate::stdout;
 /// A stdout line writer both the event stream and the command handler use, so their lines never
 /// interleave inside one object.
 #[derive(Clone, Default)]
-pub struct Output(Arc<Mutex<()>>);
+pub struct Output(Arc<Mutex<Option<Vec<Value>>>>);
 
 impl Output {
     pub fn line(&self, value: &Value) {
-        let _held = self.0.lock();
-        let _ = stdout::write(&format!("{value}\n"));
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        match held.as_mut() {
+            Some(lines) => lines.push(value.clone()),
+            None => write(value),
+        }
     }
+
+    pub fn hold(&self) {
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        held.get_or_insert_with(Vec::new);
+    }
+
+    pub fn release(&self, first: &Value) {
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        write(first);
+        for line in held.take().into_iter().flatten() {
+            write(&line);
+        }
+    }
+}
+
+fn write(value: &Value) {
+    let _ = stdout::write(&format!("{value}\n"));
 }
 
 pub fn value<T: serde::Serialize>(item: &T) -> Value {
