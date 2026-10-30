@@ -365,6 +365,26 @@ impl Live {
             .map_err(|e| e.to_string())
     }
 
+    pub(super) fn append_custom(
+        &self,
+        args: &Value,
+        cancel: &CancelToken,
+    ) -> Result<Value, String> {
+        let root = self
+            .root()
+            .ok_or("no session is open to append an entry to")?;
+        let draft = json!({
+            "type": "custom",
+            "customType": args.get("customType"),
+            "data": args.get("data"),
+        });
+        crate::sessions::drafts::append(&root, &[draft], cancel)?;
+        let session = self
+            .session_update(cancel)
+            .ok_or("the session could not be read after the entry was appended")?;
+        Ok(json!({ "session": session }))
+    }
+
     pub(super) fn compact(&self, args: &Value, cancel: &CancelToken) -> Result<Value, String> {
         let args: CompactArgs = serde_json::from_value(args.clone())
             .map_err(|e| format!("ctx.compact was asked with {e}"))?;

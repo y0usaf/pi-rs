@@ -506,7 +506,9 @@ const actions = {
 		const parts = typeof content === "string" ? [{ type: "text", text: content }] : content;
 		effect({ call: "sendUserMessage", content: parts, deliverAs: options?.deliverAs ?? null });
 	},
-	appendEntry: thrower("pi.appendEntry"),
+	appendEntry: (customType, data) => {
+		absorb({ updates: askNow("appendEntry", { customType, data }) });
+	},
 	setSessionName: thrower("pi.setSessionName"),
 	getSessionName: () => state.session?.name ?? undefined,
 	setLabel: thrower("pi.setLabel"),

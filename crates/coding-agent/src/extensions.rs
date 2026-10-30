@@ -859,6 +859,11 @@ impl Peer for Sink {
         if call == "activeTools" {
             return Ok(Value::Object(self.activate(args)));
         }
+        if call == "appendEntry" {
+            return live()
+                .ok_or("no extension host is running")?
+                .append_custom(args, cancel);
+        }
         let models = lock(&self.models).clone();
         match models {
             Some(models) if call == "refreshModels" => {
