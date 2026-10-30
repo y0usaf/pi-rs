@@ -358,7 +358,6 @@ pub fn run_turns(
         };
         refresh(live);
         live.end_run();
-        live.event("agent_end", serde_json::json!({ "messages": [] }));
         for call in live.take_calls() {
             match call {
                 Call::Abort => {

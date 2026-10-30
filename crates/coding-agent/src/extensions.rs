@@ -700,6 +700,7 @@ struct RunState {
     turn: Option<usize>,
     next: usize,
     forced: Option<String>,
+    messages: Vec<Value>,
 }
 
 #[derive(Clone)]
@@ -1327,7 +1328,8 @@ impl Live {
             self.announce(&root);
         }
         self.turn_end();
-        *lock(&self.0.run) = RunState::default();
+        let messages = std::mem::take(&mut *lock(&self.0.run)).messages;
+        self.event("agent_end", json!({ "messages": messages }));
     }
 
     fn end_prompt_run(&self) {
@@ -1612,7 +1614,6 @@ impl Live {
     pub fn observe(&self, event: &AgentEvent) {
         if let AgentEvent::RunEnd { .. } = event {
             self.end_run();
-            self.event("agent_end", json!({ "messages": [] }));
         }
     }
 
@@ -1785,6 +1786,7 @@ impl Live {
             {
                 self.unported("a message_end handler replaced a message the session already holds");
             }
+            lock(&self.0.run).messages.push(message);
         }
     }
 
@@ -1875,12 +1877,14 @@ impl Live {
         let answer = self
             .ask("message_end", json!({ "message": payload }))
             .map_err(Error::Invalid)?;
-        let Some(next) = answer.get("message") else {
+        let Some(next) = answer.get("message").cloned() else {
+            lock(&self.0.run).messages.push(payload);
             return Ok(None);
         };
-        let next = serde_json::from_value(next.clone())
+        let parsed = serde_json::from_value(next.clone())
             .map_err(|e| Error::Invalid(format!("a message_end handler returned {e}")))?;
-        Ok(Some(next))
+        lock(&self.0.run).messages.push(next);
+        Ok(Some(parsed))
     }
 
     fn ask(&self, name: &str, payload: Value) -> std::result::Result<Value, String> {
