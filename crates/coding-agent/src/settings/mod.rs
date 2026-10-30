@@ -164,23 +164,29 @@ pub fn write_trust(agent_dir: &str, updates: &[(String, Option<bool>)]) -> Resul
     if let Some(dir) = std::path::Path::new(&path).parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(&path, text).map_err(|e| format!("Failed to write trust store {path}: {e}"))
+    std::fs::write(&path, format!("{text}\n"))
+        .map_err(|e| format!("Failed to write trust store {path}: {e}"))
 }
 
-/// Whether project resources load, without a UI to ask (print mode): `--approve`/`--no-approve`,
-/// else trusted when nothing needs trust, else the stored decision, else `defaultProjectTrust`
-/// (`ask` with no UI means no).
 pub fn resolve_project_trust(
     cwd: &str,
     agent_dir: &str,
     overridden: Option<bool>,
     default_trust: &str,
+    ask_extensions: impl FnOnce() -> Option<pi_extensions::TrustDecision>,
 ) -> Result<bool, String> {
     if let Some(trusted) = overridden {
         return Ok(trusted);
     }
     if !has_trust_requiring_resources(cwd) {
         return Ok(true);
+    }
+    if let Some(decision) = ask_extensions() {
+        if decision.remember {
+            let path = canonicalize(&resolve("/", cwd));
+            write_trust(agent_dir, &[(path, Some(decision.trusted))])?;
+        }
+        return Ok(decision.trusted);
     }
     if let Some(decision) = stored_trust(agent_dir, cwd)? {
         return Ok(decision);

@@ -31,7 +31,7 @@ use pi_durable::harness::types::{
 };
 use pi_durable::ids::EntryId;
 use pi_durable::types::{EntryQuery, EntryRecord, ScanOrder};
-use pi_extensions::{Call, Failed, Load, Peer, Pending, ProviderInfo, ToolInfo};
+use pi_extensions::{Call, Failed, Load, Peer, Pending, ProviderInfo, ToolInfo, TrustDecision};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
@@ -633,7 +633,12 @@ pub fn load(
         }
     }
     extensions.errors.extend(unknown.clone());
-    if paths.is_empty() && !dirs.iter().any(|dir| Path::new(dir).is_dir()) {
+    let preloaded = lock(&PRELOADED).take();
+    let searched = match dirs.split_first() {
+        Some((_, user)) if !settings.is_project_trusted() => user,
+        _ => &dirs[..],
+    };
+    if paths.is_empty() && !searched.iter().any(|dir| Path::new(dir).is_dir()) {
         return extensions;
     }
     let Some(dir) = host_dir() else {
@@ -643,7 +648,7 @@ pub fn load(
         );
         return extensions;
     };
-    let host = match Live::start(&dir, cwd, mode, has_ui) {
+    let host = match preloaded.map_or_else(|| Live::start(&dir, cwd, mode, has_ui), Ok) {
         Ok(host) => host,
         Err(error) => {
             extensions.notices.push(format!("Warning: {error}"));
@@ -654,10 +659,11 @@ pub fn load(
     host.update("models", json!({ "list": registry.models().as_ref() }));
     let _ = host.0.sink.registry.set(Arc::clone(registry));
     let sources = pi_extensions::Sources {
-        dirs: &dirs,
+        dirs: searched,
         paths: &paths,
         cli,
         flags,
+        trusted: settings.is_project_trusted(),
     };
     let load = match host.load(agent_dir, &sources) {
         Ok(load) => load,
@@ -703,6 +709,72 @@ pub fn load(
         }
     }
     extensions
+}
+
+static PRELOADED: Mutex<Option<Live>> = Mutex::new(None);
+
+#[derive(Default)]
+pub struct TrustAnswer {
+    pub decided: Option<TrustDecision>,
+    pub warnings: Vec<String>,
+}
+
+pub fn project_trust(
+    cwd: &str,
+    agent_dir: &str,
+    args: &crate::args::Args,
+    startup: &SettingsManager,
+    registry: &Arc<ModelRegistry>,
+    mode: &str,
+    has_ui: bool,
+) -> TrustAnswer {
+    let mut answer = TrustAnswer::default();
+    let cli = args.extensions.as_deref().unwrap_or(&[]);
+    let mut paths: Vec<String> = cli.to_vec();
+    let mut dirs = Vec::new();
+    if !args.no_extensions {
+        dirs.push(join(agent_dir, "extensions"));
+        paths.extend(package_paths(startup));
+        paths.extend(startup.extension_paths());
+    }
+    if paths.is_empty() && !dirs.iter().any(|dir| Path::new(dir).is_dir()) {
+        return answer;
+    }
+    let Some(host) = host_dir().and_then(|dir| Live::start(&dir, cwd, mode, has_ui).ok()) else {
+        return answer;
+    };
+    host.update("providers", builtin_providers());
+    host.update("models", json!({ "list": registry.models().as_ref() }));
+    let _ = host.0.sink.registry.set(Arc::clone(registry));
+    let sources = pi_extensions::Sources {
+        dirs: &dirs,
+        paths: &paths,
+        cli,
+        flags: &[],
+        trusted: false,
+    };
+    match host
+        .0
+        .host
+        .project_trust(cwd, agent_dir, &sources, &host.ctx())
+    {
+        Ok(trust) => {
+            answer.decided = trust.decided;
+            answer.warnings = trust
+                .errors
+                .iter()
+                .map(|failed| {
+                    format!(
+                        "Extension \"{}\" project_trust error: {}",
+                        failed.path, failed.error
+                    )
+                })
+                .collect();
+            *lock(&PRELOADED) = Some(host);
+        }
+        Err(error) => answer.warnings.push(error),
+    }
+    answer
 }
 
 /// `builtinProviders()`: each provider of the built-in catalog, with the login it offers.

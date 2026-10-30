@@ -96,6 +96,8 @@ globalThis.__piHost = { effect, unported };
 const dist = new URL("./node_modules/@earendil-works/pi-coding-agent/dist/", import.meta.url);
 const { loadExtensions } = await import(new URL("core/extensions/loader.js", dist));
 const { ExtensionRunner } = await import(new URL("core/extensions/runner.js", dist));
+const { emitProjectTrustEvent } = await import(new URL("core/extensions/runner.js", dist));
+const { resolvePath } = await import(new URL("utils/paths.js", dist));
 const { createEventBus } = await import(new URL("core/event-bus.js", dist));
 const { SessionManager } = await import(new URL("core/session-manager.js", dist));
 const { convertToLlm } = await import(new URL("core/messages.js", dist));
@@ -178,7 +180,6 @@ function resolvePaths(request) {
 			all.push(entry);
 		}
 	};
-	for (const dir of request.dirs ?? []) add(discover(dir));
 	for (const source of request.paths ?? []) {
 		const resolved = path.resolve(request.cwd, source);
 		let stats;
@@ -199,6 +200,7 @@ function resolvePaths(request) {
 		}
 		add([resolved]);
 	}
+	for (const dir of request.dirs ?? []) add(discover(dir));
 	return all;
 }
 
@@ -738,7 +740,7 @@ async function load(request) {
 	providers.clear();
 	const hadVirtualModels = virtualModels.size > 0;
 	virtualModels.clear();
-	const result = await loadExtensions(resolvePaths(request), state.cwd, createEventBus());
+	const result = await loadSet(resolvePaths(request));
 	applyCliSources(result.extensions, request.cli, request.cwd ?? state.cwd);
 	registrants.clear();
 	for (const { name, extensionPath } of result.runtime.pendingProviderRegistrations) registrants.set(name, extensionPath);
@@ -760,6 +762,61 @@ async function load(request) {
 		tools: toolInfos(),
 		providers: providerInfos(),
 		flagErrors: applyFlags(result, request.flags),
+	};
+}
+
+let preTrusted;
+
+function trustContext() {
+	const dialog = (member, none) => async () => {
+		if (!state.hasUI) return none;
+		throw unported(`ctx.ui.${member}`);
+	};
+	return {
+		cwd: state.cwd,
+		mode: state.mode,
+		hasUI: state.hasUI,
+		ui: {
+			select: dialog("select", undefined),
+			confirm: dialog("confirm", false),
+			input: dialog("input", undefined),
+			notify: (message) => {
+				if (state.mode !== "tui") console.error(String(message));
+			},
+		},
+	};
+}
+
+async function projectTrust(request) {
+	absorb(request);
+	if (request.agentDir) process.env.PI_CODING_AGENT_DIR = request.agentDir;
+	initTheme(request.theme, false);
+	const bus = createEventBus();
+	const result = await loadExtensions(resolvePaths(request), state.cwd, bus);
+	preTrusted = { result, bus };
+	const answer = await emitProjectTrustEvent(result, { type: "project_trust", cwd: state.cwd }, trustContext());
+	return {
+		decided: answer.result ? { trusted: answer.result.trusted === "yes", remember: answer.result.remember === true } : null,
+		errors: answer.errors.map((error) => ({ path: error.extensionPath, event: error.event, error: error.error })),
+	};
+}
+
+async function loadSet(paths) {
+	const pre = preTrusted;
+	preTrusted = undefined;
+	if (!pre) return await loadExtensions(paths, state.cwd, createEventBus());
+	const key = (entry) => resolvePath(entry, state.cwd, { normalizeUnicodeSpaces: true });
+	const preloaded = new Map(pre.result.extensions.map((extension) => [extension.resolvedPath, extension]));
+	const failed = new Set(pre.result.errors.map((error) => key(error.path)));
+	const remaining = paths.filter((entry) => !preloaded.has(key(entry)) && !failed.has(key(entry)));
+	const rest = await loadExtensions(remaining, state.cwd, pre.bus, pre.result.runtime);
+	const loaded = new Map(preloaded);
+	for (const extension of rest.extensions) loaded.set(extension.resolvedPath, extension);
+	return {
+		extensions: paths.map((entry) => loaded.get(key(entry))).filter((extension) => extension !== undefined),
+		errors: [...pre.result.errors, ...rest.errors],
+		warnings: [...pre.result.warnings, ...rest.warnings],
+		runtime: rest.runtime,
 	};
 }
 
@@ -1020,6 +1077,8 @@ async function handle(request) {
 	switch (request.op) {
 		case "load":
 			return await load(request);
+		case "projectTrust":
+			return await projectTrust(request);
 		case "event":
 			return await emitEvent(request);
 		case "command":

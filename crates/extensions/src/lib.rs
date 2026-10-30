@@ -90,6 +90,18 @@ pub struct OAuthInfo {
     pub flow: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub struct TrustDecision {
+    pub trusted: bool,
+    pub remember: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ProjectTrust {
+    pub decided: Option<TrustDecision>,
+    pub errors: Vec<Failed>,
+}
+
 /// What one load produced: upstream's `LoadExtensionsResult`, minus warnings.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]

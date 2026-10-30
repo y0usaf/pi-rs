@@ -23,7 +23,10 @@ use crate::session_list;
 use crate::session_open;
 use crate::session_resolve::{self, Resolved};
 use crate::session_tree;
-use crate::settings::{self, SettingsManager, collect_diagnostics, deduplicate_diagnostics};
+use crate::settings::{
+    self, DiagnosticKind, SettingsDiagnostic, SettingsManager, collect_diagnostics,
+    deduplicate_diagnostics,
+};
 use crate::stdout;
 use crate::system_prompt::{self, AssembleOptions};
 use crate::tools::mime;
@@ -256,14 +259,47 @@ fn run() -> Result<ExitCode, String> {
     let agent_dir = config::agent_dir();
     let mut startup = SettingsManager::create(&cwd, &agent_dir, false);
     let default_trust = startup.default_project_trust().to_owned();
+    let mut registry = ModelRegistry::load(&agent_dir);
+    if parsed.offline {
+        registry.network = false;
+    }
+    let registry = Arc::new(registry);
+    // Upstream's resolveAppMode: the TUI without -p or --mode when stdin and stdout are terminals.
+    let tui = !parsed.print
+        && parsed.mode.is_none()
+        && std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal();
+    let extension_mode = extensions::mode_name(parsed.mode, tui);
+    let mut trust_warnings = Vec::new();
     let trusted = settings::resolve_project_trust(
         &cwd,
         &agent_dir,
         parsed.project_trust_override,
         &default_trust,
+        || {
+            let answer = extensions::project_trust(
+                &cwd,
+                &agent_dir,
+                &parsed,
+                &startup,
+                &registry,
+                extension_mode,
+                tui,
+            );
+            trust_warnings = answer.warnings;
+            answer.decided
+        },
     )?;
     let mut settings = SettingsManager::create(&cwd, &agent_dir, trusted);
     let mut reported = collect_diagnostics(&mut startup);
+    reported.extend(
+        trust_warnings
+            .into_iter()
+            .map(|message| SettingsDiagnostic {
+                kind: DiagnosticKind::Warning,
+                message,
+            }),
+    );
     reported.extend(collect_diagnostics(&mut settings));
     for diagnostic in deduplicate_diagnostics(&reported) {
         eprintln!("Warning: {}", diagnostic.message);
@@ -282,23 +318,13 @@ fn run() -> Result<ExitCode, String> {
     let templates = loaded_templates.templates;
 
     let tools = run_config::select_tools(&parsed, &settings)?;
-    let mut registry = ModelRegistry::load(&agent_dir);
-    if parsed.offline {
-        registry.network = false;
-    }
-    let registry = Arc::new(registry);
-    // Upstream's resolveAppMode: the TUI without -p or --mode when stdin and stdout are terminals.
-    let tui = !parsed.print
-        && parsed.mode.is_none()
-        && std::io::stdin().is_terminal()
-        && std::io::stdout().is_terminal();
     let extensions = extensions::load(
         &cwd,
         &agent_dir,
         &parsed,
         &settings,
         &registry,
-        extensions::mode_name(parsed.mode, tui),
+        extension_mode,
         tui,
     );
     if !extensions.errors.is_empty() {

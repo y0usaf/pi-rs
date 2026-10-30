@@ -12,7 +12,7 @@ use pi_rt::turn::pause;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::{EVENT_BUDGET, LOAD_BUDGET, Load, ProviderInfo, ToolInfo};
+use crate::{EVENT_BUDGET, LOAD_BUDGET, Load, ProjectTrust, ProviderInfo, ToolInfo};
 
 /// How many of the child's stderr lines to keep for a failure message.
 const STDERR_LINES: usize = 200;
@@ -107,6 +107,7 @@ pub struct Sources<'a> {
     pub paths: &'a [String],
     pub cli: &'a [String],
     pub flags: &'a [(String, Option<String>)],
+    pub trusted: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -253,7 +254,31 @@ impl Host {
             "flags": flags,
             "mode": ctx.mode,
             "hasUI": ctx.has_ui,
-            "trusted": true,
+            "trusted": sources.trusted,
+            "updates": ctx.updates,
+        });
+        let value = self
+            .begin(request, Limit::Idle(LOAD_BUDGET))?
+            .wait(None, &mut |_| {})?;
+        serde_json::from_value(value).map_err(|e| format!("the extension host answered {e}"))
+    }
+
+    pub fn project_trust(
+        &self,
+        cwd: &str,
+        agent_dir: &str,
+        sources: &Sources<'_>,
+        ctx: &Ctx,
+    ) -> Result<ProjectTrust, String> {
+        let request = json!({
+            "op": "projectTrust",
+            "cwd": cwd,
+            "agentDir": agent_dir,
+            "dirs": sources.dirs,
+            "paths": sources.paths,
+            "cli": sources.cli,
+            "mode": ctx.mode,
+            "hasUI": ctx.has_ui,
             "updates": ctx.updates,
         });
         let value = self
