@@ -263,6 +263,18 @@ fn mapped(
                 entry.insert("timestamp".into(), timestamp.clone());
             }
         }
+        kind if kind == crate::session_info::KIND => {
+            entry.insert("type".into(), "session_info".into());
+            entry.insert(
+                "name".into(),
+                record
+                    .data
+                    .as_ref()
+                    .and_then(|data| data.get("name"))
+                    .cloned()
+                    .unwrap_or_else(|| "".into()),
+            );
+        }
         kind if kind == crate::bash_exec::KIND => {
             let data = record
                 .data
@@ -290,6 +302,23 @@ fn mapped(
         _ => return Ok(None),
     }
     Ok(Some(entry))
+}
+
+pub fn tip(record: &EntryRecord) -> Option<String> {
+    let kept = record.kind != "pi.system" && mapped(record, "", "").ok().flatten().is_some();
+    kept.then(|| short_id(record.id.0))
+}
+
+pub fn appended(record: &EntryRecord, parent: Option<&str>) -> Option<Value> {
+    let mut entry = mapped(record, &iso8601(now_ms()), "").ok()??;
+    entry.insert(
+        "parentId".into(),
+        parent
+            .map(str::to_owned)
+            .unwrap_or_else(|| short_id(THINKING_CHANGE_ID))
+            .into(),
+    );
+    Some(Value::Object(entry))
 }
 
 pub fn entries_after(

@@ -286,6 +286,14 @@ fn write(
                 };
                 tx.append_entry(conversation, draft)?.id
             }
+            "session_info" => crate::session_info::record(
+                &mut *tx,
+                conversation,
+                entry
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+            )?,
             "model_change" => {
                 model = Some(ModelRef {
                     provider: entry

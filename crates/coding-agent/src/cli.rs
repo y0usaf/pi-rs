@@ -593,16 +593,11 @@ fn run() -> Result<ExitCode, String> {
     for notice in &extensions.notices {
         eprintln!("{notice}");
     }
-    let storage: Arc<dyn Storage> = match &session_path {
-        Some(path) => {
-            std::fs::create_dir_all(crate::paths::dirname(path)).map_err(|e| e.to_string())?;
-            Arc::new(
-                SqliteStorage::open(path, &Default::default())
-                    .map_err(|e| format!("Error: {e}"))?,
-            )
-        }
-        None => Arc::new(MemoryStorage::new()),
+    let (storage, created): (Arc<dyn Storage>, bool) = match &session_path {
+        Some(path) => session_open::store(path)?,
+        None => (Arc::new(MemoryStorage::new()), false),
     };
+    let unstarted = session_path.as_deref().filter(|_| created);
     let harness = print::open_harness(
         storage,
         print::providers(Arc::clone(&registry), &model),
@@ -633,7 +628,7 @@ fn run() -> Result<ExitCode, String> {
     };
     if matches!(mode, Some(Mode::Json)) {
         let outcome = modes::json_mode::run(&harness, &root, &input, &cancel);
-        print::close(&harness, &cancel).map_err(|e| e.to_string())?;
+        session_open::close(&harness, unstarted, &cancel)?;
         outcome?;
         return Ok(ExitCode::SUCCESS);
     }
@@ -676,6 +671,7 @@ fn run() -> Result<ExitCode, String> {
             },
             commands,
             templates,
+            created,
         };
         modes::rpc::run(harness, root, options, &cancel)?;
         return Ok(ExitCode::SUCCESS);
@@ -684,7 +680,7 @@ fn run() -> Result<ExitCode, String> {
     let outcome = print::run_turns(&harness, &root, &input, &cancel);
     let (transcript, fresh) =
         print::transcript_after(&root, before, &cancel).map_err(|e| e.to_string())?;
-    print::close(&harness, &cancel).map_err(|e| e.to_string())?;
+    session_open::close(&harness, unstarted, &cancel)?;
     if let Err(e) = outcome {
         return Err(e.to_string());
     }

@@ -1,15 +1,19 @@
 //! What a session says about itself: its display name and, once forks exist, the session it was
 //! forked from. Both live in one session-scope durable document, so a copy of the file carries
-//! them and a doc commit is the only write.
+//! them. Each naming is also an entry on the branch, upstream's `session_info`, in the same commit.
 
 use pi_durable::cancel::CancelToken;
 use pi_durable::documents::{DocSemantics, DocToken};
 use pi_durable::errors::Result;
 use pi_durable::harness::harness::{Conversation, Harness};
 use pi_durable::harness::util::{doc_definition, edit_session_doc};
+use pi_durable::ids::{ConversationId, EntryId};
+use pi_durable::session::types::Tx;
+use pi_durable::types::EntryDraft;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
-/// Upstream's `session_info` entry, as a document.
+/// Upstream's `session_info`: the entry kind of each naming, and the document holding the latest.
 pub const KIND: &str = "pi.session-info";
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -87,12 +91,31 @@ fn write(
     )
 }
 
+pub fn record(tx: &mut dyn Tx, conversation: ConversationId, name: &str) -> Result<EntryId> {
+    let name = sanitize(name);
+    let id = tx
+        .append_entry(
+            conversation,
+            EntryDraft {
+                kind: KIND.to_owned(),
+                model: None,
+                data: Some(json!({ "name": name })),
+                head: None,
+                edits: None,
+            },
+        )?
+        .id;
+    let token = doc()?;
+    edit_session_doc(tx, &token, |state| {
+        state.name = (!name.is_empty()).then_some(name);
+    })?;
+    Ok(id)
+}
+
 /// Set the display name; an empty one clears it, as an empty `session_info` entry does.
 pub fn set_name(conversation: &Conversation, cancel: &CancelToken, name: &str) -> Result<()> {
-    let name = sanitize(name);
-    write(conversation, cancel, |state| {
-        state.name = (!name.is_empty()).then_some(name);
-    })
+    let id = conversation.id();
+    conversation.commit(|tx| record(tx, id, name).map(|_| ()), cancel)
 }
 
 /// Record the session file a fork came from (`parentSession`).

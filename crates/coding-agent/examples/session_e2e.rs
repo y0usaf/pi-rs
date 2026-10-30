@@ -3,7 +3,8 @@
 //! or of another one, and an id is never written as a file name beside the cwd.
 
 use std::collections::BTreeSet;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -44,19 +45,65 @@ fn binary() -> Result<PathBuf> {
 /// What rpc mode answers to a get_state, and the answer that names the session file.
 const GET_STATE: &str = "{\"id\":\"1\",\"type\":\"get_state\"}\n";
 
+const PROMPT: &str = "{\"id\":\"0\",\"type\":\"prompt\",\"message\":\"hi\"}\n{\"id\":\"1\",\"type\":\"get_state\"}\n";
+
+fn reply(stream: TcpStream) -> std::io::Result<()> {
+    let mut reader = BufReader::new(stream);
+    let mut length = 0;
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line)?;
+        let line = line.trim_end();
+        if line.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = line.split_once(':')
+            && name.eq_ignore_ascii_case("content-length")
+        {
+            length = value.trim().parse().unwrap_or(0);
+        }
+    }
+    reader.read_exact(&mut vec![0; length])?;
+    let body = [
+        json!({"id": "c", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "ok"}}]}),
+        json!({"id": "c", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}),
+    ]
+    .iter()
+    .map(|chunk| format!("data: {chunk}\n\n"))
+    .collect::<String>()
+        + "data: [DONE]\n\n";
+    write!(
+        reader.get_mut(),
+        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    )
+}
+
+fn serve() -> Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            if let Err(error) = reply(stream) {
+                eprintln!("fake model: {error}");
+            }
+        }
+    });
+    Ok(port)
+}
+
 struct Scratch {
     root: PathBuf,
 }
 
 impl Scratch {
-    fn new() -> Result<Self> {
+    fn new(port: u16) -> Result<Self> {
         let root = std::env::temp_dir().join(format!("session-e2e-{}", std::process::id()));
         for dir in ["home", "agent", "a", "b"] {
             std::fs::create_dir_all(root.join(dir))?;
         }
-        // A provider with no server behind it: nothing here asks a model anything.
         let models = json!({"providers": {"fake": {
-            "baseUrl": "http://127.0.0.1:1/v1",
+            "baseUrl": format!("http://127.0.0.1:{port}/v1"),
             "apiKey": "sk-test",
             "api": "openai-completions",
             "models": [{"id": "fake-test", "contextWindow": 200000, "maxTokens": 8192}],
@@ -141,7 +188,7 @@ fn need_files(scratch: &Scratch, expected: &BTreeSet<PathBuf>, what: &str) -> Re
 
 fn main() -> Result<()> {
     let bin = binary()?;
-    let scratch = Scratch::new()?;
+    let scratch = Scratch::new(serve()?)?;
     let base = [
         "--provider",
         "fake",
@@ -151,7 +198,18 @@ fn main() -> Result<()> {
         "rpc",
     ];
 
-    let created = scratch.run(&bin, "a", &base, GET_STATE)?;
+    let unstarted = scratch.run(&bin, "a", &base, GET_STATE)?;
+    if !unstarted.status.success() || answered(&unstarted).is_none() {
+        return fail(format!(
+            "a run with no prompt exited {}: {}",
+            unstarted.status,
+            String::from_utf8_lossy(&unstarted.stderr)
+        ));
+    }
+    need_files(&scratch, &BTreeSet::new(), "a run with no prompt")?;
+    println!("a run with no prompt leaves no session file");
+
+    let created = scratch.run(&bin, "a", &base, PROMPT)?;
     if !created.status.success() {
         return fail(format!(
             "pi-rs {} exited {}: {}",

@@ -937,6 +937,11 @@ impl Peer for Sink {
                 .ok_or("no extension host is running")?
                 .set_label(args, cancel);
         }
+        if call == "setSessionName" {
+            return live()
+                .ok_or("no extension host is running")?
+                .name_session(args, cancel);
+        }
         let models = lock(&self.models).clone();
         match models {
             Some(models) if call == "refreshModels" => {
@@ -1333,6 +1338,18 @@ impl Live {
             name: crate::session_info::name(harness, cancel),
         });
         self.refresh_session(cancel);
+    }
+
+    pub fn renamed(&self, name: Option<String>, cancel: &CancelToken) {
+        if let Some(source) = lock(&self.0.session).as_mut() {
+            source.name = name.clone();
+        }
+        self.refresh_session(cancel);
+        let mut event = serde_json::Map::new();
+        if let Some(name) = name {
+            event.insert("name".into(), name.into());
+        }
+        self.event("session_info_changed", Value::Object(event));
     }
 
     fn refresh_session(&self, cancel: &CancelToken) {

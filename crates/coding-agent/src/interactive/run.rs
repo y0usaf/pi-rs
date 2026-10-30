@@ -1982,6 +1982,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         Some(name) => match session_info::set_name(&open.root, &cancel, &name) {
                             Ok(()) => {
                                 let stored = session_info::name(&open.harness, &cancel);
+                                if let Some(live) = crate::extensions::live() {
+                                    live.renamed(stored.clone(), &cancel);
+                                }
                                 if let Some(stored) = &stored
                                     && stored != &name
                                 {

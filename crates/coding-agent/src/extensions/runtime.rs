@@ -464,6 +464,23 @@ impl Live {
         Ok(json!({ "session": session }))
     }
 
+    pub(super) fn name_session(&self, args: &Value, cancel: &CancelToken) -> Result<Value, String> {
+        let root = self.root().ok_or("no session is open to name")?;
+        let name = args
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or("pi.setSessionName takes a string")?;
+        crate::session_info::set_name(&root, cancel, name).map_err(|e| e.to_string())?;
+        let stored = crate::session_info::sanitize(name);
+        if let Some(source) = lock(&self.0.session).as_mut() {
+            source.name = (!stored.is_empty()).then_some(stored);
+        }
+        let session = self
+            .session_update(cancel)
+            .ok_or("the session could not be read after it was named")?;
+        Ok(json!({ "session": session }))
+    }
+
     pub(super) fn compact(&self, args: &Value, cancel: &CancelToken) -> Result<Value, String> {
         let args: CompactArgs = serde_json::from_value(args.clone())
             .map_err(|e| format!("ctx.compact was asked with {e}"))?;

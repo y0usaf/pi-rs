@@ -9,10 +9,12 @@
 use std::collections::HashSet;
 
 use pi_durable::ai::types::{AssistantBlock, Message, StopReason};
-use pi_durable::harness::events::{AgentEvent, MessageChange};
+use pi_durable::harness::events::{AgentEvent, MessageChange, SnapshotEvent};
+use pi_durable::types::EntryRecord;
 use serde_json::{Value, json};
 
 use super::value;
+use crate::sessions::export;
 
 #[derive(Default)]
 pub struct Mapper {
@@ -31,6 +33,7 @@ pub struct Mapper {
     held: Vec<Value>,
     held_messages: Vec<Message>,
     started: HashSet<String>,
+    tip: Option<String>,
 }
 
 fn message_of(entry: &pi_durable::types::EntryRecord) -> Option<Message> {
@@ -42,6 +45,16 @@ fn message_of(entry: &pi_durable::types::EntryRecord) -> Option<Message> {
 }
 
 impl Mapper {
+    pub fn seed(&mut self, snapshot: &SnapshotEvent) {
+        self.tip = snapshot.entries.iter().rev().find_map(export::tip);
+    }
+
+    fn follow(&mut self, entry: &EntryRecord) {
+        if let Some(id) = export::tip(entry) {
+            self.tip = Some(id);
+        }
+    }
+
     fn call_args(&self, id: &str) -> Option<Value> {
         let Some(Message::Assistant(message)) = &self.turn else {
             return None;
@@ -68,7 +81,10 @@ impl Mapper {
     pub fn lines(&mut self, event: &AgentEvent) -> Vec<Value> {
         match event {
             // The current state, not a change; clients start from the commands they send.
-            AgentEvent::Snapshot(_) => Vec::new(),
+            AgentEvent::Snapshot(snapshot) => {
+                self.seed(snapshot);
+                Vec::new()
+            }
 
             AgentEvent::RunStart { .. } => {
                 self.messages.clear();
@@ -135,6 +151,7 @@ impl Mapper {
                 })
                 .collect(),
             AgentEvent::MessageEnd { entry } => {
+                self.follow(entry);
                 let Some(message) = message_of(entry) else {
                     return Vec::new();
                 };
@@ -228,10 +245,29 @@ impl Mapper {
                 "type": "submission",
                 "record": value(record),
             })],
-            AgentEvent::EntryAppended { entry } => vec![json!({
-                "type": "entry_appended",
-                "entry": value(entry),
-            })],
+            AgentEvent::EntryAppended { entry } if entry.kind == crate::session_info::KIND => {
+                self.follow(entry);
+                let mut line = json!({ "type": "session_info_changed" });
+                if let Some(name) = entry
+                    .data
+                    .as_ref()
+                    .and_then(|data| data.get("name"))
+                    .and_then(Value::as_str)
+                    .filter(|name| !name.is_empty())
+                {
+                    line["name"] = name.into();
+                }
+                vec![line]
+            }
+            AgentEvent::EntryAppended { entry } => {
+                let line = json!({
+                    "type": "entry_appended",
+                    "entry": export::appended(entry, self.tip.as_deref())
+                        .unwrap_or_else(|| value(entry)),
+                });
+                self.follow(entry);
+                vec![line]
+            }
             AgentEvent::AgentChanged { agent } => vec![json!({
                 "type": "agent_changed",
                 "agent": value(agent),

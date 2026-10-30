@@ -55,6 +55,7 @@ pub struct Options {
     pub commands: Vec<Value>,
     /// The prompt templates a `prompt` may invoke by name.
     pub templates: Vec<crate::prompt_templates::PromptTemplate>,
+    pub created: bool,
 }
 
 /// A `bash` command running on its own thread, kept so the loop carries on reading commands
@@ -427,6 +428,7 @@ pub fn run(
         stream: attach(&root, &output, &state, cancel)?,
         harness,
         root,
+        created: options.created,
     };
     if let Some(live) = crate::extensions::live() {
         let printer = output.clone();
@@ -500,10 +502,13 @@ fn report() -> ErrorReport {
 
 /// Where a session's events go: one JSON line each, as --mode json prints them.
 fn sink(output: &Output, state: &Arc<Mutex<State>>) -> Sink {
+    sink_from(json_event::Mapper::default(), output, state)
+}
+
+fn sink_from(mut mapper: json_event::Mapper, output: &Output, state: &Arc<Mutex<State>>) -> Sink {
     let printer = output.clone();
     let shared = Arc::clone(state);
     let seen = state.lock().ok().map(|state| state.seen.clone());
-    let mut mapper = json_event::Mapper::default();
     Box::new(move |events, _| {
         if crate::extensions::live().is_some()
             && let Some(seen) = &seen
@@ -530,8 +535,10 @@ fn attach(
     cancel: &CancelToken,
 ) -> Result<AgentEventStream, String> {
     let stream = root.events(cancel).map_err(|e| e.to_string())?;
+    let mut mapper = json_event::Mapper::default();
+    mapper.seed(&stream.snapshot);
     stream
-        .start(sink(output, state))
+        .start(sink_from(mapper, output, state))
         .map_err(|e| e.to_string())?;
     Ok(stream)
 }
@@ -1145,7 +1152,12 @@ fn handle(
             } else {
                 match session_info::set_name(root, cancel, name) {
                     Err(error) => failure(id, kind, error.to_string()),
-                    Ok(()) => success(id, kind, None),
+                    Ok(()) => {
+                        if let Some(live) = crate::extensions::live() {
+                            live.renamed(session_info::name(harness, cancel), cancel);
+                        }
+                        success(id, kind, None)
+                    }
                 }
             }
         }

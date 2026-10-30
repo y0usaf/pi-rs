@@ -580,7 +580,10 @@ const actions = {
 	appendEntry: (customType, data) => {
 		absorb({ updates: askNow("appendEntry", { customType, data }) });
 	},
-	setSessionName: thrower("pi.setSessionName"),
+	setSessionName: (name) => {
+		absorb({ updates: askNow("setSessionName", { name }) });
+		void runner.emit({ type: "session_info_changed", name: state.session?.name ?? undefined });
+	},
 	getSessionName: () => state.session?.name ?? undefined,
 	setLabel: (entryId, label) => {
 		absorb({ updates: askNow("setLabel", { entryId, label }) });

@@ -29,6 +29,7 @@ pub fn run(
     }
     let printer = output.clone();
     let mut mapper = json_event::Mapper::default();
+    mapper.seed(&stream.snapshot);
     stream
         .start(move |events, _| {
             for event in events {
