@@ -66,7 +66,7 @@ pub fn message(draft: &Value, now: u64) -> EntryDraft {
     }
 }
 
-fn entry_id(value: Option<&Value>) -> Result<EntryId, String> {
+pub(crate) fn entry_id(value: Option<&Value>) -> Result<EntryId, String> {
     let text = value.and_then(Value::as_str).unwrap_or_default();
     u64::from_str_radix(text, 16)
         .ok()
@@ -126,6 +126,7 @@ fn boundary(
             data: Some(json!({
                 "targetId": draft.get("targetId").cloned().unwrap_or(Value::Null),
                 "label": draft.get("label").cloned().unwrap_or(Value::Null),
+                "timestamp": super::iso8601(now),
             })),
             head: None,
             edits: None,

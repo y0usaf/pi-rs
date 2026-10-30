@@ -91,6 +91,12 @@ const APP_DEFS: &[(&str, &[&str], &str)] = &[
         &["ctrl+right", "alt+right"],
         "Unfold tree branch or move down",
     ),
+    ("app.tree.editLabel", &["shift+l"], "Edit tree label"),
+    (
+        "app.tree.toggleLabelTimestamp",
+        &["shift+t"],
+        "Toggle tree label timestamps",
+    ),
     (
         "app.tree.filter.default",
         &["ctrl+d"],

@@ -1860,6 +1860,17 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         }
                     }
                 }
+                OverlayAction::Label { target, label } => {
+                    let draft = json!({
+                        "type": "label",
+                        "targetId": crate::sessions::export::short_id(target.0),
+                        "label": label,
+                    });
+                    if let Err(e) = crate::sessions::drafts::append(&open.root, &[draft], &cancel) {
+                        close = true;
+                        chat.notice("error", &format!("Error: {e}"));
+                    }
+                }
                 OverlayAction::PreviewTheme(setting) => {
                     let _ = theme::set_setting(&setting, &sources);
                 }

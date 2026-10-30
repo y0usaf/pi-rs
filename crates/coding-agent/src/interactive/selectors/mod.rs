@@ -54,6 +54,10 @@ pub enum OverlayAction {
     Navigate(pi_durable::ids::EntryId),
     /// `/fork` picked a user message to fork the session before.
     Fork(pi_durable::ids::EntryId),
+    Label {
+        target: pi_durable::ids::EntryId,
+        label: Option<String>,
+    },
     /// A yes/no dialog's answer, yes when the first option was chosen.
     Confirmed(bool),
     /// /login's auth-type question chose one; `provider` starts its login straight away.

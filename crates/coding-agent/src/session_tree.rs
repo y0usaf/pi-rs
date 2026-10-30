@@ -11,6 +11,9 @@ use pi_durable::ids::{ConversationId, EntryId};
 use pi_durable::types::{
     ConversationOwnership, ConversationQuery, Cursor, EntryQuery, EntryRecord, ScanOrder,
 };
+use serde_json::Value;
+
+use crate::sessions::drafts::{LABEL_KIND, entry_id};
 
 const PAGE: usize = 256;
 
@@ -19,6 +22,8 @@ pub struct TreeNode {
     pub conversation: ConversationId,
     pub parent: Option<usize>,
     pub children: Vec<usize>,
+    pub label: Option<String>,
+    pub label_timestamp: Option<String>,
 }
 
 pub struct Tree {
@@ -53,6 +58,8 @@ impl Tree {
                     conversation: record.id,
                     parent,
                     children: Vec::new(),
+                    label: None,
+                    label_timestamp: None,
                 });
                 previous = last;
             }
@@ -62,6 +69,31 @@ impl Tree {
         }
         if leaf.is_some_and(|id| !index.contains_key(&id)) {
             leaf = None;
+        }
+        type Change = (EntryId, usize, Option<String>, Option<String>);
+        let mut changes: Vec<Change> = nodes
+            .iter()
+            .filter(|node| node.entry.kind == LABEL_KIND)
+            .filter_map(|node| {
+                let data = node.entry.data.as_ref()?;
+                let target = entry_id(data.get("targetId")).ok()?;
+                let label = data
+                    .get("label")
+                    .and_then(Value::as_str)
+                    .filter(|label| !label.is_empty())
+                    .map(str::to_owned);
+                let timestamp = label.as_ref().and(
+                    data.get("timestamp")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                );
+                Some((node.entry.id, *index.get(&target)?, label, timestamp))
+            })
+            .collect();
+        changes.sort_by_key(|(id, _, _, _)| *id);
+        for (_, target, label, timestamp) in changes {
+            nodes[target].label = label;
+            nodes[target].label_timestamp = timestamp;
         }
         let roots: Vec<usize> = (0..nodes.len())
             .filter(|i| nodes[*i].parent.is_none())

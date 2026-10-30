@@ -259,6 +259,9 @@ fn mapped(
             if let Some(label) = data.get("label").filter(|label| !label.is_null()) {
                 entry.insert("label".into(), label.clone());
             }
+            if let Some(timestamp) = data.get("timestamp").filter(|value| value.is_string()) {
+                entry.insert("timestamp".into(), timestamp.clone());
+            }
         }
         kind if kind == crate::bash_exec::KIND => {
             let data = record

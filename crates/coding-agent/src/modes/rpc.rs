@@ -292,14 +292,22 @@ fn clear_queue(
 
 /// Upstream's `getTree`: every entry of the session, nested by the branch it sits on.
 fn tree_node(tree: &Tree, index: usize) -> Value {
-    json!({
-        "entry": value(&tree.nodes[index].entry),
-        "children": tree.nodes[index]
+    let node = &tree.nodes[index];
+    let mut answer = json!({
+        "entry": value(&node.entry),
+        "children": node
             .children
             .iter()
             .map(|child| tree_node(tree, *child))
             .collect::<Vec<Value>>(),
-    })
+    });
+    if let Some(label) = &node.label {
+        answer["label"] = label.as_str().into();
+    }
+    if let Some(timestamp) = &node.label_timestamp {
+        answer["labelTimestamp"] = timestamp.as_str().into();
+    }
+    answer
 }
 
 /// Upstream's `getSessionStats`: counts over every entry the session holds, the usage recorded for

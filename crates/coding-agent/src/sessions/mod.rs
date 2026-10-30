@@ -17,7 +17,7 @@ pub fn iso8601(ms: u64) -> String {
 }
 
 /// The milliseconds of an ISO timestamp, as far as it is one.
-pub fn from_iso8601(text: &str) -> Option<u64> {
+pub fn from_iso8601(text: &str) -> Option<i64> {
     let (date, rest) = text.split_once('T')?;
     let (year, month, day) = {
         let mut parts = date.split('-');
@@ -29,20 +29,22 @@ pub fn from_iso8601(text: &str) -> Option<u64> {
     };
     let clock = rest.trim_end_matches('Z');
     let (hms, millis) = match clock.split_once('.') {
-        Some((hms, millis)) => (hms, millis.parse::<u64>().ok()?),
+        Some((hms, millis)) => (hms, millis.parse::<i64>().ok()?),
         None => (clock, 0),
     };
     let mut parts = hms.split(':');
     let (hour, minute, second) = (
-        parts.next()?.parse::<u64>().ok()?,
-        parts.next()?.parse::<u64>().ok()?,
-        parts.next()?.parse::<u64>().ok()?,
+        parts.next()?.parse::<i64>().ok()?,
+        parts.next()?.parse::<i64>().ok()?,
+        parts.next()?.parse::<i64>().ok()?,
     );
     let days = days_from_civil(year, month, day);
-    Some(
-        (days * 86_400 + hour as i64 * 3600 + minute as i64 * 60 + second as i64) as u64 * 1000
-            + millis,
-    )
+    days.checked_mul(86_400)?
+        .checked_add(hour.checked_mul(3600)?)?
+        .checked_add(minute.checked_mul(60)?)?
+        .checked_add(second)?
+        .checked_mul(1000)?
+        .checked_add(millis)
 }
 
 /// Howard Hinnant's `civil_from_days`, for days since 1970-01-01.

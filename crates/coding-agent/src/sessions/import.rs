@@ -132,6 +132,7 @@ fn write(
             .get("timestamp")
             .and_then(Value::as_str)
             .and_then(from_iso8601)
+            .and_then(|time| time.try_into().ok())
             .unwrap_or_default();
         let id = match kind {
             "message" => {
@@ -269,13 +270,17 @@ fn write(
                     *dropped.entry(kind.to_owned()).or_default() += 1;
                     continue;
                 };
+                let mut data = json!({
+                    "targetId": super::export::short_id(target.0),
+                    "label": entry.get("label").cloned().unwrap_or(Value::Null),
+                });
+                if let Some(timestamp) = entry.get("timestamp").filter(|value| value.is_string()) {
+                    data["timestamp"] = timestamp.clone();
+                }
                 let draft = EntryDraft {
                     kind: super::drafts::LABEL_KIND.to_owned(),
                     model: None,
-                    data: Some(json!({
-                        "targetId": super::export::short_id(target.0),
-                        "label": entry.get("label").cloned().unwrap_or(Value::Null),
-                    })),
+                    data: Some(data),
                     head: None,
                     edits: None,
                 };

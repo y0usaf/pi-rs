@@ -31,7 +31,7 @@ Code in fenced blocks is highlighted by a tokenizer of this port's own, not high
 
 The startup header follows `quietStartup`: `true` hides it, `"header"` keeps the logo and key hints and drops the details line, and `false` shows both. `treeFilterMode` picks the filter `/tree` opens with.
 
-`/tree` is upstream's session tree (its filter keys, search, folding and branch markers): picking an entry moves the session's leaf there, which pi-durable spells as a forked conversation, and a picked user message reopens in the editor. Two things the tree shows upstream are missing: entry labels (and the label keys and timestamps that go with them) and branch summaries, so picking an entry never asks whether to summarize the branch.
+`/tree` is upstream's session tree (its filter keys, search, folding and branch markers): picking an entry moves the session's leaf there, which pi-durable spells as a forked conversation, and a picked user message reopens in the editor. Entry labels are visible and searchable, including under the labeled-only filter, and survive resume. Shift+L edits or clears the selected entry's label; Shift+T toggles its local label time. Branch summaries are missing, so picking an entry never asks whether to summarize the branch.
 
 `/fork` lists the session's user messages and `/clone` takes the current leaf; both write a new session file holding the active path up to that point and switch the screen to it, as upstream's branch files do, and `/fork` puts the picked message back in the editor. Each says so in the transcript and names the file it wrote, where upstream says "Forked to new session" or "Cloned to new session" on the status line.
 

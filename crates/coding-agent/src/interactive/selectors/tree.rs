@@ -13,10 +13,12 @@ use pi_tui::tui::Component;
 use pi_tui::utils::{slice_by_column, truncate_to_width, visible_width};
 use serde_json::Value;
 
-use super::{ActionSlot, OverlayAction, border, fit, push, wrap};
+use super::{ActionSlot, OverlayAction, border, fit, key_hint, push, wrap};
 use crate::interactive::theme::{bold, fg};
 use crate::session_tree::Tree;
 use crate::sessions::drafts::LABEL_KIND;
+use crate::sessions::export::now_ms;
+use crate::sessions::{from_iso8601, iso8601};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Filter {
@@ -79,6 +81,8 @@ pub struct TreeSelector {
     max_visible: usize,
     multiple_roots: bool,
     tool_calls: HashMap<String, (String, serde_json::Map<String, Value>)>,
+    label_times: bool,
+    label_input: Option<(usize, Input)>,
 }
 
 impl TreeSelector {
@@ -112,6 +116,8 @@ impl TreeSelector {
             max_visible: max_visible.max(5),
             multiple_roots: false,
             tool_calls,
+            label_times: false,
+            label_input: None,
         };
         selector.refresh();
         selector
@@ -139,12 +145,9 @@ impl TreeSelector {
             || entry.kind == reset_entry().kind()
             || entry.kind == system_entry().kind()
             || entry.kind == LABEL_KIND;
+        let labeled = self.tree.nodes[index].label.is_some();
         if entry.kind == pi_durable::entries::user_entry().kind() {
-            if self.filter == Filter::UserOnly
-                || self.filter == Filter::Default
-                || self.filter == Filter::NoTools
-                || self.filter == Filter::All
-            {
+            if self.filter != Filter::LabeledOnly || labeled {
                 return self.matches_search(index);
             }
             return false;
@@ -168,7 +171,7 @@ impl TreeSelector {
         let visible = match self.filter {
             Filter::UserOnly => false,
             Filter::All => true,
-            Filter::LabeledOnly => false,
+            Filter::LabeledOnly => labeled,
             Filter::NoTools => !is_settings && !is_tool_result,
             Filter::Default => !is_settings,
         };
@@ -185,8 +188,10 @@ impl TreeSelector {
     }
 
     fn search_text(&self, index: usize) -> String {
-        let entry = &self.tree.nodes[index].entry;
-        let mut parts = vec![entry.kind.clone()];
+        let node = &self.tree.nodes[index];
+        let entry = &node.entry;
+        let mut parts: Vec<String> = node.label.iter().cloned().collect();
+        parts.push(entry.kind.clone());
         for message in entry.model.iter().flatten() {
             match message {
                 Message::User(user) => parts.push(user_text(&user.content)),
@@ -384,13 +389,19 @@ impl TreeSelector {
     }
 
     fn status_labels(&self) -> String {
-        match self.filter {
-            Filter::Default => String::new(),
-            Filter::NoTools => " [no-tools]".to_owned(),
-            Filter::UserOnly => " [user]".to_owned(),
-            Filter::LabeledOnly => " [labeled]".to_owned(),
-            Filter::All => " [all]".to_owned(),
-        }
+        let filter = match self.filter {
+            Filter::Default => "",
+            Filter::NoTools => " [no-tools]",
+            Filter::UserOnly => " [user]",
+            Filter::LabeledOnly => " [labeled]",
+            Filter::All => " [all]",
+        };
+        let times = if self.label_times {
+            " [+label time]"
+        } else {
+            ""
+        };
+        format!("{filter}{times}")
     }
 
     fn has_text(entry: &EntryRecord) -> bool {
@@ -402,6 +413,32 @@ impl TreeSelector {
             AssistantBlock::Text(text) => !text.text.trim().is_empty(),
             _ => false,
         })
+    }
+
+    fn labeled(&self, index: usize, selected: bool) -> String {
+        let node = &self.tree.nodes[index];
+        let Some(label) = &node.label else {
+            return self.describe(index, selected);
+        };
+        let time = match &node.label_timestamp {
+            Some(timestamp) if self.label_times => {
+                fg("muted", &format!("{} ", label_time(timestamp)))
+            }
+            _ => String::new(),
+        };
+        format!(
+            "{}{time}{}",
+            fg("warning", &format!("[{label}] ")),
+            self.describe(index, selected)
+        )
+    }
+
+    fn set_label(&mut self, index: usize, label: Option<String>) {
+        let node = &mut self.tree.nodes[index];
+        node.label_timestamp = label.as_ref().map(|_| iso8601(now_ms()));
+        node.label = label.clone();
+        let target = node.entry.id;
+        push(&self.action, OverlayAction::Label { target, label });
     }
 
     fn row_text(&self, row: &Row, selected: bool, width: usize) -> String {
@@ -450,12 +487,12 @@ impl TreeSelector {
             "{}{}{}",
             fg("dim", &prefix),
             path_marker,
-            self.describe(row.node, selected)
+            self.labeled(row.node, selected)
         );
         let anchor = visible_width(&fg("dim", &prefix)) + visible_width(&path_marker);
         let viewport = width.saturating_sub(2);
         let widest = (0..self.rows.len())
-            .map(|i| visible_width(&self.describe(self.rows[i].node, false)) + 4)
+            .map(|i| visible_width(&self.labeled(self.rows[i].node, false)) + 4)
             .max()
             .unwrap_or(0);
         let max_scroll = widest.saturating_sub(viewport);
@@ -690,6 +727,32 @@ fn tool_call_text(name: &str, arguments: &serde_json::Map<String, Value>) -> Str
     }
 }
 
+fn local_time(ms: i64) -> libc::tm {
+    let seconds: libc::time_t = ms.div_euclid(1000);
+    let mut tm = unsafe { std::mem::zeroed::<libc::tm>() };
+    unsafe { libc::localtime_r(&seconds, &mut tm) };
+    tm
+}
+
+fn label_time(timestamp: &str) -> String {
+    let Some(ms) = from_iso8601(timestamp) else {
+        return "aN/NaN/NaN NaN:NaN".to_owned();
+    };
+    let date = local_time(ms);
+    let now = local_time(now_ms().try_into().unwrap_or_default());
+    let time = format!("{:02}:{:02}", date.tm_hour, date.tm_min);
+    let (month, day) = (date.tm_mon + 1, date.tm_mday);
+    if (date.tm_year, date.tm_mon, date.tm_mday) == (now.tm_year, now.tm_mon, now.tm_mday) {
+        time
+    } else if date.tm_year == now.tm_year {
+        format!("{month}/{day} {time}")
+    } else {
+        let year = (date.tm_year + 1900).to_string();
+        let short = &year[year.len().saturating_sub(2)..];
+        format!("{short}/{month}/{day} {time}")
+    }
+}
+
 fn shorten_path(path: &str) -> String {
     match std::env::var("HOME") {
         Ok(home) if !home.is_empty() && path.starts_with(&home) => {
@@ -766,6 +829,8 @@ fn help_line(width: usize) -> Vec<String> {
             "branch",
             false,
         ),
+        help_item(&["app.tree.editLabel"], "label", false),
+        help_item(&["app.tree.toggleLabelTimestamp"], "label time", false),
         help_item(
             &[
                 "app.tree.filter.default",
@@ -795,7 +860,11 @@ fn help_line(width: usize) -> Vec<String> {
 
 impl Component for TreeSelector {
     fn render(&mut self, width: usize) -> Vec<String> {
-        let mut lines = vec![String::new(), border(width), bold("  Session Tree")];
+        let mut lines = vec![
+            String::new(),
+            border(width),
+            format!(" {}", bold("  Session Tree")),
+        ];
         lines.extend(help_line(width));
         lines.push(truncate_to_width(
             &format!(
@@ -809,7 +878,21 @@ impl Component for TreeSelector {
         ));
         lines.push(border(width));
         lines.push(String::new());
-        if self.rows.is_empty() {
+        if let Some((_, input)) = &mut self.label_input {
+            let fitted = |line: String| truncate_to_width(&line, width, "", false);
+            lines.push(fitted(format!(
+                "  {}",
+                fg("muted", "Label (empty to remove):")
+            )));
+            for line in input.render(width.saturating_sub(2)) {
+                lines.push(fitted(format!("  {line}")));
+            }
+            lines.push(fitted(format!(
+                "  {}  {}",
+                key_hint("tui.select.confirm", "save"),
+                key_hint("tui.select.cancel", "cancel")
+            )));
+        } else if self.rows.is_empty() {
             lines.push(fg("muted", "  No entries found"));
             lines.push(fg("muted", &format!("  (0/0){}", self.status_labels())));
         } else {
@@ -853,10 +936,26 @@ impl Component for TreeSelector {
 
     fn set_focused(&mut self, focused: bool) {
         self.search.focused = focused;
+        if let Some((_, input)) = &mut self.label_input {
+            input.focused = focused;
+        }
     }
 
     fn handle_input(&mut self, data: &str) {
         let kb = get_keybindings();
+        if let Some((index, input)) = &mut self.label_input {
+            if kb.matches(data, "tui.select.confirm") {
+                let index = *index;
+                let value = input.value().trim().to_owned();
+                self.label_input = None;
+                self.set_label(index, Some(value).filter(|value| !value.is_empty()));
+            } else if kb.matches(data, "tui.select.cancel") {
+                self.label_input = None;
+            } else {
+                input.handle_input(data);
+            }
+            return;
+        }
         if kb.matches(data, "tui.select.up") {
             if !self.rows.is_empty() {
                 self.selected = if self.selected == 0 {
@@ -983,6 +1082,22 @@ impl Component for TreeSelector {
                 self.folded.clear();
                 self.refresh();
             }
+            return;
+        }
+        if kb.matches(data, "app.tree.editLabel") {
+            if let Some(row) = self.rows.get(self.selected) {
+                let index = row.node;
+                let mut input = Input::new(InputOptions::default());
+                if let Some(label) = &self.tree.nodes[index].label {
+                    input.set_value(label);
+                }
+                input.focused = self.search.focused;
+                self.label_input = Some((index, input));
+            }
+            return;
+        }
+        if kb.matches(data, "app.tree.toggleLabelTimestamp") {
+            self.label_times = !self.label_times;
             return;
         }
         let control = data
