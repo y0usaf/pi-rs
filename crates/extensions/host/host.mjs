@@ -97,11 +97,15 @@ const dist = new URL("./node_modules/@earendil-works/pi-coding-agent/dist/", imp
 const { loadExtensions } = await import(new URL("core/extensions/loader.js", dist));
 const { ExtensionRunner } = await import(new URL("core/extensions/runner.js", dist));
 const { emitProjectTrustEvent } = await import(new URL("core/extensions/runner.js", dist));
-const { resolvePath } = await import(new URL("utils/paths.js", dist));
+const { canonicalizePath, resolvePath } = await import(new URL("utils/paths.js", dist));
+const { DefaultPackageManager } = await import(new URL("core/package-manager.js", dist));
+const { InMemorySettingsStorage, SettingsManager } = await import(new URL("core/settings-manager.js", dist));
 const { createEventBus } = await import(new URL("core/event-bus.js", dist));
 const { SessionManager } = await import(new URL("core/session-manager.js", dist));
 const { convertToLlm } = await import(new URL("core/messages.js", dist));
-const { createSourceInfo, createSyntheticSourceInfo } = await import(new URL("core/source-info.js", dist));
+const { createSourceInfo, createSyntheticSourceInfo, getSyntheticPathSource, isSyntheticPath } = await import(
+	new URL("core/source-info.js", dist)
+);
 const { CONFIG_DIR_NAME, getAgentDir } = await import(new URL("config.js", dist));
 const { normalizeBuildSystemPromptOptions } = await import(new URL("core/system-prompt.js", dist));
 const { estimateProjectedContextTokens } = await import(new URL("core/compaction/compaction.js", dist));
@@ -457,30 +461,70 @@ function applySource(extension, sourceInfo) {
 	for (const tool of extension.tools.values()) tool.sourceInfo = sourceInfo;
 }
 
-function applyDirSources(extensions, dirs, cwd) {
-	const discovered = new Set((dirs ?? []).map((dir) => path.resolve(cwd, dir)));
-	const roots = [
-		{ baseDir: path.resolve(cwd, CONFIG_DIR_NAME), scope: "project" },
-		{ baseDir: path.resolve(getAgentDir()), scope: "user" },
-	].filter(({ baseDir }) => discovered.has(path.join(baseDir, "extensions")));
-	for (const extension of extensions) {
-		const resolved = path.resolve(extension.path);
-		const root = roots.find(({ baseDir }) => resolved.startsWith(`${path.join(baseDir, "extensions")}${path.sep}`));
-		if (!root) continue;
-		applySource(
-			extension,
-			createSourceInfo(extension.path, { source: "auto", scope: root.scope, origin: "top-level", baseDir: root.baseDir }),
-		);
-	}
+async function settingsResources(request, projectTrusted) {
+	if (!request.settings) return [];
+	const storage = new InMemorySettingsStorage();
+	for (const scope of ["global", "project"]) storage.withLock(scope, () => JSON.stringify(request.settings[scope] ?? {}));
+	const settingsManager = SettingsManager.fromStorage(storage, { projectTrusted });
+	const manager = new DefaultPackageManager({
+		cwd: state.cwd,
+		agentDir: getAgentDir(),
+		settingsManager,
+		builtinExtensions: [],
+	});
+	return (await manager.resolve(async () => "skip")).extensions;
 }
 
-function applyCliSources(extensions, cli, cwd) {
-	const roots = (cli ?? []).map((entry) => path.resolve(cwd, entry));
-	for (const extension of extensions) {
-		const resolved = path.resolve(extension.path);
-		if (!roots.some((root) => resolved === root || resolved.startsWith(`${root}${path.sep}`))) continue;
-		applySource(extension, createSourceInfo(extension.path, { source: "cli", scope: "temporary", origin: "top-level" }));
+function withResources(paths, resources) {
+	const seen = new Set(paths.map((entry) => canonicalizePath(path.resolve(state.cwd, entry))));
+	const added = [];
+	for (const { path: entry, enabled } of resources) {
+		const key = canonicalizePath(entry);
+		if (!enabled || seen.has(key)) continue;
+		seen.add(key);
+		added.push(entry);
 	}
+	return [...paths, ...added];
+}
+
+function isUnder(target, root) {
+	const base = path.resolve(root);
+	return target === base || target.startsWith(base.endsWith(path.sep) ? base : `${base}${path.sep}`);
+}
+
+function sourceInfoFor(filePath, metadata) {
+	if (filePath && !isSyntheticPath(filePath)) {
+		const normalized = path.resolve(filePath);
+		const exact = metadata.get(normalized) ?? metadata.get(filePath);
+		if (exact) return createSourceInfo(filePath, exact);
+		for (const [sourcePath, entry] of metadata) {
+			const source = path.resolve(sourcePath);
+			if (normalized === source || normalized.startsWith(`${source}${path.sep}`)) return createSourceInfo(filePath, entry);
+		}
+	}
+	const synthetic = getSyntheticPathSource(filePath);
+	if (synthetic) return { path: filePath, source: synthetic, scope: "temporary", origin: "top-level" };
+	const normalized = path.resolve(filePath);
+	for (const [base, scope] of [
+		[getAgentDir(), "user"],
+		[path.join(state.cwd, CONFIG_DIR_NAME), "project"],
+	]) {
+		for (const kind of ["skills", "prompts", "themes", "extensions"]) {
+			const root = path.join(base, kind);
+			if (isUnder(normalized, root)) return { path: filePath, source: "local", scope, origin: "top-level", baseDir: root };
+		}
+	}
+	const baseDir = fs.statSync(normalized).isDirectory() ? normalized : path.resolve(normalized, "..");
+	return { path: filePath, source: "local", scope: "temporary", origin: "top-level", baseDir };
+}
+
+function applyResourceSources(extensions, request, resources) {
+	const metadata = new Map();
+	for (const resource of resources) if (!metadata.has(resource.path)) metadata.set(resource.path, resource.metadata);
+	for (const entry of resolvePaths({ cwd: state.cwd, paths: request.cli ?? [] })) {
+		if (!metadata.has(entry)) metadata.set(entry, { source: "cli", scope: "temporary", origin: "top-level" });
+	}
+	for (const extension of extensions) applySource(extension, sourceInfoFor(extension.path, metadata));
 }
 
 function applyFlags(result, flags) {
@@ -757,6 +801,7 @@ function summary(extension, servers) {
 	return {
 		path: extension.path,
 		resolvedPath: extension.resolvedPath,
+		sourceInfo: extension.sourceInfo,
 		events: [...extension.handlers.keys()],
 		commands: [...extension.commands.values()].map((command) => ({
 			name: command.name,
@@ -776,9 +821,9 @@ async function load(request) {
 	providers.clear();
 	const hadVirtualModels = virtualModels.size > 0;
 	virtualModels.clear();
-	const result = await loadSet(resolvePaths(request));
-	applyDirSources(result.extensions, request.paths, request.cwd ?? state.cwd);
-	applyCliSources(result.extensions, request.cli, request.cwd ?? state.cwd);
+	const resources = await settingsResources(request, state.trusted);
+	const result = await loadSet(withResources(resolvePaths(request), resources));
+	applyResourceSources(result.extensions, request, resources);
 	registrants.clear();
 	for (const { name, extensionPath } of result.runtime.pendingProviderRegistrations) registrants.set(name, extensionPath);
 	for (const { provider, extensionPath } of result.runtime.pendingNativeProviderRegistrations) {
@@ -829,7 +874,8 @@ async function projectTrust(request) {
 	if (request.agentDir) process.env.PI_CODING_AGENT_DIR = request.agentDir;
 	initTheme(request.theme, false);
 	const bus = createEventBus();
-	const result = await loadExtensions(resolvePaths(request), state.cwd, bus);
+	const resources = await settingsResources(request, false);
+	const result = await loadExtensions(withResources(resolvePaths(request), resources), state.cwd, bus);
 	preTrusted = { result, bus };
 	const answer = await emitProjectTrustEvent(result, { type: "project_trust", cwd: state.cwd }, trustContext());
 	return {

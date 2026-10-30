@@ -42,8 +42,8 @@ pub use runtime::request_hooks;
 use crate::config::CONFIG_DIR_NAME;
 use crate::loadout::{Entry, Loadout, PromptView, Source, ToolsView};
 use crate::models::ModelRegistry;
-use crate::paths::{PathInput, join, resolve_path, within};
-use crate::settings::{Settings, SettingsManager};
+use crate::paths::join;
+use crate::settings::SettingsManager;
 use crate::system_prompt::PromptInput;
 
 mod calls;
@@ -469,10 +469,12 @@ fn unknown_options(names: &[&str]) -> Option<String> {
     })
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SourceInfo {
     pub source: String,
     pub scope: String,
+    #[serde(default)]
     pub base_dir: Option<String>,
 }
 
@@ -480,24 +482,6 @@ pub struct SourceInfo {
 pub struct LoadedExtension {
     pub path: String,
     pub source_info: Option<SourceInfo>,
-}
-
-fn source_info(resolved: &str, cli: &[String], cwd: &str, dirs: &[String]) -> Option<SourceInfo> {
-    if cli.iter().any(|path| within(resolved, &resolve(path, cwd))) {
-        return Some(SourceInfo {
-            source: "cli".to_owned(),
-            scope: "temporary".to_owned(),
-            base_dir: None,
-        });
-    }
-    dirs.iter()
-        .zip(["project", "user"])
-        .find(|(dir, _)| within(resolved, dir))
-        .map(|(dir, scope)| SourceInfo {
-            source: "local".to_owned(),
-            scope: scope.to_owned(),
-            base_dir: Some(dir.clone()),
-        })
 }
 
 /// The message `sendUserMessage` asked for, as the harness takes one.
@@ -570,86 +554,27 @@ fn host_dir() -> Option<PathBuf> {
     installed.is_dir().then_some(installed)
 }
 
-fn package_sources(layer: &Settings) -> Vec<String> {
-    let Some(Value::Array(entries)) = layer.values().get("packages") else {
-        return Vec::new();
-    };
-    entries
-        .iter()
-        .filter_map(|entry| match entry {
-            Value::String(source) => Some(source.clone()),
-            Value::Object(fields) => fields
-                .get("source")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-            _ => None,
-        })
-        .collect()
+fn settings_view(settings: &SettingsManager) -> Value {
+    json!({
+        "global": settings.global_settings().values(),
+        "project": settings.project_settings().values(),
+    })
 }
 
-fn layer_extensions(layer: &Settings) -> Vec<String> {
-    let Some(Value::Array(entries)) = layer.values().get("extensions") else {
-        return Vec::new();
-    };
-    entries
-        .iter()
-        .filter_map(Value::as_str)
-        .filter(|entry| {
-            !(entry.starts_with(['!', '+', '-']) || entry.contains('*') || entry.contains('?'))
-        })
-        .map(str::to_owned)
-        .collect()
-}
-
-fn from_base(input: &str, base: &str) -> String {
-    resolve_path(
-        input,
-        base,
-        PathInput {
-            trim: true,
-            ..PathInput::default()
-        },
-    )
-}
-
-fn package_path(source: &str, base: &str) -> Option<String> {
-    let trimmed = source.trim();
-    let lower = trimmed.to_ascii_lowercase();
-    let remote = ["npm:", "git:"]
-        .iter()
-        .any(|prefix| trimmed.starts_with(prefix))
-        || ["http://", "https://", "ssh://", "git://"]
-            .iter()
-            .any(|scheme| lower.starts_with(scheme));
-    (!remote).then(|| from_base(trimmed, base))
-}
-
-fn settings_paths(settings: &SettingsManager, cwd: &str, agent_dir: &str) -> Vec<String> {
-    let mut layers = Vec::new();
+fn names_extensions(settings: &SettingsManager, cwd: &str, agent_dir: &str) -> bool {
+    let mut layers = vec![(settings.global_settings(), agent_dir.to_owned())];
     if settings.is_project_trusted() {
         layers.push((settings.project_settings(), join(cwd, CONFIG_DIR_NAME)));
     }
-    layers.push((settings.global_settings(), agent_dir.to_owned()));
-    let mut paths = Vec::new();
-    for (layer, base) in &layers {
-        paths.extend(
-            layer_extensions(layer)
-                .iter()
-                .map(|entry| from_base(entry, base)),
-        );
-        let auto = join(base, "extensions");
-        if Path::new(&auto).is_dir() {
-            paths.push(auto);
-        }
-    }
-    for (layer, base) in &layers {
-        paths.extend(
-            package_sources(layer)
-                .iter()
-                .filter_map(|source| package_path(source, base)),
-        );
-    }
-    paths
+    layers.iter().any(|(layer, base)| {
+        ["extensions", "packages"].iter().any(|key| {
+            layer
+                .values()
+                .get(*key)
+                .and_then(Value::as_array)
+                .is_some_and(|entries| !entries.is_empty())
+        }) || Path::new(&join(base, "extensions")).is_dir()
+    })
 }
 
 fn resolve(path: &str, cwd: &str) -> String {
@@ -677,18 +602,12 @@ pub fn load(
     let mut extensions = Extensions::default();
     let names: Vec<&str> = flags.iter().map(|(name, _)| name.as_str()).collect();
     let unknown = unknown_options(&names);
-    let dirs = if no_extensions {
-        Vec::new()
+    let named = !no_extensions && names_extensions(settings, cwd, agent_dir);
+    let view = if no_extensions {
+        Value::Null
     } else {
-        vec![
-            join(cwd, &format!("{CONFIG_DIR_NAME}/extensions")),
-            join(agent_dir, "extensions"),
-        ]
+        settings_view(settings)
     };
-    let mut paths: Vec<String> = cli.to_vec();
-    if !no_extensions {
-        paths.extend(settings_paths(settings, cwd, agent_dir));
-    }
     for path in cli {
         let resolved = resolve(path, cwd);
         if !Path::new(&resolved).exists() {
@@ -699,7 +618,7 @@ pub fn load(
     }
     extensions.errors.extend(unknown.clone());
     let preloaded = lock(&PRELOADED).take();
-    if paths.is_empty() {
+    if cli.is_empty() && !named {
         return extensions;
     }
     let Some(dir) = host_dir() else {
@@ -721,10 +640,11 @@ pub fn load(
     let _ = host.0.sink.registry.set(Arc::clone(registry));
     let sources = pi_extensions::Sources {
         dirs: &[],
-        paths: &paths,
+        paths: cli,
         cli,
         flags,
         trusted: settings.is_project_trusted(),
+        settings: &view,
     };
     let load = match host.load(agent_dir, &sources) {
         Ok(load) => load,
@@ -739,7 +659,7 @@ pub fn load(
         .iter()
         .map(|extension| LoadedExtension {
             path: extension.path.clone(),
-            source_info: source_info(&extension.resolved_path, cli, cwd, &dirs),
+            source_info: serde_json::from_value(extension.source_info.clone()).ok(),
         })
         .collect();
     for extension in &load.extensions {
@@ -791,13 +711,15 @@ pub fn project_trust(
 ) -> TrustAnswer {
     let mut answer = TrustAnswer::default();
     let cli = args.extensions.as_deref().unwrap_or(&[]);
-    let mut paths: Vec<String> = cli.to_vec();
-    if !args.no_extensions {
-        paths.extend(settings_paths(startup, cwd, agent_dir));
-    }
-    if paths.is_empty() {
+    let named = !args.no_extensions && names_extensions(startup, cwd, agent_dir);
+    if cli.is_empty() && !named {
         return answer;
     }
+    let view = if args.no_extensions {
+        Value::Null
+    } else {
+        settings_view(startup)
+    };
     let Some(host) = host_dir().and_then(|dir| Live::start(&dir, cwd, mode, has_ui).ok()) else {
         return answer;
     };
@@ -806,10 +728,11 @@ pub fn project_trust(
     let _ = host.0.sink.registry.set(Arc::clone(registry));
     let sources = pi_extensions::Sources {
         dirs: &[],
-        paths: &paths,
+        paths: cli,
         cli,
         flags: &[],
         trusted: false,
+        settings: &view,
     };
     match host
         .0

@@ -108,6 +108,7 @@ pub struct Sources<'a> {
     pub cli: &'a [String],
     pub flags: &'a [(String, Option<String>)],
     pub trusted: bool,
+    pub settings: &'a Value,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -255,6 +256,7 @@ impl Host {
             "mode": ctx.mode,
             "hasUI": ctx.has_ui,
             "trusted": sources.trusted,
+            "settings": sources.settings,
             "updates": ctx.updates,
         });
         let value = self
@@ -277,6 +279,7 @@ impl Host {
             "dirs": sources.dirs,
             "paths": sources.paths,
             "cli": sources.cli,
+            "settings": sources.settings,
             "mode": ctx.mode,
             "hasUI": ctx.has_ui,
             "updates": ctx.updates,

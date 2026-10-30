@@ -2,8 +2,7 @@
 //!
 //! The child runs upstream's own loader and `ExtensionRunner` over upstream's packages, with what
 //! reads or changes the agent's state calling back into pi-rs, and reports what each extension
-//! registered. Nothing here decides *which* paths to load; that is the agent's `extensions`
-//! module, which knows the settings and the flags.
+//! registered.
 
 mod host;
 
@@ -24,6 +23,8 @@ pub const EVENT_BUDGET: Duration = Duration::from_secs(10);
 pub struct Loaded {
     pub path: String,
     pub resolved_path: String,
+    #[serde(default)]
+    pub source_info: Value,
     pub events: Vec<String>,
     pub commands: Vec<Command>,
     /// What the extension registered that upstream acts on in this mode and pi-rs does not yet.
