@@ -277,18 +277,57 @@ const session = (() => {
 	return view;
 })();
 
+const { classifierErrorResult, getModelType } = await import(
+	new URL("./node_modules/@earendil-works/pi-ai/dist/utils/model-operations.js", import.meta.url)
+);
+
+function askAbortable(call, args, signal) {
+	const { callId, answer } = askStream(call, args);
+	if (!signal) return answer;
+	const cancel = () => effect({ call: "cancel", ask: callId });
+	if (signal.aborted) cancel();
+	else signal.addEventListener("abort", cancel, { once: true });
+	return answer.finally(() => signal.removeEventListener("abort", cancel));
+}
+
+const COMPLETE_OPTIONS = new Set([
+	"apiKey",
+	"cacheRetention",
+	"headers",
+	"maxRetries",
+	"maxRetryDelayMs",
+	"maxTokens",
+	"metadata",
+	"reasoningEffort",
+	"sessionId",
+	"timeoutMs",
+	"toolChoice",
+	"transport",
+]);
+
+function given(options) {
+	const { signal, ...rest } = options ?? {};
+	return { signal, rest: Object.fromEntries(Object.entries(rest).filter(([, value]) => value !== undefined)) };
+}
+
+function completeDropped(options) {
+	return Object.entries(options)
+		.filter(
+			([key, value]) =>
+				!COMPLETE_OPTIONS.has(key) ||
+				(key === "toolChoice" && typeof value !== "string") ||
+				(key === "headers" && Object.values(value ?? {}).some((header) => typeof header !== "string")),
+		)
+		.map(([key]) => key);
+}
+
 const REGISTRY_UNPORTED = [
 	"stream",
 	"streamSimple",
-	"classify",
 	"generateImages",
 	"getError",
 	"getProvider",
 	"getProviderDisplayName",
-	"getModelOfType",
-	"findOfType",
-	"getModelsOfType",
-	"getAvailableOfType",
 	"getApiKeyAndHeaders",
 	"getApiKeyForProvider",
 	"registerProvider",
@@ -301,6 +340,11 @@ const REGISTRY_UNPORTED = [
 const modelRegistry = (() => {
 	const list = () => state.models?.list ?? [];
 	const configured = () => new Set(state.models?.configured ?? []);
+	const ofType = (type, provider) =>
+		(type === "chat" ? list() : (state.models?.typed ?? [])).filter(
+			(model) => getModelType(model) === type && (provider === undefined || model.provider === provider),
+		);
+	const oneOfType = (type, provider, modelId) => ofType(type, provider).find((model) => model.id === modelId);
 	const registry = {
 		getAll: () => list().map((model) => ({ ...model })),
 		getAvailable: () => {
@@ -317,20 +361,32 @@ const modelRegistry = (() => {
 				force: options?.force,
 				providers: options?.providers ? [...options.providers] : undefined,
 			});
-			state.models = { ...state.models, list: answer.list, configured: answer.configured };
+			state.models = { ...state.models, list: answer.list, typed: answer.typed, configured: answer.configured };
 			const errors = Object.entries(answer.errors ?? {}).map(([id, message]) => [id, new Error(message)]);
 			return { aborted: answer.aborted, errors: new Map(errors) };
 		},
-		complete: (model, context, options) => {
-			const forwarded = new Set(["maxTokens", "reasoningEffort", "signal"]);
-			const dropped = Object.keys(options ?? {}).filter((key) => !forwarded.has(key));
+		complete: async (model, context, options) => {
+			const { signal, rest } = given(options);
+			const dropped = completeDropped(rest);
 			if (dropped.length > 0) throw unported(`modelRegistry.complete options ${dropped.join(", ")}`);
-			return ask("complete", {
-				provider: model?.provider,
-				modelId: model?.id,
-				context,
-				options: { maxTokens: options?.maxTokens, reasoningEffort: options?.reasoningEffort },
-			});
+			return await askAbortable("complete", { provider: model?.provider, modelId: model?.id, context, options: rest }, signal);
+		},
+		findOfType: (type, provider, modelId) => oneOfType(type, provider, modelId),
+		getModelOfType: (type, provider, modelId) => oneOfType(type, provider, modelId),
+		getModelsOfType: (type, provider) => ofType(type, provider),
+		getAvailableOfType: async (type, provider) => {
+			const ids = configured();
+			return ofType(type, provider).filter((model) => ids.has(model.provider));
+		},
+		classify: async (model, context, options) => {
+			const { signal, rest } = given(options);
+			try {
+				const functions = Object.keys(rest).filter((key) => typeof rest[key] === "function" || key === "telemetry");
+				if (functions.length > 0) throw unported(`modelRegistry.classify options ${functions.join(", ")}`);
+				return await askAbortable("classify", { model, context, options: rest, aborted: signal?.aborted === true }, signal);
+			} catch (error) {
+				return classifierErrorResult(model, error, signal?.aborted);
+			}
 		},
 	};
 	for (const member of REGISTRY_UNPORTED) {

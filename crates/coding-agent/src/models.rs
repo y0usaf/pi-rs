@@ -96,6 +96,12 @@ impl ModelRegistry {
         catalog.extend(crate::mount::catalog().iter().cloned());
         let mut registry = Self::new(config, auth, catalog);
         registry.remote = remote;
+        registry.builtin.extend(
+            pi_durable::ai::catalog::typed()
+                .iter()
+                .filter_map(|model| model.get("provider").and_then(Value::as_str))
+                .map(str::to_owned),
+        );
         registry.store = Some(Store::at(&store_path));
         registry.refresh(false, false, None, &CancelToken::new());
         registry
@@ -343,6 +349,35 @@ impl ModelRegistry {
             .iter()
             .find(|m| m.provider == provider && m.id == id)
             .cloned()
+    }
+
+    pub fn typed_models(&self) -> Vec<Value> {
+        pi_durable::ai::catalog::typed()
+            .iter()
+            .map(|model| {
+                let mut model = model.clone();
+                let provider = model.get("provider").and_then(Value::as_str);
+                if let Some(config) = provider.and_then(|provider| self.provider_config(provider)) {
+                    if config.get("oauth").and_then(Value::as_str) != Some("radius")
+                        && let Some(url) = config.get("baseUrl").filter(|url| !url.is_null())
+                    {
+                        model.insert("baseUrl".to_owned(), url.clone());
+                    }
+                    if model.get("type").and_then(Value::as_str) == Some("classifier")
+                        && let Some(Value::Object(compat)) = config.get("compat")
+                    {
+                        let mut merged = model
+                            .get("compat")
+                            .and_then(Value::as_object)
+                            .cloned()
+                            .unwrap_or_default();
+                        merged.extend(compat.clone());
+                        model.insert("compat".to_owned(), Value::Object(merged));
+                    }
+                }
+                Value::Object(model)
+            })
+            .collect()
     }
 
     /// `getError()`: models.json and composition problems.

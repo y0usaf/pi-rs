@@ -413,12 +413,25 @@ pub fn upstream_message(message: &mut Value, thinking: &str) {
     else {
         return;
     };
-    cost.remove("totalFromProvider");
+    cost.remove(PROVIDER_TOTAL);
     for value in cost.values_mut() {
         let whole = value.as_f64().filter(|n| n.fract() == 0.0);
         if let Some(whole) = whole {
             *value = (whole as i64).into();
         }
+    }
+}
+
+const PROVIDER_TOTAL: &str = "totalFromProvider";
+
+pub fn upstream_usage(value: &mut Value) {
+    let usage = if value.get("usage").is_some() {
+        &mut value["usage"]
+    } else {
+        value
+    };
+    if let Some(cost) = usage.get_mut("cost").and_then(Value::as_object_mut) {
+        cost.remove(PROVIDER_TOTAL);
     }
 }
 

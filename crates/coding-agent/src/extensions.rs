@@ -12,7 +12,7 @@ use pi_durable::ai::models::Models as ModelsTrait;
 use pi_durable::ai::registry::{Api, Origin, Providers};
 use pi_durable::ai::stream::{fail, new_output};
 use pi_durable::ai::types::{
-    AssistantMessage, AssistantMessageEvent, CachePoint, CacheRetention, Context, Message, Model,
+    AssistantMessage, AssistantMessageEvent, CachePoint, Context, Message, Model,
     SimpleStreamOptions, StopReason, SystemContent, SystemMessage, SystemRole, TextContent,
     TextType, Tool as AgentTool, TranscriptContext, UserBlock, UserContent,
 };
@@ -46,6 +46,7 @@ use crate::settings::SettingsManager;
 use crate::system_prompt::PromptInput;
 
 mod calls;
+mod registry;
 mod user_bash;
 
 pub use user_bash::UserBash;
@@ -74,6 +75,14 @@ impl ExtensionModels {
                 .map(|(provider, _)| provider)
                 .filter(|provider| registry.has_configured_auth(provider)),
         );
+        configured.extend(
+            registry
+                .typed_models()
+                .iter()
+                .filter_map(|model| model.get("provider").and_then(Value::as_str))
+                .filter(|provider| registry.has_configured_auth(provider))
+                .map(str::to_owned),
+        );
         configured.sort();
         configured.dedup();
         ExtensionModels {
@@ -100,6 +109,7 @@ impl ExtensionModels {
             "aborted": refreshed.aborted,
             "errors": refreshed.errors,
             "list": next.list,
+            "typed": next.registry.typed_models(),
             "configured": next.configured,
         });
         (answer, next)
@@ -114,7 +124,8 @@ impl ExtensionModels {
         cancel: &CancelToken,
     ) -> std::result::Result<Value, String> {
         match name {
-            "complete" => self.complete(args),
+            "complete" => self.complete(args, cancel),
+            "classify" => self.classify(args, cancel),
             "stream" => self.stream(args, update, cancel),
             "providerAuth" => self.provider_auth(args),
             other => Err(format!(
@@ -179,8 +190,7 @@ impl ExtensionModels {
         Ok(answer)
     }
 
-    /// `modelRegistry.complete`: one request with the session's auth, answered whole.
-    fn complete(&self, args: &Value) -> std::result::Result<Value, String> {
+    fn complete(&self, args: &Value, cancel: &CancelToken) -> std::result::Result<Value, String> {
         let field = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
         let (provider, id) = (field("provider"), field("modelId"));
         let model = self
@@ -202,25 +212,15 @@ impl ExtensionModels {
             }));
         }
         messages.extend(context.messages);
-        let mut options = SimpleStreamOptions {
-            cache_retention: Some(CacheRetention::None),
-            ..SimpleStreamOptions::default()
-        };
-        if let Some(tokens) = args.pointer("/options/maxTokens").and_then(Value::as_u64) {
-            options.max_tokens = Some(tokens);
-        }
-        if let Some(level) = args
-            .pointer("/options/reasoningEffort")
-            .and_then(Value::as_str)
-        {
-            options.reasoning = crate::run_config::parse_level(level)
-                .and_then(pi_durable::harness::generation::reasoning);
-        }
+        let options =
+            registry::complete_options(&model, args.get("options").unwrap_or(&Value::Null), cancel);
         let message = self
             .providers
             .complete_simple(&model, TranscriptContext { messages }, options)
             .map_err(|error| error.0)?;
-        serde_json::to_value(message).map_err(|e| e.to_string())
+        let mut value = serde_json::to_value(message).map_err(|e| e.to_string())?;
+        crate::sessions::export::upstream_usage(&mut value);
+        Ok(value)
     }
 }
 
@@ -635,7 +635,10 @@ pub fn load(
         }
     };
     host.update("providers", builtin_providers());
-    host.update("models", json!({ "list": registry.models().as_ref() }));
+    host.update(
+        "models",
+        json!({ "list": registry.models().as_ref(), "typed": registry.typed_models() }),
+    );
     let _ = host.0.sink.registry.set(Arc::clone(registry));
     let sources = pi_extensions::Sources {
         dirs: &[],
@@ -1771,6 +1774,7 @@ impl Live {
             json!({
                 "current": models.current,
                 "list": models.list,
+                "typed": models.registry.typed_models(),
                 "configured": models.configured,
             }),
         );
