@@ -26,8 +26,8 @@ use pi_durable::harness::output::OutputChunk;
 use pi_durable::harness::registry::Registry;
 use pi_durable::harness::tool::ToolRound;
 use pi_durable::harness::types::{
-    HookApi, HookRegistration, OutputLimitsSpec, ToolControl, ToolExecute, ToolExecutionApi,
-    ToolExecutionMode, ToolExecutionResult, ToolExposure, ToolRegistration,
+    HookApi, HookRegistration, OutputLimitsSpec, PrepareArguments, ToolControl, ToolExecute,
+    ToolExecutionApi, ToolExecutionMode, ToolExecutionResult, ToolExposure, ToolRegistration,
 };
 use pi_durable::ids::EntryId;
 use pi_durable::types::{EntryQuery, EntryRecord, ScanOrder};
@@ -1086,6 +1086,13 @@ fn registration(info: &ToolInfo) -> ToolRegistration {
         .as_deref()
         .and_then(|exposure| serde_json::from_value::<ToolExposure>(json!(exposure)).ok())
         .unwrap_or_default();
+    let prepare_arguments = info.prepares_arguments.then(|| {
+        let name = name.clone();
+        Arc::new(move |conversation, call_id: &str, args| match live() {
+            Some(live) => live.prepare_arguments(conversation, &name, call_id, args),
+            None => Err(Error::Invalid("no extension host is running".to_owned())),
+        }) as PrepareArguments
+    });
     let execute: ToolExecute = Arc::new(move |args, api, cancel| match live() {
         Some(live) => live.run_tool(&name, args, api, cancel),
         None => Err(Error::Invalid("no extension host is running".to_owned())),
@@ -1107,7 +1114,7 @@ fn registration(info: &ToolInfo) -> ToolRegistration {
             max_lines: Some(usize::MAX),
             retain: None,
         }),
-        prepare_arguments: None,
+        prepare_arguments,
         exposure,
         hidden: false,
         execute,

@@ -58,7 +58,7 @@ fn text_block(text: String) -> UserBlock {
 fn registration(spec: ToolSpec, settings: Arc<ToolSettings>) -> ToolRegistration {
     let prepare: Option<PrepareArguments> = spec
         .prepare_arguments
-        .map(|f| Arc::new(move |v: Value| Ok(f(v))) as PrepareArguments);
+        .map(|f| Arc::new(move |_, _: &str, v: Value| Ok(Some(f(v)))) as PrepareArguments);
     let execute_fn = spec.execute;
     let execute: ToolExecute = Arc::new(move |args, _api, cancel| {
         let mut ctx = ToolContext {

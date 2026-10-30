@@ -118,6 +118,7 @@ pub struct ToolHooks {
 }
 
 pub struct ToolRound<'a> {
+    pub conversation: ConversationId,
     pub calls: &'a [ToolCall],
     pub sequential: bool,
     pub offered: &'a BTreeSet<String>,
@@ -130,7 +131,7 @@ impl ToolRound<'_> {
         if !self.offered.contains(&call.name) {
             return ToolGate::Blocked(Box::new(unavailable_tool(self.style, &call.name)));
         }
-        match gate(self.agent, self.style, call) {
+        match gate(self.agent, self.style, self.conversation, call) {
             Ok((_, args)) => ToolGate::Run(args),
             Err(result) => ToolGate::Blocked(result),
         }
@@ -174,7 +175,12 @@ fn call_phase(
     let call = read_call(rt, &task.input, cancel)?;
     started(rt, &call)?;
     let agent = rt.agent(cancel)?;
-    let (tool, args) = match gate(&agent, rt.settings().tool_errors, &call) {
+    let (tool, args) = match gate(
+        &agent,
+        rt.settings().tool_errors,
+        rt.conversation_id(),
+        &call,
+    ) {
         Ok(gated) => gated,
         Err(result) => return settle(rt, &call, Ending::Completed, *result, cancel, None),
     };
@@ -325,7 +331,7 @@ fn nested_run(
         kind: ToolCallType,
         id: call_id.to_owned(),
         name: name.to_owned(),
-        arguments: match prepare(&tool, arguments) {
+        arguments: match prepare(&tool, api.conversation_id(), call_id, arguments) {
             Ok(arguments) => arguments,
             Err(message) => return Ok((plain_error(&message), None)),
         },
@@ -422,12 +428,13 @@ fn find_tool<'g>(agent: &'g Agent, call: &ToolCall) -> Option<&'g ToolRegistrati
 fn gate<'g>(
     agent: &'g Agent,
     style: ToolErrorStyle,
+    conversation: ConversationId,
     call: &ToolCall,
 ) -> std::result::Result<(&'g ToolRegistration, JsonObject), Box<ToolExecutionResult>> {
     let Some(tool) = find_tool(agent, call) else {
         return Err(Box::new(unavailable_tool(style, &call.name)));
     };
-    prepare(tool, call.arguments.clone())
+    prepare(tool, conversation, &call.id, call.arguments.clone())
         .and_then(|args| validate(tool, call, args))
         .map(|args| (tool, args))
         .map_err(|message| Box::new(invalid(style, &message)))
@@ -459,17 +466,25 @@ fn read_call(
     })
 }
 
-fn prepare(tool: &ToolRegistration, args: JsonObject) -> std::result::Result<JsonObject, String> {
+fn prepare(
+    tool: &ToolRegistration,
+    conversation: ConversationId,
+    call_id: &str,
+    args: JsonObject,
+) -> std::result::Result<JsonObject, String> {
     let Some(prepare) = &tool.prepare_arguments else {
         return Ok(args);
     };
-    match prepare(JsonValue::Object(args)) {
+    match prepare(conversation, call_id, JsonValue::Object(args)) {
         Err(error) => Err(error.to_string()),
-        Ok(Value::Object(args)) => Ok(args),
+        Ok(Some(Value::Object(args))) => Ok(args),
         Ok(repaired) => Err(format!(
             "Validation failed for tool \"{}\":\n  - root: must be object\n\nReceived arguments:\n{}",
             tool.tool.name,
-            crate::ai::utils::js::stringify_pretty(&repaired)
+            repaired.as_ref().map_or_else(
+                || "undefined".to_owned(),
+                crate::ai::utils::js::stringify_pretty
+            )
         )),
     }
 }

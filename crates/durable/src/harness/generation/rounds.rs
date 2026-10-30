@@ -292,6 +292,7 @@ pub fn start_tool_round(
     super::classify::before_tools(
         runtime,
         &crate::harness::tool::ToolRound {
+            conversation: conversation_id,
             calls: &calls,
             sequential,
             offered: &offered,

@@ -349,6 +349,7 @@ function toolInfos() {
 		executionMode: definition.executionMode,
 		exposure: definition.exposure,
 		defaultActive: definition.defaultActive,
+		preparesArguments: typeof definition.prepareArguments === "function",
 		path: sourceInfo?.path ?? "",
 	}));
 }
@@ -1048,6 +1049,13 @@ async function runTool(request) {
 	}
 }
 
+function prepareArguments(request) {
+	absorb(request);
+	const definition = runner.getToolDefinition(request.name);
+	if (typeof definition?.prepareArguments !== "function") throw new Error(`Tool ${request.name} has no prepareArguments`);
+	return { args: definition.prepareArguments(request.args) };
+}
+
 /** One request to a provider an extension registered, each event its stream yields sent as it comes. */
 async function runStream(request) {
 	const provider = providers.get(request.provider)?.provider;
@@ -1085,6 +1093,8 @@ async function handle(request) {
 			return await runCommand(request);
 		case "tool":
 			return await runTool(request);
+		case "prepare":
+			return prepareArguments(request);
 		case "stream":
 			return await runStream(request);
 		case "route":

@@ -1,8 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use pi_durable::ai::types::{Message, ToolCall, ToolResultMessage, Usage, UserBlock};
 use pi_durable::cancel::CancelToken;
+use pi_durable::errors::Error;
+use pi_durable::harness::agent::Agent;
 use pi_durable::harness::harness::Conversation;
 use pi_durable::harness::tool::{
     BeforeToolDecision, TOOL_HOOK, ToolHooks, ToolRound, ToolRuntime, blocked, tool_result_message,
@@ -30,10 +32,14 @@ pub(super) struct Round {
     gates: HashMap<String, Gate>,
     inputs: HashMap<String, Value>,
     relayed: HashSet<String>,
+    prepared: HashMap<String, (Value, Result<Option<Value>, String>)>,
 }
 
 pub(super) struct Ahead {
-    calls: Vec<(ToolCall, ToolGate)>,
+    conversation: ConversationId,
+    calls: Vec<ToolCall>,
+    offered: BTreeSet<String>,
+    agent: Agent,
     style: ToolErrorStyle,
 }
 
@@ -152,11 +158,10 @@ impl Live {
             ..Round::default()
         };
         *lock(&self.0.ahead) = (!round.sequential).then(|| Ahead {
-            calls: round
-                .calls
-                .iter()
-                .map(|call| (call.clone(), round.gate(call)))
-                .collect(),
+            conversation: round.conversation,
+            calls: round.calls.to_vec(),
+            offered: round.offered.clone(),
+            agent: round.agent.clone(),
             style: round.style,
         });
     }
@@ -171,13 +176,27 @@ impl Live {
             return;
         }
         let mut ahead = pi_durable::turn::pause(|| lock(&self.0.ahead));
-        let Some(Ahead { calls, style }) = ahead.take() else {
+        let Some(Ahead {
+            conversation,
+            calls,
+            offered,
+            agent,
+            style,
+        }) = ahead.take()
+        else {
             return;
         };
-        for (call, gate) in calls {
-            let call = &call;
+        let round = ToolRound {
+            conversation,
+            calls: &calls,
+            sequential: false,
+            offered: &offered,
+            agent: &agent,
+            style,
+        };
+        for call in &calls {
             self.started(call);
-            let settled = match gate {
+            let settled = match round.gate(call) {
                 ToolGate::Blocked(result) => *result,
                 ToolGate::Run(args) => match self.tool_call(call, args) {
                     Gate::Block { reason, terminate } => {
@@ -269,6 +288,38 @@ impl Live {
             event["parentToolCallId"] = json!(parent);
         }
         event
+    }
+
+    pub(super) fn prepare_arguments(
+        &self,
+        conversation: ConversationId,
+        name: &str,
+        call_id: &str,
+        args: Value,
+    ) -> Result<Option<Value>, Error> {
+        let issued = self.ours(conversation) && {
+            let round = lock(&self.0.round);
+            round.open
+                && round
+                    .calls
+                    .iter()
+                    .any(|call| call.id == call_id && call.name == name)
+        };
+        if issued
+            && let Some((input, prepared)) = lock(&self.0.round).prepared.get(call_id)
+            && *input == args
+        {
+            return prepared.clone().map_err(Error::Invalid);
+        }
+        let prepared = self
+            .finish(self.begin(|host, ctx| host.prepare(name, args.clone(), ctx)))
+            .map(|answer| answer.get("args").cloned());
+        if issued {
+            lock(&self.0.round)
+                .prepared
+                .insert(call_id.to_owned(), (args, prepared.clone()));
+        }
+        prepared.map_err(Error::Invalid)
     }
 
     fn ours(&self, conversation: ConversationId) -> bool {

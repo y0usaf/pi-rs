@@ -319,6 +319,12 @@ impl Host {
         self.begin(request, Limit::Unbounded)
     }
 
+    pub fn prepare(&self, name: &str, args: Value, ctx: &Ctx) -> Result<Pending, String> {
+        let mut request = with_ctx(json!({ "op": "prepare", "name": name }), ctx);
+        request["args"] = args;
+        self.begin(request, Limit::Idle(EVENT_BUDGET))
+    }
+
     /// Streams one request through the `streamSimple` of a provider an extension registered; each
     /// event arrives as an update.
     pub fn stream(

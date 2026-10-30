@@ -76,7 +76,8 @@ fn edit_tool() -> ToolRegistration {
             Some(edit_details_json(&details))
         })
     });
-    let prepare: PrepareArguments = Arc::new(|input| Ok(edit::prepare_arguments(input)));
+    let prepare: PrepareArguments =
+        Arc::new(|_, _, input| Ok(Some(edit::prepare_arguments(input))));
     registration(
         "edit",
         EDIT_DESCRIPTION,

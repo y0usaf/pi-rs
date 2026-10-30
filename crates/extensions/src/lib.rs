@@ -62,6 +62,8 @@ pub struct ToolInfo {
     pub exposure: Option<String>,
     #[serde(default)]
     pub default_active: Option<bool>,
+    #[serde(default)]
+    pub prepares_arguments: bool,
     pub path: String,
 }
 
