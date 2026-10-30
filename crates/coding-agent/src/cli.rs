@@ -84,11 +84,7 @@ fn file_arguments(files: &[String], cwd: &str) -> Result<(String, Vec<UserBlock>
 
 /// The flags pi-rs parses but has no behaviour for yet, in the order upstream reads them.
 fn unimplemented_flag(parsed: &Args) -> Option<&'static str> {
-    let flags = [
-        (parsed.export.is_some(), "--export"),
-        (parsed.tui_mode.is_some(), "--tui-mode"),
-        (parsed.verbose, "--verbose"),
-    ];
+    let flags = [(parsed.export.is_some(), "--export")];
     flags.iter().find(|(set, _)| *set).map(|(_, name)| *name)
 }
 
@@ -558,6 +554,8 @@ fn run() -> Result<ExitCode, String> {
             extensions,
             templates,
             incoming,
+            tui_mode: parsed.tui_mode.clone(),
+            verbose: parsed.verbose,
         })?;
         if let Some(path) = path {
             println!("Session: {path}");

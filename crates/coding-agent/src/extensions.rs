@@ -375,6 +375,7 @@ pub struct Extensions {
     /// What loading has to say, one line each.
     pub notices: Vec<String>,
     pub errors: Vec<String>,
+    pub loaded: Vec<LoadedExtension>,
 }
 
 #[derive(Clone)]
@@ -398,6 +399,41 @@ fn unknown_options(names: &[&str]) -> Option<String> {
                 .join(", ")
         )
     })
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SourceInfo {
+    pub source: String,
+    pub scope: String,
+    pub base_dir: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LoadedExtension {
+    pub path: String,
+    pub source_info: Option<SourceInfo>,
+}
+
+fn within(path: &str, root: &str) -> bool {
+    path == root || path.starts_with(&format!("{}/", root.trim_end_matches('/')))
+}
+
+fn source_info(resolved: &str, cli: &[String], cwd: &str, dirs: &[String]) -> Option<SourceInfo> {
+    if cli.iter().any(|path| within(resolved, &resolve(path, cwd))) {
+        return Some(SourceInfo {
+            source: "cli".to_owned(),
+            scope: "temporary".to_owned(),
+            base_dir: None,
+        });
+    }
+    dirs.iter()
+        .zip(["project", "user"])
+        .find(|(dir, _)| within(resolved, dir))
+        .map(|(dir, scope)| SourceInfo {
+            source: "local".to_owned(),
+            scope: scope.to_owned(),
+            base_dir: Some(dir.clone()),
+        })
 }
 
 /// The message `sendUserMessage` asked for, as the harness takes one.
@@ -567,6 +603,14 @@ pub fn load(
         }
     };
     extensions.errors = load.flag_errors.clone();
+    extensions.loaded = load
+        .extensions
+        .iter()
+        .map(|extension| LoadedExtension {
+            path: extension.path.clone(),
+            source_info: source_info(&extension.resolved_path, cli, cwd, &dirs),
+        })
+        .collect();
     for extension in &load.extensions {
         for command in &extension.commands {
             lock(&host.0.commands).push(command.name.clone());

@@ -7,6 +7,7 @@ pub const ENV_AGENT_DIR: &str = "PI_CODING_AGENT_DIR";
 pub const CONFIG_DIR_NAME: &str = ".pi";
 /// The upstream version this crate follows; `--version` prints it.
 pub const VERSION: &str = "1.4.0";
+pub const APP_TITLE: &str = "π";
 
 /// `getAgentDir()`: `$PI_CODING_AGENT_DIR` (with `~` expanded), else `~/.pi/agent`.
 pub fn agent_dir() -> String {

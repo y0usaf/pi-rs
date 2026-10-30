@@ -10,11 +10,13 @@ use std::time::{Duration, Instant};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use super::footer::estimate_tokens;
 use pi_durable::ai::thinking::supported_thinking_levels;
 use pi_durable::ai::types::{
-    AssistantBlock, Message, Model, ModelThinkingLevel, TextContent, TextType, UserBlock,
-    UserContent,
+    AssistantBlock, Message, Model, ModelThinkingLevel, StopReason, TextContent, TextType,
+    UserBlock, UserContent,
 };
+use pi_durable::ai::utils::estimate::calculate_context_tokens;
 use pi_durable::cancel::CancelToken;
 use pi_durable::harness::events::AgentEvent;
 use pi_durable::harness::harness::Conversation;
@@ -23,20 +25,24 @@ use pi_durable::harness::types::ErrorReport;
 use pi_durable::ids::EntryId;
 use pi_extensions::Call;
 use pi_tui::autocomplete::CombinedAutocompleteProvider;
+use pi_tui::components::editor::Style;
 use pi_tui::components::editor::{Editor, EditorOptions};
+use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
 use pi_tui::keys::is_key_release;
-use pi_tui::terminal::{ProcessTerminal, Terminal};
-use pi_tui::tui::{ComponentRef, InputListenerResult, component};
-use pi_tui::tui_main_screen::{TuiMainScreen, as_ref};
+use pi_tui::terminal::Terminal;
+use pi_tui::tui::{ComponentRef, Container, InputListenerResult, component};
+use pi_tui::tui_main_screen::as_ref;
 use serde_json::json;
 
 use super::bash_mode::BashMode;
 use super::chat::Chat;
 use super::external_editor;
 use super::footer::{Footer, FooterState, Totals, git_branch};
+use super::header::{ExpandableText, built_in_header};
 use super::keybindings;
 use super::pending::PendingMessages;
+use super::screen::{Screen, ViewportParts, chat_viewport};
 use super::selectors::{
     ActionSlot, OverlayAction, action_slot,
     confirm::Confirm,
@@ -56,7 +62,7 @@ use super::selectors::{
     trust::TrustSelector,
 };
 use super::slash_commands::{self, Command, Counts, SessionInfo};
-use super::status::{StatusArea, WORKING, header};
+use super::status::{Embedded, StatusIndicator, WORKING, embedded_top_border};
 use super::theme;
 use crate::model_resolver;
 use crate::models::ModelRegistry;
@@ -146,6 +152,8 @@ pub struct Session {
     /// The prompt templates a typed line may invoke by name.
     pub templates: Vec<crate::prompt_templates::PromptTemplate>,
     pub incoming: mpsc::Receiver<Incoming>,
+    pub tui_mode: Option<String>,
+    pub verbose: bool,
 }
 
 /// Keys the loop acts on, read by an input listener before the editor sees them.
@@ -168,36 +176,133 @@ enum Action {
     Session(&'static str),
 }
 
-/// The components the loop swaps a selector in and out of.
 struct Parts {
-    /// None under quietStartup: true, which hides the startup header.
-    header: Option<ComponentRef>,
-    chat: ComponentRef,
-    pending: ComponentRef,
-    status: ComponentRef,
+    editor_slot: Rc<RefCell<Container>>,
     editor: ComponentRef,
-    footer: ComponentRef,
 }
 
 impl Parts {
-    /// Draw the header, chat, the queued messages, status, footer and either the editor or
-    /// `selector` in its place, focused.
-    fn mount(&self, tui: &mut TuiMainScreen<ProcessTerminal>, selector: Option<&ComponentRef>) {
-        tui.clear();
-        if let Some(header) = &self.header {
-            tui.add_child(header.clone());
-        }
-        tui.add_child(self.chat.clone());
-        tui.add_child(self.pending.clone());
-        tui.add_child(self.status.clone());
+    fn mount(&self, tui: &mut Screen, selector: Option<&ComponentRef>) {
         let focus = match selector {
             Some(selector) => selector.clone(),
             None => self.editor.clone(),
         };
-        tui.add_child(focus.clone());
-        tui.add_child(self.footer.clone());
+        {
+            let mut slot = self.editor_slot.borrow_mut();
+            slot.clear();
+            slot.add_child(focus.clone());
+        }
         tui.set_focus(Some(focus));
-        tui.request_render(true);
+        tui.request_render(false);
+    }
+}
+
+fn container(children: Vec<ComponentRef>) -> Rc<RefCell<Container>> {
+    component(Container { children })
+}
+
+fn terminal_title(name: Option<&str>, cwd: &str) -> String {
+    let base = std::path::Path::new(cwd)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    match name {
+        Some(name) => format!("{} - {name} - {base}", crate::config::APP_TITLE),
+        None => format!("{} - {base}", crate::config::APP_TITLE),
+    }
+}
+
+fn usable_usage(message: &Message) -> Option<u64> {
+    match message {
+        Message::Assistant(assistant)
+            if !matches!(
+                assistant.stop_reason,
+                StopReason::Aborted | StopReason::Error
+            ) =>
+        {
+            Some(calculate_context_tokens(&assistant.usage)).filter(|tokens| *tokens > 0)
+        }
+        _ => None,
+    }
+}
+
+fn context_usage(root: &Conversation, cancel: &CancelToken) -> Option<u64> {
+    let view = root.context(None, cancel).ok()?;
+    let after = view.head.as_ref().map(|head| head.id);
+    let measured = view
+        .entries
+        .iter()
+        .zip(&view.contributions)
+        .rev()
+        .filter(|(entry, _)| after.is_none_or(|after| entry.id > after))
+        .find_map(|(_, messages)| messages.iter().rev().find_map(usable_usage));
+    if after.is_some() && measured.is_none() {
+        return None;
+    }
+    if let Some(index) = view
+        .messages
+        .iter()
+        .rposition(|message| usable_usage(message).is_some())
+        .filter(|_| measured.is_some())
+    {
+        let usage = usable_usage(&view.messages[index]).unwrap_or(0);
+        return Some(
+            usage
+                + view.messages[index + 1..]
+                    .iter()
+                    .map(estimate_tokens)
+                    .sum::<u64>(),
+        );
+    }
+    let system = view
+        .messages
+        .iter()
+        .rev()
+        .find(|message| matches!(message, Message::System(_)));
+    Some(
+        system.map_or(0, estimate_tokens)
+            + view
+                .messages
+                .iter()
+                .filter(|message| !matches!(message, Message::System(_)))
+                .map(estimate_tokens)
+                .sum::<u64>(),
+    )
+}
+
+fn thinking_border(level: &str) -> Style {
+    let token = match level {
+        "minimal" => "thinkingMinimal",
+        "low" => "thinkingLow",
+        "medium" => "thinkingMedium",
+        "high" => "thinkingHigh",
+        "xhigh" => "thinkingXhigh",
+        "max" => "thinkingMax",
+        _ => "thinkingOff",
+    };
+    theme::fg_fn(token)
+}
+
+fn update_working(embedded: &Embedded, message: Option<&str>, color: &Rc<RefCell<Style>>) -> bool {
+    let mut slot = embedded.borrow_mut();
+    match (message, slot.as_mut()) {
+        (None, None) => false,
+        (None, Some(_)) => {
+            *slot = None;
+            true
+        }
+        (Some(message), Some(indicator)) => {
+            indicator.set_message(message);
+            false
+        }
+        (Some(message), None) => {
+            let color = color.clone();
+            *slot = Some(StatusIndicator::new(
+                message,
+                Rc::new(move |text: &str| (color.borrow())(text)),
+            ));
+            true
+        }
     }
 }
 
@@ -772,6 +877,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         extensions,
         templates,
         incoming,
+        tui_mode,
+        verbose,
     } = session;
     let (mut model, mut thinking, mut cwd) = (model, thinking, cwd);
     keybindings::install(&agent_dir);
@@ -821,12 +928,36 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
 
     let start = Instant::now();
     let now = || start.elapsed().as_millis() as u64;
-    let mut tui = TuiMainScreen::new(ProcessTerminal::new());
-    tui.set_show_hardware_cursor(settings.borrow().show_hardware_cursor());
-    tui.set_clear_on_shrink(settings.borrow().clear_on_shrink());
-    let header =
-        header(settings.borrow().quiet_startup()).map(|text| component(Text::new(&text, 1, 1)));
-    let status = component(StatusArea::new());
+    let quiet = settings.borrow().quiet_startup();
+    let show_header = verbose || quiet != crate::settings::QuietStartup::On;
+    let show_details = verbose || quiet == crate::settings::QuietStartup::Off;
+    let built_in_header: Option<Rc<RefCell<ExpandableText>>> =
+        show_header.then(|| component(built_in_header(show_details, verbose || chat.expanded)));
+    let header_container = match &built_in_header {
+        Some(header) => container(vec![
+            as_ref(&component(Spacer::new(1))),
+            as_ref(header),
+            as_ref(&component(Spacer::new(1))),
+        ]),
+        None => container(vec![as_ref(&component(Text::new("", 0, 0)))]),
+    };
+    let resources_container = container(Vec::new());
+    let resource_sections = if show_details {
+        super::resources::show_loaded(
+            &resources_container,
+            &extensions.loaded,
+            verbose || chat.expanded,
+        )
+    } else {
+        Vec::new()
+    };
+    let document = container(vec![
+        as_ref(&header_container),
+        as_ref(&resources_container),
+        chat.container.clone(),
+    ]);
+    let status_container = container(Vec::new());
+    let embedded: Embedded = Rc::new(RefCell::new(None));
     let pending_area = component(PendingMessages::new());
     let editor = component(Editor::new(
         theme::editor(),
@@ -849,8 +980,32 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             ..FooterState::default()
         },
     });
+    let border_style: Rc<RefCell<Style>> =
+        Rc::new(RefCell::new(thinking_border(&level_name(thinking))));
+    editor.borrow_mut().border_color = border_style.borrow().clone();
+    editor.borrow_mut().top_border = Some(embedded_top_border(embedded.clone()));
+    let editor_slot = container(vec![as_ref(&editor)]);
+    let viewport_parts = ViewportParts {
+        document: as_ref(&document),
+        pending: as_ref(&pending_area),
+        status: as_ref(&status_container),
+        widgets_above: as_ref(&container(vec![as_ref(&component(Spacer::new(1)))])),
+        editor: as_ref(&editor_slot),
+        widgets_below: as_ref(&container(Vec::new())),
+        footer: as_ref(&container(vec![as_ref(&footer)])),
+    };
+    let viewport = chat_viewport(&viewport_parts, settings.borrow().fullscreen_scrollbar());
+    let fullscreen = tui_mode.as_deref().unwrap_or(settings.borrow().tui_mode()) == "fullscreen";
+    let mut tui = Screen::new(
+        fullscreen,
+        &settings.borrow(),
+        &viewport_parts.components(),
+        &viewport.root,
+    );
+    tui.set_show_hardware_cursor(settings.borrow().show_hardware_cursor());
+    tui.set_clear_on_shrink(settings.borrow().clear_on_shrink());
     let submitted: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
-    let bash_border = Rc::new(Cell::new(false));
+    let bash_border = Rc::new(Cell::new((false, level_name(thinking))));
     let dirty = Rc::new(Cell::new(true));
     {
         let mut e = editor.borrow_mut();
@@ -922,12 +1077,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         })
     }));
     let parts = Parts {
-        header: header.as_ref().map(as_ref),
-        chat: chat.container.clone(),
-        pending: as_ref(&pending_area),
-        status: as_ref(&status),
+        editor_slot: editor_slot.clone(),
         editor: as_ref(&editor),
-        footer: as_ref(&footer),
     };
     let mut selector: Option<(ComponentRef, ActionSlot)> = None;
     let mut login_dialog: Option<Rc<RefCell<LoginDialog>>> = None;
@@ -935,6 +1086,10 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let mut import_request: Option<String> = None;
     parts.mount(&mut tui, None);
     tui.start();
+    let shutdown = super::signals::Shutdown::install();
+    let mut signalled = false;
+    let mut title_stale = true;
+    let mut context_stale = true;
 
     let mut pending: Vec<(UserContent, &'static str)> = Vec::new();
     if let Some((text, images)) = &initial {
@@ -998,7 +1153,10 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             }
         }
         let mut due = tui.tick(now());
-        let (spun, spin_due) = status.borrow_mut().tick(now());
+        let (spun, spin_due) = embedded
+            .borrow_mut()
+            .as_mut()
+            .map_or((false, None), |indicator| indicator.tick(now()));
         if spun {
             dirty.set(true);
         }
@@ -1012,7 +1170,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         };
         due = [due, bash_due].into_iter().flatten().min();
         let timeout = due.map_or(50, |d| d.saturating_sub(now()).min(50));
-        let events = tui.terminal.poll(Some(timeout));
+        let events = tui.terminal().poll(Some(timeout));
         tui.handle_events(events);
 
         if let Some(dialog) = &login_dialog
@@ -1045,6 +1203,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                             dirty.set(true);
                         }
                     }
+                    title_stale |= entries_changed;
+                    context_stale |= entries_changed;
                     if entries_changed && let Some(live) = live {
                         live.set_session(
                             &open.harness,
@@ -1176,6 +1336,12 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 Action::Expand => {
                     let expanded = !chat.expanded;
                     chat.set_expanded(expanded);
+                    if let Some(header) = &built_in_header {
+                        header.borrow_mut().set_expanded(expanded);
+                    }
+                    for section in &resource_sections {
+                        section.borrow_mut().set_expanded(expanded);
+                    }
                 }
                 Action::ModelCycle(forward) => {
                     let available = run_config::available(&registry);
@@ -1725,6 +1891,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             dirty.set(true);
         }
         let texts: Vec<String> = submitted.borrow_mut().drain(..).collect();
+        title_stale |= !texts.is_empty();
         for text in texts {
             let trimmed = text.trim();
             if trimmed.is_empty() {
@@ -1898,7 +2065,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         Ok(tree) if tree.is_empty() => chat.notice("dim", "No entries in session"),
                         Ok(tree) => {
                             let slot = action_slot();
-                            let visible = (tui.terminal.rows() / 2).max(5);
+                            let visible = (tui.rows() / 2).max(5);
                             let filter = Filter::from_setting(settings.borrow().tree_filter_mode());
                             let built: ComponentRef =
                                 component(TreeSelector::new(tree, visible, slot.clone(), filter));
@@ -2127,17 +2294,20 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 dirty.set(true);
             }
         }
-        status
-            .borrow_mut()
-            .set(if chat.working || chat.status.is_some() {
-                Some(chat.status.as_deref().unwrap_or(WORKING))
-            } else {
-                None
-            });
+        let working = (chat.working || chat.status.is_some())
+            .then(|| chat.status.as_deref().unwrap_or(WORKING));
+        if update_working(&embedded, working, &border_style) {
+            dirty.set(true);
+        }
         {
             let mut f = footer.borrow_mut();
             f.state.totals = chat.totals;
-            f.state.context_tokens = chat.context_tokens;
+            if context_stale {
+                context_stale = false;
+                let tokens = context_usage(&open.root, &cancel);
+                f.state.context_unknown = tokens.is_none();
+                f.state.context_tokens = tokens;
+            }
         }
         let (moved, failure) = bash.poll(&mut chat, &open.root, &cancel);
         if let Some(error) = failure {
@@ -2146,27 +2316,49 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         if moved {
             dirty.set(true);
         }
-        let wants_bash_border = editor.borrow().get_text().trim_start().starts_with('!');
-        if wants_bash_border != bash_border.get() {
-            bash_border.set(wants_bash_border);
-            editor.borrow_mut().border_color = if wants_bash_border {
+        let wants_border = (
+            editor.borrow().get_text().trim_start().starts_with('!'),
+            level_name(thinking),
+        );
+        if wants_border != bash_border.replace(wants_border.clone()) {
+            let style = if wants_border.0 {
                 theme::fg_fn("bashMode")
             } else {
-                theme::editor().border_color.clone()
+                thinking_border(&wants_border.1)
             };
+            editor.borrow_mut().border_color = style.clone();
+            *border_style.borrow_mut() = style;
+            if let Some(indicator) = embedded.borrow_mut().as_mut() {
+                indicator.invalidate();
+            }
             dirty.set(true);
         }
-        editor.borrow_mut().terminal_rows = tui.terminal.rows();
+        if shutdown.requested() {
+            quit = true;
+            signalled = true;
+        }
+        if title_stale {
+            title_stale = false;
+            let name = session_info::name(&open.harness, &cancel);
+            tui.set_title(&terminal_title(name.as_deref(), &cwd));
+        }
+        editor.borrow_mut().terminal_rows = tui.rows();
         if dirty.replace(false) {
             tui.request_render(false);
         }
     }
-    tui.stop(false);
-    tui.terminal.drain_input(1000, 50);
+    if signalled && let Some(live) = live {
+        live.event("session_shutdown", json!({ "reason": "quit" }));
+    }
+    tui.terminal().drain_input(1000, 50);
+    let exit_output = settings.borrow().fullscreen_exit_output().to_owned();
+    let tui = tui.stop_interactive(&exit_output, &settings.borrow(), &viewport.root, now());
+    drop(tui);
+    drop(shutdown);
     if chat.working {
         let _ = open.root.abort(false, &cancel);
     }
-    if let Some(live) = live {
+    if !signalled && let Some(live) = live {
         live.event("session_shutdown", json!({ "reason": "quit" }));
     }
     open.shutdown(&cancel)?;

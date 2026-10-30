@@ -1,113 +1,106 @@
-//! The startup header and the status line above the editor (`status-indicator.ts`): a spinner
-//! with "Working" while a run goes, two blank lines when idle.
+use std::cell::RefCell;
+use std::rc::Rc;
 
+use pi_tui::components::editor::{Style, TopBorder};
 use pi_tui::components::loader::Loader;
+use pi_tui::components::text::StyleFn;
 use pi_tui::tui::Component;
+use pi_tui::utils::{truncate_to_width, visible_width};
 
-use super::theme::{fg, fg_fn};
-use crate::config::VERSION;
+pub const WORKING: &str = "Working";
 
-/// `piWordmark()`: a coral P and a yellow i.
-fn wordmark() -> String {
-    "\x1b[38;2;228;138;122mP\x1b[39m\x1b[38;2;234;182;93mi\x1b[39m".to_string()
+pub struct StatusIndicator {
+    loader: Loader,
 }
 
-fn hint(key: &str, description: &str) -> String {
-    fg("dim", key) + &fg("muted", &format!(" {description}"))
-}
-
-/// The header's text, upstream's compact form with the keys this mode handles: the logo, version
-/// and key hints, which quietStartup hides, and the details line, which quietStartup "header"
-/// hides too.
-pub fn header(quiet: crate::settings::QuietStartup) -> Option<String> {
-    use crate::settings::QuietStartup;
-    if quiet == QuietStartup::On {
-        return None;
-    }
-    let hints = [
-        hint("escape", "interrupt"),
-        hint("ctrl+c/ctrl+d", "clear/exit"),
-        hint("ctrl+o", "expand tools"),
-    ]
-    .join(&fg("muted", " · "));
-    let top = format!(
-        "{} {}\n{hints}",
-        wordmark(),
-        fg("dim", &format!("v{VERSION}"))
-    );
-    Some(match quiet {
-        QuietStartup::Off => format!(
-            "{top}\n\n{}",
-            fg(
-                "dim",
-                "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi."
-            )
-        ),
-        _ => top,
-    })
-}
-
-pub const WORKING: &str = "Working (escape to interrupt)";
-
-/// The working indicator, or the idle status's two blank lines.
-pub struct StatusArea {
-    loader: Option<Loader>,
-    message: String,
-}
-
-impl StatusArea {
-    pub fn new() -> Self {
-        StatusArea {
-            loader: None,
-            message: WORKING.into(),
-        }
+impl StatusIndicator {
+    pub fn new(message: &str, color: StyleFn) -> StatusIndicator {
+        let mut loader = Loader::new(color.clone(), color, message, None);
+        loader.start();
+        StatusIndicator { loader }
     }
 
-    /// Shows the spinner with `message`, or clears it with `None`.
-    pub fn set(&mut self, message: Option<&str>) {
-        match message {
-            None => self.loader = None,
-            Some(m) => {
-                if self.message != m || self.loader.is_none() {
-                    self.message = m.to_string();
-                    match &mut self.loader {
-                        Some(l) => l.set_message(m),
-                        None => {
-                            let mut l = Loader::new(fg_fn("accent"), fg_fn("muted"), m, None);
-                            l.start();
-                            self.loader = Some(l);
-                        }
-                    }
-                }
-            }
-        }
+    pub fn set_message(&mut self, message: &str) {
+        self.loader.set_message(message);
     }
 
-    /// Advances the spinner; returns (changed, next frame due).
     pub fn tick(&mut self, now: u64) -> (bool, Option<u64>) {
-        match &mut self.loader {
-            Some(l) => l.tick(now),
-            None => (false, None),
-        }
+        self.loader.tick(now)
+    }
+
+    pub fn invalidate(&mut self) {
+        self.loader.invalidate();
+    }
+
+    fn render_in_border(&mut self, width: usize) -> String {
+        let line = self
+            .loader
+            .render(width + 2)
+            .into_iter()
+            .nth(1)
+            .unwrap_or_default();
+        let line = line.strip_prefix(' ').unwrap_or(&line).trim_end();
+        truncate_to_width(line, width, "", false)
+    }
+
+    fn render_spinner_in_border(&self, width: usize) -> String {
+        truncate_to_width(&self.loader.rendered_indicator(), width, "", false)
     }
 }
 
-impl Default for StatusArea {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+pub type Embedded = Rc<RefCell<Option<StatusIndicator>>>;
 
-impl Component for StatusArea {
-    fn render(&mut self, width: usize) -> Vec<String> {
-        match &mut self.loader {
-            Some(l) => l.render(width),
-            None => vec![" ".repeat(width), " ".repeat(width)],
+pub fn embedded_top_border(status: Embedded) -> TopBorder {
+    Box::new(move |width: usize, hidden: usize, border: &Style| {
+        let mut slot = status.borrow_mut();
+        let indicator = slot.as_mut()?;
+        if width == 0 {
+            return None;
         }
-    }
-    fn invalidate(&mut self) {
-        if let Some(l) = &mut self.loader {
-            l.invalidate();
+        let mut text = indicator.render_in_border(width.saturating_sub(5).max(1));
+        let mut text_width = visible_width(&text);
+        if text_width == 0 {
+            return None;
         }
-    }
+        let overflow = (hidden > 0).then(|| format!(" ↑ {hidden} more "));
+        let overflow_width = overflow.as_deref().map_or(0, visible_width);
+        let overflow_start = (width as i64 - overflow_width as i64).div_euclid(2);
+        let fits = |text_width: usize| {
+            overflow.is_some()
+                && overflow_width + 2 <= width
+                && overflow_start - (3 + text_width as i64 + 1) >= 1
+        };
+        if overflow.is_some() && !fits(text_width) {
+            text = indicator.render_spinner_in_border(width);
+            text_width = visible_width(&text);
+        }
+        if let Some(label) = overflow.as_deref().filter(|_| fits(text_width)) {
+            let left = 3 + text_width as i64 + 1;
+            let start = overflow_start as usize;
+            return Some(format!(
+                "{}{text}{}",
+                border("── "),
+                border(&format!(
+                    " {}{label}{}",
+                    "─".repeat((overflow_start - left) as usize),
+                    "─".repeat(width - start - overflow_width)
+                ))
+            ));
+        }
+        if width >= text_width + 5 {
+            return Some(format!(
+                "{}{text}{}",
+                border("── "),
+                border(&format!(" {}", "─".repeat(width - text_width - 4)))
+            ));
+        }
+        text = indicator.render_spinner_in_border(width);
+        text_width = visible_width(&text);
+        let prefix = 3.min(width.saturating_sub(text_width));
+        Some(format!(
+            "{}{text}{}",
+            border(&"─".repeat(prefix)),
+            border(&"─".repeat(width.saturating_sub(prefix + text_width)))
+        ))
+    })
 }

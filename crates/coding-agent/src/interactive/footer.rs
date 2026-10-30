@@ -1,6 +1,8 @@
 //! `components/footer.ts`: the working directory and git branch, then token totals, cost,
 //! context use and the model.
 
+use pi_durable::ai::types::{AssistantBlock, Message, UserBlock, UserContent};
+use pi_durable::ai::utils::text::{system_content_text, utf16_len};
 use pi_tui::tui::Component;
 use pi_tui::utils::{truncate_to_width, visible_width};
 
@@ -87,13 +89,63 @@ impl Totals {
     }
 }
 
+const ESTIMATED_IMAGE_CHARS: usize = 4800;
+
+fn json_chars(value: &impl serde::Serialize) -> usize {
+    serde_json::to_string(value).map_or(0, |json| utf16_len(&json))
+}
+
+fn user_chars(blocks: &[UserBlock]) -> usize {
+    blocks
+        .iter()
+        .map(|block| match block {
+            UserBlock::Text(text) => utf16_len(&text.text),
+            UserBlock::Image(_) => ESTIMATED_IMAGE_CHARS,
+        })
+        .sum()
+}
+
+pub fn estimate_tokens(message: &Message) -> u64 {
+    let chars = match message {
+        Message::System(system) => {
+            utf16_len(&system_content_text(&system.content))
+                + system.sections.as_ref().map_or(0, |sections| {
+                    sections
+                        .0
+                        .iter()
+                        .filter_map(|(_, text)| text.as_deref())
+                        .map(utf16_len)
+                        .sum()
+                })
+                + system.tools_added.as_ref().map_or(0, json_chars)
+        }
+        Message::User(user) => match &user.content {
+            UserContent::Text(text) => utf16_len(text),
+            UserContent::Blocks(blocks) => user_chars(blocks),
+        },
+        Message::Assistant(assistant) => assistant
+            .content
+            .iter()
+            .map(|block| match block {
+                AssistantBlock::Text(text) => utf16_len(&text.text),
+                AssistantBlock::Thinking(thinking) => utf16_len(&thinking.thinking),
+                AssistantBlock::ToolCall(call) => {
+                    utf16_len(&call.name) + json_chars(&call.arguments)
+                }
+            })
+            .sum(),
+        Message::ToolResult(result) => user_chars(&result.content),
+    };
+    chars.div_ceil(4) as u64
+}
+
 #[derive(Default, Clone)]
 pub struct FooterState {
     pub cwd: String,
     pub branch: Option<String>,
     pub totals: Totals,
-    /// Tokens the last reply's request used, for the context percentage.
     pub context_tokens: Option<u64>,
+    pub context_unknown: bool,
     pub context_window: u64,
     pub model_id: Option<String>,
     pub provider: Option<String>,
@@ -135,12 +187,12 @@ impl Component for Footer {
         let auto = if s.auto_compact { " (auto)" } else { "" };
         let window = format_tokens(s.context_window);
         let (percent_value, shown) = match s.context_tokens {
+            _ if s.context_unknown => (0.0, format!("?/{window}{auto}")),
             Some(tokens) if s.context_window > 0 => {
                 let p = tokens as f64 * 100.0 / s.context_window as f64;
                 (p, format!("{p:.1}%/{window}{auto}"))
             }
-            Some(_) => (0.0, format!("?/{window}{auto}")),
-            None => (0.0, format!("0.0%/{window}{auto}")),
+            _ => (0.0, format!("0.0%/{window}{auto}")),
         };
         parts.push(if percent_value > 90.0 {
             fg("error", &shown)

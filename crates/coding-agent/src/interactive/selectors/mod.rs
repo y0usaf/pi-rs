@@ -164,14 +164,18 @@ pub fn key_display(id: &str) -> String {
         .join("/")
 }
 
-/// `keyHint`: dim keys, muted description.
-pub fn key_hint(id: &str, description: &str) -> String {
-    let keys = get_keybindings()
+pub fn key_text(id: &str) -> String {
+    get_keybindings()
         .keys(id)
         .iter()
         .map(|k| format_key(k, false))
         .collect::<Vec<_>>()
-        .join("/");
+        .join("/")
+}
+
+/// `keyHint`: dim keys, muted description.
+pub fn key_hint(id: &str, description: &str) -> String {
+    let keys = key_text(id);
     format!(
         "{}{}",
         fg("dim", &keys),

@@ -22,7 +22,7 @@ indexmap = { version = "2", features = ["serde"] }
 regex = "1"
 unicode-normalization = "0.1"
 ring = "0.17"
+libc = "0.2"
 
 [dev-dependencies]
-libc = "0.2"
 vt100 = "0.18.1"

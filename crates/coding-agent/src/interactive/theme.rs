@@ -152,7 +152,7 @@ impl Color {
     }
 
     /// foregroundAnsi and backgroundAnsi.
-    fn ansi(self, background: bool) -> String {
+    pub fn ansi(self, background: bool) -> String {
         let layer = if background { 48 } else { 38 };
         match self {
             Color::Indexed(index) => format!("\x1b[{layer};5;{index}m"),
