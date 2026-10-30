@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -34,6 +35,45 @@ struct State<T, R> {
     queue: VecDeque<T>,
     done: bool,
     result: Option<R>,
+    busy: bool,
+}
+
+type Events = EventStream<AssistantMessageEvent, AssistantMessage>;
+
+thread_local! {
+    static PRODUCER: RefCell<Option<Events>> = const { RefCell::new(None) };
+}
+
+pub fn producing() -> bool {
+    PRODUCER.with(|producer| producer.borrow().is_some())
+}
+
+pub fn idle<R>(body: impl FnOnce() -> R) -> R {
+    let Some(events) = PRODUCER.with(|producer| producer.borrow().clone()) else {
+        return body();
+    };
+    events.set_busy(false);
+    let out = body();
+    events.set_busy(true);
+    out
+}
+
+pub struct Producer {
+    events: Events,
+}
+
+impl Producer {
+    pub fn run<R>(self, body: impl FnOnce() -> R) -> R {
+        PRODUCER.with(|producer| *producer.borrow_mut() = Some(self.events.clone()));
+        body()
+    }
+}
+
+impl Drop for Producer {
+    fn drop(&mut self) {
+        PRODUCER.with(|producer| *producer.borrow_mut() = None);
+        self.events.set_busy(false);
+    }
 }
 
 pub enum Next<T> {
@@ -66,6 +106,7 @@ impl<T, R: Clone> EventStream<T, R> {
                     queue: VecDeque::new(),
                     done: false,
                     result: None,
+                    busy: false,
                 }),
                 Condvar::new(),
             )),
@@ -160,6 +201,31 @@ impl<T, R: Clone> EventStream<T, R> {
         }
     }
 
+    fn set_busy(&self, busy: bool) {
+        self.lock().busy = busy;
+        self.shared.1.notify_all();
+    }
+
+    pub fn settled<V>(&self, read: impl FnOnce(Option<&R>) -> V) -> V {
+        {
+            let state = self.lock();
+            if !state.busy || state.done {
+                return read(state.result.as_ref());
+            }
+        }
+        pause(|| {
+            let mut state = self.lock();
+            while state.busy && !state.done {
+                state = self
+                    .shared
+                    .1
+                    .wait(state)
+                    .unwrap_or_else(PoisonError::into_inner);
+            }
+            read(state.result.as_ref())
+        })
+    }
+
     pub fn result(&self) -> Option<R> {
         loop {
             {
@@ -244,6 +310,13 @@ impl AssistantMessageEventStream {
         self.events.push(event);
     }
 
+    pub fn producer(&self) -> Producer {
+        self.events.set_busy(true);
+        Producer {
+            events: self.events.clone(),
+        }
+    }
+
     pub fn abort(&self, partial: &AssistantMessage) {
         let mut message = partial.clone();
         message.stop_reason = StopReason::Aborted;
@@ -304,5 +377,16 @@ impl AssistantMessageEventStream {
 
     pub fn result(&self) -> Option<AssistantMessage> {
         self.events.result()
+    }
+
+    pub fn current(&self) -> Option<AssistantMessage> {
+        self.events.settled(|result| {
+            result.cloned().or_else(|| {
+                self.latest
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone()
+            })
+        })
     }
 }

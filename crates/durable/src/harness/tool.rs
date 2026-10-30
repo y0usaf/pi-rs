@@ -1,5 +1,5 @@
 use crate::harness::types::ToolErrorStyle;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
@@ -80,6 +80,7 @@ pub struct ToolTaskResult {
 pub struct BeforeToolDecision {
     pub arguments: Option<JsonObject>,
     pub block: Option<String>,
+    pub terminate: bool,
 }
 
 pub type BeforeTool = Arc<
@@ -99,10 +100,45 @@ pub type AfterTool = Arc<
         + Sync,
 >;
 
+pub type ToolStarted = Arc<dyn Fn(&ToolCall, &ToolRuntime<'_>) + Send + Sync>;
+
+pub type ToolUpdated = Arc<dyn Fn(&ToolCall, &ToolExecutionResult, &ToolRuntime<'_>) + Send + Sync>;
+
+pub type ToolEnded = Arc<
+    dyn Fn(&ToolCall, &ToolResultMessage, Option<&ToolControl>, &ToolRuntime<'_>) + Send + Sync,
+>;
+
 #[derive(Clone, Default)]
 pub struct ToolHooks {
     pub before_tool: Option<BeforeTool>,
     pub after_tool: Option<AfterTool>,
+    pub on_start: Option<ToolStarted>,
+    pub on_update: Option<ToolUpdated>,
+    pub on_end: Option<ToolEnded>,
+}
+
+pub struct ToolRound<'a> {
+    pub calls: &'a [ToolCall],
+    pub sequential: bool,
+    pub offered: &'a BTreeSet<String>,
+    pub agent: &'a Agent,
+    pub style: ToolErrorStyle,
+}
+
+impl ToolRound<'_> {
+    pub fn gate(&self, call: &ToolCall) -> ToolGate {
+        if !self.offered.contains(&call.name) {
+            return ToolGate::Blocked(Box::new(unavailable_tool(self.style, &call.name)));
+        }
+        match gate(self.agent, self.style, call) {
+            Ok((_, args)) => ToolGate::Run(args),
+            Err(result) => ToolGate::Blocked(result),
+        }
+    }
+
+    pub fn blocked(&self, reason: &str, terminate: bool) -> ToolExecutionResult {
+        blocked(self.style, reason, terminate)
+    }
 }
 
 pub const TOOL_KIND: &str = "pi.tool";
@@ -136,33 +172,16 @@ fn call_phase(
 ) -> Result<()> {
     let assistant = task.input.assistant;
     let call = read_call(rt, &task.input, cancel)?;
+    started(rt, &call)?;
     let agent = rt.agent(cancel)?;
-    let style = rt.settings().tool_errors;
-    let Some(tool) = find_tool(&agent, &call) else {
-        let error = unavailable_tool(style, &call.name);
-        return settle(rt, &call, Ending::Completed, move |_| error, cancel, None);
-    };
-    let checked = match prepare(tool, call.arguments.clone()) {
-        Ok(args) => validate(tool, &call, args),
-        Err(message) => Err(message),
-    };
-    let args = match checked {
-        Ok(args) => args,
-        Err(message) => {
-            return settle(
-                rt,
-                &call,
-                Ending::Completed,
-                move |_| invalid(style, &message),
-                cancel,
-                None,
-            );
-        }
+    let (tool, args) = match gate(&agent, rt.settings().tool_errors, &call) {
+        Ok(gated) => gated,
+        Err(result) => return settle(rt, &call, Ending::Completed, *result, cancel, None),
     };
     let final_args = match before_tool_hooks(rt, tool, &call, args, cancel)? {
         ToolGate::Run(args) => args,
         ToolGate::Blocked(result) => {
-            return settle(rt, &call, Ending::Completed, move |_| *result, cancel, None);
+            return settle(rt, &call, Ending::Completed, *result, cancel, None);
         }
     };
     let replay = tool.replay.unwrap_or(Replay::Unsafe);
@@ -191,7 +210,7 @@ pub fn before_tool_hooks(
     mut args: JsonObject,
     cancel: &CancelToken,
 ) -> Result<ToolGate> {
-    let mut block: Option<String> = None;
+    let mut block: Option<(String, bool)> = None;
     rt.hooks().each(&mut |hook: &ToolHooks| {
         if block.is_some() {
             return Ok(());
@@ -206,8 +225,9 @@ pub fn before_tool_hooks(
         match before(&current, rt, cancel) {
             Ok(Some(BeforeToolDecision {
                 block: Some(reason),
+                terminate,
                 ..
-            })) => block = Some(reason),
+            })) => block = Some((reason, terminate)),
             Ok(Some(BeforeToolDecision {
                 arguments: Some(replaced),
                 ..
@@ -217,15 +237,16 @@ pub fn before_tool_hooks(
                 if rt.signal().is_cancelled() {
                     return Err(error);
                 }
-                block = Some(error.to_string());
+                block = Some((error.to_string(), false));
             }
         }
         Ok(())
     })?;
-    if let Some(reason) = block {
-        return Ok(ToolGate::Blocked(Box::new(harness_error(
-            "blocked",
-            &format!("Tool call blocked: {reason}"),
+    if let Some((reason, terminate)) = block {
+        return Ok(ToolGate::Blocked(Box::new(blocked(
+            rt.settings().tool_errors,
+            &reason,
+            terminate,
         ))));
     }
     Ok(match validate(tool, call, args) {
@@ -265,13 +286,40 @@ pub fn nested_call(
     arguments: JsonObject,
     cancel: &CancelToken,
 ) -> Result<ToolExecutionResult> {
+    let call = ToolCall {
+        kind: ToolCallType,
+        id: call_id.to_owned(),
+        name: name.to_owned(),
+        arguments: arguments.clone(),
+        thought_signature: None,
+        namespace: None,
+    };
+    api.nested_started(&call)?;
+    let (result, duration_ms) = match nested_run(api, call_id, name, arguments, cancel) {
+        Ok(ran) => ran,
+        Err(error) => {
+            api.nested_ended(&call, &plain_error(&error.to_string()), None)?;
+            return Err(error);
+        }
+    };
+    api.nested_ended(&call, &result, duration_ms)?;
+    Ok(result)
+}
+
+fn nested_run(
+    api: &dyn ToolExecutionApi,
+    call_id: &str,
+    name: &str,
+    arguments: JsonObject,
+    cancel: &CancelToken,
+) -> Result<(ToolExecutionResult, Option<u64>)> {
     let registry = api.registry();
     let tool = registry
         .tools()
         .find(|(_, tool)| tool.tool.name == name)
         .map(|(_, tool)| tool.clone());
     let Some(tool) = tool else {
-        return Ok(plain_error(&format!("Tool {name} not found")));
+        return Ok((plain_error(&format!("Tool {name} not found")), None));
     };
     let call = ToolCall {
         kind: ToolCallType,
@@ -279,21 +327,23 @@ pub fn nested_call(
         name: name.to_owned(),
         arguments: match prepare(&tool, arguments) {
             Ok(arguments) => arguments,
-            Err(message) => return Ok(plain_error(&message)),
+            Err(message) => return Ok((plain_error(&message), None)),
         },
         thought_signature: None,
         namespace: None,
     };
     let arguments = match api.before_tool(&tool, &call, cancel)? {
         ToolGate::Run(arguments) => arguments,
-        ToolGate::Blocked(result) => return Ok(*result),
+        ToolGate::Blocked(result) => return Ok((*result, None)),
     };
+    let began = Instant::now();
     let result = match (tool.execute)(JsonValue::Object(arguments), api, cancel) {
         Ok(result) => result,
         Err(error) if cancel.is_cancelled() => return Err(error),
         Err(error) => plain_error(&error.to_string()),
     };
-    api.after_tool(&call, result, cancel)
+    let duration_ms = began.elapsed().as_millis() as u64;
+    Ok((api.after_tool(&call, result, cancel)?, Some(duration_ms)))
 }
 
 fn execute_phase(
@@ -338,13 +388,12 @@ fn execute_phase(
                 call.name
             );
             let text = message.clone();
-            settle(
+            settle_from_slot(
                 rt,
                 &call,
                 Ending::Failed { message },
                 move |slot| from_slot(slot, "interrupted", &text),
                 cancel,
-                None,
             )
         }
     }
@@ -357,18 +406,31 @@ fn abort_phase(
 ) -> Result<()> {
     let call = read_call(rt, &task.input, cancel)?;
     let message = format!("Tool {} was aborted", call.name);
-    settle(
+    settle_from_slot(
         rt,
         &call,
         Ending::Aborted,
         move |slot| from_slot(slot, "aborted", &message),
         cancel,
-        None,
     )
 }
 
 fn find_tool<'g>(agent: &'g Agent, call: &ToolCall) -> Option<&'g ToolRegistration> {
     agent.tools.iter().find(|each| each.tool.name == call.name)
+}
+
+fn gate<'g>(
+    agent: &'g Agent,
+    style: ToolErrorStyle,
+    call: &ToolCall,
+) -> std::result::Result<(&'g ToolRegistration, JsonObject), Box<ToolExecutionResult>> {
+    let Some(tool) = find_tool(agent, call) else {
+        return Err(Box::new(unavailable_tool(style, &call.name)));
+    };
+    prepare(tool, call.arguments.clone())
+        .and_then(|args| validate(tool, call, args))
+        .map(|args| (tool, args))
+        .map_err(|message| Box::new(invalid(style, &message)))
 }
 
 fn read_call(
@@ -482,7 +544,7 @@ fn run(
         settled: AtomicBool::new(false),
     };
     let interval = Duration::from_millis(rt.settings().progress.output_interval_ms);
-    let write = || publish(rt, &shared, cancel);
+    let write = || publish(rt, call, &shared, cancel);
     let report = |error: Error| {
         if !rt.signal().is_cancelled() {
             rt.report(error);
@@ -540,7 +602,7 @@ fn finalize(
     duration_ms: Option<u64>,
 ) -> Result<()> {
     let settled = final_result(rt, call, shared, result, cancel)?;
-    settle(rt, call, ending, move |_| settled, cancel, duration_ms)
+    settle(rt, call, ending, settled, cancel, duration_ms)
 }
 
 fn notify(waiters: Vec<Waiter>, failure: Option<String>) {
@@ -565,7 +627,12 @@ fn utf16_tail(text: &str, from: usize) -> String {
     String::from_utf16_lossy(units.get(from..).unwrap_or(&[]))
 }
 
-fn publish(rt: &ToolRuntime<'_>, shared: &Shared, cancel: &CancelToken) -> Result<usize> {
+fn publish(
+    rt: &ToolRuntime<'_>,
+    call: &ToolCall,
+    shared: &Shared,
+    cancel: &CancelToken,
+) -> Result<usize> {
     let mut written = lock(&shared.written);
     let (snapshot, details, added, count) = {
         let mut reported = lock(&shared.reported);
@@ -644,9 +711,25 @@ fn publish(rt: &ToolRuntime<'_>, shared: &Shared, cancel: &CancelToken) -> Resul
         }),
         cancel,
     )?;
+    let partial = ToolExecutionResult {
+        content: Some(if snapshot.text.is_empty() {
+            Vec::new()
+        } else {
+            vec![text_block(snapshot.text.clone())]
+        }),
+        details: details.clone(),
+        ..ToolExecutionResult::default()
+    };
     written.text = snapshot.text;
     written.details = details;
     written.diagnostics = count;
+    drop(written);
+    rt.hooks().each(&mut |hook: &ToolHooks| {
+        if let Some(updated) = &hook.on_update {
+            updated(call, &partial, rt);
+        }
+        Ok(())
+    })?;
     Ok(bytes)
 }
 
@@ -719,13 +802,78 @@ fn settle(
     rt: &ToolRuntime<'_>,
     call: &ToolCall,
     ending: Ending,
-    build: impl FnOnce(Option<&ToolSlot>) -> ToolExecutionResult,
+    result: ToolExecutionResult,
     cancel: &CancelToken,
     duration_ms: Option<u64>,
 ) -> Result<()> {
+    let timestamp = rt.now();
+    ended(
+        rt,
+        call,
+        &tool_result_message(call, &result, timestamp, duration_ms),
+        result.control.as_ref(),
+    )?;
+    store(
+        rt,
+        call,
+        ending,
+        move |_| result,
+        timestamp,
+        duration_ms,
+        cancel,
+    )
+    .map(drop)
+}
+
+fn settle_from_slot(
+    rt: &ToolRuntime<'_>,
+    call: &ToolCall,
+    ending: Ending,
+    build: impl FnOnce(Option<&ToolSlot>) -> ToolExecutionResult,
+    cancel: &CancelToken,
+) -> Result<()> {
+    match store(rt, call, ending, build, rt.now(), None, cancel)? {
+        Some(message) => ended(rt, call, &message, None),
+        None => Ok(()),
+    }
+}
+
+fn started(rt: &ToolRuntime<'_>, call: &ToolCall) -> Result<()> {
+    rt.hooks().each(&mut |hook: &ToolHooks| {
+        if let Some(started) = &hook.on_start {
+            started(call, rt);
+        }
+        Ok(())
+    })
+}
+
+fn ended(
+    rt: &ToolRuntime<'_>,
+    call: &ToolCall,
+    message: &ToolResultMessage,
+    control: Option<&ToolControl>,
+) -> Result<()> {
+    rt.hooks().each(&mut |hook: &ToolHooks| {
+        if let Some(ended) = &hook.on_end {
+            ended(call, message, control, rt);
+        }
+        Ok(())
+    })
+}
+
+fn store(
+    rt: &ToolRuntime<'_>,
+    call: &ToolCall,
+    ending: Ending,
+    build: impl FnOnce(Option<&ToolSlot>) -> ToolExecutionResult,
+    timestamp: u64,
+    duration_ms: Option<u64>,
+    cancel: &CancelToken,
+) -> Result<Option<ToolResultMessage>> {
     let task_id = rt.task_id();
     let conversation = rt.conversation_id();
-    let timestamp = rt.now();
+    let mut stored = None;
+    let out = &mut stored;
     rt.commit(
         Box::new(move |tx: &mut dyn Tx, _task| {
             let token = live_doc()?;
@@ -734,6 +882,7 @@ fn settle(
             let result = build(slot.as_ref());
             let entry =
                 append_tool_result(tx, conversation, call, &result, timestamp, duration_ms)?;
+            *out = Some(tool_result_message(call, &result, timestamp, duration_ms));
             let entry_id = entry.id;
             let finished = live
                 .tool_slot(erase(task_id))
@@ -770,7 +919,8 @@ fn settle(
             Ok(Some(NextTaskState::Terminal { outcome }))
         }),
         cancel,
-    )
+    )?;
+    Ok(stored)
 }
 
 fn set_slot_status(
@@ -830,6 +980,22 @@ pub fn harness_error(code: &str, message: &str) -> ToolExecutionResult {
         is_error: Some(true),
         diagnostics: Some(vec![tool_diagnostic(code, message)]),
         ..ToolExecutionResult::default()
+    }
+}
+
+pub fn blocked(style: ToolErrorStyle, reason: &str, terminate: bool) -> ToolExecutionResult {
+    let result = match style {
+        ToolErrorStyle::Diagnostics => {
+            harness_error("blocked", &format!("Tool call blocked: {reason}"))
+        }
+        ToolErrorStyle::Plain => loop_error(reason),
+    };
+    ToolExecutionResult {
+        control: terminate.then(|| ToolControl {
+            terminate: true,
+            ..ToolControl::default()
+        }),
+        ..result
     }
 }
 
@@ -961,27 +1127,13 @@ pub fn append_tool_result(
     timestamp: u64,
     duration_ms: Option<u64>,
 ) -> Result<EntryRecord> {
-    let diagnostics = result.diagnostics.clone().unwrap_or_default();
-    let mut content = result.content.clone().unwrap_or_default();
-    if !diagnostics.is_empty() {
-        content.push(text_block(render_diagnostics(&diagnostics)));
-    }
     if let Some(usage) = &result.usage {
         record_usage(tx, conversation, UsageBucket::Tools, &call.name, usage)?;
     }
-    let message = ToolResultMessage {
-        role: ToolResultRole,
-        tool_call_id: call.id.clone(),
-        tool_name: call.name.clone(),
-        content,
-        details: result.details.clone(),
-        usage: result.usage.clone(),
-        nested_calls: None,
-        is_error: result.is_error.unwrap_or(false),
-        duration_ms,
-        timestamp,
-    };
-    let data = serde_json::to_value(ToolResultData { diagnostics })?;
+    let message = tool_result_message(call, result, timestamp, duration_ms);
+    let data = serde_json::to_value(ToolResultData {
+        diagnostics: result.diagnostics.clone().unwrap_or_default(),
+    })?;
     tx.append_entry(
         conversation,
         EntryDraft {
@@ -992,6 +1144,31 @@ pub fn append_tool_result(
             edits: None,
         },
     )
+}
+
+pub fn tool_result_message(
+    call: &ToolCall,
+    result: &ToolExecutionResult,
+    timestamp: u64,
+    duration_ms: Option<u64>,
+) -> ToolResultMessage {
+    let diagnostics = result.diagnostics.clone().unwrap_or_default();
+    let mut content = result.content.clone().unwrap_or_default();
+    if !diagnostics.is_empty() {
+        content.push(text_block(render_diagnostics(&diagnostics)));
+    }
+    ToolResultMessage {
+        role: ToolResultRole,
+        tool_call_id: call.id.clone(),
+        tool_name: call.name.clone(),
+        content,
+        details: result.details.clone(),
+        usage: result.usage.clone(),
+        nested_calls: None,
+        is_error: result.is_error.unwrap_or(false),
+        duration_ms,
+        timestamp,
+    }
 }
 
 fn render_diagnostics(diagnostics: &[ToolDiagnostic]) -> String {
@@ -1204,5 +1381,19 @@ impl ToolExecutionApi for Api<'_> {
         cancel: &CancelToken,
     ) -> Result<ToolExecutionResult> {
         after_tool_hooks(self.rt, call, result, cancel)
+    }
+
+    fn nested_started(&self, call: &ToolCall) -> Result<()> {
+        started(self.rt, call)
+    }
+
+    fn nested_ended(
+        &self,
+        call: &ToolCall,
+        result: &ToolExecutionResult,
+        duration_ms: Option<u64>,
+    ) -> Result<()> {
+        let message = tool_result_message(call, result, self.rt.now(), duration_ms);
+        ended(self.rt, call, &message, result.control.as_ref())
     }
 }

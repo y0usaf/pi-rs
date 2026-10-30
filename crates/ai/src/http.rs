@@ -10,6 +10,7 @@ use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 
+use crate::event_stream::{idle, producing};
 use pi_rt::cancel::{CancelToken, Subscription};
 
 const MAX_HEAD_BYTES: usize = 64 * 1024;
@@ -187,9 +188,36 @@ fn tls_config() -> Result<Arc<ClientConfig>, HttpError> {
         .map_err(HttpError::Connect)
 }
 
+pub(crate) struct Tcp(pub(crate) TcpStream);
+
+impl Read for Tcp {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if !producing() {
+            return self.0.read(buf);
+        }
+        self.0.set_nonblocking(true)?;
+        let ready = self.0.read(buf);
+        self.0.set_nonblocking(false)?;
+        match ready {
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => idle(|| self.0.read(buf)),
+            ready => ready,
+        }
+    }
+}
+
+impl Write for Tcp {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush()
+    }
+}
+
 enum Conn {
-    Plain(TcpStream),
-    Tls(Box<StreamOwned<ClientConnection, TcpStream>>),
+    Plain(Tcp),
+    Tls(Box<StreamOwned<ClientConnection, Tcp>>),
 }
 
 impl Read for Conn {
@@ -426,9 +454,9 @@ pub fn send(request: &Request, cancel: Option<&CancelToken>) -> Result<Response,
             .map_err(|error| HttpError::Connect(format!("{}: {error}", url.host)))?;
         let connection = ClientConnection::new(tls_config()?, name)
             .map_err(|error| HttpError::Connect(error.to_string()))?;
-        Conn::Tls(Box::new(StreamOwned::new(connection, tcp)))
+        Conn::Tls(Box::new(StreamOwned::new(connection, Tcp(tcp))))
     } else {
-        Conn::Plain(tcp)
+        Conn::Plain(Tcp(tcp))
     };
 
     let mut head = format!("{} {} HTTP/1.1\r\nHost: {}", request.method, url.target, {

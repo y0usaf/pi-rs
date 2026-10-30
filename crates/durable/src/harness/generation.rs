@@ -141,6 +141,8 @@ pub struct GenerationHooks {
     pub after_tools: Option<AfterToolsHook>,
     pub on_partial: Option<PartialHook>,
     pub message_end: Option<MessageEndHook>,
+    pub on_stream: Option<classify::StreamHook>,
+    pub before_tools: Option<classify::BeforeToolsHook>,
 }
 
 /// The `message_end` hooks of the extensions this task runs under, in registration order.

@@ -16,6 +16,7 @@ use crate::harness::generation::{
 };
 use crate::harness::inbox::prepare_boundary;
 use crate::harness::live::{DeferredStatus, GenerationStatus, RetryStatus};
+use crate::harness::tool::ToolRound;
 use crate::harness::types::{CompactionReason, HookApi, ModelRef};
 use crate::ids::{EntryId, TaskId};
 use crate::tasks::{JoinPolicy, NextTaskState, TaskOutcome, TaskOutcomeError};
@@ -25,6 +26,24 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub const DEFAULT_POLL_AFTER_MS: u64 = 5000;
+
+pub type StreamHook = Arc<
+    dyn Fn(&HookApi, &AssistantMessageEvent, &dyn Fn() -> Option<AssistantMessage>) + Send + Sync,
+>;
+
+pub type BeforeToolsHook = Box<dyn Fn(&HookApi, &ToolRound<'_>) -> Result<()> + Send + Sync>;
+
+pub fn before_tools(runtime: Runtime<'_>, round: &ToolRound<'_>) -> Result<()> {
+    let api = HookApi {
+        conversation_id: runtime.conversation_id(),
+    };
+    runtime
+        .hooks()
+        .each(&mut |hooks| match hooks.before_tools.as_ref() {
+            Some(hook) => hook(&api, round),
+            None => Ok(()),
+        })
+}
 
 pub struct Request {
     pub attempt: u64,
@@ -60,9 +79,13 @@ pub fn stream_response(
     cancel: &CancelToken,
 ) -> Result<AssistantMessage> {
     let mut sinks: Vec<PartialHook> = Vec::new();
+    let mut streams: Vec<StreamHook> = Vec::new();
     runtime.hooks().each(&mut |hooks| {
         if let Some(sink) = hooks.on_partial.as_ref() {
             sinks.push(Arc::clone(sink));
+        }
+        if let Some(stream) = hooks.on_stream.as_ref() {
+            streams.push(Arc::clone(stream));
         }
         Ok(())
     })?;
@@ -70,7 +93,14 @@ pub fn stream_response(
         conversation_id: runtime.conversation_id(),
     };
     let result = stream_events(
-        runtime, model, messages, options, attempt, cancel, &sinks, &api,
+        runtime,
+        model,
+        messages,
+        options,
+        attempt,
+        cancel,
+        (&sinks, &streams),
+        &api,
     );
     if result.is_err() || runtime.signal().is_cancelled() {
         for sink in &sinks {
@@ -88,7 +118,7 @@ fn stream_events(
     mut options: SimpleStreamOptions,
     attempt: u64,
     cancel: &CancelToken,
-    sinks: &[PartialHook],
+    (sinks, streams): (&[PartialHook], &[StreamHook]),
     api: &HookApi,
 ) -> Result<AssistantMessage> {
     let progress = runtime.settings().progress;
@@ -119,6 +149,12 @@ fn stream_events(
         match stream.next_event_timeout(wake.saturating_duration_since(Instant::now())) {
             Next::Event(event) => {
                 heard = Instant::now();
+                let current = std::cell::OnceCell::new();
+                for hook in streams {
+                    hook(api, &event, &|| {
+                        current.get_or_init(|| stream.current()).clone()
+                    });
+                }
                 let Some(partial) = into_partial(event) else {
                     continue;
                 };

@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use super::events;
 use super::request::{self, Compat, Turn};
 use crate::event_stream::AssistantMessageEventStream;
-use crate::http::HttpError;
+use crate::http::{HttpError, Tcp};
 use crate::types::{AssistantMessage, Message, Model, StopReason, TranscriptContext, Transport};
 use crate::utils::uuid::uuidv7;
 use pi_rt::cancel::{CancelToken, Subscription};
@@ -527,9 +527,9 @@ impl Socket {
                 .map_err(|error| format!("{}: {error}", target.host))?;
             let connection =
                 ClientConnection::new(tls_config()?, name).map_err(|error| error.to_string())?;
-            Box::new(StreamOwned::new(connection, tcp))
+            Box::new(StreamOwned::new(connection, Tcp(tcp)))
         } else {
-            Box::new(tcp)
+            Box::new(Tcp(tcp))
         };
         let mut reader = BufReader::new(duplex);
         let key = base64(&random::<16>()?);

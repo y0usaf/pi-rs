@@ -161,6 +161,16 @@ pub fn start_tool_round(
     let owner = erase(runtime.task_id());
     let now = runtime.now();
     let tool_errors = runtime.settings().tool_errors;
+    super::classify::before_tools(
+        runtime,
+        &crate::harness::tool::ToolRound {
+            calls: &calls,
+            sequential,
+            offered: &offered,
+            agent: &agent,
+            style: tool_errors,
+        },
+    )?;
     runtime.commit(
         Box::new(move |tx, _task| {
             let mut live = read_live(tx, conversation_id)?;

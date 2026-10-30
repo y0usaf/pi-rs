@@ -203,6 +203,17 @@ pub trait ToolExecutionApi: DocumentObserver + DocumentReader + Sync {
     ) -> Result<ToolExecutionResult> {
         Ok(result)
     }
+    fn nested_started(&self, _call: &ToolCall) -> Result<()> {
+        Ok(())
+    }
+    fn nested_ended(
+        &self,
+        _call: &ToolCall,
+        _result: &ToolExecutionResult,
+        _duration_ms: Option<u64>,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

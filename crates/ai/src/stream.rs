@@ -103,44 +103,47 @@ where
     }
     let signal = signal.cloned();
     let sink = out.clone();
+    let producer = out.producer();
     thread::spawn(move || {
-        let result = catch_unwind(AssertUnwindSafe(|| run(&sink, &mut output)));
-        let outcome = match result {
-            Ok(outcome) => outcome,
-            Err(_) => Err("provider stream panicked".to_owned()),
-        };
-        let failure = match outcome {
-            Err(message) => Some(message),
-            Ok(()) if signal.as_ref().is_some_and(CancelToken::is_cancelled) => {
-                Some(ABORTED_TEXT.to_owned())
+        producer.run(|| {
+            let result = catch_unwind(AssertUnwindSafe(|| run(&sink, &mut output)));
+            let outcome = match result {
+                Ok(outcome) => outcome,
+                Err(_) => Err("provider stream panicked".to_owned()),
+            };
+            let failure = match outcome {
+                Err(message) => Some(message),
+                Ok(()) if signal.as_ref().is_some_and(CancelToken::is_cancelled) => {
+                    Some(ABORTED_TEXT.to_owned())
+                }
+                Ok(()) => match output.stop_reason {
+                    StopReason::Pending => Some("stream ended without a stop reason".to_owned()),
+                    StopReason::Error | StopReason::Aborted => Some(
+                        output
+                            .error_message
+                            .clone()
+                            .unwrap_or_else(|| "An unknown error occurred".to_owned()),
+                    ),
+                    _ => None,
+                },
+            };
+            match failure {
+                Some(message) => fail(&sink, output, signal.as_ref(), message),
+                None => {
+                    let reason = match output.stop_reason {
+                        StopReason::Length => DoneReason::Length,
+                        StopReason::ToolUse => DoneReason::ToolUse,
+                        StopReason::Deferred => DoneReason::Deferred,
+                        _ => DoneReason::Stop,
+                    };
+                    sink.push(AssistantMessageEvent::Done {
+                        reason,
+                        message: output,
+                    });
+                    sink.end(None);
+                }
             }
-            Ok(()) => match output.stop_reason {
-                StopReason::Pending => Some("stream ended without a stop reason".to_owned()),
-                StopReason::Error | StopReason::Aborted => Some(
-                    output
-                        .error_message
-                        .clone()
-                        .unwrap_or_else(|| "An unknown error occurred".to_owned()),
-                ),
-                _ => None,
-            },
-        };
-        match failure {
-            Some(message) => fail(&sink, output, signal.as_ref(), message),
-            None => {
-                let reason = match output.stop_reason {
-                    StopReason::Length => DoneReason::Length,
-                    StopReason::ToolUse => DoneReason::ToolUse,
-                    StopReason::Deferred => DoneReason::Deferred,
-                    _ => DoneReason::Stop,
-                };
-                sink.push(AssistantMessageEvent::Done {
-                    reason,
-                    message: output,
-                });
-                sink.end(None);
-            }
-        }
+        })
     });
     out
 }
