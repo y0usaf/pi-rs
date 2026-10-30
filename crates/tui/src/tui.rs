@@ -62,6 +62,75 @@ pub struct TuiMouseEventResult {
     pub render: Option<bool>,
 }
 
+#[derive(Clone)]
+pub struct TuiMouseDispatchTarget {
+    pub component: ComponentRef,
+    pub origin_x: i64,
+    pub origin_y: i64,
+    pub width: i64,
+    pub height: i64,
+}
+
+#[derive(Clone)]
+pub struct TuiMouseDispatchResult {
+    pub capture: bool,
+    pub focus: bool,
+    pub render: Option<bool>,
+    pub target: TuiMouseDispatchTarget,
+    pub focus_target: Option<ComponentRef>,
+}
+
+pub enum OverlayMouse {
+    Missed,
+    Hit(Option<TuiMouseDispatchResult>),
+}
+
+pub fn dispatch_mouse_event(
+    component: &ComponentRef,
+    event: &TuiMouseEvent,
+) -> Option<TuiMouseDispatchResult> {
+    let forwarded = component.borrow_mut().forward_mouse(event);
+    if let Some(forwarded) = forwarded {
+        if forwarded.focus && component.borrow().accepts_input() {
+            return Some(TuiMouseDispatchResult {
+                focus_target: Some(component.clone()),
+                ..forwarded
+            });
+        }
+        return Some(forwarded);
+    }
+    let result = component.borrow_mut().handle_mouse(event)?;
+    if !result.handled && !result.capture && !result.focus {
+        return None;
+    }
+    Some(TuiMouseDispatchResult {
+        capture: result.capture,
+        focus: result.focus,
+        render: result.render,
+        focus_target: result.focus.then(|| component.clone()),
+        target: TuiMouseDispatchTarget {
+            component: component.clone(),
+            origin_x: event.screen_x - event.x,
+            origin_y: event.screen_y - event.y,
+            width: event.width,
+            height: event.height,
+        },
+    })
+}
+
+pub fn retarget_mouse_event(
+    event: &TuiMouseEvent,
+    target: &TuiMouseDispatchTarget,
+) -> TuiMouseEvent {
+    TuiMouseEvent {
+        x: event.screen_x - target.origin_x,
+        y: event.screen_y - target.origin_y,
+        width: target.width,
+        height: target.height,
+        ..*event
+    }
+}
+
 /// A piece of UI that renders to lines.
 pub trait Component {
     /// Render to lines no wider than `width` columns.
@@ -78,6 +147,9 @@ pub trait Component {
     }
     /// Handle a mouse event (dispatched by the alternate-screen renderer).
     fn handle_mouse(&mut self, _event: &TuiMouseEvent) -> Option<TuiMouseEventResult> {
+        None
+    }
+    fn forward_mouse(&mut self, _event: &TuiMouseEvent) -> Option<TuiMouseDispatchResult> {
         None
     }
     /// Drop cached rendering state.
@@ -170,6 +242,28 @@ impl Component for Container {
     }
     fn children(&self) -> Option<Vec<ComponentRef>> {
         Some(self.children.clone())
+    }
+    fn forward_mouse(&mut self, event: &TuiMouseEvent) -> Option<TuiMouseDispatchResult> {
+        if event.y < 0 || event.y >= event.height {
+            return None;
+        }
+        let width = event.width.max(0) as usize;
+        let mut child_y = 0;
+        for child in &self.children {
+            let height = child.borrow_mut().render(width).len() as i64;
+            if event.y >= child_y && event.y < child_y + height {
+                return dispatch_mouse_event(
+                    child,
+                    &TuiMouseEvent {
+                        y: event.y - child_y,
+                        height,
+                        ..*event
+                    },
+                );
+            }
+            child_y += height;
+        }
+        None
     }
 }
 
@@ -852,6 +946,53 @@ impl TuiCore {
             });
         }
         self.request_render(false);
+    }
+
+    pub fn resolve_mouse_focus_target(&self, component: &ComponentRef) -> ComponentRef {
+        self.overlays
+            .iter()
+            .rev()
+            .find(|e| self.is_visible(e) && Self::contains(&e.component, component))
+            .map_or_else(|| component.clone(), |e| e.component.clone())
+    }
+
+    pub fn dispatch_mouse_to_overlay(&self, event: &TuiMouseEvent) -> OverlayMouse {
+        let mut rendered: Vec<(&OverlayEntry, OverlayBounds)> = self
+            .overlays
+            .iter()
+            .filter_map(|e| e.bounds.map(|bounds| (e, bounds)))
+            .collect();
+        rendered.sort_by_key(|(e, _)| e.focus_order);
+        for (entry, bounds) in rendered.into_iter().rev() {
+            if event.screen_x < bounds.col
+                || event.screen_x >= bounds.col + bounds.width
+                || event.screen_y < bounds.row
+                || event.screen_y >= bounds.row + bounds.height
+            {
+                continue;
+            }
+            let result = dispatch_mouse_event(
+                &entry.component,
+                &TuiMouseEvent {
+                    x: event.screen_x - bounds.col,
+                    y: event.screen_y - bounds.row,
+                    width: bounds.width,
+                    height: bounds.height,
+                    ..*event
+                },
+            );
+            return OverlayMouse::Hit(result.map(|result| {
+                if result.focus {
+                    TuiMouseDispatchResult {
+                        focus_target: Some(entry.component.clone()),
+                        ..result
+                    }
+                } else {
+                    result
+                }
+            }));
+        }
+        OverlayMouse::Missed
     }
 
     pub fn is_overlay_focused_any(&self) -> bool {

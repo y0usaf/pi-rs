@@ -1,5 +1,6 @@
 //! Components (upstream `components/`).
 
+pub mod alt_screen_flash;
 pub mod editor;
 pub mod input;
 pub mod loader;

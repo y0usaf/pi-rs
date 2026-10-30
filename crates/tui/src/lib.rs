@@ -4,6 +4,7 @@
 //! offset into UTF-8 where upstream uses UTF-16 code units. Widths, wrapping and rendered output
 //! are the same.
 
+pub mod alt_screen_search;
 pub mod autocomplete;
 pub mod colors;
 pub mod components;
@@ -13,6 +14,7 @@ pub mod keys;
 pub mod kill_ring;
 pub mod latex;
 pub mod layout;
+pub mod osc52;
 pub mod program_status;
 pub mod stdin_buffer;
 pub mod terminal;

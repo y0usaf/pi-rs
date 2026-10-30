@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
+use std::sync::mpsc;
 
 use pi_tui::components::scroll_view::{
     Overscroll, ScrollOptions, ScrollRef, ScrollView, Scrollbar,
@@ -13,7 +14,7 @@ use pi_tui::tui_main_screen::TuiMainScreen;
 use pi_tui::wheel_scroll::WheelScrollLines;
 
 use super::selectors::key_display;
-use super::theme;
+use super::{clipboard, open_browser, theme};
 use crate::settings::{SettingsManager, WheelScrollLines as SettingLines};
 
 pub struct Viewport {
@@ -85,10 +86,42 @@ fn wheel_lines(settings: &SettingsManager) -> WheelScrollLines {
     }
 }
 
+fn underline(text: &str) -> String {
+    format!("\x1b[4m{text}\x1b[24m")
+}
+
+fn inverse(text: &str) -> String {
+    format!("\x1b[7m{text}\x1b[27m")
+}
+
+fn search_match(text: &str) -> String {
+    theme::bg("searchMatchBg", &theme::fg("searchMatchText", text))
+}
+
 fn alt_options(settings: &SettingsManager) -> AltScreenOptions {
     AltScreenOptions {
         mouse: true,
         wheel_scroll_lines: wheel_lines(settings),
+        search_match_style: Rc::new(|text: &str| underline(&search_match(text))),
+        search_current_match_style: Rc::new(|text: &str| {
+            theme::bold(&inverse(&search_match(text)))
+        }),
+        search_navigation_button_style: Rc::new(|text: &str, hovered| {
+            if hovered {
+                underline(text)
+            } else {
+                text.to_owned()
+            }
+        }),
+        open_url: Some(Rc::new(open_browser::open_browser)),
+        copy_on_select: settings.fullscreen_copy_on_select(),
+        copy_selection: Some(Rc::new(|text: String| {
+            let (sender, receiver) = mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = sender.send(clipboard::copy_to_clipboard(&text));
+            });
+            receiver
+        })),
         scroll_to_end_indicator: Some(Rc::new(|| {
             let shortcut = key_display("tui.altScreen.bottom");
             let label = if shortcut.is_empty() {
