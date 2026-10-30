@@ -293,6 +293,10 @@ fn write(
                     .get("name")
                     .and_then(Value::as_str)
                     .unwrap_or_default(),
+                &entry
+                    .get("timestamp")
+                    .and_then(Value::as_str)
+                    .map_or_else(|| super::iso8601(super::export::now_ms()), str::to_owned),
             )?,
             "model_change" => {
                 model = Some(ModelRef {

@@ -91,7 +91,12 @@ fn write(
     )
 }
 
-pub fn record(tx: &mut dyn Tx, conversation: ConversationId, name: &str) -> Result<EntryId> {
+pub fn record(
+    tx: &mut dyn Tx,
+    conversation: ConversationId,
+    name: &str,
+    timestamp: &str,
+) -> Result<EntryId> {
     let name = sanitize(name);
     let id = tx
         .append_entry(
@@ -99,7 +104,7 @@ pub fn record(tx: &mut dyn Tx, conversation: ConversationId, name: &str) -> Resu
             EntryDraft {
                 kind: KIND.to_owned(),
                 model: None,
-                data: Some(json!({ "name": name })),
+                data: Some(json!({ "name": name, "timestamp": timestamp })),
                 head: None,
                 edits: None,
             },
@@ -115,7 +120,8 @@ pub fn record(tx: &mut dyn Tx, conversation: ConversationId, name: &str) -> Resu
 /// Set the display name; an empty one clears it, as an empty `session_info` entry does.
 pub fn set_name(conversation: &Conversation, cancel: &CancelToken, name: &str) -> Result<()> {
     let id = conversation.id();
-    conversation.commit(|tx| record(tx, id, name).map(|_| ()), cancel)
+    let timestamp = crate::sessions::iso8601(crate::sessions::export::now_ms());
+    conversation.commit(|tx| record(tx, id, name, &timestamp).map(|_| ()), cancel)
 }
 
 /// Record the session file a fork came from (`parentSession`).

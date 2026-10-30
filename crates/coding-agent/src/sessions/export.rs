@@ -245,8 +245,11 @@ fn mapped(
                 "customType".into(),
                 data.get("customType").cloned().unwrap_or(Value::Null),
             );
-            if let Some(value) = data.get("data").filter(|value| !value.is_null()) {
+            if let Some(value) = data.get("data") {
                 entry.insert("data".into(), value.clone());
+            }
+            if let Some(timestamp) = data.get("timestamp").filter(|value| value.is_string()) {
+                entry.insert("timestamp".into(), timestamp.clone());
             }
         }
         kind if kind == super::drafts::LABEL_KIND => {
@@ -264,16 +267,15 @@ fn mapped(
             }
         }
         kind if kind == crate::session_info::KIND => {
+            let data = record.data.clone().unwrap_or(Value::Null);
             entry.insert("type".into(), "session_info".into());
             entry.insert(
                 "name".into(),
-                record
-                    .data
-                    .as_ref()
-                    .and_then(|data| data.get("name"))
-                    .cloned()
-                    .unwrap_or_else(|| "".into()),
+                data.get("name").cloned().unwrap_or_else(|| "".into()),
             );
+            if let Some(timestamp) = data.get("timestamp").filter(|value| value.is_string()) {
+                entry.insert("timestamp".into(), timestamp.clone());
+            }
         }
         kind if kind == crate::bash_exec::KIND => {
             let data = record

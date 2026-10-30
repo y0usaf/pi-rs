@@ -352,6 +352,7 @@ impl Live {
             data: Some(json!({
                 "customType": STATE_ENTRY,
                 "data": { "provider": model.provider, "modelId": model.id, "state": state },
+                "timestamp": crate::sessions::iso8601(crate::sessions::export::now_ms()),
             })),
             head: None,
             edits: None,
@@ -374,11 +375,10 @@ impl Live {
         let root = self
             .root()
             .ok_or("no session is open to append an entry to")?;
-        let draft = json!({
-            "type": "custom",
-            "customType": args.get("customType"),
-            "data": args.get("data"),
-        });
+        let mut draft = json!({ "type": "custom", "customType": args.get("customType") });
+        if let Some(data) = args.get("data") {
+            draft["data"] = data.clone();
+        }
         crate::sessions::drafts::append(&root, &[draft], cancel)?;
         let session = self
             .session_update(cancel)

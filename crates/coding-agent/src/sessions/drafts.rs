@@ -109,16 +109,22 @@ fn boundary(
     cancel: &CancelToken,
 ) -> Result<EntryDraft, String> {
     match draft.get("type").and_then(Value::as_str) {
-        Some("custom") => Ok(EntryDraft {
-            kind: CUSTOM_KIND.to_owned(),
-            model: None,
-            data: Some(json!({
+        Some("custom") => {
+            let mut data = json!({
                 "customType": draft.get("customType").cloned().unwrap_or(Value::Null),
-                "data": draft.get("data").cloned().unwrap_or(Value::Null),
-            })),
-            head: None,
-            edits: None,
-        }),
+                "timestamp": super::iso8601(now),
+            });
+            if let Some(value) = draft.get("data") {
+                data["data"] = value.clone();
+            }
+            Ok(EntryDraft {
+                kind: CUSTOM_KIND.to_owned(),
+                model: None,
+                data: Some(data),
+                head: None,
+                edits: None,
+            })
+        }
         Some("custom_message") => Ok(message(draft, now)),
         Some("label") => Ok(EntryDraft {
             kind: LABEL_KIND.to_owned(),
