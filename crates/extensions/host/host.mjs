@@ -519,8 +519,14 @@ const actions = {
 	refreshTools: () => effect({ call: "tools", tools: toolInfos() }),
 	getCommands: thrower("pi.getCommands"),
 	setModel: rejecter("pi.setModel"),
-	getThinkingLevel: thrower("pi.getThinkingLevel"),
-	setThinkingLevel: thrower("pi.setThinkingLevel"),
+	getThinkingLevel: () => askNow("thinkingLevel", {}).level,
+	setThinkingLevel: (level) => {
+		const answer = askNow("setThinkingLevel", { level });
+		absorb({ updates: answer.updates });
+		if (answer.level !== answer.previousLevel) {
+			void runner.emit({ type: "thinking_level_select", level: answer.level, previousLevel: answer.previousLevel });
+		}
+	},
 };
 
 function physicalModel(provider, id) {

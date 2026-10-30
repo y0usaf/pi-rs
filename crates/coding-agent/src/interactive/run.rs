@@ -1273,6 +1273,11 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         {
             dirty.set(true);
         }
+        if let Some(level) = live.and_then(crate::extensions::Live::take_thinking_change) {
+            thinking = level;
+            footer.borrow_mut().state.thinking = level_name(level);
+            dirty.set(true);
+        }
         for action in actions.borrow_mut().drain(..) {
             match action {
                 Action::Interrupt => {

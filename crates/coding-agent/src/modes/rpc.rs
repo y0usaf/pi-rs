@@ -161,6 +161,11 @@ fn observe(state: &Arc<Mutex<State>>) {
     let Some(live) = crate::extensions::live() else {
         return;
     };
+    if let Some(level) = live.take_thinking_change()
+        && let Ok(mut state) = state.lock()
+    {
+        state.thinking = level;
+    }
     let batches: Vec<Vec<AgentEvent>> = match state.lock() {
         Ok(state) => state.observed.try_iter().collect(),
         Err(_) => return,
@@ -416,6 +421,8 @@ pub fn run(
         root,
     };
     if let Some(live) = crate::extensions::live() {
+        let printer = output.clone();
+        live.print_events(Arc::new(move |event| printer.line(event)));
         live.set_session(
             &open.harness,
             &open.root,

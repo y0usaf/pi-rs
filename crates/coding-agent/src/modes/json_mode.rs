@@ -23,6 +23,10 @@ pub fn run(
     let output = Output::default();
     let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counted = std::sync::Arc::clone(&seen);
+    if let Some(live) = crate::extensions::live() {
+        let printer = output.clone();
+        live.print_events(std::sync::Arc::new(move |event| printer.line(event)));
+    }
     let printer = output.clone();
     let mut mapper = json_event::Mapper::default();
     stream

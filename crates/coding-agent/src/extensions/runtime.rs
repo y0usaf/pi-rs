@@ -3,7 +3,7 @@ use std::sync::Arc;
 use pi_durable::ai::event_stream::AssistantMessageEventStream;
 use pi_durable::ai::registry::{Api, Origin};
 use pi_durable::ai::stream::{fail, new_output};
-use pi_durable::ai::thinking::clamp_thinking_level;
+use pi_durable::ai::thinking::{clamp_thinking_level, supported_thinking_levels};
 use pi_durable::ai::types::{
     AssistantMessage, AssistantMessageEvent, Message, Model, ModelThinkingLevel, Payload,
     ProviderResponse, RequestHooks, SimpleStreamOptions, StopReason, TranscriptContext,
@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 
 use super::{Live, live, lock};
 use crate::models::is_virtual;
+use crate::run_config::{level_name, parse_level};
 
 const CUSTOM_KIND: &str = "pi.custom";
 const STATE_ENTRY: &str = "pi.virtual-model-state";
@@ -383,6 +384,59 @@ impl Live {
             .session_update(cancel)
             .ok_or("the session could not be read after the entry was appended")?;
         Ok(json!({ "session": session }))
+    }
+
+    pub(super) fn thinking_level(&self, cancel: &CancelToken) -> Result<Value, String> {
+        let root = self
+            .root()
+            .ok_or("no session is open to read the thinking level of")?;
+        let agent = root.agent(cancel).map_err(|e| e.to_string())?;
+        Ok(json!({ "level": level_name(agent.thinking_level) }))
+    }
+
+    pub(super) fn set_thinking_level(
+        &self,
+        args: &Value,
+        cancel: &CancelToken,
+    ) -> Result<Value, String> {
+        let root = self
+            .root()
+            .ok_or("no session is open to set the thinking level of")?;
+        let agent = root.agent(cancel).map_err(|e| e.to_string())?;
+        let model = agent.model.as_ref().and_then(|model| {
+            self.0
+                .sink
+                .registry
+                .get()?
+                .get_model(&model.provider, &model.model_id)
+        });
+        let requested = args
+            .get("level")
+            .and_then(Value::as_str)
+            .and_then(parse_level);
+        let level = match (model, requested) {
+            (Some(model), Some(level)) => clamp_thinking_level(&model, level),
+            (Some(model), None) => supported_thinking_levels(&model)
+                .first()
+                .copied()
+                .unwrap_or(ModelThinkingLevel::Off),
+            (None, level) => level.unwrap_or(ModelThinkingLevel::Off),
+        };
+        let previous = agent.thinking_level;
+        let mut answer =
+            json!({ "level": level_name(level), "previousLevel": level_name(previous) });
+        if level != previous {
+            crate::run_config::set_thinking(&root, cancel, level)?;
+            *lock(&self.0.thinking_change) = Some(level);
+            self.print_event(
+                json!({ "type": "thinking_level_changed", "level": level_name(level) }),
+            );
+            let session = self
+                .session_update(cancel)
+                .ok_or("the session could not be read after its thinking level changed")?;
+            answer["updates"] = json!({ "session": session });
+        }
+        Ok(answer)
     }
 
     pub(super) fn compact(&self, args: &Value, cancel: &CancelToken) -> Result<Value, String> {

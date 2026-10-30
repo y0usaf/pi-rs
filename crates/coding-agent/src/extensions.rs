@@ -734,6 +734,8 @@ fn builtin_providers() -> Value {
 #[derive(Clone)]
 pub struct Live(Arc<Inner>);
 
+pub type Printer = Arc<dyn Fn(&Value) + Send + Sync>;
+
 struct Inner {
     host: pi_extensions::Host,
     sink: Arc<Sink>,
@@ -751,6 +753,9 @@ struct Inner {
     session: Mutex<Option<SessionSource>>,
     announced: Mutex<Option<EntryId>>,
     thinking: Mutex<Option<String>>,
+    thinking_change: Mutex<Option<pi_durable::ai::types::ModelThinkingLevel>>,
+    printer: Mutex<Option<Printer>>,
+    starting: AtomicBool,
     round: Mutex<calls::Round>,
     ahead: Mutex<Option<calls::Ahead>>,
 }
@@ -863,6 +868,16 @@ impl Peer for Sink {
             return live()
                 .ok_or("no extension host is running")?
                 .append_custom(args, cancel);
+        }
+        if call == "thinkingLevel" {
+            return live()
+                .ok_or("no extension host is running")?
+                .thinking_level(cancel);
+        }
+        if call == "setThinkingLevel" {
+            return live()
+                .ok_or("no extension host is running")?
+                .set_thinking_level(args, cancel);
         }
         let models = lock(&self.models).clone();
         match models {
@@ -1102,6 +1117,9 @@ impl Live {
             session: Mutex::new(None),
             announced: Mutex::new(None),
             thinking: Mutex::new(None),
+            thinking_change: Mutex::new(None),
+            printer: Mutex::new(None),
+            starting: AtomicBool::new(false),
             round: Mutex::new(calls::Round::default()),
             ahead: Mutex::new(None),
         })))
@@ -1806,7 +1824,10 @@ impl Live {
             .get("reason")
             .and_then(Value::as_str)
             .map(str::to_owned);
+        let starting = name == "session_start";
+        self.0.starting.store(starting, Ordering::SeqCst);
         let answer = self.ask(name, payload).ok();
+        self.0.starting.store(false, Ordering::SeqCst);
         match name {
             "agent_end" => self.0.settled.store(true, Ordering::SeqCst),
             "session_shutdown" => *lock(&self.0.session) = None,
@@ -1873,6 +1894,27 @@ impl Live {
         if pending == 0 && self.0.settled.swap(false, Ordering::SeqCst) {
             self.event("agent_settled", json!({ "aborted": aborted }));
         }
+    }
+
+    /// Prints the session events an extension's calls cause, such as `thinking_level_changed`;
+    /// none while `session_start` runs, as upstream's JSON and RPC modes subscribe after it.
+    pub fn print_events(&self, printer: Printer) {
+        *lock(&self.0.printer) = Some(printer);
+    }
+
+    fn print_event(&self, event: Value) {
+        if self.0.starting.load(Ordering::SeqCst) {
+            return;
+        }
+        let printer = lock(&self.0.printer).clone();
+        if let Some(printer) = printer {
+            printer(&event);
+        }
+    }
+
+    /// The thinking level an extension set since the last call, for a mode that keeps its own copy.
+    pub fn take_thinking_change(&self) -> Option<pi_durable::ai::types::ModelThinkingLevel> {
+        lock(&self.0.thinking_change).take()
     }
 
     /// The calls the extensions made, in the order they made them.
