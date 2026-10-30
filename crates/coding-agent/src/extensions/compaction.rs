@@ -172,7 +172,7 @@ impl Live {
         }
     }
 
-    pub(super) fn compaction_failed(&self, reason: CompactionReason, error: Option<String>) {
+    pub fn compaction_failed(&self, reason: CompactionReason, error: Option<String>) {
         if !self.handles("session_compact_failed") {
             return;
         }

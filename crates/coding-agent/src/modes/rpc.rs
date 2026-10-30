@@ -16,16 +16,19 @@ use pi_durable::ai::types::{
     AssistantBlock, ImageContent, Message, Model, ModelThinkingLevel, TextContent, TextType,
     UserBlock, UserContent,
 };
+use pi_durable::ai::utils::text::utf16_len;
 use pi_durable::cancel::CancelToken;
 use pi_durable::harness::agent::{AgentChange, Change};
-use pi_durable::harness::compaction::estimate_context;
+use pi_durable::harness::compaction::{CANCELLED, CompactionResult, estimate_context};
 use pi_durable::harness::events::{AgentEvent, AgentEventStream};
 use pi_durable::harness::harness::{Conversation, Harness};
 use pi_durable::harness::inbox::{InboxItem, InboxState, inbox_doc, withdraw_queued_inputs};
 use pi_durable::harness::submissions::{SubmissionDraft, WhenBusy};
-use pi_durable::harness::types::{ErrorReport, ModelRef};
+use pi_durable::harness::types::{CompactionReason, ErrorReport, ModelRef};
 use pi_durable::harness::util::read_draft;
-use pi_durable::types::{EntryQuery, ScanOrder, Storage};
+use pi_durable::ids::{EntryId, TaskId};
+use pi_durable::tasks::{TaskOutcome, TaskState};
+use pi_durable::types::{EntryQuery, EntryRecord, ScanOrder, Storage, SubmissionBody, WriteState};
 use pi_extensions::Failed;
 use serde_json::{Value, json};
 
@@ -68,6 +71,186 @@ struct BashRun {
     exclude_from_context: bool,
     abort: crate::bash_exec::Abort,
     rx: std::sync::mpsc::Receiver<crate::bash_exec::Update>,
+}
+
+#[derive(Clone)]
+struct Compacting {
+    id: Option<Value>,
+    root: Conversation,
+    task: TaskId,
+    ended: bool,
+}
+
+fn compaction_result(
+    root: &Conversation,
+    entry: EntryId,
+    cancel: &CancelToken,
+) -> Result<Value, String> {
+    let view = root.context(None, cancel).map_err(|e| e.to_string())?;
+    let record = view
+        .entries
+        .iter()
+        .find(|record| record.id == entry)
+        .ok_or("the compaction entry is not in the compacted context")?;
+    let written = crate::sessions::export::appended(record, None)
+        .ok_or("the compaction entry could not be read")?;
+    let summary = written["summary"].as_str().unwrap_or_default();
+    let restated = view
+        .entries
+        .iter()
+        .filter(|record| record.kind == "pi.system" && record.id > entry)
+        .map(|record| record.id)
+        .min();
+    let stated = match restated {
+        Some(restated) => view
+            .entries
+            .iter()
+            .find(|record| record.id == restated)
+            .map(|record| EntryRecord::clone(record)),
+        None => crate::sessions::export::prompt_at(root, &view, record, cancel)?,
+    };
+    let prompt = stated.and_then(|record| record.model?.first().cloned());
+    let after: u64 = view
+        .entries
+        .iter()
+        .zip(&view.contributions)
+        .map(|(record, messages)| {
+            if record.id == entry {
+                utf16_len(summary).div_ceil(4) as u64
+            } else if record.kind == "pi.system"
+                && (record.id < entry || Some(record.id) == restated)
+            {
+                0
+            } else {
+                messages
+                    .iter()
+                    .map(crate::interactive::footer::estimate_tokens)
+                    .sum()
+            }
+        })
+        .chain(
+            prompt
+                .as_ref()
+                .map(crate::interactive::footer::estimate_tokens),
+        )
+        .sum();
+    let mut result = serde_json::Map::new();
+    result.insert("summary".into(), json!(summary));
+    result.insert(
+        "firstKeptEntryId".into(),
+        written["firstKeptEntryId"].clone(),
+    );
+    result.insert("tokensBefore".into(), written["tokensBefore"].clone());
+    result.insert("estimatedTokensAfter".into(), json!(after));
+    for key in ["usage", "details"] {
+        if let Some(value) = written.get(key) {
+            result.insert(key.into(), value.clone());
+        }
+    }
+    Ok(Value::Object(result))
+}
+
+enum Ended {
+    Done(Value),
+    Failed(String),
+    Aborted,
+}
+
+fn compaction_outcome(compacting: &Compacting, cancel: &CancelToken) -> Option<Ended> {
+    let root = &compacting.root;
+    let task = compacting.task;
+    let record = match root.commit(|tx| tx.task(task), cancel) {
+        Ok(Some(record)) => record,
+        Ok(None) => return Some(Ended::Failed("the compaction task is gone".to_owned())),
+        Err(error) => return Some(Ended::Failed(error.to_string())),
+    };
+    let result = match record.state {
+        TaskState::Terminal {
+            outcome: TaskOutcome::Completed { result },
+        } => result,
+        TaskState::Terminal {
+            outcome: TaskOutcome::Failed { error, .. } | TaskOutcome::Faulted { error },
+        } => return Some(Ended::Failed(error.message)),
+        TaskState::Terminal {
+            outcome: TaskOutcome::Orphaned { reason },
+        } => return Some(Ended::Failed(reason)),
+        TaskState::Terminal {
+            outcome: TaskOutcome::Aborted { .. },
+        } => return Some(Ended::Aborted),
+        _ => return None,
+    };
+    let result: CompactionResult = match serde_json::from_value(result) {
+        Ok(result) => result,
+        Err(error) => return Some(Ended::Failed(error.to_string())),
+    };
+    let entry = match (result.entry_id, result.submission_id) {
+        (Some(entry), _) => entry,
+        (None, Some(submission)) => match root.commit(|tx| tx.submission(submission), cancel) {
+            Ok(Some(record)) => match record.body {
+                SubmissionBody::Write(WriteState::Done { entry }) => entry,
+                SubmissionBody::Write(WriteState::Queued) => return None,
+                SubmissionBody::Write(WriteState::Unanswered { reason, .. }) => {
+                    return Some(Ended::Failed(reason));
+                }
+                SubmissionBody::Input(_) => {
+                    return Some(Ended::Failed("the compaction wrote an input".to_owned()));
+                }
+            },
+            Ok(None) => return Some(Ended::Failed("the compaction's summary is gone".to_owned())),
+            Err(error) => return Some(Ended::Failed(error.to_string())),
+        },
+        (None, None) => return Some(Ended::Failed("the compaction wrote no summary".to_owned())),
+    };
+    Some(match compaction_result(root, entry, cancel) {
+        Ok(result) => Ended::Done(result),
+        Err(message) => Ended::Failed(message),
+    })
+}
+
+fn drain_compactions(state: &Arc<Mutex<State>>, cancel: &CancelToken, output: &Output) {
+    let ended: Vec<Compacting> = match state.lock() {
+        Ok(mut state) => {
+            state.ended.clear();
+            state
+                .compactions
+                .iter()
+                .filter(|compacting| compacting.ended)
+                .cloned()
+                .collect()
+        }
+        Err(_) => return,
+    };
+    for compacting in ended {
+        let Some(outcome) = compaction_outcome(&compacting, cancel) else {
+            continue;
+        };
+        observe(state);
+        if let Ok(mut state) = state.lock() {
+            state
+                .compactions
+                .retain(|pending| pending.task != compacting.task);
+        }
+        let live = crate::extensions::live();
+        let manual = CompactionReason::Manual;
+        let id = compacting.id.as_ref();
+        output.line(&match outcome {
+            Ended::Done(result) => success(id, "compact", Some(result)),
+            Ended::Failed(message) => {
+                if message != CANCELLED
+                    && let Some(live) = live
+                {
+                    live.compaction_failed(manual, Some(format!("Compaction failed: {message}")));
+                }
+                failure(id, "compact", message)
+            }
+            Ended::Aborted => {
+                if let Some(live) = live {
+                    live.compaction_failed(manual, None);
+                }
+                failure(id, "compact", CANCELLED)
+            }
+        });
+    }
 }
 
 /// The `BashResult` a `bash` command answers with, absent fields left out as upstream leaves
@@ -225,6 +408,8 @@ struct State {
     auto_retry: bool,
     seen: std::sync::mpsc::Sender<Vec<AgentEvent>>,
     observed: std::sync::mpsc::Receiver<Vec<AgentEvent>>,
+    compactions: Vec<Compacting>,
+    ended: Vec<TaskId>,
 }
 
 fn observe(state: &Arc<Mutex<State>>) {
@@ -252,7 +437,17 @@ impl State {
             AgentEvent::RunStart { .. } => self.streaming = true,
             AgentEvent::RunEnd { .. } => self.streaming = false,
             AgentEvent::CompactionStart { .. } => self.compacting += 1,
-            AgentEvent::CompactionEnd { .. } => self.compacting = self.compacting.saturating_sub(1),
+            AgentEvent::CompactionEnd { task_id, .. } => {
+                self.compacting = self.compacting.saturating_sub(1);
+                match self
+                    .compactions
+                    .iter_mut()
+                    .find(|compacting| compacting.task == *task_id)
+                {
+                    Some(compacting) => compacting.ended = true,
+                    None => self.ended.push(*task_id),
+                }
+            }
             AgentEvent::InboxUpdate { items } => self.pending = items.len(),
             AgentEvent::AutoRetryStart { .. } => self.retrying = true,
             AgentEvent::AutoRetryEnd { .. } => self.retrying = false,
@@ -475,6 +670,8 @@ pub fn run(
         auto_retry: options.settings.borrow().retry_enabled(),
         seen,
         observed,
+        compactions: Vec::new(),
+        ended: Vec::new(),
     }));
 
     // The conversation's agent starts with no model; the run's settings are the session's.
@@ -565,6 +762,7 @@ pub fn run(
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
         drain_bash(&mut runs, &open.root, cancel, &output);
+        drain_compactions(&state, cancel, &output);
     }
 
     open.stream.stop();
@@ -597,11 +795,11 @@ fn sink_from(mut mapper: json_event::Mapper, output: &Output, state: &Arc<Mutex<
             let _ = seen.send(events.to_vec());
         }
         for event in events {
-            if let Ok(mut state) = shared.lock() {
-                state.apply(event);
-            }
             for line in mapper.lines(event) {
                 printer.line(&line);
+            }
+            if let Ok(mut state) = shared.lock() {
+                state.apply(event);
             }
         }
         Ok(())
@@ -646,6 +844,12 @@ fn replace(
     let _ = open.root.abort(false, cancel);
     let _ = open.root.wait_for_idle(cancel);
     observe(state);
+    if let Ok(mut state) = state.lock() {
+        for compacting in &mut state.compactions {
+            compacting.ended = true;
+        }
+    }
+    drain_compactions(state, cancel, output);
     let live = crate::extensions::live();
     if let Some(live) = live {
         let target = match &next {
@@ -1190,8 +1394,22 @@ fn handle(
 
         "compact" => {
             let instructions = command["customInstructions"].as_str();
-            match root.compact(instructions, cancel) {
-                Ok(task) => success(id, kind, Some(json!({ "taskId": value(&task) }))),
+            let started = root
+                .abort(false, cancel)
+                .and_then(|()| root.compact(instructions, cancel));
+            match started {
+                Ok(task) => {
+                    if let Ok(mut state) = state.lock() {
+                        let ended = state.ended.contains(&task);
+                        state.compactions.push(Compacting {
+                            id: id.cloned(),
+                            root: root.clone(),
+                            task,
+                            ended,
+                        });
+                    }
+                    return None;
+                }
                 Err(error) => failure(id, kind, error.to_string()),
             }
         }

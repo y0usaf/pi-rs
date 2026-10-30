@@ -132,7 +132,7 @@ pub fn lines(
     Ok(lines)
 }
 
-fn prompt_at(
+pub fn prompt_at(
     root: &Conversation,
     view: &ContextView,
     compaction: &EntryRecord,
