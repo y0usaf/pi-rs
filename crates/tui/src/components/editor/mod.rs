@@ -111,7 +111,10 @@ pub struct Editor {
     pub on_submit: Option<crate::components::TextCallback>,
     pub on_change: Option<crate::components::TextCallback>,
     pub disable_submit: bool,
+    pub top_border: Option<TopBorder>,
 }
+
+pub type TopBorder = Box<dyn Fn(usize, usize, &Style) -> Option<String>>;
 
 fn clamp_max_visible(n: usize) -> usize {
     n.clamp(3, 20)
@@ -163,6 +166,7 @@ impl Editor {
             on_submit: None,
             on_change: None,
             disable_submit: false,
+            top_border: None,
         }
     }
 

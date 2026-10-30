@@ -31,6 +31,13 @@ impl Editor {
     }
 
     pub(crate) fn render_top_border(&self, width: usize, hidden: usize) -> String {
+        if let Some(line) = self
+            .top_border
+            .as_ref()
+            .and_then(|hook| hook(width, hidden, &self.border_color))
+        {
+            return line;
+        }
         let b = if hidden > 0 {
             create_scroll_border("↑", hidden, width)
         } else {

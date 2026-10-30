@@ -100,7 +100,7 @@ impl Loader {
         (true, self.next_at)
     }
 
-    fn rendered_indicator(&self) -> String {
+    pub fn rendered_indicator(&self) -> String {
         let frame = self.frames.get(self.current).map_or("", |s| s);
         if self.verbatim {
             frame.to_string()

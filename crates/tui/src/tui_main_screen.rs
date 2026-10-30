@@ -172,6 +172,17 @@ impl<T: Terminal> TuiMainScreen<T> {
         }
     }
 
+    pub fn into_parts(self) -> (TuiCore, T) {
+        (self.core, self.terminal)
+    }
+
+    pub fn from_parts(mut core: TuiCore, terminal: T) -> Self {
+        let mut screen = Self::new(terminal);
+        core.stopped = false;
+        screen.core = core;
+        screen
+    }
+
     pub fn with_hardware_cursor(terminal: T, show: bool) -> Self {
         let mut s = Self::new(terminal);
         s.core.show_hardware_cursor = show;
@@ -231,6 +242,7 @@ impl<T: Terminal> TuiMainScreen<T> {
         self.core.stopped = false;
         self.terminal.start();
         self.terminal.hide_cursor();
+        self.terminal.set_exit_restore("\x1b[?25h", "");
         self.core.request_render(false);
     }
 

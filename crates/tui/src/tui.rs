@@ -91,6 +91,9 @@ pub trait Component {
     fn children(&self) -> Option<Vec<ComponentRef>> {
         None
     }
+    fn layout_node(&self) -> Option<crate::layout::LayoutNode> {
+        None
+    }
 }
 
 pub type ComponentRef = Rc<RefCell<dyn Component>>;
@@ -846,6 +849,13 @@ impl TuiCore {
             });
         }
         self.request_render(false);
+    }
+
+    pub fn is_overlay_focused_any(&self) -> bool {
+        self.focused
+            .as_ref()
+            .and_then(|f| self.entry_of(f))
+            .is_some_and(|e| self.is_visible(e))
     }
 
     pub fn is_overlay_focused(&self, id: OverlayId) -> bool {

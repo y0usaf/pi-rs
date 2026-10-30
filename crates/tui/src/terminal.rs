@@ -296,6 +296,7 @@ pub trait Terminal {
     fn restore_on_exit(&mut self, before: &str, after: &str) {
         self.write(&format!("{before}{after}"));
     }
+    fn set_exit_restore(&mut self, _before: &str, _after: &str) {}
     fn move_by(&mut self, lines: i64) {
         if lines > 0 {
             self.write(&format!("\x1b[{lines}B"));
@@ -402,6 +403,7 @@ pub struct ProcessTerminal {
     progress_next: Option<u64>,
     pending: std::collections::VecDeque<TerminalEvent>,
     log_path: Option<String>,
+    exit_restore: (String, String),
 }
 
 #[cfg(unix)]
@@ -425,6 +427,7 @@ impl ProcessTerminal {
             winch_fd: None,
             progress_next: None,
             pending: Default::default(),
+            exit_restore: ("\x1b[?25h".to_owned(), String::new()),
             log_path: std::env::var("PI_TUI_WRITE_LOG")
                 .ok()
                 .filter(|s| !s.is_empty())
@@ -519,6 +522,16 @@ impl ProcessTerminal {
         if self.progress_next.is_some_and(|d| now >= d) {
             self.raw_write(PROGRESS_ACTIVE);
             self.progress_next = Some(now + PROGRESS_KEEPALIVE_MS);
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ProcessTerminal {
+    fn drop(&mut self) {
+        if self.started {
+            let (before, after) = std::mem::take(&mut self.exit_restore);
+            self.restore_on_exit(&before, &after);
         }
     }
 }
@@ -698,6 +711,10 @@ impl Terminal for ProcessTerminal {
         if let Some(t) = self.saved.take() {
             unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &t) };
         }
+    }
+
+    fn set_exit_restore(&mut self, before: &str, after: &str) {
+        self.exit_restore = (before.to_owned(), after.to_owned());
     }
 
     fn set_progress(&mut self, active: bool) {
