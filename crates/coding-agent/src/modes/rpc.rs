@@ -8,6 +8,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::BufRead;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
@@ -74,11 +75,29 @@ struct BashRun {
 }
 
 #[derive(Clone)]
-struct Compacting {
+enum Awaited {
+    Compaction {
+        root: Conversation,
+        task: TaskId,
+        ended: bool,
+    },
+    Command(Arc<AtomicBool>),
+}
+
+#[derive(Clone)]
+struct Waiting {
+    serial: u64,
     id: Option<Value>,
-    root: Conversation,
-    task: TaskId,
-    ended: bool,
+    awaited: Awaited,
+}
+
+impl Waiting {
+    fn ready(&self) -> bool {
+        match &self.awaited {
+            Awaited::Compaction { ended, .. } => *ended,
+            Awaited::Command(done) => done.load(Ordering::SeqCst),
+        }
+    }
 }
 
 fn compaction_result(
@@ -156,9 +175,7 @@ enum Ended {
     Aborted,
 }
 
-fn compaction_outcome(compacting: &Compacting, cancel: &CancelToken) -> Option<Ended> {
-    let root = &compacting.root;
-    let task = compacting.task;
+fn compaction_outcome(root: &Conversation, task: TaskId, cancel: &CancelToken) -> Option<Ended> {
     let record = match root.commit(|tx| tx.task(task), cancel) {
         Ok(Some(record)) => record,
         Ok(None) => return Some(Ended::Failed("the compaction task is gone".to_owned())),
@@ -207,49 +224,74 @@ fn compaction_outcome(compacting: &Compacting, cancel: &CancelToken) -> Option<E
     })
 }
 
-fn drain_compactions(state: &Arc<Mutex<State>>, cancel: &CancelToken, output: &Output) {
-    let ended: Vec<Compacting> = match state.lock() {
+fn compaction_response(id: Option<&Value>, outcome: Ended) -> Value {
+    let live = crate::extensions::live();
+    let manual = CompactionReason::Manual;
+    match outcome {
+        Ended::Done(result) => success(id, "compact", Some(result)),
+        Ended::Failed(message) => {
+            if message != CANCELLED
+                && let Some(live) = live
+            {
+                live.compaction_failed(manual, Some(format!("Compaction failed: {message}")));
+            }
+            failure(id, "compact", message)
+        }
+        Ended::Aborted => {
+            if let Some(live) = live {
+                live.compaction_failed(manual, None);
+            }
+            failure(id, "compact", CANCELLED)
+        }
+    }
+}
+
+fn wait_on(state: &Arc<Mutex<State>>, id: Option<&Value>, mut awaited: Awaited) {
+    if let Ok(mut state) = state.lock() {
+        if let Awaited::Compaction { task, ended, .. } = &mut awaited {
+            *ended = state.ended.contains(task);
+        }
+        state.serial += 1;
+        let serial = state.serial;
+        state.waiting.push(Waiting {
+            serial,
+            id: id.cloned(),
+            awaited,
+        });
+    }
+}
+
+fn drain_waiting(state: &Arc<Mutex<State>>, cancel: &CancelToken, output: &Output) {
+    let ready: Vec<Waiting> = match state.lock() {
         Ok(mut state) => {
             state.ended.clear();
             state
-                .compactions
+                .waiting
                 .iter()
-                .filter(|compacting| compacting.ended)
+                .filter(|waiting| waiting.ready())
                 .cloned()
                 .collect()
         }
         Err(_) => return,
     };
-    for compacting in ended {
-        let Some(outcome) = compaction_outcome(&compacting, cancel) else {
-            continue;
+    for waiting in ready {
+        let id = waiting.id.as_ref();
+        let response = match &waiting.awaited {
+            Awaited::Compaction { root, task, .. } => {
+                let Some(outcome) = compaction_outcome(root, *task, cancel) else {
+                    continue;
+                };
+                observe(state);
+                compaction_response(id, outcome)
+            }
+            Awaited::Command(_) => success(id, "prompt", Some(json!({ "disposition": "handled" }))),
         };
-        observe(state);
         if let Ok(mut state) = state.lock() {
             state
-                .compactions
-                .retain(|pending| pending.task != compacting.task);
+                .waiting
+                .retain(|pending| pending.serial != waiting.serial);
         }
-        let live = crate::extensions::live();
-        let manual = CompactionReason::Manual;
-        let id = compacting.id.as_ref();
-        output.line(&match outcome {
-            Ended::Done(result) => success(id, "compact", Some(result)),
-            Ended::Failed(message) => {
-                if message != CANCELLED
-                    && let Some(live) = live
-                {
-                    live.compaction_failed(manual, Some(format!("Compaction failed: {message}")));
-                }
-                failure(id, "compact", message)
-            }
-            Ended::Aborted => {
-                if let Some(live) = live {
-                    live.compaction_failed(manual, None);
-                }
-                failure(id, "compact", CANCELLED)
-            }
-        });
+        output.line(&response);
     }
 }
 
@@ -408,7 +450,8 @@ struct State {
     auto_retry: bool,
     seen: std::sync::mpsc::Sender<Vec<AgentEvent>>,
     observed: std::sync::mpsc::Receiver<Vec<AgentEvent>>,
-    compactions: Vec<Compacting>,
+    waiting: Vec<Waiting>,
+    serial: u64,
     ended: Vec<TaskId>,
 }
 
@@ -439,12 +482,17 @@ impl State {
             AgentEvent::CompactionStart { .. } => self.compacting += 1,
             AgentEvent::CompactionEnd { task_id, .. } => {
                 self.compacting = self.compacting.saturating_sub(1);
-                match self
-                    .compactions
-                    .iter_mut()
-                    .find(|compacting| compacting.task == *task_id)
-                {
-                    Some(compacting) => compacting.ended = true,
+                let waiting =
+                    self.waiting
+                        .iter_mut()
+                        .find_map(|waiting| match &mut waiting.awaited {
+                            Awaited::Compaction { task, ended, .. } if task == task_id => {
+                                Some(ended)
+                            }
+                            _ => None,
+                        });
+                match waiting {
+                    Some(ended) => *ended = true,
                     None => self.ended.push(*task_id),
                 }
             }
@@ -670,7 +718,8 @@ pub fn run(
         auto_retry: options.settings.borrow().retry_enabled(),
         seen,
         observed,
-        compactions: Vec::new(),
+        waiting: Vec::new(),
+        serial: 0,
         ended: Vec::new(),
     }));
 
@@ -762,7 +811,7 @@ pub fn run(
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
         drain_bash(&mut runs, &open.root, cancel, &output);
-        drain_compactions(&state, cancel, &output);
+        drain_waiting(&state, cancel, &output);
     }
 
     open.stream.stop();
@@ -845,11 +894,13 @@ fn replace(
     let _ = open.root.wait_for_idle(cancel);
     observe(state);
     if let Ok(mut state) = state.lock() {
-        for compacting in &mut state.compactions {
-            compacting.ended = true;
+        for waiting in &mut state.waiting {
+            if let Awaited::Compaction { ended, .. } = &mut waiting.awaited {
+                *ended = true;
+            }
         }
     }
-    drain_compactions(state, cancel, output);
+    drain_waiting(state, cancel, output);
     let live = crate::extensions::live();
     if let Some(live) = live {
         let target = match &next {
@@ -994,8 +1045,16 @@ fn handle(
             if let Some(text) = command["message"].as_str()
                 && let Some(live) = live
             {
-                if kind == "prompt" && live.run_command(text) {
-                    return Some(success(id, kind, Some(json!({ "disposition": "handled" }))));
+                if kind == "prompt" && live.command_named(text).is_some() {
+                    let typed = text.to_owned();
+                    let done = Arc::new(AtomicBool::new(false));
+                    let finished = Arc::clone(&done);
+                    std::thread::spawn(move || {
+                        live.run_command(&typed);
+                        finished.store(true, Ordering::SeqCst);
+                    });
+                    wait_on(state, id, Awaited::Command(done));
+                    return None;
                 }
                 if kind != "prompt"
                     && let Some(name) = live.command_named(text)
@@ -1399,15 +1458,12 @@ fn handle(
                 .and_then(|()| root.compact(instructions, cancel));
             match started {
                 Ok(task) => {
-                    if let Ok(mut state) = state.lock() {
-                        let ended = state.ended.contains(&task);
-                        state.compactions.push(Compacting {
-                            id: id.cloned(),
-                            root: root.clone(),
-                            task,
-                            ended,
-                        });
-                    }
+                    let awaited = Awaited::Compaction {
+                        root: root.clone(),
+                        task,
+                        ended: false,
+                    };
+                    wait_on(state, id, awaited);
                     return None;
                 }
                 Err(error) => failure(id, kind, error.to_string()),
