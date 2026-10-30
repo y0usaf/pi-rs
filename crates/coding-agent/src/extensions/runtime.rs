@@ -13,7 +13,7 @@ use pi_durable::chord::json::JsonObject;
 use pi_durable::harness::generation::Route;
 use pi_durable::harness::types::ModelRef;
 use pi_durable::tasks::{TaskOutcome, TaskState};
-use pi_durable::types::{EntryDraft, EntryQuery, ScanOrder};
+use pi_durable::types::{EntryQuery, ScanOrder};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -21,7 +21,6 @@ use super::{Live, live, lock};
 use crate::models::is_virtual;
 use crate::run_config::{level_name, parse_level};
 
-const CUSTOM_KIND: &str = "pi.custom";
 const STATE_ENTRY: &str = "pi.virtual-model-state";
 const SCAN_PAGE: usize = 256;
 
@@ -319,7 +318,7 @@ impl Live {
             for record in page
                 .items
                 .into_iter()
-                .filter(|record| record.kind == CUSTOM_KIND)
+                .filter(|record| record.kind == crate::sessions::drafts::CUSTOM_KIND)
             {
                 let Some(entry) = record
                     .data
@@ -346,17 +345,11 @@ impl Live {
         let source = lock(&self.0.session)
             .clone()
             .ok_or("no session is open to keep the router's state in")?;
-        let draft = EntryDraft {
-            kind: CUSTOM_KIND.to_owned(),
-            model: None,
-            data: Some(json!({
-                "customType": STATE_ENTRY,
-                "data": { "provider": model.provider, "modelId": model.id, "state": state },
-                "timestamp": crate::sessions::iso8601(crate::sessions::export::now_ms()),
-            })),
-            head: None,
-            edits: None,
-        };
+        let draft = crate::sessions::drafts::custom(
+            STATE_ENTRY.into(),
+            Some(json!({ "provider": model.provider, "modelId": model.id, "state": state })),
+            crate::sessions::iso8601(crate::sessions::export::now_ms()),
+        );
         let id = source.root.id();
         source
             .root

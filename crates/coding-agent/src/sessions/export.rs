@@ -207,11 +207,16 @@ fn mapped(
                 .ok_or_else(|| format!("Entry {} carries no context edit", record.id.0))?;
             entry.insert("type".into(), "context_edit".into());
             entry.insert("targetId".into(), short_id(edit.target.0).into());
+            let stored = record
+                .data
+                .as_ref()
+                .and_then(|data| data.get("replacement"));
             entry.insert(
                 "replacement".into(),
-                match &edit.action {
-                    ContextAction::Omit => Value::Null,
-                    ContextAction::Replace { messages } => match messages.first() {
+                match (&edit.action, stored) {
+                    (ContextAction::Omit, _) => Value::Null,
+                    (ContextAction::Replace { .. }, Some(stored)) => stored.clone(),
+                    (ContextAction::Replace { messages }, None) => match messages.first() {
                         Some(message) => {
                             let value = serde_json::to_value(message).map_err(|e| e.to_string())?;
                             let mut replacement = Map::new();
@@ -236,6 +241,9 @@ fn mapped(
                 if let Some(value) = data.get(key) {
                     entry.insert(key.into(), value.clone());
                 }
+            }
+            if let Some(timestamp) = data.get("timestamp").filter(|value| value.is_string()) {
+                entry.insert("timestamp".into(), timestamp.clone());
             }
         }
         kind if kind == super::drafts::CUSTOM_KIND => {

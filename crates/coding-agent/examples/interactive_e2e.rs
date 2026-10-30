@@ -8,6 +8,8 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use serde_json::{Value, json};
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 const WAIT: Duration = Duration::from_secs(20);
@@ -364,6 +366,146 @@ fn login_then_chat(bin: &Path, scratch: &Scratch) -> Result<()> {
     Ok(())
 }
 
+const IMPORTED: &str = "0197aaaa-0000-7000-8000-00000000e2e1";
+
+fn upstream_session(cwd: &Path) -> Vec<Value> {
+    let entry = |id: &str, parent: Option<&str>, at: &str, mut rest: Value| {
+        rest["id"] = json!(id);
+        rest["parentId"] = json!(parent);
+        rest["timestamp"] = json!(at);
+        rest
+    };
+    vec![
+        json!({"type": "session", "version": 3, "id": IMPORTED, "timestamp": "2025-01-02T03:04:00.000Z", "cwd": cwd}),
+        entry(
+            "a0000001",
+            None,
+            "2025-01-02T03:04:01.000Z",
+            json!({"type": "message", "message": {"role": "user", "content": [{"type": "text", "text": "first question"}], "timestamp": 1735787041000u64}}),
+        ),
+        entry(
+            "a0000002",
+            Some("a0000001"),
+            "2025-01-02T03:04:02.002Z",
+            json!({"type": "custom", "customType": "omitted"}),
+        ),
+        entry(
+            "a0000003",
+            Some("a0000002"),
+            "2025-01-02T03:04:03.003Z",
+            json!({"type": "custom", "customType": "explicit-null", "data": null}),
+        ),
+        entry(
+            "a0000004",
+            Some("a0000003"),
+            "2025-01-02T03:04:04.004Z",
+            json!({"type": "custom", "customType": "object", "data": {"n": 1, "nested": {"ok": true}}}),
+        ),
+        entry(
+            "a0000005",
+            Some("a0000004"),
+            "2025-01-02T03:04:05.005Z",
+            json!({"type": "custom_message", "customType": "note", "content": "a note", "display": true, "details": {"k": "v"}}),
+        ),
+        entry(
+            "a0000006",
+            Some("a0000005"),
+            "2025-01-02T03:04:06.006Z",
+            json!({"type": "context_edit", "targetId": "a0000005", "replacement": {"content": "an edited note"}}),
+        ),
+        entry(
+            "a0000007",
+            Some("a0000006"),
+            "2025-01-02T03:04:07.007Z",
+            json!({"type": "session_info", "name": "Imported"}),
+        ),
+    ]
+}
+
+fn custom_entries(lines: &[Value]) -> Vec<Value> {
+    lines
+        .iter()
+        .filter(|line| {
+            ["custom", "custom_message", "context_edit", "session_info"]
+                .contains(&line["type"].as_str().unwrap_or_default())
+        })
+        .filter_map(|line| {
+            let mut kept = line.as_object()?.clone();
+            kept.remove("id");
+            kept.remove("parentId");
+            if let Some(target) = kept.remove("targetId") {
+                kept.remove("timestamp");
+                let found = lines.iter().find(|line| line["id"] == target);
+                kept.insert(
+                    "target".into(),
+                    found.map_or(Value::Null, |found| found["customType"].clone()),
+                );
+            }
+            Some(Value::Object(kept))
+        })
+        .collect()
+}
+
+fn read_lines(path: &Path) -> Result<Vec<Value>> {
+    std::fs::read_to_string(path)?
+        .lines()
+        .map(|line| Ok(serde_json::from_str(line)?))
+        .collect()
+}
+
+fn export(tui: &mut Tui, path: &Path) -> Result<Vec<Value>> {
+    let shown = path.display().to_string();
+    tui.keys(&format!("/export {shown}\r"))?;
+    tui.expect(&format!("Session exported to: {shown}"), "after /export")?;
+    tui.keys("\x04")?;
+    let status = tui.exit()?;
+    if !status.success() {
+        return fail(format!(
+            "pi-rs exited {status} after Ctrl+D; screen:\n{}",
+            tui.tail()
+        ));
+    }
+    read_lines(path)
+}
+
+fn import_then_export(bin: &Path, scratch: &Scratch) -> Result<()> {
+    let source = scratch.root.join("upstream.jsonl");
+    let written = upstream_session(&scratch.root.join("cwd"));
+    let text: String = written.iter().map(|line| format!("{line}\n")).collect();
+    std::fs::write(&source, text)?;
+    let expected = custom_entries(&written);
+
+    let cwd = scratch.root.join("cwd").display().to_string();
+    let mut tui = Tui::start(&mut scratch.command(bin, &[]))?;
+    tui.expect(&cwd, "at startup")?;
+    let shown = source.display().to_string();
+    tui.keys(&format!("/import {shown}\r"))?;
+    tui.expect("Replace current session with", "after /import")?;
+    tui.keys("\r")?;
+    tui.expect(
+        &format!("Session imported from: {shown}"),
+        "after confirming",
+    )?;
+    let imported = export(&mut tui, &scratch.root.join("imported.jsonl"))?;
+    if custom_entries(&imported) != expected {
+        return fail(format!(
+            "the export after /import holds {:?}, not {expected:?}",
+            custom_entries(&imported)
+        ));
+    }
+
+    let mut tui = Tui::start(&mut scratch.command(bin, &["--session", IMPORTED]))?;
+    tui.expect(&cwd, "after reopening")?;
+    let reopened = export(&mut tui, &scratch.root.join("reopened.jsonl"))?;
+    if custom_entries(&reopened) != expected {
+        return fail(format!(
+            "the export after reopening holds {:?}, not {expected:?}",
+            custom_entries(&reopened)
+        ));
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let bin = binary()?;
     let scratch = Scratch::new()?;
@@ -371,6 +513,7 @@ fn main() -> Result<()> {
     interactive_without_model(&bin, &scratch)
         .map_err(|e| format!("interactive without a model: {e}"))?;
     login_then_chat(&bin, &scratch).map_err(|e| format!("login, then chat: {e}"))?;
+    import_then_export(&bin, &scratch).map_err(|e| format!("import, then export: {e}"))?;
     std::fs::remove_dir_all(&scratch.root)?;
     println!("interactive e2e ok");
     Ok(())

@@ -40,7 +40,16 @@ pub fn content_of(content: &Value) -> UserContent {
             .unwrap_or_else(|_| UserContent::Blocks(Vec::new())),
     }
 }
-pub fn message(draft: &Value, now: u64) -> EntryDraft {
+pub fn edited_content(message: &Message, custom: bool, content: &Value) -> Value {
+    match content {
+        Value::String(text) if custom || !matches!(message, Message::User(_)) => {
+            json!([{ "type": "text", "text": text }])
+        }
+        other => other.clone(),
+    }
+}
+
+pub fn message(draft: &Value, now: u64, timestamp: String) -> EntryDraft {
     let content = draft
         .get("content")
         .filter(|content| !content.is_null())
@@ -57,10 +66,25 @@ pub fn message(draft: &Value, now: u64) -> EntryDraft {
             data.insert(key.into(), value.clone());
         }
     }
+    data.insert("timestamp".into(), timestamp.into());
     EntryDraft {
         kind: MESSAGE_KIND.to_owned(),
         model: Some(vec![user(content_of(&content), now)]),
         data: Some(Value::Object(data)),
+        head: None,
+        edits: None,
+    }
+}
+
+pub fn custom(custom_type: Value, data: Option<Value>, timestamp: String) -> EntryDraft {
+    let mut stored = json!({ "customType": custom_type, "timestamp": timestamp });
+    if let Some(value) = data {
+        stored["data"] = value;
+    }
+    EntryDraft {
+        kind: CUSTOM_KIND.to_owned(),
+        model: None,
+        data: Some(stored),
         head: None,
         edits: None,
     }
@@ -80,7 +104,7 @@ fn replaced(
     target: EntryId,
     replacement: &Value,
     cancel: &CancelToken,
-) -> Result<Message, String> {
+) -> Result<(Message, Value), String> {
     let query = EntryQuery {
         conversation_id: root.id(),
         min_entry_id: Some(target),
@@ -90,16 +114,27 @@ fn replaced(
     let page = root
         .entries(query, 1, None, cancel)
         .map_err(|e| e.to_string())?;
-    let message = page
-        .items
-        .into_iter()
-        .next()
+    let record = page.items.into_iter().next();
+    let custom = record
+        .as_ref()
+        .is_some_and(|record| record.kind == MESSAGE_KIND);
+    let message = record
         .and_then(|record| record.model)
         .and_then(|mut messages| messages.pop())
         .ok_or_else(|| format!("entry {:08x} holds no message to replace", target.0))?;
+    let content = replacement.get("content").cloned().unwrap_or(Value::Null);
+    let edited = edited_content(&message, custom, &content);
+    let stored = match &message {
+        Message::Assistant(_) | Message::ToolResult(_) if content.is_string() => {
+            json!({ "content": edited })
+        }
+        _ => replacement.clone(),
+    };
     let mut value = serde_json::to_value(message).map_err(|e| e.to_string())?;
-    value["content"] = replacement.get("content").cloned().unwrap_or(Value::Null);
-    serde_json::from_value(value).map_err(|e| format!("the replacement does not fit: {e}"))
+    value["content"] = edited;
+    let message =
+        serde_json::from_value(value).map_err(|e| format!("the replacement does not fit: {e}"))?;
+    Ok((message, stored))
 }
 
 fn boundary(
@@ -109,23 +144,12 @@ fn boundary(
     cancel: &CancelToken,
 ) -> Result<EntryDraft, String> {
     match draft.get("type").and_then(Value::as_str) {
-        Some("custom") => {
-            let mut data = json!({
-                "customType": draft.get("customType").cloned().unwrap_or(Value::Null),
-                "timestamp": super::iso8601(now),
-            });
-            if let Some(value) = draft.get("data") {
-                data["data"] = value.clone();
-            }
-            Ok(EntryDraft {
-                kind: CUSTOM_KIND.to_owned(),
-                model: None,
-                data: Some(data),
-                head: None,
-                edits: None,
-            })
-        }
-        Some("custom_message") => Ok(message(draft, now)),
+        Some("custom") => Ok(custom(
+            draft.get("customType").cloned().unwrap_or(Value::Null),
+            draft.get("data").cloned(),
+            super::iso8601(now),
+        )),
+        Some("custom_message") => Ok(message(draft, now, super::iso8601(now))),
         Some("label") => Ok(EntryDraft {
             kind: LABEL_KIND.to_owned(),
             model: None,
@@ -139,16 +163,22 @@ fn boundary(
         }),
         Some("context_edit") => {
             let target = entry_id(draft.get("targetId"))?;
-            let action = match draft.get("replacement") {
-                None | Some(Value::Null) => ContextAction::Omit,
-                Some(replacement) => ContextAction::Replace {
-                    messages: vec![replaced(root, target, replacement, cancel)?],
-                },
+            let (action, data) = match draft.get("replacement") {
+                None | Some(Value::Null) => (ContextAction::Omit, None),
+                Some(replacement) => {
+                    let (message, stored) = replaced(root, target, replacement, cancel)?;
+                    (
+                        ContextAction::Replace {
+                            messages: vec![message],
+                        },
+                        Some(json!({ "replacement": stored })),
+                    )
+                }
             };
             Ok(EntryDraft {
                 kind: context_edit_entry().kind().to_owned(),
                 model: None,
-                data: None,
+                data,
                 head: None,
                 edits: Some(vec![ContextEdit { target, action }]),
             })

@@ -1502,7 +1502,9 @@ impl Live {
             let now = now_ms();
             let entries: Vec<_> = notes
                 .iter()
-                .map(|note| crate::sessions::drafts::message(note, now))
+                .map(|note| {
+                    crate::sessions::drafts::message(note, now, crate::sessions::iso8601(now))
+                })
                 .collect();
             let shown: Vec<Message> = entries
                 .iter()

@@ -1,7 +1,7 @@
 //! Upstream's session JSONL into a durable session (`importFromJsonl`): a new `.db` in the
 //! session directory holding the file's entries in order.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -119,6 +119,7 @@ fn write(
 ) -> DurableResult<()> {
     let mut ids: BTreeMap<String, EntryId> = BTreeMap::new();
     let mut written: BTreeMap<String, Message> = BTreeMap::new();
+    let mut customs: BTreeSet<String> = BTreeSet::new();
     let mut prompts: Vec<EntryId> = Vec::new();
     let mut model: Option<ModelRef> = None;
     let mut thinking = None;
@@ -128,12 +129,11 @@ fn write(
             .and_then(Value::as_str)
             .unwrap_or_default();
         let source = entry.get("id").and_then(Value::as_str).unwrap_or_default();
-        let time = entry
-            .get("timestamp")
-            .and_then(Value::as_str)
+        let stamp = entry.get("timestamp").and_then(Value::as_str);
+        let stamped: Option<u64> = stamp
             .and_then(from_iso8601)
-            .and_then(|time| time.try_into().ok())
-            .unwrap_or_default();
+            .and_then(|time| time.try_into().ok());
+        let time = stamped.unwrap_or_default();
         let id = match kind {
             "message" => {
                 let Some(raw) = entry.get("message") else {
@@ -241,21 +241,31 @@ fn write(
                     continue;
                 };
                 // A replacement carries only content; the target's own message supplies the rest.
+                let custom = mentioned.is_some_and(|target| customs.contains(target));
                 let action = match (
                     entry.get("replacement").and_then(|r| r.get("content")),
                     mentioned.and_then(|target| written.get(target)),
                 ) {
-                    (Some(content), Some(message)) => replace_content(message, content)
-                        .map(|message| ContextAction::Replace {
-                            messages: vec![message],
-                        })
-                        .unwrap_or(ContextAction::Omit),
+                    (Some(content), Some(message)) => replace_content(
+                        message,
+                        &super::drafts::edited_content(message, custom, content),
+                    )
+                    .map(|message| ContextAction::Replace {
+                        messages: vec![message],
+                    })
+                    .unwrap_or(ContextAction::Omit),
                     _ => ContextAction::Omit,
+                };
+                let data = match action {
+                    ContextAction::Replace { .. } => entry
+                        .get("replacement")
+                        .map(|replacement| json!({ "replacement": replacement })),
+                    ContextAction::Omit => None,
                 };
                 let draft = EntryDraft {
                     kind: context_edit_entry().kind().to_owned(),
                     model: None,
-                    data: None,
+                    data,
                     head: None,
                     edits: Some(vec![ContextEdit { target, action }]),
                 };
@@ -293,11 +303,29 @@ fn write(
                     .get("name")
                     .and_then(Value::as_str)
                     .unwrap_or_default(),
-                &entry
-                    .get("timestamp")
-                    .and_then(Value::as_str)
-                    .map_or_else(|| super::iso8601(super::export::now_ms()), str::to_owned),
+                &stamp.map_or_else(|| super::iso8601(super::export::now_ms()), str::to_owned),
             )?,
+            "custom" => {
+                let draft = super::drafts::custom(
+                    entry.get("customType").cloned().unwrap_or(Value::Null),
+                    entry.get("data").cloned(),
+                    stamp.map_or_else(|| super::iso8601(super::export::now_ms()), str::to_owned),
+                );
+                tx.append_entry(conversation, draft)?.id
+            }
+            "custom_message" => {
+                let now = stamped.unwrap_or_else(super::export::now_ms);
+                let draft = super::drafts::message(
+                    entry,
+                    now,
+                    stamp.map_or_else(|| super::iso8601(now), str::to_owned),
+                );
+                if let Some(message) = draft.model.as_ref().and_then(|model| model.first()) {
+                    written.insert(source.to_owned(), message.clone());
+                    customs.insert(source.to_owned());
+                }
+                tx.append_entry(conversation, draft)?.id
+            }
             "model_change" => {
                 model = Some(ModelRef {
                     provider: entry
