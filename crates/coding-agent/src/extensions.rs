@@ -13,8 +13,8 @@ use pi_durable::ai::registry::{Api, Origin, Providers};
 use pi_durable::ai::stream::{fail, new_output};
 use pi_durable::ai::types::{
     AssistantMessage, AssistantMessageEvent, CachePoint, CacheRetention, Context, Message, Model,
-    SimpleStreamOptions, SystemContent, SystemMessage, SystemRole, TextContent, TextType,
-    Tool as AgentTool, TranscriptContext, UserBlock, UserContent,
+    SimpleStreamOptions, StopReason, SystemContent, SystemMessage, SystemRole, TextContent,
+    TextType, Tool as AgentTool, TranscriptContext, UserBlock, UserContent,
 };
 use pi_durable::ai::utils::transcript::{get_current_system_message, normalize_context};
 use pi_durable::cancel::CancelToken;
@@ -30,9 +30,9 @@ use pi_durable::harness::types::{
     ToolExecutionMode, ToolExecutionResult, ToolExposure, ToolRegistration,
 };
 use pi_durable::ids::EntryId;
-use pi_durable::types::EntryRecord;
+use pi_durable::types::{EntryQuery, EntryRecord, ScanOrder};
 use pi_extensions::{Call, Failed, Load, Peer, Pending, ProviderInfo, ToolInfo};
-use serde::de::{DeserializeOwned, IgnoredAny};
+use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
 mod runtime;
@@ -356,6 +356,66 @@ impl Api for Routed {
         std::thread::spawn(move || live.stream(&provider, &model, request, signal.as_ref(), &sink));
         out
     }
+}
+
+fn newest(
+    root: &Conversation,
+    cancel: &CancelToken,
+    wanted: impl Fn(&EntryRecord) -> bool,
+) -> Option<EntryRecord> {
+    let query = EntryQuery {
+        conversation_id: root.id(),
+        min_entry_id: None,
+        max_entry_id: None,
+        order: Some(ScanOrder::Descending),
+    };
+    let mut cursor = None;
+    loop {
+        let page = root.entries(query.clone(), 64, cursor, cancel).ok()?;
+        if let Some(found) = page.items.into_iter().find(|entry| wanted(entry)) {
+            return Some(found);
+        }
+        cursor = Some(page.next?);
+    }
+}
+
+fn pending_messages(root: &Conversation, cancel: &CancelToken) -> Vec<Value> {
+    use pi_durable::harness::inbox::{InboxItem, InboxState, inbox_doc};
+    use pi_durable::harness::types::QueueMode;
+    let id = root.id();
+    let Ok(inbox) = root.commit(
+        |tx| pi_durable::harness::util::read_draft::<InboxState>(tx, &inbox_doc()?, id),
+        cancel,
+    ) else {
+        return Vec::new();
+    };
+    let modes = root.queue_modes();
+    let queued = |steer: bool, mode: QueueMode| -> Vec<&UserContent> {
+        let all = inbox.items.iter().filter_map(|item| match item {
+            InboxItem::Steer { content, .. } if steer => Some(content),
+            InboxItem::FollowUp { content, .. } if !steer => Some(content),
+            _ => None,
+        });
+        match mode {
+            QueueMode::All => all.collect(),
+            QueueMode::OneAtATime => all.take(1).collect(),
+        }
+    };
+    let steering = queued(true, modes.steering_mode);
+    let next = if steering.is_empty() {
+        queued(false, modes.follow_up_mode)
+    } else {
+        steering
+    };
+    next.into_iter()
+        .map(|content| {
+            let content = match content {
+                UserContent::Text(text) => json!([{ "type": "text", "text": text }]),
+                blocks => json!(blocks),
+            };
+            json!({ "role": "user", "content": content, "timestamp": now_ms() })
+        })
+        .collect()
 }
 
 fn now_ms() -> u64 {
@@ -687,6 +747,7 @@ struct Inner {
     handled: Mutex<HashSet<String>>,
     resources: Mutex<Option<Resources>>,
     run: Mutex<RunState>,
+    sequence: Mutex<()>,
     session: Mutex<Option<SessionSource>>,
     announced: Mutex<Option<EntryId>>,
     thinking: Mutex<Option<String>>,
@@ -697,10 +758,19 @@ struct Inner {
 #[derive(Default)]
 struct RunState {
     started: bool,
-    turn: Option<usize>,
+    turn: Option<Turn>,
     next: usize,
     forced: Option<String>,
     messages: Vec<Value>,
+    notes: Vec<Value>,
+    drafted: Vec<EntryId>,
+    aborted: bool,
+}
+
+#[derive(Clone, Copy)]
+struct Turn {
+    index: usize,
+    since: Option<EntryId>,
 }
 
 #[derive(Clone)]
@@ -714,7 +784,7 @@ struct SessionSource {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Started {
-    messages: Vec<IgnoredAny>,
+    messages: Vec<Value>,
     system_prompt_options: RunPrompt,
 }
 
@@ -731,6 +801,7 @@ struct Prepared {
     options: PromptInput,
     forced: Option<String>,
     selected_before: Vec<String>,
+    notes: Vec<Value>,
 }
 
 #[derive(serde::Deserialize)]
@@ -752,7 +823,7 @@ struct Transformed {
 
 #[derive(serde::Deserialize)]
 struct Boundary {
-    entries: Vec<IgnoredAny>,
+    entries: Vec<Value>,
     #[serde(rename = "continue")]
     proceed: bool,
 }
@@ -1022,6 +1093,7 @@ impl Live {
             handled: Mutex::new(HashSet::new()),
             resources: Mutex::new(None),
             run: Mutex::new(RunState::default()),
+            sequence: Mutex::new(()),
             session: Mutex::new(None),
             announced: Mutex::new(None),
             thinking: Mutex::new(None),
@@ -1185,13 +1257,14 @@ impl Live {
     }
 
     pub fn before_agent_start(&self, content: &UserContent) -> std::result::Result<(), String> {
+        let _sequence = lock(&self.0.sequence);
         if let Some(root) = self.root() {
             self.skip_announced(&root, &CancelToken::new());
         }
+        *lock(&self.0.run) = RunState::default();
         let Some(base) = self.0.sink.prompt() else {
             return Ok(());
         };
-        lock(&self.0.run).forced = None;
         let installed = |e: Error| format!("the run's system prompt was not installed: {e}");
         self.0.sink.each(Loadout::end_run).map_err(installed)?;
         let prepared = if self.handles("before_agent_start") {
@@ -1199,21 +1272,25 @@ impl Live {
         } else {
             None
         };
-        let prompt = prepared.unwrap_or_else(|| Prepared {
+        let Prepared {
+            options,
+            forced,
+            selected_before,
+            notes,
+        } = prepared.unwrap_or_else(|| Prepared {
             selected_before: base.selected_tools.clone(),
             options: base,
             forced: None,
+            notes: Vec::new(),
         });
-        lock(&self.0.run).forced = prompt.forced.clone();
+        {
+            let mut run = lock(&self.0.run);
+            run.forced = forced.clone();
+            run.notes = notes;
+        }
         self.0
             .sink
-            .each(|loadout| {
-                loadout.start_run(
-                    prompt.options.clone(),
-                    prompt.forced.clone(),
-                    &prompt.selected_before,
-                )
-            })
+            .each(|loadout| loadout.start_run(options.clone(), forced.clone(), &selected_before))
             .map_err(installed)?;
         Ok(())
     }
@@ -1245,36 +1322,65 @@ impl Live {
             force_system_prompt,
         } = started.system_prompt_options;
         options.check_sections()?;
-        if !started.messages.is_empty() {
-            self.unported("a before_agent_start handler returned a message");
-        }
         options.package_dir = base.package_dir;
         Ok(Some(Prepared {
             options,
             forced: force_system_prompt,
             selected_before: base.selected_tools,
+            notes: started.messages,
         }))
     }
 
-    fn start_run(&self) {
-        let mut run = lock(&self.0.run);
-        if run.started {
-            return;
+    fn begin_loop(&self) {
+        {
+            let mut run = lock(&self.0.run);
+            if run.started {
+                return;
+            }
+            run.started = true;
         }
-        run.started = true;
-        *lock(&self.0.sink.failed) = None;
         self.event("agent_start", json!({}));
     }
 
-    fn turn_start(&self) {
-        self.start_run();
-        let index = {
+    fn end_loop(&self) {
+        let messages = {
             let mut run = lock(&self.0.run);
-            if run.turn.is_some() {
+            if !run.started {
                 return;
             }
-            run.turn = Some(run.next);
-            run.next
+            run.started = false;
+            run.turn = None;
+            run.next = 0;
+            std::mem::take(&mut run.messages)
+        };
+        self.event("agent_end", json!({ "messages": messages }));
+    }
+
+    fn request(
+        &self,
+        api: &HookApi,
+        messages: &[Message],
+    ) -> std::result::Result<Option<Vec<Message>>, Error> {
+        let Some(root) = self.root_of(api) else {
+            return Ok(self.forced(messages));
+        };
+        let _sequence = lock(&self.0.sequence);
+        let cancel = CancelToken::new();
+        if self
+            .close_open(&root, &cancel)
+            .is_some_and(|outcome| outcome != "completed")
+        {
+            self.end_loop();
+        }
+        self.begin_loop();
+        let since = newest(&root, &cancel, |_| true).map(|entry| entry.id);
+        let (index, notes) = {
+            let mut run = lock(&self.0.run);
+            run.turn = Some(Turn {
+                index: run.next,
+                since,
+            });
+            (run.next, std::mem::take(&mut run.notes))
         };
         if index > 0 {
             for loadout in self.0.sink.loadouts() {
@@ -1285,51 +1391,144 @@ impl Live {
             "turn_start",
             json!({ "turnIndex": index, "timestamp": now_ms() }),
         );
+        let mut sent: Option<Vec<Message>> = None;
+        if !notes.is_empty() {
+            let now = now_ms();
+            let entries: Vec<_> = notes
+                .iter()
+                .map(|note| crate::sessions::drafts::message(note, now))
+                .collect();
+            let shown: Vec<Message> = entries
+                .iter()
+                .flat_map(|entry| entry.model.clone().unwrap_or_default())
+                .collect();
+            crate::sessions::drafts::append_entries(&root, entries, &cancel)
+                .map_err(Error::Invalid)?;
+            sent = Some(messages.iter().cloned().chain(shown).collect());
+        }
+        self.remember_thinking(&root);
+        self.announce(&root);
+        let sent = self.context(sent.as_deref().unwrap_or(messages))?.or(sent);
+        Ok(self.forced(sent.as_deref().unwrap_or(messages)).or(sent))
     }
 
-    fn turn_end(&self) {
-        let index = {
-            let mut run = lock(&self.0.run);
-            let Some(index) = run.turn.take() else {
-                return;
-            };
-            run.next = index + 1;
-            index
+    fn take_turn(&self) -> Option<usize> {
+        let mut run = lock(&self.0.run);
+        let turn = run.turn.take()?;
+        run.next = turn.index + 1;
+        Some(turn.index)
+    }
+
+    fn after_tools(&self, api: &HookApi, assistant: EntryId) {
+        let Some(root) = self.root_of(api) else {
+            return;
         };
-        if !self.handles("turn_end") {
-            return;
+        let _sequence = lock(&self.0.sequence);
+        self.tools_done(&root);
+        if let Some(index) = self.take_turn() {
+            self.turn_end(&root, index, assistant, &CancelToken::new());
         }
-        self.refresh_session(&CancelToken::new());
-        let Ok(answer) = self.ask("turn_end", json!({ "turnIndex": index })) else {
-            return;
+    }
+
+    fn answered(&self, api: &HookApi, assistant: EntryId) -> bool {
+        let Some(root) = self.root_of(api) else {
+            return false;
+        };
+        let _sequence = lock(&self.0.sequence);
+        let Some(index) = self.take_turn() else {
+            return false;
+        };
+        lock(&self.0.run).aborted = false;
+        self.turn_end(&root, index, assistant, &CancelToken::new())
+    }
+
+    fn close_open(&self, root: &Conversation, cancel: &CancelToken) -> Option<&'static str> {
+        let since = lock(&self.0.run).turn.map(|turn| turn.since)?;
+        let index = self.take_turn()?;
+        let assistant = newest(root, cancel, |entry| entry.kind == "pi.assistant")
+            .filter(|entry| since.is_none_or(|since| entry.id > since))?;
+        let outcome = match assistant.model.as_deref() {
+            Some([Message::Assistant(message)]) => match message.stop_reason {
+                StopReason::Aborted => "aborted",
+                StopReason::Error => "error",
+                _ => "completed",
+            },
+            _ => "completed",
+        };
+        lock(&self.0.run).aborted = outcome == "aborted";
+        self.turn_end(root, index, assistant.id, cancel);
+        Some(outcome)
+    }
+
+    fn turn_end(
+        &self,
+        root: &Conversation,
+        index: usize,
+        assistant: EntryId,
+        cancel: &CancelToken,
+    ) -> bool {
+        self.refresh_session(cancel);
+        let answer = self.ask(
+            "turn_end",
+            json!({
+                "turnIndex": index,
+                "entryId": crate::sessions::export::short_id(assistant.0),
+                "pendingMessages": pending_messages(root, cancel),
+            }),
+        );
+        let Ok(answer) = answer else {
+            return false;
         };
         let boundary = match serde_json::from_value::<Option<Boundary>>(answer) {
             Ok(Some(boundary)) => boundary,
-            Ok(None) => return,
+            Ok(None) => return false,
             Err(e) => {
                 self.0.sink.call(Call::Notify {
                     text: format!("Warning: the extension host answered turn_end with {e}"),
                     level: "warning".to_owned(),
                 });
-                return;
+                return false;
             }
         };
-        if !boundary.entries.is_empty() {
-            self.unported("a turn_end handler returned session entries");
+        if boundary.entries.is_empty() {
+            return boundary.proceed;
         }
-        if boundary.proceed {
-            self.unported("a turn_end handler asked the run to continue");
+        match crate::sessions::drafts::append(root, &boundary.entries, cancel) {
+            Ok(appended) => {
+                lock(&self.0.run).drafted.extend(appended);
+                boundary.proceed
+            }
+            Err(error) => {
+                self.0.sink.call(Call::Notify {
+                    text: format!(
+                        "Warning: the entries a turn_end handler returned were not stored: {error}"
+                    ),
+                    level: "warning".to_owned(),
+                });
+                false
+            }
         }
     }
 
     pub fn end_run(&self) {
+        let _sequence = lock(&self.0.sequence);
+        let cancel = CancelToken::new();
         self.close_round();
         if let Some(root) = self.root() {
             self.announce(&root);
+            self.close_open(&root, &cancel);
         }
-        self.turn_end();
-        let messages = std::mem::take(&mut *lock(&self.0.run)).messages;
-        self.event("agent_end", json!({ "messages": messages }));
+        self.end_loop();
+        {
+            let mut run = lock(&self.0.run);
+            *run = RunState {
+                aborted: run.aborted,
+                drafted: std::mem::take(&mut run.drafted),
+                ..RunState::default()
+            };
+        }
+        *lock(&self.0.sink.failed) = None;
+        self.end_prompt_run();
     }
 
     fn end_prompt_run(&self) {
@@ -1338,6 +1537,10 @@ impl Live {
                 .sink
                 .warn(format!("the base system prompt was not restored: {error}"));
         }
+    }
+
+    pub fn aborted(&self) -> bool {
+        lock(&self.0.run).aborted
     }
 
     fn forced(&self, messages: &[Message]) -> Option<Vec<Message>> {
@@ -1600,10 +1803,7 @@ impl Live {
             .map(str::to_owned);
         let answer = self.ask(name, payload).ok();
         match name {
-            "agent_end" => {
-                self.0.settled.store(true, Ordering::SeqCst);
-                self.end_prompt_run();
-            }
+            "agent_end" => self.0.settled.store(true, Ordering::SeqCst),
             "session_shutdown" => *lock(&self.0.session) = None,
             "session_start" => self.discover(reason.as_deref().unwrap_or_default()),
             _ => {}
@@ -1611,9 +1811,15 @@ impl Live {
         answer
     }
 
-    pub fn observe(&self, event: &AgentEvent) {
-        if let AgentEvent::RunEnd { .. } = event {
-            self.end_run();
+    pub fn observe(&self, events: &[AgentEvent]) {
+        for (at, event) in events.iter().enumerate() {
+            if matches!(event, AgentEvent::RunEnd { .. })
+                && !events[at + 1..]
+                    .iter()
+                    .any(|next| matches!(next, AgentEvent::RunStart { .. }))
+            {
+                self.end_run();
+            }
         }
     }
 
@@ -1675,6 +1881,7 @@ impl Live {
         let requested = self.clone();
         let finished = self.clone();
         let router = self.clone();
+        let responded = self.clone();
         let answered = self.clone();
         let ahead = self.clone();
         vec![
@@ -1682,16 +1889,7 @@ impl Live {
                 &GENERATION_HOOK,
                 GenerationHooks {
                     before_request: Some(Box::new(move |api: &HookApi, messages: &[Message]| {
-                        requested.turn_start();
-                        let Some(root) = requested.root_of(api) else {
-                            return Ok(requested.forced(messages));
-                        };
-                        requested.remember_thinking(&root);
-                        requested.announce(&root);
-                        let context = requested.context(messages)?;
-                        Ok(requested
-                            .forced(context.as_deref().unwrap_or(messages))
-                            .or(context))
+                        requested.request(api, messages)
                     })),
                     routes: Some(Box::new(crate::models::is_virtual)),
                     route: Some(Box::new(
@@ -1701,19 +1899,19 @@ impl Live {
                     )),
                     after_response: Some(Box::new(
                         move |_api: &HookApi, message: &AssistantMessage| {
-                            answered.responded(message);
+                            responded.responded(message);
                             Ok(())
                         },
                     )),
                     after_tools: Some(Box::new(
-                        move |api: &HookApi, _assistant: EntryId, _results: &[EntryId]| {
-                            if let Some(root) = finished.root_of(api) {
-                                finished.tools_done(&root);
-                            }
-                            finished.turn_end();
+                        move |api: &HookApi, assistant: EntryId, _results: &[EntryId]| {
+                            finished.after_tools(api, assistant);
                             Ok(())
                         },
                     )),
+                    after_answer: Some(Box::new(move |api: &HookApi, assistant: EntryId| {
+                        Ok(answered.answered(api, assistant))
+                    })),
                     on_stream: Some(Arc::new(
                         move |_api: &HookApi,
                               event: &AssistantMessageEvent,
@@ -1801,10 +1999,13 @@ impl Live {
             records
         };
         let assistant = pi_durable::entries::assistant_entry();
+        let drafted = lock(&self.0.run).drafted.clone();
         let mut inputs: Vec<EntryRecord> = records
             .into_iter()
             .filter(|record| {
-                record.kind != assistant.kind() && record.kind != crate::bash_exec::KIND
+                record.kind != assistant.kind()
+                    && record.kind != crate::bash_exec::KIND
+                    && !drafted.contains(&record.id)
             })
             .collect();
         self.in_call_order(&mut inputs);

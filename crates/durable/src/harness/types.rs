@@ -436,6 +436,7 @@ pub struct HarnessSettings {
     pub length_recovery: Option<bool>,
     pub steering_mode: Option<QueueMode>,
     pub follow_up_mode: Option<QueueMode>,
+    pub steering_first: Option<bool>,
     pub context_retention_ms: Option<u64>,
 }
 
@@ -451,6 +452,7 @@ pub struct Settings {
     pub length_recovery: bool,
     pub steering_mode: QueueMode,
     pub follow_up_mode: QueueMode,
+    pub steering_first: bool,
     pub context_retention_ms: u64,
 }
 

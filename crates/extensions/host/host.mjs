@@ -101,6 +101,7 @@ const { SessionManager } = await import(new URL("core/session-manager.js", dist)
 const { convertToLlm } = await import(new URL("core/messages.js", dist));
 const { createSourceInfo, createSyntheticSourceInfo } = await import(new URL("core/source-info.js", dist));
 const { normalizeBuildSystemPromptOptions } = await import(new URL("core/system-prompt.js", dist));
+const { estimateProjectedContextTokens } = await import(new URL("core/compaction/compaction.js", dist));
 const { killAll } = await import(new URL("core/exec.js", dist));
 const { initTheme } = await import(new URL("modes/interactive/theme/theme.js", dist));
 const { flowOf } = await import(new URL("./node_modules/@earendil-works/pi-ai/dist/providers/all.js", import.meta.url));
@@ -240,6 +241,10 @@ function absorb(request) {
 
 const WRITES = /^(append|branch|reset|new|set|create)/;
 
+function custom(item) {
+	return { ...item, display: item.display, details: item.details };
+}
+
 /** `ctx.sessionManager`: upstream's own SessionManager over the entries pi-rs last sent, refusing writes. */
 const session = (() => {
 	const view = SessionManager.inMemory(state.cwd);
@@ -256,7 +261,8 @@ const session = (() => {
 	view.isPersisted = () => typeof state.session?.file === "string";
 	view.getSessionName = () => state.session?.name ?? undefined;
 	view.refresh = () => {
-		const entries = state.session?.header ? [state.session.header, ...(state.session.entries ?? [])] : [];
+		const stored = (state.session?.entries ?? []).map((entry) => (entry.type === "custom_message" ? custom(entry) : entry));
+		const entries = state.session?.header ? [state.session.header, ...stored] : [];
 		if (entries.length > 0) load(entries);
 	};
 	return view;
@@ -757,6 +763,10 @@ async function emitEvent(request) {
 		return { payload: await runner.emitBeforeProviderRequest(payload) };
 	}
 	const event = { type: request.name, ...request.event };
+	if (event.message?.role === "custom") event.message = custom(event.message);
+	if (request.name === "agent_end") {
+		event.messages = (event.messages ?? []).map((message) => (message.role === "custom" ? custom(message) : message));
+	}
 	if ((request.name === "message_start" || request.name === "message_end") && event.message?.role === "toolResult") {
 		produced.add(event.message.toolCallId);
 	}
@@ -781,7 +791,7 @@ async function emitEvent(request) {
 		const trigger = { messageType: "user", prompt: event.prompt, images: event.images };
 		return await runner.emitBeforeAgentStart(trigger, event.systemPromptOptions);
 	}
-	if (request.name === "turn_end") return await turnEnd(event.turnIndex);
+	if (request.name === "turn_end") return await turnEnd(event);
 	if (request.name === "resources_discover") return await runner.emitResourcesDiscover(event.cwd, event.reason);
 	if (request.name === "tool_call") return await toolCall(event);
 	if (request.name === "tool_result") return await toolResult(event);
@@ -829,24 +839,51 @@ async function toolResult(event) {
 	return result;
 }
 
-function boundaryContext() {
-	const projection = session.buildSessionProjection();
-	const llmMessages = convertToLlm(projection.messages);
-	const finalRole = llmMessages.at(-1)?.role;
-	const runnable = llmMessages.some((message) => message.role !== "system") && finalRole !== "assistant";
-	return {
-		contextEntries: projection.entries,
-		contextMessages: projection.messages,
-		llmMessages,
-		pendingMessages: [],
-		canContinue: runnable || state.pending > 0,
+function applyDrafts(manager, drafts) {
+	for (const draft of drafts) {
+		switch (draft.type) {
+			case "custom":
+				manager.appendCustomEntry(draft.customType, draft.data);
+				break;
+			case "custom_message":
+				manager.appendCustomMessageEntry(draft.customType, draft.content, draft.display, draft.details);
+				break;
+			case "context_edit":
+				manager.appendContextEdit(draft.targetId, draft.replacement);
+				break;
+			case "compaction": {
+				const tokensBefore = estimateProjectedContextTokens(manager.buildSessionProjection(), manager.getBranch()).tokens;
+				manager.appendCompaction(draft.summary, draft.firstKeptEntryId, tokensBefore, draft.details, true, draft.usage);
+				break;
+			}
+		}
+	}
+}
+
+function boundaryContext(prefix, pendingMessages) {
+	return (drafts) => {
+		const header = session.getHeader();
+		if (!header) throw new Error("Session header is missing");
+		const preview = SessionManager.inMemory(state.cwd, undefined, [header, ...prefix]);
+		applyDrafts(preview, drafts);
+		const projection = preview.buildSessionProjection();
+		const llmMessages = convertToLlm(projection.messages);
+		const finalRole = llmMessages.at(-1)?.role;
+		const runnable = llmMessages.some((message) => message.role !== "system") && finalRole !== "assistant";
+		return {
+			contextEntries: projection.entries,
+			contextMessages: projection.messages,
+			llmMessages,
+			pendingMessages,
+			canContinue: runnable || pendingMessages.length > 0,
+		};
 	};
 }
 
-async function turnEnd(turnIndex) {
+async function turnEnd(request) {
 	if (!runner.hasHandlers("turn_end")) return null;
 	const branch = session.getBranch();
-	const at = branch.findLastIndex((entry) => entry.type === "message" && entry.message.role === "assistant");
+	const at = branch.findIndex((entry) => entry.id === request.entryId);
 	if (at < 0) {
 		runner.emitError({
 			extensionPath: "<boundary>",
@@ -862,19 +899,29 @@ async function turnEnd(turnIndex) {
 	}
 	const message = branch[at].message;
 	const outcome = message.stopReason === "aborted" ? "aborted" : message.stopReason === "error" ? "error" : "completed";
+	const contextOf = boundaryContext(branch.slice(0, at + 1 + results.length), request.pendingMessages ?? []);
 	const boundary = await runner.emitBoundary(
 		{
 			type: "turn_end",
-			turnIndex,
+			turnIndex: request.turnIndex,
 			message,
 			toolResults: results.map((entry) => entry.message),
 			messageEntryId: branch[at].id,
 			toolResultEntryIds: results.map((entry) => entry.id),
 			outcome,
 		},
-		boundaryContext,
+		contextOf,
 	);
-	return { entries: boundary.entries, continue: boundary.continue };
+	if (!boundary.valid) return null;
+	const proceed = boundary.continue && contextOf(boundary.entries).canContinue;
+	if (boundary.continue && !proceed) {
+		runner.emitError({
+			extensionPath: "<boundary>",
+			event: "turn_end",
+			error: "turn_end requested continuation without runnable model context",
+		});
+	}
+	return { entries: boundary.entries, continue: proceed };
 }
 
 async function runCommand(request) {

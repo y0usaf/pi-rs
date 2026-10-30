@@ -1,10 +1,12 @@
 //! `components/user-message.ts` and `components/assistant-message.ts`.
 
 use pi_durable::ai::types::{AssistantBlock, AssistantMessage, StopReason};
+use pi_tui::components::markdown::DefaultTextStyle;
 use pi_tui::components::markdown::{Markdown, MarkdownOptions};
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
 use pi_tui::tui::Component;
+use pi_tui::utils::apply_background_to_line;
 
 use super::theme;
 
@@ -53,6 +55,62 @@ impl Component for UserMessage {
     }
     fn invalidate(&mut self) {
         self.markdown.invalidate();
+    }
+}
+
+pub struct CustomMessage {
+    label: Text,
+    body: Markdown,
+    output_pad: usize,
+}
+
+impl CustomMessage {
+    pub fn new(custom_type: &str, text: &str, output_pad: usize) -> Self {
+        CustomMessage {
+            label: Text::new(
+                &theme::fg(
+                    "customMessageLabel",
+                    &theme::bold(&format!("[{custom_type}]")),
+                ),
+                0,
+                0,
+            ),
+            body: Markdown::new(
+                text,
+                0,
+                0,
+                theme::markdown(),
+                Some(DefaultTextStyle {
+                    color: Some(theme::fg_fn("customMessageText")),
+                    ..DefaultTextStyle::default()
+                }),
+                MarkdownOptions::default(),
+            ),
+            output_pad,
+        }
+    }
+}
+
+impl Component for CustomMessage {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        let inner = width.saturating_sub(self.output_pad * 2).max(1);
+        let margin = " ".repeat(self.output_pad);
+        let bg = |text: &str| theme::bg("customMessageBg", text);
+        let blank = apply_background_to_line(&" ".repeat(width), width, &bg);
+        let mut body = self.label.render(inner);
+        body.push(String::new());
+        body.extend(self.body.render(inner));
+        let mut lines = vec![String::new(), blank.clone()];
+        lines.extend(
+            body.iter()
+                .map(|line| apply_background_to_line(&format!("{margin}{line}"), width, &bg)),
+        );
+        lines.push(blank);
+        lines
+    }
+    fn invalidate(&mut self) {
+        self.label.invalidate();
+        self.body.invalidate();
     }
 }
 

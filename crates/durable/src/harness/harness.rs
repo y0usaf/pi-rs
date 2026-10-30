@@ -554,6 +554,10 @@ impl Conversation {
         ))
     }
 
+    pub fn queue_modes(&self) -> crate::harness::inbox::QueueModes {
+        queue_modes(&resolve_settings(self.inner.settings.as_ref()))
+    }
+
     pub fn compact(&self, instructions: Option<&str>, cancel: &CancelToken) -> Result<TaskId> {
         self.inner.tasks.resume();
         let id = self.id;

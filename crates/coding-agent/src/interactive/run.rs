@@ -1216,10 +1216,10 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 Incoming::Events(events) => {
                     let mut queue_changed = false;
                     let mut entries_changed = false;
+                    if let Some(live) = live {
+                        live.observe(&events);
+                    }
                     for event in &events {
-                        if let Some(live) = live {
-                            live.observe(event);
-                        }
                         if matches!(event, AgentEvent::InboxUpdate { .. }) {
                             queue_changed = true;
                         }

@@ -61,19 +61,10 @@ pub fn answer_with(
     omit: bool,
     cancel: &CancelToken,
 ) -> Result<()> {
-    let mut continuation: Option<UserContent> = None;
-    let api = HookApi {
-        conversation_id: runtime.conversation_id(),
-    };
-    runtime.hooks().each(&mut |hooks| {
-        if continuation.is_some() {
-            return Ok(());
-        }
-        if let Some(hook) = hooks.on_yield.as_ref() {
-            continuation = hook(&api, &message)?;
-        }
-        Ok(())
-    })?;
+    if answer_hooked(runtime)? {
+        return store_answer(runtime, message, omit, cancel);
+    }
+    let continuation = yielded(runtime, &message)?;
     let conversation_id = runtime.conversation_id();
     let task_id = erase(runtime.task_id());
     let modes = queue_modes(runtime.settings());
@@ -86,49 +77,186 @@ pub fn answer_with(
             if omit {
                 crate::harness::generation::omit_entry(tx, conversation_id, entry.id)?;
             }
-            let result = apply_boundary(tx, &mut boundary, Phase::Final, now)?;
-            if let Some(content) = continuation.clone()
-                && result.users.is_empty()
-                && !result.reset
-            {
-                tx.append_entry(
-                    conversation_id,
-                    EntryDraft {
-                        kind: user_entry().kind().to_owned(),
-                        model: Some(vec![Message::User(Arc::new(UserMessage {
-                            role: UserRole,
-                            content,
-                            timestamp: now,
-                        }))]),
-                        data: None,
-                        head: None,
-                        edits: None,
-                    },
-                )?;
-                let successor = create_generation(tx, conversation_id)?;
-                hand_over(&mut live, task_id, successor);
-                live.generation = None;
-                write_live(tx, conversation_id, &live)?;
-            } else {
-                end_run(
-                    tx,
-                    &mut live,
+            close_answer(
+                tx,
+                &mut boundary,
+                &mut live,
+                Closing {
                     task_id,
-                    SubmissionSettlement::Done { answer: entry.id },
-                )?;
-                if !result.users.is_empty() {
-                    start_run(tx, conversation_id, &mut live, result.users)?;
-                }
-                write_live(tx, conversation_id, &live)?;
+                    entry: entry.id,
+                    continuation: continuation.as_ref(),
+                    proceed: false,
+                    now,
+                },
+            )
+        }),
+        cancel,
+    )
+}
+
+fn yielded(runtime: Runtime<'_>, message: &AssistantMessage) -> Result<Option<UserContent>> {
+    let mut continuation: Option<UserContent> = None;
+    let api = HookApi {
+        conversation_id: runtime.conversation_id(),
+    };
+    runtime.hooks().each(&mut |hooks| {
+        if continuation.is_some() {
+            return Ok(());
+        }
+        if let Some(hook) = hooks.on_yield.as_ref() {
+            continuation = hook(&api, message)?;
+        }
+        Ok(())
+    })?;
+    Ok(continuation)
+}
+
+fn answer_hooked(runtime: Runtime<'_>) -> Result<bool> {
+    let mut hooked = false;
+    runtime.hooks().each(&mut |hooks| {
+        hooked |= hooks.after_answer.is_some();
+        Ok(())
+    })?;
+    Ok(hooked)
+}
+
+fn store_answer(
+    runtime: Runtime<'_>,
+    message: AssistantMessage,
+    omit: bool,
+    cancel: &CancelToken,
+) -> Result<()> {
+    let conversation_id = runtime.conversation_id();
+    runtime.commit(
+        Box::new(move |tx, _task| {
+            let entry = append_assistant(tx, conversation_id, &message)?;
+            if omit {
+                crate::harness::generation::omit_entry(tx, conversation_id, entry.id)?;
             }
-            Ok(Some(NextTaskState::Terminal {
-                outcome: TaskOutcome::Completed {
-                    result: GenerationResult { entry_id: entry.id },
+            crate::harness::generation::edit_live(tx, conversation_id, |live| {
+                live.generation = None
+            })?;
+            Ok(Some(NextTaskState::Running {
+                checkpoint: GenerationCheckpoint::Answered {
+                    assistant: entry.id,
                 },
             }))
         }),
         cancel,
     )
+}
+
+pub fn answered_phase(
+    task: RunningTask<super::GenerationInput, GenerationCheckpoint, GenerationResult>,
+    runtime: Runtime<'_>,
+    cancel: &CancelToken,
+) -> Result<()> {
+    let GenerationCheckpoint::Answered { assistant } = task.checkpoint().clone() else {
+        return Err(Error::Invalid(
+            "generation phase handler answered got another checkpoint".to_owned(),
+        ));
+    };
+    let stored = runtime
+        .entry(assistant, cancel)?
+        .and_then(|record| record.model)
+        .and_then(|mut messages| messages.pop());
+    let continuation = match &stored {
+        Some(Message::Assistant(message)) => yielded(runtime, message)?,
+        _ => None,
+    };
+    let api = HookApi {
+        conversation_id: runtime.conversation_id(),
+    };
+    let mut proceed = false;
+    runtime.hooks().each(&mut |hooks| {
+        if let Some(hook) = hooks.after_answer.as_ref() {
+            proceed |= hook(&api, assistant)?;
+        }
+        Ok(())
+    })?;
+    let conversation_id = runtime.conversation_id();
+    let task_id = erase(runtime.task_id());
+    let modes = queue_modes(runtime.settings());
+    let now = runtime.now();
+    runtime.commit(
+        Box::new(move |tx, _task| {
+            let mut boundary = prepare_boundary(tx, conversation_id, modes)?;
+            let mut live = read_live(tx, conversation_id)?;
+            close_answer(
+                tx,
+                &mut boundary,
+                &mut live,
+                Closing {
+                    task_id,
+                    entry: assistant,
+                    continuation: continuation.as_ref(),
+                    proceed,
+                    now,
+                },
+            )
+        }),
+        cancel,
+    )
+}
+
+struct Closing<'a> {
+    task_id: TaskId,
+    entry: EntryId,
+    continuation: Option<&'a UserContent>,
+    proceed: bool,
+    now: u64,
+}
+
+fn close_answer(
+    tx: &mut dyn crate::session::types::Tx,
+    boundary: &mut crate::harness::inbox::Boundary,
+    live: &mut crate::harness::live::LiveState,
+    closing: Closing<'_>,
+) -> Result<Option<NextTaskState<GenerationCheckpoint, GenerationResult>>> {
+    let conversation_id = boundary.conversation_id;
+    let result = apply_boundary(tx, boundary, Phase::Final, closing.now)?;
+    let idle = result.users.is_empty() && !result.reset;
+    if idle && (closing.continuation.is_some() || closing.proceed) {
+        if let Some(content) = closing.continuation {
+            tx.append_entry(
+                conversation_id,
+                EntryDraft {
+                    kind: user_entry().kind().to_owned(),
+                    model: Some(vec![Message::User(Arc::new(UserMessage {
+                        role: UserRole,
+                        content: content.clone(),
+                        timestamp: closing.now,
+                    }))]),
+                    data: None,
+                    head: None,
+                    edits: None,
+                },
+            )?;
+        }
+        let successor = create_generation(tx, conversation_id)?;
+        hand_over(live, closing.task_id, successor);
+        live.generation = None;
+    } else {
+        end_run(
+            tx,
+            live,
+            closing.task_id,
+            SubmissionSettlement::Done {
+                answer: closing.entry,
+            },
+        )?;
+        if !result.users.is_empty() {
+            start_run(tx, conversation_id, live, result.users)?;
+        }
+    }
+    write_live(tx, conversation_id, live)?;
+    Ok(Some(NextTaskState::Terminal {
+        outcome: TaskOutcome::Completed {
+            result: GenerationResult {
+                entry_id: closing.entry,
+            },
+        },
+    }))
 }
 
 pub fn start_tool_round(

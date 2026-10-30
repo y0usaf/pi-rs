@@ -174,6 +174,9 @@ pub fn resolve_settings(settings: Option<&HarnessSettings>) -> Settings {
         follow_up_mode: settings
             .and_then(|settings| settings.follow_up_mode)
             .unwrap_or(crate::harness::types::QueueMode::OneAtATime),
+        steering_first: settings
+            .and_then(|settings| settings.steering_first)
+            .unwrap_or(false),
         context_retention_ms: settings
             .and_then(|settings| settings.context_retention_ms)
             .unwrap_or(DEFAULT_CONTEXT_RETENTION_MS),

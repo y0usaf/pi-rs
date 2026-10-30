@@ -80,6 +80,9 @@ pub enum GenerationCheckpoint {
         tools: Vec<TaskId>,
         pending: Vec<String>,
     },
+    Answered {
+        assistant: EntryId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -116,6 +119,7 @@ pub type OnYieldHook = Box<
         + Sync,
 >;
 pub type AfterToolsHook = Box<dyn Fn(&HookApi, EntryId, &[EntryId]) -> Result<()> + Send + Sync>;
+pub type AfterAnswerHook = Box<dyn Fn(&HookApi, EntryId) -> Result<bool> + Send + Sync>;
 pub type PartialHook = Arc<dyn Fn(&HookApi, Option<Arc<AssistantMessage>>) + Send + Sync>;
 pub type MessageEndHook = Arc<dyn Fn(&HookApi, &Message) -> Result<Option<Message>> + Send + Sync>;
 pub type RoutesHook = Box<dyn Fn(&Model) -> bool + Send + Sync>;
@@ -139,6 +143,7 @@ pub struct GenerationHooks {
     pub after_response: Option<AfterResponseHook>,
     pub on_yield: Option<OnYieldHook>,
     pub after_tools: Option<AfterToolsHook>,
+    pub after_answer: Option<AfterAnswerHook>,
     pub on_partial: Option<PartialHook>,
     pub message_end: Option<MessageEndHook>,
     pub on_stream: Option<classify::StreamHook>,
@@ -246,6 +251,7 @@ pub fn definition() -> Generation {
     phases.insert("retry".to_owned(), Box::new(retry));
     phases.insert("poll".to_owned(), Box::new(poll));
     phases.insert("tools".to_owned(), Box::new(rounds::tools_phase));
+    phases.insert("answered".to_owned(), Box::new(rounds::answered_phase));
     HarnessTaskDefinition {
         name: GENERATION_KIND.to_owned(),
         version: GENERATION_VERSION,
@@ -338,6 +344,7 @@ pub fn queue_modes(settings: &Settings) -> QueueModes {
     QueueModes {
         steering_mode: settings.steering_mode,
         follow_up_mode: settings.follow_up_mode,
+        steering_first: settings.steering_first,
     }
 }
 

@@ -153,6 +153,22 @@ struct State {
     follow_up_mode: String,
     auto_compaction: bool,
     auto_retry: bool,
+    seen: std::sync::mpsc::Sender<Vec<AgentEvent>>,
+    observed: std::sync::mpsc::Receiver<Vec<AgentEvent>>,
+}
+
+fn observe(state: &Arc<Mutex<State>>) {
+    let Some(live) = crate::extensions::live() else {
+        return;
+    };
+    let batches: Vec<Vec<AgentEvent>> = match state.lock() {
+        Ok(state) => state.observed.try_iter().collect(),
+        Err(_) => return,
+    };
+    for events in batches {
+        live.observe(&events);
+        live.settle(live.aborted());
+    }
 }
 
 impl State {
@@ -362,6 +378,7 @@ pub fn run(
     cancel: &CancelToken,
 ) -> Result<(), String> {
     let output = Output::default();
+    let (seen, observed) = std::sync::mpsc::channel::<Vec<AgentEvent>>();
     let state = Arc::new(Mutex::new(State {
         model: options.model.clone(),
         thinking: options.thinking,
@@ -373,6 +390,8 @@ pub fn run(
         follow_up_mode: options.settings.borrow().follow_up_mode().to_owned(),
         auto_compaction: options.settings.borrow().compaction_enabled(),
         auto_retry: options.settings.borrow().retry_enabled(),
+        seen,
+        observed,
     }));
 
     // The conversation's agent starts with no model; the run's settings are the session's.
@@ -423,7 +442,9 @@ pub fn run(
     });
     let mut runs: Vec<BashRun> = Vec::new();
     loop {
-        match reading.recv_timeout(std::time::Duration::from_millis(20)) {
+        let received = reading.recv_timeout(std::time::Duration::from_millis(20));
+        observe(&state);
+        match received {
             Ok(text) => {
                 let text = text.trim_end_matches(['\n', '\r']);
                 if !text.is_empty() {
@@ -466,12 +487,15 @@ fn report() -> ErrorReport {
 fn sink(output: &Output, state: &Arc<Mutex<State>>) -> Sink {
     let printer = output.clone();
     let shared = Arc::clone(state);
+    let seen = state.lock().ok().map(|state| state.seen.clone());
     let mut mapper = json_event::Mapper::default();
     Box::new(move |events, _| {
+        if crate::extensions::live().is_some()
+            && let Some(seen) = &seen
+        {
+            let _ = seen.send(events.to_vec());
+        }
         for event in events {
-            if let Some(live) = crate::extensions::live() {
-                live.observe(event);
-            }
             if let Ok(mut state) = shared.lock() {
                 state.apply(event);
             }
@@ -577,6 +601,7 @@ fn handle(
             };
             let content = user_content(command, &options.templates);
             let starts = kind == "prompt" && !state.lock().is_ok_and(|state| state.streaming);
+            observe(state);
             if starts
                 && let Some(live) = crate::extensions::live()
                 && let Err(error) = live.before_agent_start(&content)

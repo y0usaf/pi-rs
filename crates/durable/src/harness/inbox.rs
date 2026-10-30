@@ -96,6 +96,7 @@ pub fn inbox_doc() -> Result<DocToken<InboxState>> {
 pub struct QueueModes {
     pub steering_mode: QueueMode,
     pub follow_up_mode: QueueMode,
+    pub steering_first: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +105,7 @@ pub struct Boundary {
     pub inbox: InboxState,
     pub steering_mode: QueueMode,
     pub follow_up_mode: QueueMode,
+    pub steering_first: bool,
     pub head: Option<EntryId>,
 }
 
@@ -134,6 +136,7 @@ pub fn prepare_boundary(
         inbox,
         steering_mode: modes.steering_mode,
         follow_up_mode: modes.follow_up_mode,
+        steering_first: modes.steering_first,
         head,
     })
 }
@@ -157,8 +160,9 @@ pub fn apply_boundary(
         .filter(|(_, item)| matches!(item, InboxItem::Write { .. }))
         .map(|(index, _)| index)
         .collect();
+    let follows = final_phase && !(boundary.steering_first && !steer.is_empty());
     let mut users = steer;
-    if final_phase {
+    if follows {
         users.extend(follow);
     }
     users.sort_unstable();

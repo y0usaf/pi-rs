@@ -1,5 +1,6 @@
 //! Upstream's session files: the JSONL `/export` writes and the JSONL `/import` reads.
 
+pub mod drafts;
 pub mod export;
 pub mod import;
 

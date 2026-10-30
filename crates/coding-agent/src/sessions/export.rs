@@ -189,6 +189,29 @@ fn mapped(
                 },
             );
         }
+        kind if kind == super::drafts::MESSAGE_KIND => {
+            let data = record
+                .data
+                .as_ref()
+                .ok_or_else(|| format!("Entry {} carries no custom message", record.id.0))?;
+            entry.insert("type".into(), "custom_message".into());
+            for key in ["customType", "content", "display", "details"] {
+                if let Some(value) = data.get(key) {
+                    entry.insert(key.into(), value.clone());
+                }
+            }
+        }
+        kind if kind == super::drafts::CUSTOM_KIND => {
+            let data = record.data.clone().unwrap_or(Value::Null);
+            entry.insert("type".into(), "custom".into());
+            entry.insert(
+                "customType".into(),
+                data.get("customType").cloned().unwrap_or(Value::Null),
+            );
+            if let Some(value) = data.get("data").filter(|value| !value.is_null()) {
+                entry.insert("data".into(), value.clone());
+            }
+        }
         kind if kind == crate::bash_exec::KIND => {
             let data = record
                 .data
@@ -251,12 +274,24 @@ pub fn run_messages(records: &[EntryRecord], thinking: &str) -> Result<Vec<Value
         let Some(mut entry) = mapped(record, &timestamp, thinking)? else {
             continue;
         };
-        let Some(message) = entry.remove("message") else {
-            continue;
+        let message = match entry.get("type").and_then(Value::as_str) {
+            Some("message") => entry.remove("message").unwrap_or(Value::Null),
+            Some("custom_message") => {
+                let mut message = Map::new();
+                message.insert("role".into(), "custom".into());
+                for key in ["customType", "content", "display", "details"] {
+                    if let Some(value) = entry.remove(key) {
+                        message.insert(key.into(), value);
+                    }
+                }
+                message.insert("timestamp".into(), now_ms().into());
+                Value::Object(message)
+            }
+            _ => continue,
         };
         match message.get("role").and_then(Value::as_str) {
             Some("system") => messages.insert(messages.len() - inputs, message),
-            Some("user") => {
+            Some("user" | "custom") => {
                 inputs += 1;
                 messages.push(message);
             }
@@ -345,7 +380,7 @@ pub fn write(
     Ok(path)
 }
 
-fn short_id(id: u64) -> String {
+pub fn short_id(id: u64) -> String {
     format!("{id:08x}")
 }
 

@@ -19,7 +19,7 @@ use serde_json::Value;
 
 use super::bash_mode::BashRow;
 use super::footer::Totals;
-use super::messages::{AssistantView, UserMessage};
+use super::messages::{AssistantView, CustomMessage, UserMessage};
 use super::theme;
 use super::theme::fg;
 use super::tool_row::{ShownResult, ToolRow};
@@ -213,6 +213,35 @@ impl Chat {
         ))));
     }
 
+    fn add_custom(&mut self, entry: &EntryRecord) -> bool {
+        let Some(data) = entry.data.as_ref() else {
+            return false;
+        };
+        if data.get("display").and_then(Value::as_bool) != Some(true) {
+            return false;
+        }
+        let label = data
+            .get("customType")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let text = match data.get("content") {
+            Some(Value::String(text)) => text.clone(),
+            Some(Value::Array(blocks)) => blocks
+                .iter()
+                .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|block| block.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            _ => String::new(),
+        };
+        self.add(Rc::new(RefCell::new(CustomMessage::new(
+            label,
+            &text,
+            self.output_pad,
+        ))));
+        true
+    }
+
     fn row(
         &mut self,
         id: &str,
@@ -330,6 +359,10 @@ impl Chat {
         self.status_line = None;
         self.streaming = None;
         for entry in &snapshot.entries {
+            if entry.kind == crate::sessions::drafts::MESSAGE_KIND {
+                self.add_custom(entry);
+                continue;
+            }
             if entry.kind == crate::bash_exec::KIND {
                 if let Some(data) = &entry.data
                     && let Some(row) = BashRow::from_entry(data, self.output_pad, self.expanded)
@@ -430,18 +463,9 @@ impl Chat {
                 self.working = false;
                 self.status = None;
             }
-            AgentEvent::MessageStart { message } => match message {
-                Message::User(u) => {
-                    let text = user_text(&u.content);
-                    if let Some(at) = self.bash_texts.iter().position(|drawn| *drawn == text) {
-                        self.bash_texts.remove(at);
-                        return false;
-                    }
-                    self.add_user(&u.content);
-                }
-                Message::Assistant(a) => self.start_assistant(a),
-                _ => return false,
-            },
+            AgentEvent::MessageStart {
+                message: Message::Assistant(a),
+            } => self.start_assistant(a),
             AgentEvent::MessageUpdate { usage, changes } => {
                 let Some((view, mut message)) = self.streaming.take() else {
                     return false;
@@ -455,8 +479,21 @@ impl Chat {
                 self.streaming = Some((view, message));
             }
             AgentEvent::MessageEnd { entry } => {
+                if entry.kind == crate::sessions::drafts::MESSAGE_KIND {
+                    return self.add_custom(entry);
+                }
                 for message in Self::entry_messages(entry) {
                     match message {
+                        Message::User(u) => {
+                            let text = user_text(&u.content);
+                            if let Some(at) =
+                                self.bash_texts.iter().position(|drawn| *drawn == text)
+                            {
+                                self.bash_texts.remove(at);
+                                return false;
+                            }
+                            self.add_user(&u.content);
+                        }
                         Message::Assistant(a) => self.end_assistant(a),
                         Message::ToolResult(_) => self.tool_result(message),
                         _ => {}

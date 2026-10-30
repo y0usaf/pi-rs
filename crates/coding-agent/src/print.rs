@@ -491,6 +491,7 @@ pub fn open_harness_with(
                 tool_errors: Some(ToolErrorStyle::Plain),
                 // A reply cut by the output limit is hidden and retried after compaction.
                 length_recovery: Some(true),
+                steering_first: Some(true),
                 compaction: Some(compaction),
                 ..HarnessSettings::default()
             }),
