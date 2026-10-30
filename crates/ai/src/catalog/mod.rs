@@ -1,6 +1,18 @@
+use std::sync::OnceLock;
+
+use pi_chord::json::JsonObject;
+
 use crate::types::Model;
 
 pub const GENERATED_AT_MS: i64 = include!("generated_at");
+
+pub fn typed() -> &'static [JsonObject] {
+    static TYPED: OnceLock<Vec<JsonObject>> = OnceLock::new();
+    TYPED.get_or_init(|| {
+        serde_json::from_str(include_str!("typed.json"))
+            .unwrap_or_else(|error| panic!("catalog typed.json: not an array of objects: {error}"))
+    })
+}
 
 pub fn all() -> Vec<Model> {
     let values: Vec<serde_json::Value> = serde_json::from_str(include_str!("models.json"))

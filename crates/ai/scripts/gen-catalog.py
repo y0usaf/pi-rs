@@ -62,13 +62,20 @@ def catalog(archive):
     if manifest["schemaVersion"] != SCHEMA:
         sys.exit(f"pi-ai {VERSION}: data schema {manifest['schemaVersion']}, generator reads {SCHEMA}")
     models = []
+    typed = []
     for name in sorted(manifest["files"], key=lambda name: pathlib.PurePosixPath(name).stem):
         for group in read(archive, name).values():
             models.extend(model(raw) for raw in group.values() if raw["type"] == "chat")
+            typed.extend(raw for raw in group.values() if raw["type"] != "chat")
     generated = datetime.datetime.fromisoformat(manifest["generatedAt"].replace("Z", "+00:00"))
-    return models, round(generated.timestamp() * 1000)
+    return models, typed, round(generated.timestamp() * 1000)
 
 
-models, generated_at = catalog(fetch())
-(OUT / "models.json").write_text(json.dumps(models, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
+def write(name, models, sort_keys=True):
+    (OUT / name).write_text(json.dumps(models, indent=2, sort_keys=sort_keys, ensure_ascii=False) + "\n")
+
+
+models, typed, generated_at = catalog(fetch())
+write("models.json", models)
+write("typed.json", typed, sort_keys=False)
 (OUT / "generated_at").write_text(f"{generated_at}\n")
