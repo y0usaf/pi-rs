@@ -1,0 +1,92 @@
+{
+	"name": "typesafe-system-one-0016",
+	"seed": "a9b551d28867f984",
+	"kind": "classify",
+	"api": "typesafe-system-one",
+	"provider": "opencode",
+	"model": {
+		"type": "classifier",
+		"id": "jev-1.13",
+		"name": "jev-1.13",
+		"api": "typesafe-system-one",
+		"provider": "opencode",
+		"baseUrl": "http://127.0.0.1:PORT/v1",
+		"input": [
+			"text"
+		],
+		"cost": {
+			"input": 2.75,
+			"output": 2,
+			"cacheRead": 0,
+			"cacheWrite": 0
+		},
+		"contextWindow": 128000
+	},
+	"context": {
+		"state": {
+			"text": "seven amber lamp river"
+		},
+		"questions": {
+			"q0": {
+				"type": "score",
+				"instructions": "field amber",
+				"criteria": [
+					"none",
+					"low",
+					"mid"
+				]
+			}
+		},
+		"images": [
+			{
+				"type": "image",
+				"data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+				"mimeType": "image/webp"
+			},
+			{
+				"type": "image",
+				"data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+				"mimeType": "image/jpeg"
+			},
+			{
+				"type": "image",
+				"data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+				"mimeType": "image/webp"
+			},
+			{
+				"type": "image",
+				"data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+				"mimeType": "image/jpeg"
+			},
+			{
+				"type": "image",
+				"data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+				"mimeType": "image/jpeg"
+			}
+		]
+	},
+	"options": {
+		"apiKey": "sk-e34b8113be34885f",
+		"maxRetries": 0,
+		"headers": {
+			"X-Model-Tag": null,
+			"X-Trace": "c678"
+		},
+		"identity": {
+			"userAgent": {
+				"custom": "probe/9"
+			},
+			"attribution": {
+				"name": "pi",
+				"url": "https://pi.dev",
+				"categories": [
+					"cli-agent"
+				]
+			}
+		}
+	},
+	"script": [],
+	"expect": {
+		"stopReason": "error"
+	}
+}

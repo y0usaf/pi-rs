@@ -1,0 +1,69 @@
+{
+	"name": "typesafe-system-one-0019",
+	"seed": "dced7f798b1a898e",
+	"kind": "classify",
+	"api": "typesafe-system-one",
+	"provider": "opencode",
+	"model": {
+		"type": "classifier",
+		"id": "jev-1.13",
+		"name": "jev-1.13",
+		"api": "typesafe-system-one",
+		"provider": "opencode",
+		"baseUrl": "http://127.0.0.1:PORT/v1",
+		"input": [
+			"text",
+			"image"
+		],
+		"cost": {
+			"input": 1,
+			"output": 14.75,
+			"cacheRead": 0,
+			"cacheWrite": 0
+		},
+		"contextWindow": 128000
+	},
+	"context": {
+		"state": {
+			"text": "field river lamp amber alpha amber"
+		},
+		"questions": {
+			"q0": {
+				"type": "score",
+				"instructions": "lamp amber quiet",
+				"criteria": [
+					"none",
+					"low",
+					"mid",
+					"high",
+					"max"
+				]
+			}
+		}
+	},
+	"options": {
+		"apiKey": "sk-2b7ddf530cfaac8a",
+		"maxRetries": 2,
+		"identity": {
+			"userAgent": "short",
+			"attribution": {
+				"name": "pi",
+				"url": "https://pi.dev"
+			}
+		}
+	},
+	"script": [
+		{
+			"status": 404,
+			"headers": {
+				"content-type": "application/json"
+			},
+			"chunks": [
+				"{\"error\":{\"message\":\"field cloud field quiet\",\"type\":\"invalid_request_error\"}}"
+			]
+		}
+	],
+	"expect": {
+		"stopReason": "error"
+	}
+}

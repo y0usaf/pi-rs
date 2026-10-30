@@ -85,6 +85,7 @@ function parseBody(body) {
 
 function project(message) {
 	if (!message) return null;
+	if ("answers" in message) return { stopReason: message.stopReason, answers: message.answers };
 	const content = (message.content ?? []).map((b) =>
 		b.type === "text" ? { type: "text", text: b.text } : b.type === "thinking" ? { type: "thinking", thinking: b.thinking } : { type: b.type, id: b.id, name: b.name, arguments: b.arguments },
 	);

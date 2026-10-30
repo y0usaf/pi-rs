@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use pi_ai::classify::{ClassifierModel, ClassifierOptions, classify};
 use pi_ai::cost::calculate_cost;
 use pi_ai::error_body::truncate_error_text;
 use pi_ai::json_parse::{parse_json_with_repair, parse_streaming_json};
@@ -59,14 +60,28 @@ fn options(value: &Value) -> Result<SimpleStreamOptions> {
     })
 }
 
-fn case(providers: &Providers, scenario: &Value, port: u64) -> Result<(Vec<Value>, Value)> {
+fn model_at(scenario: &Value, port: u64) -> Value {
     let mut model = scenario["model"].clone();
     let base = model["baseUrl"]
         .as_str()
         .unwrap_or_default()
         .replace("PORT", &port.to_string());
     model["baseUrl"] = Value::String(base);
-    let model: Model = parse(&model, "model")?;
+    model
+}
+
+fn classify_case(scenario: &Value, port: u64) -> Result<(Vec<Value>, Value)> {
+    let model: ClassifierModel = parse(&model_at(scenario, port), "model")?;
+    let options = ClassifierOptions::from_json(&scenario["options"]);
+    let result = classify(&model, &scenario["context"], &options);
+    Ok((Vec::new(), value(result)?))
+}
+
+fn case(providers: &Providers, scenario: &Value, port: u64) -> Result<(Vec<Value>, Value)> {
+    if scenario["kind"] == "classify" {
+        return classify_case(scenario, port);
+    }
+    let model: Model = parse(&model_at(scenario, port), "model")?;
     let context: Context = parse(&scenario["context"], "context")?;
     let stream = providers.stream_simple(
         &model,

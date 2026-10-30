@@ -539,11 +539,167 @@ function scenario(api, index) {
 	return { name, seed: seed.toString(16).padStart(16, "0"), api, provider: model.provider, model, context: ctx, options: opts, script, expect };
 }
 
+const CLASSIFIERS = {
+	"typesafe-system-one": { providers: ["typesafe", "typesafe", "openrouter", "opencode", "vercel-ai-gateway"], ids: ["jev-latest", "jev-1.13", "~typesafe/jev-latest"], path: "/v1" },
+};
+const LEVELS = ["none", "low", "mid", "high", "max"];
+const IMAGE_TYPES = ["image/png", "image/png", "image/jpeg", "image/webp", "image/gif"];
+const IMAGE_INPUTS = { assets: ["image/png", "image/jpeg"], images: ["image/png", "image/jpeg", "image/webp"] };
+
+function question(r, type) {
+	const instructions = text(r, r.pick(UNICODE.slice(0, 4)), r.range(2, 6));
+	if (type === "choice") return { type, instructions, criteria: Object.fromEntries(r.sample(WORDS.ascii, r.range(2, 4)).map((key) => [key, text(r, "ascii", r.range(1, 3))])) };
+	if (type === "score") return { type, instructions, criteria: LEVELS.slice(0, r.range(2, 5)) };
+	return { type, instructions, criteria: { true: text(r, "ascii", 2), false: text(r, "ascii", 2) } };
+}
+function wireAnswer(r, q) {
+	const extra = r.maybe(0.2, () => ({ explanation: text(r, "ascii", 3) }));
+	const confidence = r.range(0, 100) / 100;
+	if (q.type === "choice") {
+		const keys = Object.keys(q.criteria);
+		return { type: "choice", choice: r.pick(keys), probabilities: Object.fromEntries(keys.map((key) => [key, r.range(0, 100) / 100])), confidence, ...extra };
+	}
+	if (q.type === "score") return { type: "score", score: r.range(1, q.criteria.length), confidence, ...extra };
+	return { type: "noul", noul: r.range(0, 100) / 100, ...extra };
+}
+function publicAnswer(a) {
+	if (a.type === "choice") return { type: "choice", choice: a.choice, probabilities: a.probabilities, confidence: a.confidence };
+	if (a.type === "score") return { type: "score", score: a.score, confidence: a.confidence };
+	return { type: "bool", probability: a.noul };
+}
+function wireUsage(r) {
+	switch (r.int(6)) {
+		case 0:
+			return undefined;
+		case 1:
+			return { input_tokens: r.range(1, 900) };
+		case 2:
+			return { input_tokens: r.range(0, 900), output_tokens: r.range(0, 50) };
+		case 3:
+			return { input_tokens: String(r.range(1, 9)), output_tokens: -r.range(1, 9) };
+		case 4:
+			return { input_tokens: r.range(1, 900) + 0.5, output_tokens: r.range(1, 50) + 0.25 };
+		default:
+			return { input_tokens: r.range(1, 900), output_tokens: r.range(1, 50), total_tokens: r.range(1, 999) };
+	}
+}
+function faulty(r, body, questions) {
+	const id = r.pick(Object.keys(questions));
+	const answer = body.answers[id];
+	switch (r.pick(["missing", "type", "number", "probabilities", "body", "answers"])) {
+		case "missing":
+			delete body.answers[id];
+			return body;
+		case "type":
+			answer.type = r.pick(["choice", "score", "noul", "bool"].filter((type) => type !== answer.type));
+			return body;
+		case "number": {
+			const field = answer.type === "noul" ? "noul" : r.pick(answer.type === "score" ? ["score", "confidence"] : ["confidence"]);
+			answer[field] = r.pick(["0.5", null, true]);
+			return body;
+		}
+		case "probabilities":
+			if (answer.type === "choice") {
+				answer.probabilities = r.pick(["high", [0.5], { [answer.choice]: "x" }]);
+				return body;
+			}
+			delete body.answers[id];
+			return body;
+		case "body":
+			return r.pick([[], null, "answers", 5]);
+		default:
+			if (r.chance(0.5)) delete body.answers;
+			else body.answers = r.pick([null, [], "x"]);
+			return body;
+	}
+}
+const RETRY_HEADERS = [{ "retry-after-ms": "1" }, { "retry-after-ms": "5" }, { "retry-after": "0" }, { "x-should-retry": "false" }, { "retry-after": "120" }, { "retry-after-ms": "90000" }, { "retry-after": "Thu, 01 Jan 1970 00:00:00 GMT" }, { "retry-after-ms": "2e1" }];
+function classifierError(r) {
+	const status = r.pick([400, 401, 403, 404, 408, 422, 429, 500, 502, 503]);
+	const message = text(r, "ascii", r.range(2, 6));
+	const form = r.int(4);
+	const headers = { "content-type": form === 1 ? "text/plain" : "application/json" };
+	if (status === 408 || status === 429 || status >= 500) Object.assign(headers, r.pick(RETRY_HEADERS));
+	else if (r.chance(0.2)) Object.assign(headers, { "x-should-retry": "true", "retry-after-ms": "1" });
+	const chunks = form === 0 ? [] : form === 1 ? [message] : [JSON.stringify({ error: { message, type: "invalid_request_error" } })];
+	const flag = headers["x-should-retry"];
+	const retryable = flag === "true" || (flag !== "false" && (status === 408 || status === 429 || status >= 500));
+	const seconds = Number.parseFloat(headers["retry-after"]);
+	const delay = headers["retry-after-ms"] !== undefined ? Number.parseFloat(headers["retry-after-ms"]) : headers["retry-after"] === undefined ? 0 : Number.isNaN(seconds) ? Date.parse(headers["retry-after"]) - Date.parse("2000-01-01T00:00:00Z") : seconds * 1000;
+	return { reply: { status, headers, chunks }, retries: retryable && delay <= 60000 };
+}
+
+function classifierScenario(api, index) {
+	const name = api + "-" + String(index).padStart(4, "0");
+	const seed = splitmix64(fnv1a64(name))();
+	const r = rng(seed);
+	const spec = CLASSIFIERS[api];
+	const id = r.pick(spec.ids);
+	const model = {
+		type: "classifier",
+		id,
+		name: id,
+		api,
+		provider: r.pick(spec.providers),
+		baseUrl: "http://127.0.0.1:PORT" + spec.path,
+		input: r.chance(0.6) ? ["text", "image"] : ["text"],
+		cost: { input: r.range(0, 30) / 4, output: r.range(0, 60) / 4, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: r.pick([32000, 64000, 128000]),
+	};
+	if (r.chance(0.2)) model.headers = { "X-Model-Tag": r.hex(8) };
+	if (r.chance(0.3)) model.compat = Object.fromEntries(Object.entries({ imageInput: r.maybe(0.7, () => r.pick(["assets", "images", "state-image-urls"])), sendImageOptInHeader: r.maybe(0.5, () => r.chance(0.5)) }).filter(([, v]) => v !== undefined));
+	const questions = Object.fromEntries(Array.from({ length: r.range(1, 4) }, (_, i) => ["q" + i, question(r, r.pick(["choice", "score", "bool"]))]));
+	const state = { text: text(r, r.pick(UNICODE.slice(0, 4)), r.range(1, 8)), ...r.maybe(0.5, () => ({ turn: r.range(0, 40), tags: r.sample(WORDS.ascii, r.range(0, 3)) })) };
+	const context = { state, questions };
+	if (r.chance(0.3)) context.images = Array.from({ length: r.range(1, 5) }, () => ({ type: "image", data: PNG, mimeType: r.pick(IMAGE_TYPES) }));
+	const options = {};
+	if (r.chance(0.93)) options.apiKey = "sk-" + r.hex(16);
+	const maxRetries = r.pick([0, 1, 2, undefined]);
+	if (maxRetries !== undefined) options.maxRetries = maxRetries;
+	if (r.chance(0.2)) options.timeoutMs = 30000;
+	if (r.chance(0.3)) options.headers = r.pick([{ "X-Trace": r.hex(8) }, { "TypeSafe-Danger-Zone-Images": null }, { "X-Model-Tag": null, "X-Trace": r.hex(4) }]);
+	if (r.chance(0.4)) {
+		options.identity = { userAgent: r.pick(["short", { custom: "probe/" + r.range(1, 9) }]) };
+		if (r.chance(0.5)) options.identity.attribution = { name: "pi", url: "https://pi.dev", ...r.maybe(0.5, () => ({ categories: ["cli-agent"] })) };
+	}
+	const imageInput = model.compat?.imageInput ?? (model.provider === "openrouter" ? "state-image-urls" : "assets");
+	const accepts = IMAGE_INPUTS[imageInput];
+	const rejected =
+		context.images !== undefined &&
+		(!model.input.includes("image") || (imageInput === "images" && context.images.length > 4) || (accepts !== undefined && context.images.some((image) => !accepts.includes(image.mimeType))));
+	const script = [];
+	let expect = { stopReason: "error" };
+	if (!rejected && options.apiKey) {
+		const budget = maxRetries ?? 2;
+		for (let attempt = 0; ; attempt++) {
+			if (r.chance(0.55)) {
+				const wire = Object.fromEntries(Object.entries(questions).map(([key, q]) => [key, wireAnswer(r, q)]));
+				let body = { answers: wire, ...r.maybe(0.8, () => ({ usage: wireUsage(r) })) };
+				if (body.usage === undefined) delete body.usage;
+				if (r.chance(0.25)) body = faulty(r, body, questions);
+				else expect = { stopReason: "stop", answers: Object.fromEntries(Object.entries(wire).map(([key, a]) => [key, publicAnswer(a)])) };
+				script.push({ status: 200, headers: { "content-type": "application/json" }, chunks: [JSON.stringify(body)] });
+				break;
+			}
+			const { reply, retries } = classifierError(r);
+			script.push(reply);
+			if (!retries || attempt >= budget) break;
+		}
+	}
+	return { name, seed: seed.toString(16).padStart(16, "0"), kind: "classify", api, provider: model.provider, model, context, options, script, expect };
+}
+
 mkdirSync(outDir, { recursive: true });
 for (const file of readdirSync(outDir).filter((f) => f.endsWith(".json"))) rmSync(join(outDir, file));
 for (const api of Object.keys(MODELS)) {
 	for (let i = 0; i < COUNT; i++) {
 		const s = scenario(api, i);
+		writeFileSync(join(outDir, s.name + ".json"), JSON.stringify(s, null, "\t") + "\n");
+	}
+}
+for (const api of Object.keys(CLASSIFIERS)) {
+	for (let i = 0; i < COUNT; i++) {
+		const s = classifierScenario(api, i);
 		writeFileSync(join(outDir, s.name + ".json"), JSON.stringify(s, null, "\t") + "\n");
 	}
 }

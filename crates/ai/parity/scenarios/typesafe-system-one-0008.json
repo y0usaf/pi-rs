@@ -1,0 +1,87 @@
+{
+	"name": "typesafe-system-one-0008",
+	"seed": "7052a4bbe066efd5",
+	"kind": "classify",
+	"api": "typesafe-system-one",
+	"provider": "typesafe",
+	"model": {
+		"type": "classifier",
+		"id": "~typesafe/jev-latest",
+		"name": "~typesafe/jev-latest",
+		"api": "typesafe-system-one",
+		"provider": "typesafe",
+		"baseUrl": "http://127.0.0.1:PORT/v1",
+		"input": [
+			"text"
+		],
+		"cost": {
+			"input": 5.5,
+			"output": 11.75,
+			"cacheRead": 0,
+			"cacheWrite": 0
+		},
+		"contextWindow": 128000,
+		"compat": {
+			"imageInput": "assets"
+		}
+	},
+	"context": {
+		"state": {
+			"text": "stone field"
+		},
+		"questions": {
+			"q0": {
+				"type": "bool",
+				"instructions": "漢字 alpha",
+				"criteria": {
+					"true": "field field",
+					"false": "river seven"
+				}
+			},
+			"q1": {
+				"type": "choice",
+				"instructions": "漢字 héllo",
+				"criteria": {
+					"cloud": "river",
+					"alpha": "amber amber quiet"
+				}
+			},
+			"q2": {
+				"type": "bool",
+				"instructions": "field stone quiet cloud field river",
+				"criteria": {
+					"true": "field amber",
+					"false": "seven lamp"
+				}
+			},
+			"q3": {
+				"type": "score",
+				"instructions": "river quiet field seven lamp stone",
+				"criteria": [
+					"none",
+					"low",
+					"mid"
+				]
+			}
+		}
+	},
+	"options": {
+		"apiKey": "sk-c5ff03c79e81655d",
+		"maxRetries": 1
+	},
+	"script": [
+		{
+			"status": 503,
+			"headers": {
+				"content-type": "application/json",
+				"x-should-retry": "false"
+			},
+			"chunks": [
+				"{\"error\":{\"message\":\"stone quiet stone north quiet\",\"type\":\"invalid_request_error\"}}"
+			]
+		}
+	],
+	"expect": {
+		"stopReason": "error"
+	}
+}

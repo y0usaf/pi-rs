@@ -1,0 +1,81 @@
+{
+	"name": "typesafe-system-one-0000",
+	"seed": "96cf25973b22f5f9",
+	"kind": "classify",
+	"api": "typesafe-system-one",
+	"provider": "opencode",
+	"model": {
+		"type": "classifier",
+		"id": "~typesafe/jev-latest",
+		"name": "~typesafe/jev-latest",
+		"api": "typesafe-system-one",
+		"provider": "opencode",
+		"baseUrl": "http://127.0.0.1:PORT/v1",
+		"input": [
+			"text",
+			"image"
+		],
+		"cost": {
+			"input": 4.5,
+			"output": 7,
+			"cacheRead": 0,
+			"cacheWrite": 0
+		},
+		"contextWindow": 32000
+	},
+	"context": {
+		"state": {
+			"text": "héllo river café 漢字 seven"
+		},
+		"questions": {
+			"q0": {
+				"type": "bool",
+				"instructions": "field north river",
+				"criteria": {
+					"true": "cloud quiet",
+					"false": "amber field"
+				}
+			},
+			"q1": {
+				"type": "score",
+				"instructions": "Grüße amber seven",
+				"criteria": [
+					"none",
+					"low",
+					"mid",
+					"high",
+					"max"
+				]
+			}
+		}
+	},
+	"options": {
+		"apiKey": "sk-dcc6a68be60520ed",
+		"timeoutMs": 30000
+	},
+	"script": [
+		{
+			"status": 200,
+			"headers": {
+				"content-type": "application/json"
+			},
+			"chunks": [
+				"{\"answers\":{\"q0\":{\"type\":\"noul\",\"noul\":0.53,\"explanation\":\"lamp amber river\"},\"q1\":{\"type\":\"score\",\"score\":4,\"confidence\":0.53}},\"usage\":{\"input_tokens\":\"6\",\"output_tokens\":-1}}"
+			]
+		}
+	],
+	"expect": {
+		"stopReason": "stop",
+		"answers": {
+			"q0": {
+				"type": "bool",
+				"probability": 0.53
+			},
+			"q1": {
+				"type": "score",
+				"score": 4,
+				"confidence": 0.53
+			}
+		}
+	}
+}

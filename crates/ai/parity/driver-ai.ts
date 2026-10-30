@@ -15,9 +15,14 @@ async function e1(dir: string, ports: Record<string, number>) {
 		let message: unknown = null;
 		let error: string | null = null;
 		try {
-			const stream = streamSimple(model, scenario.context, scenario.options);
-			for await (const event of stream) events.push(snapshot(event));
-			message = snapshot(await stream.result());
+			if (scenario.kind === "classify") {
+				const { classify } = await import(new URL(`api/${scenario.api}.ts`, src).href);
+				message = snapshot(await classify(model, scenario.context, scenario.options));
+			} else {
+				const stream = streamSimple(model, scenario.context, scenario.options);
+				for await (const event of stream) events.push(snapshot(event));
+				message = snapshot(await stream.result());
+			}
 		} catch (thrown) {
 			error = thrown instanceof Error ? thrown.message : String(thrown);
 		}

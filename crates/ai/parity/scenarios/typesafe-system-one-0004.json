@@ -1,0 +1,86 @@
+{
+	"name": "typesafe-system-one-0004",
+	"seed": "89932fbe1f20381d",
+	"kind": "classify",
+	"api": "typesafe-system-one",
+	"provider": "typesafe",
+	"model": {
+		"type": "classifier",
+		"id": "~typesafe/jev-latest",
+		"name": "~typesafe/jev-latest",
+		"api": "typesafe-system-one",
+		"provider": "typesafe",
+		"baseUrl": "http://127.0.0.1:PORT/v1",
+		"input": [
+			"text"
+		],
+		"cost": {
+			"input": 4.75,
+			"output": 11.75,
+			"cacheRead": 0,
+			"cacheWrite": 0
+		},
+		"contextWindow": 32000
+	},
+	"context": {
+		"state": {
+			"text": "amber café seven stone"
+		},
+		"questions": {
+			"q0": {
+				"type": "bool",
+				"instructions": "quiet north stone north north",
+				"criteria": {
+					"true": "alpha amber",
+					"false": "quiet field"
+				}
+			},
+			"q1": {
+				"type": "bool",
+				"instructions": "👩‍💻 seven",
+				"criteria": {
+					"true": "cloud alpha",
+					"false": "quiet north"
+				}
+			},
+			"q2": {
+				"type": "score",
+				"instructions": "field field",
+				"criteria": [
+					"none",
+					"low",
+					"mid",
+					"high"
+				]
+			}
+		}
+	},
+	"options": {
+		"apiKey": "sk-bf907e93924e5cc4",
+		"maxRetries": 2,
+		"identity": {
+			"userAgent": "short",
+			"attribution": {
+				"name": "pi",
+				"url": "https://pi.dev",
+				"categories": [
+					"cli-agent"
+				]
+			}
+		}
+	},
+	"script": [
+		{
+			"status": 200,
+			"headers": {
+				"content-type": "application/json"
+			},
+			"chunks": [
+				"{\"answers\":{\"q0\":{\"type\":\"noul\",\"noul\":0.93},\"q1\":{\"type\":\"noul\",\"noul\":0.27,\"explanation\":\"amber amber stone\"}},\"usage\":{\"input_tokens\":\"7\",\"output_tokens\":-9}}"
+			]
+		}
+	],
+	"expect": {
+		"stopReason": "error"
+	}
+}

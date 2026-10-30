@@ -1,4 +1,6 @@
 pub mod auth;
+#[cfg(feature = "http")]
+pub mod classify;
 pub mod cost;
 pub mod error_body;
 pub mod event_stream;

@@ -1,0 +1,96 @@
+{
+	"name": "typesafe-system-one-0001",
+	"seed": "5fca1f659df7e408",
+	"kind": "classify",
+	"api": "typesafe-system-one",
+	"provider": "openrouter",
+	"model": {
+		"type": "classifier",
+		"id": "jev-1.13",
+		"name": "jev-1.13",
+		"api": "typesafe-system-one",
+		"provider": "openrouter",
+		"baseUrl": "http://127.0.0.1:PORT/v1",
+		"input": [
+			"text",
+			"image"
+		],
+		"cost": {
+			"input": 3.75,
+			"output": 1,
+			"cacheRead": 0,
+			"cacheWrite": 0
+		},
+		"contextWindow": 32000
+	},
+	"context": {
+		"state": {
+			"text": "naïve stone Привет cloud river stone seven north",
+			"turn": 32,
+			"tags": [
+				"cloud",
+				"field"
+			]
+		},
+		"questions": {
+			"q0": {
+				"type": "choice",
+				"instructions": "stone alpha quiet alpha",
+				"criteria": {
+					"amber": "amber",
+					"river": "alpha seven"
+				}
+			},
+			"q1": {
+				"type": "score",
+				"instructions": "amber stone field",
+				"criteria": [
+					"none",
+					"low",
+					"mid",
+					"high"
+				]
+			},
+			"q2": {
+				"type": "bool",
+				"instructions": "river field Ωmega cloud",
+				"criteria": {
+					"true": "stone river",
+					"false": "river cloud"
+				}
+			},
+			"q3": {
+				"type": "choice",
+				"instructions": "cloud lamp amber cloud",
+				"criteria": {
+					"alpha": "river stone stone",
+					"river": "cloud lamp",
+					"lamp": "cloud quiet"
+				}
+			}
+		}
+	},
+	"options": {
+		"apiKey": "sk-494b8911c83f2319",
+		"identity": {
+			"userAgent": {
+				"custom": "probe/2"
+			}
+		}
+	},
+	"script": [
+		{
+			"status": 503,
+			"headers": {
+				"content-type": "text/plain",
+				"retry-after": "120"
+			},
+			"chunks": [
+				"stone lamp stone amber"
+			]
+		}
+	],
+	"expect": {
+		"stopReason": "error"
+	}
+}

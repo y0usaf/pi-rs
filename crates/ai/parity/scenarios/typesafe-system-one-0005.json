@@ -1,0 +1,90 @@
+{
+	"name": "typesafe-system-one-0005",
+	"seed": "2bd7905358d5600d",
+	"kind": "classify",
+	"api": "typesafe-system-one",
+	"provider": "openrouter",
+	"model": {
+		"type": "classifier",
+		"id": "jev-1.13",
+		"name": "jev-1.13",
+		"api": "typesafe-system-one",
+		"provider": "openrouter",
+		"baseUrl": "http://127.0.0.1:PORT/v1",
+		"input": [
+			"text",
+			"image"
+		],
+		"cost": {
+			"input": 6.25,
+			"output": 0.25,
+			"cacheRead": 0,
+			"cacheWrite": 0
+		},
+		"contextWindow": 32000
+	},
+	"context": {
+		"state": {
+			"text": "north Привет",
+			"turn": 0,
+			"tags": []
+		},
+		"questions": {
+			"q0": {
+				"type": "bool",
+				"instructions": "field river 🦀 🦀 cloud alpha",
+				"criteria": {
+					"true": "north amber",
+					"false": "lamp lamp"
+				}
+			},
+			"q1": {
+				"type": "bool",
+				"instructions": "quiet cloud stone 👩‍💻",
+				"criteria": {
+					"true": "alpha stone",
+					"false": "stone alpha"
+				}
+			},
+			"q2": {
+				"type": "score",
+				"instructions": "north quiet seven cloud",
+				"criteria": [
+					"none",
+					"low",
+					"mid",
+					"high",
+					"max"
+				]
+			},
+			"q3": {
+				"type": "score",
+				"instructions": "lamp river river amber",
+				"criteria": [
+					"none",
+					"low",
+					"mid",
+					"high"
+				]
+			}
+		}
+	},
+	"options": {
+		"apiKey": "sk-581207a974ed2c2c",
+		"maxRetries": 0
+	},
+	"script": [
+		{
+			"status": 401,
+			"headers": {
+				"content-type": "application/json"
+			},
+			"chunks": [
+				"{\"error\":{\"message\":\"field quiet amber field field cloud\",\"type\":\"invalid_request_error\"}}"
+			]
+		}
+	],
+	"expect": {
+		"stopReason": "error"
+	}
+}

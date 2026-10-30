@@ -1,0 +1,86 @@
+{
+	"name": "typesafe-system-one-0002",
+	"seed": "e29f3ffc025a6f48",
+	"kind": "classify",
+	"api": "typesafe-system-one",
+	"provider": "openrouter",
+	"model": {
+		"type": "classifier",
+		"id": "jev-latest",
+		"name": "jev-latest",
+		"api": "typesafe-system-one",
+		"provider": "openrouter",
+		"baseUrl": "http://127.0.0.1:PORT/v1",
+		"input": [
+			"text",
+			"image"
+		],
+		"cost": {
+			"input": 1,
+			"output": 9.5,
+			"cacheRead": 0,
+			"cacheWrite": 0
+		},
+		"contextWindow": 128000,
+		"compat": {
+			"imageInput": "images"
+		}
+	},
+	"context": {
+		"state": {
+			"text": "north stone seven seven",
+			"turn": 25,
+			"tags": [
+				"quiet"
+			]
+		},
+		"questions": {
+			"q0": {
+				"type": "choice",
+				"instructions": "amber quiet field quiet field cloud",
+				"criteria": {
+					"stone": "river seven",
+					"river": "stone",
+					"field": "stone river alpha"
+				}
+			},
+			"q1": {
+				"type": "score",
+				"instructions": "north amber alpha quiet quiet",
+				"criteria": [
+					"none",
+					"low",
+					"mid",
+					"high",
+					"max"
+				]
+			},
+			"q2": {
+				"type": "bool",
+				"instructions": "café lamp amber Ωmega",
+				"criteria": {
+					"true": "stone seven",
+					"false": "field lamp"
+				}
+			}
+		}
+	},
+	"options": {
+		"apiKey": "sk-a617abbfa548ec04",
+		"maxRetries": 0
+	},
+	"script": [
+		{
+			"status": 401,
+			"headers": {
+				"content-type": "application/json"
+			},
+			"chunks": [
+				"{\"error\":{\"message\":\"field seven cloud\",\"type\":\"invalid_request_error\"}}"
+			]
+		}
+	],
+	"expect": {
+		"stopReason": "error"
+	}
+}

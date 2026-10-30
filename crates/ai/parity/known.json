@@ -65,5 +65,7 @@
 	"google-vertex:requests[].body.contents[].parts[].inlineData": "Rust user_parts never checks model.input and sends images to non-vision models (src/ai/api/google/request.rs:90-101); TS transformMessages swaps in a text placeholder (transform-messages.ts:12)",
 	"google-vertex:requests[].body.contents[].parts[].text": "Rust user_parts never checks model.input and sends images to non-vision models (src/ai/api/google/request.rs:90-101); TS transformMessages swaps in a text placeholder (transform-messages.ts:12)",
 	"google-vertex:message.errorMessage": "Rust prefixes `google-vertex API error (<status>): ` (src/ai/api/google/mod.rs:149-160); TS returns the SDK ApiError message, the raw JSON error body (error-body.ts:128-132)",
-	"google-vertex-0015:message.stopReason": "Rust serde_json rejects a lone UTF-16 surrogate escape in a text part and fails the stream (src/ai/api/google/stream.rs:66-67); V8 JSON.parse accepts it"
+	"google-vertex-0015:message.stopReason": "Rust serde_json rejects a lone UTF-16 surrogate escape in a text part and fails the stream (src/ai/api/google/stream.rs:66-67); V8 JSON.parse accepts it",
+	"typesafe-system-one:requests[].headers.accept": "undici fetch adds Accept: */* to a request that sets none (classifier-shared.ts:42-55 sets none); Rust http.rs sends no Accept, which HTTP reads the same way",
+	"typesafe-system-one:requests[].headers.user-agent": "Rust sends http.rs:487-491 pi-durable/<version> when the identity sets no userAgent; TS getIdentityHeaders defaults to the detailed pi/<version> (<platform>; node/<version>; <arch>) (utils/identity.ts:75-83, 141)"
 }

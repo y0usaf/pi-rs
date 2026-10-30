@@ -1,0 +1,96 @@
+{
+	"name": "typesafe-system-one-0009",
+	"seed": "a2c908ade7bd184c",
+	"kind": "classify",
+	"api": "typesafe-system-one",
+	"provider": "typesafe",
+	"model": {
+		"type": "classifier",
+		"id": "jev-1.13",
+		"name": "jev-1.13",
+		"api": "typesafe-system-one",
+		"provider": "typesafe",
+		"baseUrl": "http://127.0.0.1:PORT/v1",
+		"input": [
+			"text",
+			"image"
+		],
+		"cost": {
+			"input": 7.5,
+			"output": 10.75,
+			"cacheRead": 0,
+			"cacheWrite": 0
+		},
+		"contextWindow": 64000,
+		"compat": {
+			"imageInput": "assets",
+			"sendImageOptInHeader": false
+		}
+	},
+	"context": {
+		"state": {
+			"text": "lamp lamp quiet amber cloud lamp",
+			"turn": 30,
+			"tags": [
+				"seven",
+				"cloud",
+				"river"
+			]
+		},
+		"questions": {
+			"q0": {
+				"type": "score",
+				"instructions": "cloud river north quiet cloud",
+				"criteria": [
+					"none",
+					"low"
+				]
+			},
+			"q1": {
+				"type": "choice",
+				"instructions": "seven stone amber quiet quiet amber",
+				"criteria": {
+					"quiet": "lamp north",
+					"amber": "cloud",
+					"river": "cloud amber cloud",
+					"north": "north alpha stone"
+				}
+			},
+			"q2": {
+				"type": "choice",
+				"instructions": "seven alpha Ωmega quiet river field",
+				"criteria": {
+					"lamp": "quiet cloud",
+					"stone": "north amber",
+					"cloud": "river",
+					"seven": "cloud"
+				}
+			}
+		}
+	},
+	"options": {
+		"apiKey": "sk-6df0071813b14ffc",
+		"maxRetries": 0,
+		"identity": {
+			"userAgent": "short",
+			"attribution": {
+				"name": "pi",
+				"url": "https://pi.dev"
+			}
+		}
+	},
+	"script": [
+		{
+			"status": 200,
+			"headers": {
+				"content-type": "application/json"
+			},
+			"chunks": [
+				"{\"answers\":{\"q1\":{\"type\":\"choice\",\"choice\":\"amber\",\"probabilities\":{\"quiet\":0.69,\"amber\":0.36,\"river\":0.67,\"north\":0.78},\"confidence\":0.99,\"explanation\":\"seven alpha field\"},\"q2\":{\"type\":\"choice\",\"choice\":\"cloud\",\"probabilities\":{\"lamp\":0.68,\"stone\":0.34,\"cloud\":0.12,\"seven\":0.81},\"confidence\":0.07}},\"usage\":{\"input_tokens\":801,\"output_tokens\":19,\"total_tokens\":464}}"
+			]
+		}
+	],
+	"expect": {
+		"stopReason": "error"
+	}
+}
