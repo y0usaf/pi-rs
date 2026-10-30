@@ -137,12 +137,15 @@ function host(path: string, fn: Fn, self: unknown): Fn {
 		const id = next++;
 		const name = label(path, args);
 		write({ id, kind: "call", path: name, args: plain(args) });
-		return settle(id, () =>
+		const result = settle(id, () =>
 			fn.apply(
 				self,
 				args.map((arg, index) => inbound(`${name}#${index}`, arg)),
 			),
 		);
+		return result instanceof Promise
+			? result.then((value) => outbound(`${name}#return`, value))
+			: outbound(`${name}#return`, result);
 	};
 }
 
