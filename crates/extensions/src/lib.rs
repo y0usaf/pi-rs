@@ -9,7 +9,7 @@ mod host;
 
 use std::time::Duration;
 
-pub use host::{Call, Ctx, Failed, Host, Peer, Pending};
+pub use host::{Call, Ctx, Failed, Host, Peer, Pending, Sources};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -92,6 +92,7 @@ pub struct OAuthInfo {
 
 /// What one load produced: upstream's `LoadExtensionsResult`, minus warnings.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Load {
     pub extensions: Vec<Loaded>,
     pub errors: Vec<LoadError>,
@@ -99,4 +100,6 @@ pub struct Load {
     pub tools: Vec<ToolInfo>,
     #[serde(default)]
     pub providers: Vec<ProviderInfo>,
+    #[serde(default)]
+    pub flag_errors: Vec<String>,
 }

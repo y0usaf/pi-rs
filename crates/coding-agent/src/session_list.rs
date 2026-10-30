@@ -157,7 +157,7 @@ pub fn rename(path: &str, name: &str) -> Result<(), String> {
     let harness = crate::print::open_harness(
         storage,
         pi_durable::ai::registry::Providers::builtin(),
-        crate::print::extension(&[], Vec::new(), settings),
+        crate::print::extension(&Default::default(), None, settings),
         Default::default(),
     )
     .map_err(|e| e.to_string())?;

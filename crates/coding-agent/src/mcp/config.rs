@@ -15,8 +15,6 @@ pub const LIST_MCP_RESOURCES_TOOL: &str = "list_mcp_resources";
 pub const LIST_MCP_RESOURCE_TEMPLATES_TOOL: &str = "list_mcp_resource_templates";
 pub const READ_MCP_RESOURCE_TOOL: &str = "read_mcp_resource";
 
-/// How a server's tools reach the model. `codemode` and `deferred` leave them out of the model's
-/// tool declarations; this port has neither tool, so only `direct` tools are declared.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Exposure {
     Codemode,

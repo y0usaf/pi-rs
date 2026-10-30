@@ -955,12 +955,3 @@ pub fn set_inline_budget(budget: f64) {
         .lock()
         .unwrap_or_else(|error| error.into_inner()) = Some(budget);
 }
-
-/// The tools the model's request declares: with `only`, codemode alone, since direct tools are
-/// hidden declarations. The prompt's tool list is built from this, as upstream's is.
-pub fn declared_tools(tools: &[String], mode: Mode) -> Vec<String> {
-    if mode == Mode::Only && tools.iter().any(|tool| tool == TOOL_NAME) {
-        return vec![TOOL_NAME.to_owned()];
-    }
-    tools.to_vec()
-}

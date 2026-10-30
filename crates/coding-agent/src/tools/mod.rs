@@ -102,8 +102,16 @@ fn json_schema_sampling() -> Option<Value> {
     Some(serde_json::json!({ "type": "json_schema", "strict": "prefer" }))
 }
 
-/// Upstream's `allToolNames` minus `powershell` (Windows only).
-pub const ALL_TOOL_NAMES: [&str; 7] = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+pub const ALL_TOOL_NAMES: [&str; 8] = [
+    "read",
+    "bash",
+    "powershell",
+    "edit",
+    "write",
+    "grep",
+    "find",
+    "ls",
+];
 
 /// The tools on when none are named: `read`, `bash`, `edit`, `write`.
 pub const DEFAULT_TOOL_NAMES: [&str; 4] = ["read", "bash", "edit", "write"];
@@ -115,6 +123,7 @@ pub fn spec(name: &str) -> Option<ToolSpec> {
         "write" => Some(write::spec()),
         "edit" => Some(edit::spec()),
         "bash" => Some(bash::spec()),
+        "powershell" => Some(bash::powershell_spec()),
 
         "grep" => Some(grep::spec()),
         "find" => Some(find::spec()),

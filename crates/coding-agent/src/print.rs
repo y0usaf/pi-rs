@@ -16,15 +16,16 @@ use pi_durable::harness::harness::{Conversation, Harness};
 use pi_durable::harness::registry::Registry;
 use pi_durable::harness::submissions::{SubmissionDraft, WhenBusy};
 use pi_durable::harness::types::{
-    CompactionOverrides, Extension, HarnessOptions, HarnessSettings, ModelRef, OutputLimitsSpec,
-    PrepareArguments, PromptInput, PromptSection, Render, RootOptions, ToolErrorStyle, ToolExecute,
-    ToolExecutionResult, ToolRegistration,
+    CompactionOverrides, HarnessOptions, HarnessSettings, ModelRef, OutputLimitsSpec,
+    PrepareArguments, RootOptions, ToolErrorStyle, ToolExecute, ToolExecutionResult,
+    ToolRegistration,
 };
 use pi_durable::types::{EntryQuery, ScanOrder};
 use serde_json::Value;
 
 use pi_extensions::Call;
 
+use crate::loadout::{Entry, Loadout, Parts, Source, ToolSelection};
 use crate::models::ModelRegistry;
 use crate::tools::{self, ToolContext, ToolSpec};
 
@@ -106,96 +107,49 @@ fn registration(spec: ToolSpec, settings: Arc<ToolSettings>) -> ToolRegistration
     }
 }
 
-fn fixed_section(key: &str, text: String) -> PromptSection {
-    let render: Render =
-        Arc::new(move |_: &PromptInput<'_>, _: &CancelToken| Ok(Some(text.clone())));
-    PromptSection {
-        key: key.to_owned(),
-        render,
-        tag: Some(false),
-    }
-}
-
-/// The run's extension: the active tools, in order, and the system prompt's sections, already
-/// wrapped in their tags as `buildSystemPromptSections` makes them.
 pub fn extension(
-    tool_names: &[String],
-    sections: Vec<(String, String)>,
+    selection: &ToolSelection,
+    prompt: Option<crate::system_prompt::PromptInput>,
     settings: ToolSettings,
-) -> Loadout {
-    extension_with(tool_names, sections, settings, Vec::new())
+) -> Arc<Loadout> {
+    extension_with(selection, prompt, settings, Vec::new())
 }
 
-/// The built-in tools and the ones other parts add (MCP's servers'), in that order.
 pub fn extension_with(
-    tool_names: &[String],
-    sections: Vec<(String, String)>,
+    selection: &ToolSelection,
+    prompt: Option<crate::system_prompt::PromptInput>,
     settings: ToolSettings,
     extra: Vec<ToolRegistration>,
-) -> Loadout {
+) -> Arc<Loadout> {
     let settings = Arc::new(settings);
-    let mut registrations: Vec<ToolRegistration> = tool_names
+    let builtins = tools::ALL_TOOL_NAMES
         .iter()
-        .filter_map(|name| match name.as_str() {
-            crate::codemode::TOOL_NAME => {
-                Some(crate::codemode::registration(crate::codemode::description()))
-            }
-            _ => tools::spec(name).map(|spec| registration(spec, Arc::clone(&settings))),
+        .filter_map(|name| tools::spec(name))
+        .map(|spec| {
+            let snippet = spec.prompt.snippet;
+            let guidelines: Vec<String> = spec
+                .prompt
+                .guidelines
+                .iter()
+                .map(|g| g.to_string())
+                .collect();
+            Entry::new(registration(spec, Arc::clone(&settings)), Source::Builtin)
+                .with_prompt(Some(snippet), &guidelines)
         })
         .collect();
-    let builtin = registrations.len();
-    registrations.extend(extra);
     crate::codemode::set_inline_budget(settings.codemode_inline_budget);
-    let mode = crate::codemode::Mode::parse(&settings.codemode_mode);
-    if let Some(live) = crate::extensions::live() {
-        let mut loaded = registrations.clone();
-        crate::codemode::apply_loadout(&mut loaded, mode);
-        let (builtin, mcp) = loaded.split_at(builtin);
-        live.set_tools(builtin, mcp);
-    }
-    Loadout {
-        extension: Extension {
-            name: "pi-coding-agent".to_owned(),
-            tools: registrations,
-            sections: sections
-                .into_iter()
-                .map(|(key, text)| fixed_section(&key, text))
-                .collect(),
-            wraps: Vec::new(),
-            hooks: crate::extensions::live()
-                .map(|live| vec![live.hooks()])
-                .unwrap_or_default(),
-            tasks: Vec::new(),
-        },
-        mode,
-    }
-}
-
-pub struct Loadout {
-    extension: Extension,
-    mode: crate::codemode::Mode,
-}
-
-impl Loadout {
-    pub fn with(
-        &self,
-        added: &[ToolRegistration],
-        sections: Option<&[(String, String)]>,
-    ) -> Extension {
-        let mut extension = self.extension.clone();
-        extension
-            .tools
-            .retain(|tool| !added.iter().any(|new| new.tool.name == tool.tool.name));
-        extension.tools.extend(added.iter().cloned());
-        if let Some(sections) = sections {
-            extension.sections = sections
-                .iter()
-                .map(|(key, text)| fixed_section(key, text.clone()))
-                .collect();
-        }
-        crate::codemode::apply_loadout(&mut extension.tools, self.mode);
-        extension
-    }
+    let live = crate::extensions::live();
+    Loadout::new(Parts {
+        builtins,
+        mcp: extra,
+        extension: live
+            .map(|live| live.extension_entries())
+            .unwrap_or_default(),
+        selection: selection.clone(),
+        mode: crate::codemode::Mode::parse(&settings.codemode_mode),
+        hooks: live.map(|live| vec![live.hooks()]).unwrap_or_default(),
+        prompt,
+    })
 }
 
 /// The models the harness can call: the composed catalog plus the chosen model (a custom id
@@ -384,12 +338,11 @@ pub fn run_turns(
             },
             _ => content,
         };
-        if let Some(live) = live {
-            if let Err(error) = live.before_agent_start(&content) {
-                eprintln!("{error}");
-                continue;
-            }
-            live.start_run();
+        if let Some(live) = live
+            && let Err(error) = live.before_agent_start(&content)
+        {
+            eprintln!("{error}");
+            continue;
         }
         conversation.submit(
             SubmissionDraft::Input {
@@ -494,7 +447,7 @@ static CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 pub fn open_harness(
     storage: Arc<dyn pi_durable::types::Storage>,
     providers: Providers,
-    extension: Loadout,
+    extension: Arc<Loadout>,
     compaction: CompactionOverrides,
 ) -> Result<Harness, Error> {
     open_harness_with(
@@ -515,15 +468,15 @@ pub fn open_harness(
 pub fn open_harness_with(
     storage: Arc<dyn pi_durable::types::Storage>,
     providers: Providers,
-    extension: Loadout,
+    extension: Arc<Loadout>,
     compaction: CompactionOverrides,
     report: pi_durable::harness::types::ErrorReport,
 ) -> Result<Harness, Error> {
     let mounted = crate::mount::open(providers);
     let registry = Arc::new(Registry::default());
     match crate::extensions::live() {
-        Some(live) => live.attach(&registry, extension)?,
-        None => registry.install(extension.with(&[], None))?,
+        Some(live) => live.attach(&registry, &extension)?,
+        None => extension.attach(&registry)?,
     }
     for extension in mounted.extensions {
         registry.install(extension)?;

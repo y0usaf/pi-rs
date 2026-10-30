@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
 import path from "node:path";
-import readline from "node:readline";
+import { MessageChannel, Worker, receiveMessageOnPort } from "node:worker_threads";
 
 const protocol = process.stdout.write.bind(process.stdout);
 process.stdout.write = (chunk, encoding, callback) => process.stderr.write(chunk, encoding, callback);
@@ -30,6 +30,61 @@ function effect(call) {
 	send(call);
 }
 
+const READER = `
+const { parentPort, workerData } = require("node:worker_threads");
+const { openSync, readSync } = require("node:fs");
+const { StringDecoder } = require("node:string_decoder");
+const blocked = new Int32Array(workerData.blocked);
+const decoder = new StringDecoder("utf8");
+const chunk = Buffer.alloc(65536);
+function answerOf(line) {
+	try {
+		const message = JSON.parse(line);
+		return "update" in message ? undefined : message.answer;
+	} catch {
+		return undefined;
+	}
+}
+const input = openSync("/proc/self/fd/0", "r");
+let pending = "";
+try {
+	for (let read; (read = readSync(input, chunk)) > 0; ) {
+		pending += decoder.write(chunk.subarray(0, read));
+		for (let end; (end = pending.indexOf("\\n")) >= 0; ) {
+			const line = pending.slice(0, end);
+			pending = pending.slice(end + 1);
+			const id = Atomics.load(blocked, 0);
+			if (id !== 0 && answerOf(line) === id) {
+				workerData.port.postMessage(line);
+				Atomics.store(blocked, 0, 0);
+				Atomics.notify(blocked, 0);
+			} else {
+				parentPort.postMessage(line);
+			}
+		}
+	}
+} finally {
+	Atomics.store(blocked, 0, 0);
+	Atomics.notify(blocked, 0);
+}
+parentPort.postMessage(null);
+`;
+
+const blocked = new Int32Array(new SharedArrayBuffer(4));
+const { port1: answered, port2: answering } = new MessageChannel();
+
+function askNow(call, args) {
+	const callId = nextCallId++;
+	Atomics.store(blocked, 0, callId);
+	send({ ...args, call, callId, request: current.getStore()?.id });
+	while (Atomics.load(blocked, 0) === callId) Atomics.wait(blocked, 0, callId);
+	const received = receiveMessageOnPort(answered);
+	if (!received) throw new Error(`pi-rs did not answer ${call}`);
+	const reply = JSON.parse(received.message);
+	if (reply.ok !== true) throw new Error(reply.error ?? "the call failed");
+	return reply.value;
+}
+
 /** A member of upstream's API pi-rs does not back yet: reported to pi-rs, and thrown to the caller. */
 function unported(member) {
 	effect({ call: "unsupported", member });
@@ -44,6 +99,8 @@ const { ExtensionRunner } = await import(new URL("core/extensions/runner.js", di
 const { createEventBus } = await import(new URL("core/event-bus.js", dist));
 const { SessionManager } = await import(new URL("core/session-manager.js", dist));
 const { convertToLlm } = await import(new URL("core/messages.js", dist));
+const { createSourceInfo, createSyntheticSourceInfo } = await import(new URL("core/source-info.js", dist));
+const { normalizeBuildSystemPromptOptions } = await import(new URL("core/system-prompt.js", dist));
 const { killAll } = await import(new URL("core/exec.js", dist));
 const { initTheme } = await import(new URL("modes/interactive/theme/theme.js", dist));
 const { flowOf } = await import(new URL("./node_modules/@earendil-works/pi-ai/dist/providers/all.js", import.meta.url));
@@ -153,7 +210,8 @@ const state = {
 	pending: 0,
 	session: undefined,
 	models: { current: undefined, list: [], configured: [] },
-	tools: { active: [], all: [] },
+	tools: { active: [], all: [], known: [] },
+	prompt: undefined,
 };
 
 let runner;
@@ -297,6 +355,121 @@ function activated(definition) {
 	return definition.defaultActive !== false;
 }
 
+const DISCOVERY_GLOBALS = /\b(searchTools|describeNamespace|describeTool|ALL_TOOLS)\b/;
+
+const REACHES = {
+	"builtin:codemode": (input) =>
+		typeof input?.code !== "string" ? [] : DISCOVERY_GLOBALS.test(input.code) ? "all" : (input.code.match(/\w+/g) ?? []),
+	"builtin:tool-search": () => "all",
+};
+
+function bundledSource(path) {
+	return { path, source: "builtin", scope: "temporary", origin: "top-level" };
+}
+
+function viewInfo(view) {
+	const source = view.source;
+	const info = {
+		name: view.name,
+		description: view.description,
+		parameters: view.parameters,
+		promptGuidelines: view.promptGuidelines ?? undefined,
+		exposure: view.exposure,
+	};
+	if (source.kind === "bundled" && REACHES[source.path]) info.reachesTools = REACHES[source.path];
+	if (source.kind === "builtin") info.sourceInfo = createSyntheticSourceInfo(`builtin:${view.name}`, { source: "builtin" });
+	else if (source.kind === "bundled") info.sourceInfo = bundledSource(source.path);
+	else info.sourceInfo = bundledSource("builtin:mcp");
+	return info;
+}
+
+function registeredInfo({ definition, sourceInfo }) {
+	return {
+		name: definition.name,
+		description: definition.description,
+		parameters: definition.parameters,
+		promptGuidelines: definition.promptGuidelines,
+		exposure: definition.exposure ?? "direct",
+		...(definition.namespace ? { namespace: definition.namespace } : {}),
+		...(definition.annotations ? { annotations: { ...definition.annotations } } : {}),
+		...(definition.reachesTools ? { reachesTools: definition.reachesTools } : {}),
+		sourceInfo,
+	};
+}
+
+function pendingTools() {
+	const known = new Set(state.tools.known ?? []);
+	return (runner?.getAllRegisteredTools() ?? []).filter(({ definition }) => !known.has(definition.name));
+}
+
+function allTools() {
+	const registered = new Map((runner?.getAllRegisteredTools() ?? []).map((tool) => [tool.definition.name, tool]));
+	const all = (state.tools.all ?? []).map((view) =>
+		view.source.kind === "extension" && registered.has(view.name)
+			? registeredInfo(registered.get(view.name))
+			: viewInfo(view),
+	);
+	for (const tool of pendingTools()) {
+		const info = registeredInfo(tool);
+		const index = all.findIndex((existing) => existing.name === info.name);
+		if (index >= 0) all[index] = info;
+		else all.push(info);
+	}
+	return all;
+}
+
+function activeTools() {
+	const active = [...(state.tools.active ?? [])];
+	for (const { definition } of pendingTools()) {
+		if (activated(definition) && !active.includes(definition.name)) active.push(definition.name);
+	}
+	return active;
+}
+
+function setActiveTools(names) {
+	Object.assign(state, askNow("activeTools", { names: [...names] }));
+}
+
+function applyCliSources(extensions, cli, cwd) {
+	const roots = (cli ?? []).map((entry) => path.resolve(cwd, entry));
+	for (const extension of extensions) {
+		const resolved = path.resolve(extension.path);
+		if (!roots.some((root) => resolved === root || resolved.startsWith(`${root}${path.sep}`))) continue;
+		extension.sourceInfo = createSourceInfo(extension.path, { source: "cli", scope: "temporary", origin: "top-level" });
+		for (const command of extension.commands.values()) command.sourceInfo = extension.sourceInfo;
+		for (const tool of extension.tools.values()) tool.sourceInfo = extension.sourceInfo;
+	}
+}
+
+function applyFlags(result, flags) {
+	const types = new Map();
+	for (const extension of result.extensions) {
+		for (const [name, flag] of extension.flags) types.set(name, flag.type);
+	}
+	const errors = [];
+	const unknown = [];
+	for (const [name, value] of flags ?? []) {
+		const type = types.get(name);
+		if (!type) {
+			unknown.push(name);
+			continue;
+		}
+		if (type === "boolean") {
+			result.runtime.flagValues.set(name, true);
+			continue;
+		}
+		if (typeof value === "string") {
+			result.runtime.flagValues.set(name, value);
+			continue;
+		}
+		errors.push(`Extension flag "--${name}" requires a value`);
+	}
+	if (unknown.length > 0) {
+		errors.push(`Unknown option${unknown.length === 1 ? "" : "s"}: ${unknown.map((name) => `--${name}`).join(", ")}`);
+	}
+	return errors;
+}
+
 function registerProvider(provider, extensionPath = "") {
 	if (typeof provider?.id !== "string" || provider.id.length === 0) {
 		throw new Error(`Provider registered by extension "${extensionPath}" must have a non-empty string id.`);
@@ -322,29 +495,10 @@ const actions = {
 	setSessionName: thrower("pi.setSessionName"),
 	getSessionName: () => state.session?.name ?? undefined,
 	setLabel: thrower("pi.setLabel"),
-	getActiveTools: () => {
-		const active = new Set(state.tools.active);
-		for (const { definition } of runner.getAllRegisteredTools()) if (activated(definition)) active.add(definition.name);
-		return [...active];
-	},
-	getAllTools: () => {
-		const all = state.tools.all.map((tool) => ({ ...tool }));
-		for (const { definition, sourceInfo } of runner.getAllRegisteredTools()) {
-			const info = {
-				name: definition.name,
-				description: definition.description ?? "",
-				parameters: definition.parameters,
-				exposure: definition.exposure ?? "direct",
-				sourceInfo,
-			};
-			const index = all.findIndex((existing) => existing.name === definition.name);
-			if (index >= 0) all[index] = info;
-			else all.push(info);
-		}
-		return all;
-	},
+	getActiveTools: activeTools,
+	getAllTools: allTools,
 	getSettings: thrower("pi.getSettings"),
-	setActiveTools: thrower("pi.setActiveTools"),
+	setActiveTools,
 	refreshTools: () => effect({ call: "tools", tools: toolInfos() }),
 	getCommands: thrower("pi.getCommands"),
 	setModel: rejecter("pi.setModel"),
@@ -433,8 +587,12 @@ const contextActions = {
 			}
 		})();
 	},
-	getSystemPrompt: thrower("ctx.getSystemPrompt"),
-	getSystemPromptOptions: thrower("ctx.getSystemPromptOptions"),
+	getSystemPrompt: () => state.prompt?.text ?? "",
+	getSystemPromptOptions: () => {
+		if (!state.prompt) return undefined;
+		state.prompt.normalized ??= normalizeBuildSystemPromptOptions(state.prompt.options);
+		return state.prompt.normalized;
+	},
 	executeTool: rejecter("ctx.executeTool"),
 	getCallableTools: thrower("ctx.tools"),
 };
@@ -525,7 +683,6 @@ function uiOf(noOp) {
 /** What an extension registered that upstream acts on in this mode and pi-rs does not yet; renderers and shortcuts only act in the TUI. */
 function unconsumed(extension, servers) {
 	const used = [];
-	if (extension.flags.size > 0) used.push("registerFlag");
 	if (servers.some((server) => server.extensionPath === extension.path)) used.push("registerMcpServer");
 	if (state.mode !== "tui") return used;
 	if (extension.shortcuts.size > 0) used.push("registerShortcut");
@@ -559,6 +716,7 @@ async function load(request) {
 	const hadVirtualModels = virtualModels.size > 0;
 	virtualModels.clear();
 	const result = await loadExtensions(resolvePaths(request), state.cwd, createEventBus());
+	applyCliSources(result.extensions, request.cli, request.cwd ?? state.cwd);
 	registrants.clear();
 	for (const { name, extensionPath } of result.runtime.pendingProviderRegistrations) registrants.set(name, extensionPath);
 	for (const { provider, extensionPath } of result.runtime.pendingNativeProviderRegistrations) {
@@ -578,6 +736,7 @@ async function load(request) {
 		errors: result.errors,
 		tools: toolInfos(),
 		providers: providerInfos(),
+		flagErrors: applyFlags(result, request.flags),
 	};
 }
 
@@ -601,6 +760,7 @@ async function emitEvent(request) {
 		return await runner.emitBeforeAgentStart(trigger, event.systemPromptOptions);
 	}
 	if (request.name === "turn_end") return await turnEnd(event.turnIndex);
+	if (request.name === "resources_discover") return await runner.emitResourcesDiscover(event.cwd, event.reason);
 	await runner.emit(event);
 	return null;
 }
@@ -731,8 +891,7 @@ async function handle(request) {
 	}
 }
 
-const input = readline.createInterface({ input: process.stdin, terminal: false });
-input.on("line", (line) => {
+function receive(line) {
 	let request;
 	try {
 		request = JSON.parse(line);
@@ -767,5 +926,16 @@ input.on("line", (line) => {
 			inflight.delete(request.id);
 		}
 	});
+}
+
+const reader = new Worker(READER, {
+	eval: true,
+	workerData: { blocked: blocked.buffer, port: answering },
+	transferList: [answering],
 });
-input.on("close", exit);
+reader.on("message", (line) => (line === null ? exit() : receive(line)));
+reader.on("error", (error) => {
+	process.stderr.write(`the extension host stopped reading pi-rs: ${error?.stack ?? error}\n`);
+	killAll();
+	process.exit(1);
+});

@@ -10,6 +10,7 @@ use crate::config::{self, VERSION};
 use crate::extensions;
 use crate::interactive;
 use crate::list_models;
+use crate::loadout::ToolSelection;
 use crate::mcp;
 use crate::models::ModelRegistry;
 use crate::modes;
@@ -106,7 +107,11 @@ fn record_parent(
     let harness = print::open_harness(
         storage,
         print::providers(Arc::clone(registry), &placeholder()),
-        print::extension(&[], Vec::new(), tool_settings(cwd, settings, &[])),
+        print::extension(
+            &ToolSelection::default(),
+            None,
+            tool_settings(cwd, settings, &[]),
+        ),
         CompactionOverrides::default(),
     )
     .map_err(|e| e.to_string())?;
@@ -213,19 +218,6 @@ fn run() -> Result<ExitCode, String> {
         );
         had_error |= d.error;
     }
-    if !parsed.unknown_flags.is_empty() {
-        let names: Vec<String> = parsed
-            .unknown_flags
-            .iter()
-            .map(|(name, _)| format!("--{name}"))
-            .collect();
-        eprintln!(
-            "Error: Unknown option{}: {}",
-            if names.len() == 1 { "" } else { "s" },
-            names.join(", ")
-        );
-        had_error = true;
-    }
     if had_error {
         return Ok(ExitCode::from(1));
     }
@@ -299,11 +291,6 @@ fn run() -> Result<ExitCode, String> {
         registry.network = false;
     }
     let registry = Arc::new(registry);
-    let mcp = mcp::Servers::start(&agent_dir, &cwd, trusted, parsed.no_mcp);
-    let mcp_tools = mcp.registrations();
-    // Upstream reports MCP trouble through the UI, which print mode does not have.
-    let mut mcp_notices: Vec<String> = mcp.problems();
-    mcp_notices.extend(mcp.unreachable_warning());
     // Upstream's resolveAppMode: the TUI without -p or --mode when stdin and stdout are terminals.
     let tui = !parsed.print
         && parsed.mode.is_none()
@@ -312,13 +299,22 @@ fn run() -> Result<ExitCode, String> {
     let extensions = extensions::load(
         &cwd,
         &agent_dir,
-        parsed.extensions.as_deref().unwrap_or(&[]),
-        parsed.no_extensions,
+        &parsed,
         &settings,
         &registry,
         extensions::mode_name(parsed.mode, tui),
         tui,
     );
+    if !extensions.errors.is_empty() {
+        for error in &extensions.errors {
+            eprintln!("Error: {error}");
+        }
+        return Ok(ExitCode::from(1));
+    }
+    let mcp = mcp::Servers::start(&agent_dir, &cwd, trusted, parsed.no_mcp);
+    let mcp_tools = mcp.registrations();
+    let mut mcp_notices: Vec<String> = mcp.problems();
+    mcp_notices.extend(mcp.unreachable_warning());
 
     // The session: a durable sqlite file, or memory with --no-session.
     let initial_name = parsed
@@ -385,10 +381,6 @@ fn run() -> Result<ExitCode, String> {
     } else {
         Some(session_list::new_path(&sessions.path))
     };
-    let declared = crate::codemode::declared_tools(
-        &tools,
-        crate::codemode::Mode::parse(settings.codemode_mode()),
-    );
     let mut assembled = system_prompt::assemble(&AssembleOptions {
         cwd: &cwd,
         agent_dir: &agent_dir,
@@ -398,7 +390,6 @@ fn run() -> Result<ExitCode, String> {
         no_context_files: parsed.no_context_files,
         no_skills: parsed.no_skills,
         skill_paths: parsed.skills.as_deref().unwrap_or(&[]),
-        tools: &declared,
     });
     for w in &assembled.warnings {
         eprintln!("{w}");
@@ -409,9 +400,15 @@ fn run() -> Result<ExitCode, String> {
             .sections
             .insert("mcp_servers".to_owned(), section);
     }
-    let sections = system_prompt::build_sections(&assembled.input);
+    let prompt = assembled.input.clone();
     if let Some(live) = extensions::live() {
-        live.set_prompt(assembled.input.clone());
+        live.set_resources(extensions::Resources {
+            cwd: cwd.clone(),
+            agent_dir: agent_dir.clone(),
+            project_trusted: trusted,
+            no_skills: parsed.no_skills,
+            skill_paths: parsed.skills.clone().unwrap_or_default(),
+        });
     }
 
     // A first look at the stored conversation, for --continue's model and thinking level.
@@ -429,7 +426,11 @@ fn run() -> Result<ExitCode, String> {
             let probe = print::open_harness(
                 storage,
                 print::providers(Arc::clone(&registry), &placeholder()),
-                print::extension(&[], Vec::new(), tool_settings(&cwd, &settings, &[])),
+                print::extension(
+                    &ToolSelection::default(),
+                    None,
+                    tool_settings(&cwd, &settings, &[]),
+                ),
                 CompactionOverrides::default(),
             )
             .map_err(|e| e.to_string())?;
@@ -528,7 +529,7 @@ fn run() -> Result<ExitCode, String> {
                 model: model.clone(),
                 tools: tools.clone(),
                 extra_tools: mcp_tools.clone(),
-                sections: sections.clone(),
+                prompt: Some(prompt.clone()),
                 tool_settings: settings_for_tools.clone(),
                 compaction: compaction.clone(),
             },
@@ -581,7 +582,7 @@ fn run() -> Result<ExitCode, String> {
         print::providers(Arc::clone(&registry), &model),
         print::extension_with(
             &tools,
-            sections.clone(),
+            Some(prompt.clone()),
             settings_for_tools.clone(),
             mcp_tools.clone(),
         ),
@@ -652,7 +653,7 @@ fn run() -> Result<ExitCode, String> {
                 model: input.model.clone(),
                 tools: tools.clone(),
                 extra_tools: mcp_tools.clone(),
-                sections: sections.clone(),
+                prompt: Some(prompt.clone()),
                 tool_settings: settings_for_tools.clone(),
                 compaction: compaction.clone(),
             },

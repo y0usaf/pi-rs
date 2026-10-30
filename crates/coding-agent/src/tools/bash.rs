@@ -18,11 +18,63 @@ const MAX_TIMEOUT_MS: f64 = 2_147_483_647.0;
 const EXIT_STDIO_GRACE: Duration = Duration::from_millis(100);
 const UPDATE_THROTTLE: Duration = Duration::from_millis(100);
 
+struct Shell {
+    name: &'static str,
+    shell_name: &'static str,
+    snippet: &'static str,
+    resolve: fn(Option<&str>) -> Result<String, String>,
+    args: &'static [&'static str],
+    preamble: &'static str,
+    uses_settings: bool,
+}
+
+const GUIDELINES: &[&str] =
+    &["You can inspect PI_* environment variables for current model and session details."];
+
+const BASH: Shell = Shell {
+    name: "bash",
+    shell_name: "bash",
+    snippet: "Execute bash commands (ls, grep, find, etc.)",
+    resolve: shell_path,
+    args: &["-c"],
+    preamble: "",
+    uses_settings: true,
+};
+
+const POWERSHELL: Shell = Shell {
+    name: "powershell",
+    shell_name: "PowerShell",
+    snippet: "Execute PowerShell commands",
+    resolve: powershell_path,
+    args: &[
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+    ],
+    preamble: "try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\n",
+    uses_settings: false,
+};
+
+fn powershell_path(_custom: Option<&str>) -> Result<String, String> {
+    Err("The powershell tool is only available on Windows.".to_owned())
+}
+
 pub fn spec() -> ToolSpec {
+    shell_spec(&BASH, execute)
+}
+
+pub fn powershell_spec() -> ToolSpec {
+    shell_spec(&POWERSHELL, execute_powershell)
+}
+
+fn shell_spec(shell: &Shell, execute: super::Execute) -> ToolSpec {
     ToolSpec {
-        name: "bash",
+        name: shell.name,
         description: format!(
-            "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+            "Execute a {} command in the current working directory. Returns stdout and stderr. Output is truncated to last {DEFAULT_MAX_LINES} lines or {}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+            shell.shell_name,
             DEFAULT_MAX_BYTES / 1024
         ),
         parameters: json!({
@@ -34,10 +86,8 @@ pub fn spec() -> ToolSpec {
             }
         }),
         prompt: PromptContribution {
-            snippet: "Execute bash commands (ls, grep, find, etc.)",
-            guidelines: &[
-                "You can inspect PI_* environment variables for current model and session details.",
-            ],
+            snippet: shell.snippet,
+            guidelines: GUIDELINES,
         },
         prepare_arguments: None,
         constrained_sampling: super::json_schema_sampling(),
@@ -104,9 +154,21 @@ enum Ended {
 }
 
 fn execute(args: &Value, ctx: &mut ToolContext<'_>) -> Result<ToolOutput, String> {
+    execute_shell(&BASH, args, ctx)
+}
+
+fn execute_powershell(args: &Value, ctx: &mut ToolContext<'_>) -> Result<ToolOutput, String> {
+    execute_shell(&POWERSHELL, args, ctx)
+}
+
+fn execute_shell(
+    shell: &Shell,
+    args: &Value,
+    ctx: &mut ToolContext<'_>,
+) -> Result<ToolOutput, String> {
     let given = str_arg(args, "command").unwrap_or_default();
     let prefixed;
-    let command = match ctx.command_prefix {
+    let command = match ctx.command_prefix.filter(|_| shell.uses_settings) {
         Some(prefix) if !prefix.is_empty() => {
             prefixed = format!("{prefix}\n{given}");
             prefixed.as_str()
@@ -118,7 +180,7 @@ fn execute(args: &Value, ctx: &mut ToolContext<'_>) -> Result<ToolOutput, String
     if let Some(update) = ctx.on_update.as_deref_mut() {
         update("");
     }
-    let ended = run(command, timeout, ctx, &mut acc);
+    let ended = run(shell, command, timeout, ctx, &mut acc);
     acc.finish();
     let snapshot = acc.snapshot(true);
     if let Some(update) = ctx.on_update.as_deref_mut() {
@@ -161,6 +223,7 @@ fn execute(args: &Value, ctx: &mut ToolContext<'_>) -> Result<ToolOutput, String
 }
 
 fn run(
+    shell_config: &Shell,
     command: &str,
     timeout: Option<f64>,
     ctx: &mut ToolContext<'_>,
@@ -170,16 +233,16 @@ fn run(
     if ctx.cancel.is_cancelled() {
         return Ok(Ended::Aborted);
     }
-    let shell = shell_path(ctx.shell_path)?;
+    let shell = (shell_config.resolve)(ctx.shell_path.filter(|_| shell_config.uses_settings))?;
     if !std::path::Path::new(ctx.cwd).exists() {
         return Err(format!(
-            "Working directory does not exist: {}\nCannot execute bash commands.",
-            ctx.cwd
+            "Working directory does not exist: {}\nCannot execute {} commands.",
+            ctx.cwd, shell_config.shell_name
         ));
     }
     let mut cmd = Command::new(&shell);
-    cmd.arg("-c")
-        .arg(command)
+    cmd.args(shell_config.args)
+        .arg(format!("{}{command}", shell_config.preamble))
         .current_dir(ctx.cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

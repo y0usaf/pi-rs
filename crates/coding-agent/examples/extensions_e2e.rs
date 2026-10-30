@@ -35,7 +35,7 @@ const BROKEN: &str = r#"export default function (): void {
 }
 "#;
 
-const UNSUPPORTED: &str = r#"import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+const FLAGGED: &str = r#"import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI): void {
 	pi.registerFlag("fast", { type: "boolean", description: "go fast" });
@@ -103,15 +103,21 @@ impl Scratch {
 }
 
 /// Runs \`pi-rs --mode rpc\`, asks \`get_commands\` once, and returns the answer with stderr.
-fn rpc(bin: &Path, scratch: &Scratch, args: &[&str]) -> Result<(Value, String)> {
-    let mut child = Command::new(bin)
+fn pi(bin: &Path, scratch: &Scratch, args: &[&str]) -> Command {
+    let mut command = Command::new(bin);
+    command
         .args(args)
         .current_dir(scratch.root.join("cwd"))
         .env_clear()
         .env("HOME", scratch.root.join("home"))
         .env("PI_CODING_AGENT_DIR", scratch.root.join("agent"))
         .env("PATH", "/nonexistent")
-        .envs(host_env())
+        .envs(host_env());
+    command
+}
+
+fn rpc(bin: &Path, scratch: &Scratch, args: &[&str]) -> Result<(Value, String)> {
+    let mut child = pi(bin, scratch, args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -241,7 +247,7 @@ fn main() -> Result<()> {
     let directory = package.parent().ok_or("no parent")?.to_path_buf();
     scratch.write("ext-package/index.ts", PACKAGE)?;
     let cli = scratch.write("plain/cli.ts", CLI)?;
-    let unsupported = scratch.write("unsupported/shortcut.ts", UNSUPPORTED)?;
+    let flagged = scratch.write("flagged/flag.ts", FLAGGED)?;
     let broken = scratch.write("plain/broken.ts", BROKEN)?;
 
     scratch.settings(&json!({"packages": [directory.to_string_lossy()]}))?;
@@ -303,15 +309,14 @@ fn main() -> Result<()> {
     }
     println!("--no-extensions keeps --extension ok");
 
-    scratch.settings(
-        &json!({"extensions": [broken.to_string_lossy(), unsupported.to_string_lossy()]}),
-    )?;
+    scratch
+        .settings(&json!({"extensions": [broken.to_string_lossy(), flagged.to_string_lossy()]}))?;
     let (list, stderr) = rpc(&bin, &scratch, ARGS)?;
     if !stderr.contains("Warning: Failed to load extension: this extension throws") {
         return fail(format!("the broken extension is not reported: {stderr}"));
     }
-    if !stderr.contains("uses registerFlag, which pi-rs does not implement yet") {
-        return fail(format!("registerFlag is not reported: {stderr}"));
+    if stderr.contains("registerFlag") {
+        return fail(format!("registerFlag is reported as missing: {stderr}"));
     }
     if !commands(&list).is_empty() {
         return fail(format!(
@@ -320,6 +325,24 @@ fn main() -> Result<()> {
         ));
     }
     println!("load errors ok");
+
+    let (_, stderr) = rpc(&bin, &scratch, &[ARGS, &["--fast"]].concat())?;
+    if stderr.contains("Unknown option") {
+        return fail(format!(
+            "the flag an extension registered is rejected: {stderr}"
+        ));
+    }
+    let unknown = pi(&bin, &scratch, &[ARGS, &["--slow"]].concat())
+        .stdin(Stdio::null())
+        .output()?;
+    let stderr = String::from_utf8_lossy(&unknown.stderr);
+    if unknown.status.code() != Some(1) || !stderr.contains("Error: Unknown option: --slow") {
+        return fail(format!(
+            "a flag no extension registered is not rejected ({}): {stderr}",
+            unknown.status
+        ));
+    }
+    println!("extension flags ok");
 
     scratch.settings(&json!({}))?;
     let (list, stderr) = rpc(&bin, &scratch, ARGS)?;

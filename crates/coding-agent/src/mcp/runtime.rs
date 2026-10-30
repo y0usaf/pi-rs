@@ -361,8 +361,6 @@ impl Servers {
         self.connections.is_empty() && self.errors.is_empty()
     }
 
-    /// Whether some server's tools are only reachable through codemode or `tool_search`, which this
-    /// port has neither of.
     pub fn unreachable_warning(&self) -> Option<String> {
         let unreachable = self
             .entries

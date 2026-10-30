@@ -52,7 +52,7 @@ fn is_modifier(entry: &str) -> bool {
 }
 
 /// `createToolNameMatcher`: exact names, and `*` patterns.
-fn tool_matches(entries: &[String], name: &str) -> bool {
+pub(crate) fn tool_matches(entries: &[String], name: &str) -> bool {
     entries.iter().any(|e| {
         if e.contains('*') {
             glob_match(name, e)
@@ -64,7 +64,10 @@ fn tool_matches(entries: &[String], name: &str) -> bool {
 
 /// The tools a session starts with (sdk.ts): `--tools` (a list, or `+name`/`-name` changes to
 /// the default), else `defaultTools`, else read, bash, edit, write; minus `--exclude-tools`.
-pub fn select_tools(args: &Args, settings: &SettingsManager) -> Result<Vec<String>, String> {
+pub fn select_tools(
+    args: &Args,
+    settings: &SettingsManager,
+) -> Result<crate::loadout::ToolSelection, String> {
     if let Some(tools) = &args.tools
         && let Some(error) = tool_list_error(tools)
     {
@@ -77,18 +80,29 @@ pub fn select_tools(args: &Args, settings: &SettingsManager) -> Result<Vec<Strin
             .default_tools()
             .unwrap_or_else(|| DEFAULT_TOOL_NAMES.iter().map(|s| s.to_string()).collect())
     };
-    let selected = match &args.tools {
-        Some(tools) if tools.iter().any(|t| is_modifier(t)) => {
-            apply_tool_modifiers(defaults, tools)
-        }
-        Some(tools) => tools.clone(),
-        None => defaults,
+    let modifiers = args
+        .tools
+        .as_ref()
+        .filter(|tools| tools.iter().any(|t| is_modifier(t)));
+    let selected = match (&args.tools, modifiers) {
+        (_, Some(tools)) => apply_tool_modifiers(defaults, tools),
+        (Some(tools), None) => tools.clone(),
+        (None, None) => defaults,
+    };
+    let allowed = match (&args.tools, modifiers) {
+        (_, Some(_)) => args.no_tools.then(|| selected.clone()),
+        (Some(tools), None) => Some(tools.clone()),
+        (None, None) => args.no_tools.then(Vec::new),
     };
     let excluded = args.exclude_tools.clone().unwrap_or_default();
-    Ok(selected
-        .into_iter()
-        .filter(|name| !tool_matches(&excluded, name))
-        .collect())
+    Ok(crate::loadout::ToolSelection {
+        active: selected
+            .into_iter()
+            .filter(|name| !tool_matches(&excluded, name))
+            .collect(),
+        allowed,
+        excluded,
+    })
 }
 
 pub fn parse_level(level: &str) -> Option<ModelThinkingLevel> {

@@ -102,6 +102,13 @@ pub struct Ctx {
     pub updates: Map<String, Value>,
 }
 
+pub struct Sources<'a> {
+    pub dirs: &'a [String],
+    pub paths: &'a [String],
+    pub cli: &'a [String],
+    pub flags: &'a [(String, Option<String>)],
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Limit {
     Idle(Duration),
@@ -225,16 +232,25 @@ impl Host {
         &self,
         cwd: &str,
         agent_dir: &str,
-        dirs: &[String],
-        paths: &[String],
+        sources: &Sources<'_>,
         ctx: &Ctx,
     ) -> Result<Load, String> {
+        let flags: Vec<Value> = sources
+            .flags
+            .iter()
+            .map(|(name, value)| match value {
+                Some(value) => json!([name, value]),
+                None => json!([name, true]),
+            })
+            .collect();
         let request = json!({
             "op": "load",
             "cwd": cwd,
             "agentDir": agent_dir,
-            "dirs": dirs,
-            "paths": paths,
+            "dirs": sources.dirs,
+            "paths": sources.paths,
+            "cli": sources.cli,
+            "flags": flags,
             "mode": ctx.mode,
             "hasUI": ctx.has_ui,
             "trusted": true,

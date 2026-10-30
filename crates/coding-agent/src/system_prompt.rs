@@ -404,12 +404,8 @@ pub struct AssembleOptions<'a> {
     pub no_context_files: bool,
     pub no_skills: bool,
     pub skill_paths: &'a [String],
-    /// The active tools, in selection order.
-    pub tools: &'a [String],
 }
 
-/// What `DefaultResourceLoader.reload()` and `AgentSession._rebuildSystemPrompt` gather for the
-/// built-in tools: the prompt's inputs, and the warnings upstream prints while reading them.
 pub fn assemble(o: &AssembleOptions) -> Assembled {
     let cwd = resolve("/", &normalize_path(o.cwd, PathInput::default()));
     let agent_dir = resolve("/", &normalize_path(o.agent_dir, PathInput::default()));
@@ -442,41 +438,12 @@ pub fn assemble(o: &AssembleOptions) -> Assembled {
         no_skills: o.no_skills,
         cli_paths: o.skill_paths,
     });
-    let mut tool_snippets = IndexMap::new();
-    let mut tool_guidelines = IndexMap::new();
-    let codemode = crate::codemode::prompt_contribution();
-    let contributions = crate::tools::ALL_TOOL_NAMES
-        .iter()
-        .filter_map(|name| crate::tools::spec(name))
-        .map(|spec| (spec.name, spec.prompt.snippet, spec.prompt.guidelines))
-        .chain([(
-            crate::codemode::TOOL_NAME,
-            codemode.snippet,
-            codemode.guidelines,
-        )]);
-    for (name, snippet, guidelines) in contributions {
-        if !snippet.is_empty() {
-            tool_snippets.insert(name.to_owned(), snippet.to_owned());
-        }
-        if !guidelines.is_empty() {
-            tool_guidelines.insert(
-                name.to_owned(),
-                guidelines.iter().map(|g| g.to_string()).collect(),
-            );
-        }
-    }
-    let known: Vec<String> = o
-        .tools
-        .iter()
-        .filter(|t| crate::tools::spec(t).is_some() || *t == crate::codemode::TOOL_NAME)
-        .cloned()
-        .collect();
     Assembled {
         input: PromptInput {
             custom_prompt,
-            selected_tools: known,
-            tool_snippets,
-            tool_guidelines,
+            selected_tools: Vec::new(),
+            tool_snippets: IndexMap::new(),
+            tool_guidelines: IndexMap::new(),
             prompt_guidelines: Vec::new(),
             append_system_prompt: append.join("\n\n"),
             sections: IndexMap::new(),

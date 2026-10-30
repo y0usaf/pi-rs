@@ -38,9 +38,9 @@ mod runtime;
 pub use runtime::request_hooks;
 
 use crate::config::CONFIG_DIR_NAME;
+use crate::loadout::{Entry, Loadout, PromptView, Source, ToolsView};
 use crate::models::ModelRegistry;
 use crate::paths::join;
-use crate::print::Loadout;
 use crate::settings::SettingsManager;
 use crate::system_prompt::PromptInput;
 
@@ -374,6 +374,30 @@ pub struct Extensions {
     pub commands: Vec<ExtensionCommand>,
     /// What loading has to say, one line each.
     pub notices: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+#[derive(Clone)]
+pub struct Resources {
+    pub cwd: String,
+    pub agent_dir: String,
+    pub project_trusted: bool,
+    pub no_skills: bool,
+    pub skill_paths: Vec<String>,
+}
+
+fn unknown_options(names: &[&str]) -> Option<String> {
+    (!names.is_empty()).then(|| {
+        format!(
+            "Unknown option{}: {}",
+            if names.len() == 1 { "" } else { "s" },
+            names
+                .iter()
+                .map(|name| format!("--{name}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    })
 }
 
 /// The message `sendUserMessage` asked for, as the harness takes one.
@@ -475,14 +499,18 @@ fn resolve(path: &str, cwd: &str) -> String {
 pub fn load(
     cwd: &str,
     agent_dir: &str,
-    cli: &[String],
-    no_extensions: bool,
+    args: &crate::args::Args,
     settings: &SettingsManager,
     registry: &Arc<ModelRegistry>,
     mode: &str,
     has_ui: bool,
 ) -> Extensions {
+    let cli = args.extensions.as_deref().unwrap_or(&[]);
+    let no_extensions = args.no_extensions;
+    let flags = &args.unknown_flags;
     let mut extensions = Extensions::default();
+    let names: Vec<&str> = flags.iter().map(|(name, _)| name.as_str()).collect();
+    let unknown = unknown_options(&names);
     let dirs = if no_extensions {
         Vec::new()
     } else {
@@ -504,6 +532,7 @@ pub fn load(
                 .push(format!("Extension path does not exist: {resolved}"));
         }
     }
+    extensions.errors.extend(unknown.clone());
     if paths.is_empty() && !dirs.iter().any(|dir| Path::new(dir).is_dir()) {
         return extensions;
     }
@@ -524,13 +553,20 @@ pub fn load(
     host.update("providers", builtin_providers());
     host.update("models", json!({ "list": registry.models().as_ref() }));
     let _ = host.0.sink.registry.set(Arc::clone(registry));
-    let load = match host.load(agent_dir, &dirs, &paths) {
+    let sources = pi_extensions::Sources {
+        dirs: &dirs,
+        paths: &paths,
+        cli,
+        flags,
+    };
+    let load = match host.load(agent_dir, &sources) {
         Ok(load) => load,
         Err(error) => {
             extensions.notices.push(format!("Warning: {error}"));
             return extensions;
         }
     };
+    extensions.errors = load.flag_errors.clone();
     for extension in &load.extensions {
         for command in &extension.commands {
             lock(&host.0.commands).push(command.name.clone());
@@ -595,12 +631,13 @@ struct Inner {
     sink: Arc<Sink>,
     state: Mutex<pi_extensions::Ctx>,
     updates: Mutex<Map<String, Value>>,
+    shown: Mutex<Map<String, Value>>,
     dead: AtomicBool,
     settled: AtomicBool,
     started: AtomicBool,
     commands: Mutex<Vec<String>>,
     handled: Mutex<HashSet<String>>,
-    prompt: Mutex<Option<PromptInput>>,
+    resources: Mutex<Option<Resources>>,
     run: Mutex<RunState>,
     session: Mutex<Option<SessionSource>>,
 }
@@ -638,8 +675,21 @@ struct RunPrompt {
 }
 
 struct Prepared {
-    sections: Vec<(String, String)>,
+    options: PromptInput,
     forced: Option<String>,
+    selected_before: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Discovered {
+    #[serde(default)]
+    skill_paths: Vec<DiscoveredPath>,
+}
+
+#[derive(serde::Deserialize)]
+struct DiscoveredPath {
+    path: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -655,8 +705,7 @@ struct Sink {
     models: Mutex<Option<Arc<ExtensionModels>>>,
     tools: Mutex<Vec<ToolInfo>>,
     providers: Mutex<Vec<ProviderInfo>>,
-    registries: Mutex<Vec<(Weak<Registry>, Arc<Loadout>)>>,
-    sections: Mutex<Option<Vec<(String, String)>>>,
+    loadouts: Mutex<Vec<(Weak<Registry>, Arc<Loadout>)>>,
     registry: OnceLock<Arc<ModelRegistry>>,
     failed: Mutex<Option<AssistantMessage>>,
 }
@@ -677,6 +726,9 @@ impl Peer for Sink {
             return live()
                 .ok_or("no extension host is running")?
                 .compact(args, cancel);
+        }
+        if call == "activeTools" {
+            return Ok(Value::Object(self.activate(args)));
         }
         let models = lock(&self.models).clone();
         match models {
@@ -728,39 +780,82 @@ impl Peer for Sink {
 
     fn tools(&self, tools: Vec<ToolInfo>) {
         *lock(&self.tools) = tools;
-        if let Err(error) = self.reinstall() {
-            self.call(Call::Notify {
-                text: format!("Warning: the extensions' tools were not installed: {error}"),
-                level: "warning".to_owned(),
-            });
+        let entries = self.entries();
+        if let Err(error) = self.each(|loadout| loadout.set_extension_tools(entries.clone())) {
+            self.warn(format!("the extensions' tools were not installed: {error}"));
         }
     }
 }
 
 impl Sink {
-    fn install(&self, registry: &Registry, loadout: &Loadout) -> std::result::Result<(), Error> {
-        let tools: Vec<ToolRegistration> = lock(&self.tools).iter().map(registration).collect();
-        let sections = lock(&self.sections).clone();
-        registry.install(loadout.with(&tools, sections.as_deref()))
+    fn activate(&self, args: &Value) -> Map<String, Value> {
+        let names = args.get("names").cloned().unwrap_or(Value::Null);
+        match serde_json::from_value::<Vec<String>>(names) {
+            Ok(names) => {
+                if let Err(error) = self.each(|loadout| loadout.set_active(names.clone())) {
+                    self.warn(format!("the active tools were not installed: {error}"));
+                }
+            }
+            Err(e) => self.failed(Failed {
+                path: "setActiveTools".to_owned(),
+                event: String::new(),
+                error: format!("the extension host sent tool names pi-rs cannot read: {e}"),
+            }),
+        }
+        live().map(Live::take_shown).unwrap_or_default()
     }
 
-    fn reinstall(&self) -> std::result::Result<(), Error> {
-        let registries: Vec<(Arc<Registry>, Arc<Loadout>)> = {
-            let mut registries = lock(&self.registries);
-            registries.retain(|(registry, _)| registry.strong_count() > 0);
-            registries
-                .iter()
-                .filter_map(|(registry, loadout)| Some((registry.upgrade()?, Arc::clone(loadout))))
-                .collect()
-        };
+    fn warn(&self, text: String) {
+        self.call(Call::Notify {
+            text: format!("Warning: {text}"),
+            level: "warning".to_owned(),
+        });
+    }
+
+    fn loadouts(&self) -> Vec<Arc<Loadout>> {
+        let mut loadouts = lock(&self.loadouts);
+        loadouts.retain(|(registry, _)| registry.strong_count() > 0);
+        loadouts
+            .iter()
+            .map(|(_, loadout)| Arc::clone(loadout))
+            .collect()
+    }
+
+    fn prompt(&self) -> Option<PromptInput> {
+        self.loadouts()
+            .iter()
+            .rev()
+            .find_map(|loadout| loadout.prompt())
+    }
+
+    fn each(
+        &self,
+        change: impl Fn(&Loadout) -> std::result::Result<(), Error>,
+    ) -> std::result::Result<(), Error> {
         let mut outcome = Ok(());
-        for (registry, loadout) in &registries {
-            if let Err(error) = self.install(registry, loadout) {
+        for loadout in self.loadouts() {
+            if let Err(error) = change(&loadout) {
                 outcome = Err(error);
             }
         }
         outcome
     }
+
+    fn entries(&self) -> Vec<Entry> {
+        lock(&self.tools).iter().map(entry).collect()
+    }
+}
+
+fn entry(info: &ToolInfo) -> Entry {
+    let mut entry = Entry::new(
+        registration(info),
+        Source::Extension {
+            path: info.path.clone(),
+        },
+    )
+    .with_prompt(info.prompt_snippet.as_deref(), &info.prompt_guidelines);
+    entry.default_active = info.default_active != Some(false);
+    entry
 }
 
 fn registration(info: &ToolInfo) -> ToolRegistration {
@@ -770,8 +865,6 @@ fn registration(info: &ToolInfo) -> ToolRegistration {
         .as_deref()
         .and_then(|exposure| serde_json::from_value::<ToolExposure>(json!(exposure)).ok())
         .unwrap_or_default();
-    let activated = matches!(exposure, ToolExposure::Direct | ToolExposure::ModelOnly)
-        && info.default_active != Some(false);
     let execute: ToolExecute = Arc::new(move |args, api, cancel| match live() {
         Some(live) => live.run_tool(&name, args, api, cancel),
         None => Err(Error::Invalid("no extension host is running".to_owned())),
@@ -795,7 +888,7 @@ fn registration(info: &ToolInfo) -> ToolRegistration {
         }),
         prepare_arguments: None,
         exposure,
-        hidden: !activated,
+        hidden: false,
         execute,
     }
 }
@@ -863,19 +956,104 @@ impl Live {
                 updates: Map::new(),
             }),
             updates: Mutex::new(Map::new()),
+            shown: Mutex::new(Map::new()),
             dead: AtomicBool::new(false),
             settled: AtomicBool::new(false),
             started: AtomicBool::new(false),
             commands: Mutex::new(Vec::new()),
             handled: Mutex::new(HashSet::new()),
-            prompt: Mutex::new(None),
+            resources: Mutex::new(None),
             run: Mutex::new(RunState::default()),
             session: Mutex::new(None),
         })))
     }
 
-    pub fn set_prompt(&self, input: PromptInput) {
-        *lock(&self.0.prompt) = Some(input);
+    pub fn set_resources(&self, resources: Resources) {
+        *lock(&self.0.resources) = Some(resources);
+    }
+
+    pub fn extension_entries(&self) -> Vec<Entry> {
+        self.0.sink.entries()
+    }
+
+    pub fn show_tools(&self, view: &ToolsView<'_>) {
+        if let Ok(value) = serde_json::to_value(view) {
+            lock(&self.0.shown).insert("tools".to_owned(), value);
+        }
+    }
+
+    pub fn show_prompt(&self, view: &PromptView) {
+        if let Ok(value) = serde_json::to_value(view) {
+            lock(&self.0.shown).insert("prompt".to_owned(), value);
+        }
+    }
+
+    fn take_shown(&self) -> Map<String, Value> {
+        std::mem::take(&mut *lock(&self.0.shown))
+    }
+
+    fn pending_updates(&self, updates: &mut Map<String, Value>) -> Map<String, Value> {
+        let mut pending = std::mem::take(updates);
+        pending.extend(self.take_shown());
+        pending
+    }
+
+    fn discover(&self, reason: &str) {
+        if !self.handles("resources_discover") {
+            return;
+        }
+        let cwd = lock(&self.0.state).cwd.clone();
+        let reason = if reason == "reload" {
+            "reload"
+        } else {
+            "startup"
+        };
+        let Ok(answer) = self.ask(
+            "resources_discover",
+            json!({ "cwd": cwd, "reason": reason }),
+        ) else {
+            return;
+        };
+        let discovered: Discovered = match serde_json::from_value(answer) {
+            Ok(discovered) => discovered,
+            Err(e) => {
+                self.0.sink.warn(format!(
+                    "the extension host answered resources_discover with {e}"
+                ));
+                return;
+            }
+        };
+        if discovered.skill_paths.is_empty() {
+            return;
+        }
+        let skills = {
+            let mut resources = lock(&self.0.resources);
+            let Some(resources) = resources.as_mut() else {
+                return;
+            };
+            for found in discovered.skill_paths {
+                if !resources.skill_paths.contains(&found.path) {
+                    resources.skill_paths.push(found.path);
+                }
+            }
+            crate::skills::load_skills(&crate::skills::SkillsInput {
+                cwd: &resources.cwd,
+                agent_dir: &resources.agent_dir,
+                project_trusted: resources.project_trusted,
+                no_skills: resources.no_skills,
+                cli_paths: &resources.skill_paths,
+            })
+            .skills
+        };
+        if let Err(error) = self
+            .0
+            .sink
+            .each(|loadout| loadout.set_skills(skills.clone()))
+        {
+            self.0
+                .sink
+                .warn(format!("the discovered skills were not installed: {error}"));
+        }
     }
 
     fn handles(&self, event: &str) -> bool {
@@ -938,28 +1116,34 @@ impl Live {
     }
 
     pub fn before_agent_start(&self, content: &UserContent) -> std::result::Result<(), String> {
-        let Some(base) = lock(&self.0.prompt).clone() else {
+        let Some(base) = self.0.sink.prompt() else {
             return Ok(());
         };
-        if !self.handles("before_agent_start") {
-            return Ok(());
-        }
         lock(&self.0.run).forced = None;
-        *lock(&self.0.sink.sections) = None;
-        let outcome = match self.run_prompt(base, content) {
-            Ok(Some(prompt)) => {
-                lock(&self.0.run).forced = prompt.forced;
-                *lock(&self.0.sink.sections) = Some(prompt.sections);
-                Ok(())
-            }
-            Ok(None) => Ok(()),
-            Err(error) => Err(error),
+        let installed = |e: Error| format!("the run's system prompt was not installed: {e}");
+        self.0.sink.each(Loadout::end_run).map_err(installed)?;
+        let prepared = if self.handles("before_agent_start") {
+            self.run_prompt(base.clone(), content)?
+        } else {
+            None
         };
+        let prompt = prepared.unwrap_or_else(|| Prepared {
+            selected_before: base.selected_tools.clone(),
+            options: base,
+            forced: None,
+        });
+        lock(&self.0.run).forced = prompt.forced.clone();
         self.0
             .sink
-            .reinstall()
-            .map_err(|e| format!("the run's system prompt was not installed: {e}"))?;
-        outcome
+            .each(|loadout| {
+                loadout.start_run(
+                    prompt.options.clone(),
+                    prompt.forced.clone(),
+                    &prompt.selected_before,
+                )
+            })
+            .map_err(installed)?;
+        Ok(())
     }
 
     fn run_prompt(
@@ -989,21 +1173,18 @@ impl Live {
             force_system_prompt,
         } = started.system_prompt_options;
         options.check_sections()?;
-        if options.selected_tools != base.selected_tools {
-            self.unported("a before_agent_start handler changed systemPromptOptions.selectedTools");
-            options.selected_tools = base.selected_tools;
-        }
         if !started.messages.is_empty() {
             self.unported("a before_agent_start handler returned a message");
         }
         options.package_dir = base.package_dir;
         Ok(Some(Prepared {
-            sections: crate::system_prompt::build_sections(&options),
+            options,
             forced: force_system_prompt,
+            selected_before: base.selected_tools,
         }))
     }
 
-    pub fn start_run(&self) {
+    fn start_run(&self) {
         let mut run = lock(&self.0.run);
         if run.started {
             return;
@@ -1023,6 +1204,11 @@ impl Live {
             run.turn = Some(run.next);
             run.next
         };
+        if index > 0 {
+            for loadout in self.0.sink.loadouts() {
+                loadout.next_turn();
+            }
+        }
         self.event(
             "turn_start",
             json!({ "turnIndex": index, "timestamp": now_ms() }),
@@ -1067,12 +1253,13 @@ impl Live {
     pub fn end_run(&self) {
         self.turn_end();
         *lock(&self.0.run) = RunState::default();
-        let overridden = lock(&self.0.sink.sections).take().is_some();
-        if overridden && let Err(error) = self.0.sink.reinstall() {
-            self.0.sink.call(Call::Notify {
-                text: format!("Warning: the base system prompt was not restored: {error}"),
-                level: "warning".to_owned(),
-            });
+    }
+
+    fn end_prompt_run(&self) {
+        if let Err(error) = self.0.sink.each(Loadout::end_run) {
+            self.0
+                .sink
+                .warn(format!("the base system prompt was not restored: {error}"));
         }
     }
 
@@ -1202,78 +1389,13 @@ impl Live {
         *lock(&self.0.sink.models) = Some(Arc::new(models));
     }
 
-    pub fn set_tools(&self, builtin: &[ToolRegistration], mcp: &[ToolRegistration]) {
-        let info =
-            |name: &str, description: &str, parameters: &Value, exposure: Value, source: &str| {
-                json!({
-                    "name": name,
-                    "description": description,
-                    "parameters": parameters,
-                    "exposure": exposure,
-                    "sourceInfo": {
-                        "path": format!("builtin:{source}"),
-                        "source": "builtin",
-                        "scope": "temporary",
-                        "origin": "top-level",
-                    },
-                })
-            };
-        let registered = builtin
-            .iter()
-            .map(|r| (r, r.tool.name.as_str()))
-            .chain(mcp.iter().map(|r| (r, "mcp")));
-        let mut active = Vec::new();
-        let mut all = Vec::new();
-        for (registration, source) in registered {
-            let tool = &registration.tool;
-            if registration.exposure.declarable() {
-                active.push(tool.name.clone());
-            }
-            let exposure = serde_json::to_value(registration.exposure).unwrap_or(Value::Null);
-            all.push(info(
-                &tool.name,
-                &tool.description,
-                &tool.parameters,
-                exposure,
-                source,
-            ));
-        }
-        let known = |name: &str| builtin.iter().any(|r| r.tool.name == name);
-        for spec in crate::tools::ALL_TOOL_NAMES
-            .iter()
-            .filter(|name| !known(name))
-            .filter_map(|name| crate::tools::spec(name))
-        {
-            all.push(info(
-                spec.name,
-                &spec.description,
-                &spec.parameters,
-                json!("direct"),
-                spec.name,
-            ));
-        }
-        if !known(crate::codemode::TOOL_NAME) {
-            let tool = crate::codemode::registration(crate::codemode::description()).tool;
-            all.push(info(
-                &tool.name,
-                &tool.description,
-                &tool.parameters,
-                json!("direct"),
-                &tool.name,
-            ));
-        }
-        self.update("tools", json!({ "active": active, "all": all }));
-    }
-
     pub fn attach(
         &self,
         registry: &Arc<Registry>,
-        loadout: Loadout,
+        loadout: &Arc<Loadout>,
     ) -> std::result::Result<(), Error> {
-        let loadout = Arc::new(loadout);
-        self.0.sink.install(registry, &loadout)?;
-        lock(&self.0.sink.registries).push((Arc::downgrade(registry), loadout));
-        Ok(())
+        lock(&self.0.sink.loadouts).push((Arc::downgrade(registry), Arc::clone(loadout)));
+        loadout.attach(registry)
     }
 
     fn update(&self, key: &str, value: Value) {
@@ -1284,17 +1406,16 @@ impl Live {
     fn load(
         &self,
         agent_dir: &str,
-        dirs: &[String],
-        paths: &[String],
+        sources: &pi_extensions::Sources<'_>,
     ) -> std::result::Result<Load, String> {
         let ctx = self.ctx();
         let cwd = ctx.cwd.clone();
-        self.0.host.load(&cwd, agent_dir, dirs, paths, &ctx)
+        self.0.host.load(&cwd, agent_dir, sources, &ctx)
     }
 
     fn ctx(&self) -> pi_extensions::Ctx {
         let mut ctx = lock(&self.0.state).clone();
-        ctx.updates = std::mem::take(&mut *lock(&self.0.updates));
+        ctx.updates = self.pending_updates(&mut lock(&self.0.updates));
         ctx
     }
 
@@ -1307,7 +1428,7 @@ impl Live {
     ) -> std::result::Result<Pending, String> {
         let mut updates = lock(&self.0.updates);
         let mut ctx = lock(&self.0.state).clone();
-        ctx.updates = std::mem::take(&mut *updates);
+        ctx.updates = self.pending_updates(&mut updates);
         let pending = start(&self.0.host, &ctx);
         drop(updates);
         pending.inspect_err(|_| self.died())
@@ -1395,24 +1516,27 @@ impl Live {
 
     /// Hands one event to the extensions and waits for what they made of it.
     pub fn event(&self, name: &str, payload: Value) -> Option<Value> {
+        let reason = payload
+            .get("reason")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         let answer = self.ask(name, payload).ok();
         match name {
-            "agent_end" => self.0.settled.store(true, Ordering::SeqCst),
+            "agent_end" => {
+                self.0.settled.store(true, Ordering::SeqCst);
+                self.end_prompt_run();
+            }
             "session_shutdown" => *lock(&self.0.session) = None,
+            "session_start" => self.discover(reason.as_deref().unwrap_or_default()),
             _ => {}
         }
         answer
     }
 
-    /// The durable events that are extension events too: a run starting and ending.
     pub fn observe(&self, event: &AgentEvent) {
-        match event {
-            AgentEvent::RunStart { .. } => self.start_run(),
-            AgentEvent::RunEnd { .. } => {
-                self.end_run();
-                self.event("agent_end", json!({ "messages": [] }));
-            }
-            _ => {}
+        if let AgentEvent::RunEnd { .. } = event {
+            self.end_run();
+            self.event("agent_end", json!({ "messages": [] }));
         }
     }
 

@@ -3,6 +3,8 @@
 //!
 //! Usage: `prompt_parity CASES.json WORKDIR`
 
+use pi_coding_agent::loadout::ToolSelection;
+use pi_coding_agent::print::{ToolSettings, extension};
 use pi_coding_agent::system_prompt::{AssembleOptions, assemble, build_system_prompt};
 use serde_json::{Value, json};
 use std::path::Path;
@@ -63,9 +65,24 @@ fn main() {
             no_context_files: c["noContextFiles"].as_bool().unwrap_or(false),
             no_skills: c["noSkills"].as_bool().unwrap_or(false),
             skill_paths: &skills,
-            tools: &tools,
         });
-        let prompt = build_system_prompt(&assembled.input).replace(&base, "<base>");
+        let settings = ToolSettings {
+            cwd: cwd.clone(),
+            shell_path: None,
+            command_prefix: None,
+            env: Vec::new(),
+            model_takes_images: true,
+            codemode_mode: pi_coding_agent::codemode::Mode::On.name().to_owned(),
+            codemode_inline_budget: pi_coding_agent::codemode::default_inline_budget(),
+        };
+        let selection = ToolSelection {
+            active: tools,
+            ..ToolSelection::default()
+        };
+        let input = extension(&selection, Some(assembled.input.clone()), settings)
+            .prompt()
+            .expect("a loadout given a prompt has one");
+        let prompt = build_system_prompt(&input).replace(&base, "<base>");
         let diagnostics: Vec<Value> = assembled
             .skill_diagnostics
             .iter()

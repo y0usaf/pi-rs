@@ -26,10 +26,10 @@ pub struct Source {
     pub registry: Arc<ModelRegistry>,
     /// A model the catalog lacks (a --model id) is still callable.
     pub model: Model,
-    pub tools: Vec<String>,
+    pub tools: crate::loadout::ToolSelection,
     /// Tools other parts add beside the built-in ones (MCP's servers').
     pub extra_tools: Vec<pi_durable::harness::types::ToolRegistration>,
-    pub sections: Vec<(String, String)>,
+    pub prompt: Option<crate::system_prompt::PromptInput>,
     /// The tool environment without PI_SESSION_FILE, which depends on the session.
     pub tool_settings: ToolSettings,
     pub compaction: CompactionOverrides,
@@ -77,7 +77,7 @@ impl Source {
             print::providers(Arc::clone(&self.registry), &self.model),
             print::extension_with(
                 &self.tools,
-                self.sections.clone(),
+                self.prompt.clone(),
                 settings,
                 self.extra_tools.clone(),
             ),
