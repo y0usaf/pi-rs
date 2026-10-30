@@ -379,8 +379,8 @@ fn bash_outcome(raw: &Value) -> crate::bash_exec::Outcome {
             .to_owned(),
         exit_code: raw
             .get("exitCode")
-            .and_then(Value::as_i64)
-            .map(|code| code as i32),
+            .cloned()
+            .and_then(|code| serde_json::from_value(code).ok()),
         cancelled: raw
             .get("cancelled")
             .and_then(Value::as_bool)

@@ -16,6 +16,7 @@ use pi_durable::harness::harness::Conversation;
 use pi_durable::harness::inbox::WriteDraft;
 use pi_durable::harness::submissions::SubmissionDraft;
 
+use crate::extensions::UserBash;
 use crate::tools::bash::{kill_tree, shell_path};
 use crate::tools::truncate::{DEFAULT_MAX_BYTES, Limits, truncate_tail};
 
@@ -25,12 +26,42 @@ pub const KIND: &str = "pi.bash";
 const ROLLING_BYTES: usize = DEFAULT_MAX_BYTES * 2;
 const EXIT_STDIO_GRACE: Duration = Duration::from_millis(100);
 
-/// `BashResult`.
+#[derive(Clone, Copy, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+pub enum ExitCode {
+    Integer(i64),
+    Float(f64),
+}
+
+impl From<i32> for ExitCode {
+    fn from(code: i32) -> Self {
+        Self::Integer(i64::from(code))
+    }
+}
+
+impl PartialEq<i32> for ExitCode {
+    fn eq(&self, other: &i32) -> bool {
+        match self {
+            Self::Integer(code) => *code == i64::from(*other),
+            Self::Float(code) => *code == f64::from(*other),
+        }
+    }
+}
+
+impl std::fmt::Display for ExitCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Integer(code) => code.fmt(f),
+            Self::Float(code) => code.fmt(f),
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Outcome {
-    /// stdout and stderr together, stripped of escapes, possibly truncated.
     pub output: String,
-    /// None when the command was cancelled or died of a signal.
-    pub exit_code: Option<i32>,
+    pub exit_code: Option<ExitCode>,
     pub cancelled: bool,
     pub truncated: bool,
     pub full_output_path: Option<String>,
@@ -51,36 +82,115 @@ pub enum Update {
     Done(Result<Outcome, String>),
 }
 
+pub enum Step {
+    Started,
+    Chunk(String),
+    Answered(Outcome),
+    Refused(String),
+    Done(Result<Outcome, String>),
+}
+
 /// The run on its own thread, for a caller that polls while it works: the token that cancels it,
 /// and the messages it sends.
 pub fn start(
     command: &str,
+    exclude_from_context: bool,
     cwd: &str,
     shell: Option<&str>,
     prefix: Option<&str>,
 ) -> (CancelToken, mpsc::Receiver<Update>) {
+    spawn_run(
+        command,
+        exclude_from_context,
+        cwd,
+        shell,
+        prefix,
+        |step| match step {
+            Step::Started => None,
+            Step::Chunk(text) => Some(Update::Chunk(text)),
+            Step::Answered(outcome) => Some(Update::Done(Ok(outcome))),
+            Step::Refused(error) => Some(Update::Done(Err(error))),
+            Step::Done(result) => Some(Update::Done(result)),
+        },
+    )
+}
+
+pub fn start_drawn(
+    command: &str,
+    exclude_from_context: bool,
+    cwd: &str,
+    shell: Option<&str>,
+    prefix: Option<&str>,
+) -> (CancelToken, mpsc::Receiver<Step>) {
+    spawn_run(command, exclude_from_context, cwd, shell, prefix, Some)
+}
+
+fn spawn_run<T: Send + 'static>(
+    command: &str,
+    exclude_from_context: bool,
+    cwd: &str,
+    shell: Option<&str>,
+    prefix: Option<&str>,
+    message: fn(Step) -> Option<T>,
+) -> (CancelToken, mpsc::Receiver<T>) {
     let token = CancelToken::new();
     let (tx, rx) = mpsc::channel();
-    let worker = token.clone();
+    let abort = token.clone();
     let (command, cwd) = (command.to_owned(), cwd.to_owned());
     let (shell, prefix) = (shell.map(str::to_owned), prefix.map(str::to_owned));
     std::thread::spawn(move || {
-        let mut chunks = |text: &str| {
-            let _ = tx.send(Update::Chunk(text.to_owned()));
+        let emit = |step: Step| {
+            if let Some(message) = message(step) {
+                let _ = tx.send(message);
+            }
         };
-        let result = execute(
+        run(
             &command,
+            exclude_from_context,
             Spawn {
                 cwd: &cwd,
                 shell: shell.as_deref(),
                 prefix: prefix.as_deref(),
-                cancel: &worker,
-                on_chunk: &mut chunks,
+                cancel: &abort,
+                on_chunk: &mut |text| emit(Step::Chunk(text.to_owned())),
             },
+            &emit,
         );
-        let _ = tx.send(Update::Done(result));
     });
     (token, rx)
+}
+
+fn run(command: &str, exclude_from_context: bool, spawn: Spawn<'_>, emit: &dyn Fn(Step)) {
+    let decided = match crate::extensions::live() {
+        Some(live) => live.user_bash(
+            serde_json::json!({
+                "command": command,
+                "excludeFromContext": exclude_from_context,
+                "cwd": spawn.cwd,
+            }),
+            &resolved(command, spawn.prefix),
+            spawn.cancel,
+            &mut || emit(Step::Started),
+            &mut |delta| emit(Step::Chunk(delta)),
+        ),
+        None => UserBash::Local,
+    };
+    emit(match decided {
+        UserBash::Answered(result) => Step::Answered(result),
+        UserBash::Refused(error) => Step::Refused(error),
+        UserBash::Ran(result) => Step::Done(result),
+        UserBash::Local => {
+            emit(Step::Started);
+            Step::Done(execute(command, spawn))
+        }
+    });
+}
+
+fn resolved(command: &str, prefix: Option<&str>) -> String {
+    match prefix.filter(|prefix| !prefix.is_empty()) {
+        Some(prefix) => format!("{prefix}\n{command}"),
+        None => command.to_owned(),
+    }
 }
 
 /// `executeBashWithOperations`: run the command, hand each cleaned chunk to `on_chunk`, and keep
@@ -93,10 +203,7 @@ pub fn execute(command: &str, spawn: Spawn<'_>) -> Result<Outcome, String> {
             spawn.cwd
         ));
     }
-    let resolved = match spawn.prefix.filter(|prefix| !prefix.is_empty()) {
-        Some(prefix) => format!("{prefix}\n{command}"),
-        None => command.to_owned(),
-    };
+    let resolved = resolved(command, spawn.prefix);
     let mut cmd = std::process::Command::new(&shell);
     cmd.arg("-c")
         .arg(&resolved)
@@ -191,7 +298,7 @@ pub fn execute(command: &str, spawn: Spawn<'_>) -> Result<Outcome, String> {
         exit_code: if cancelled {
             None
         } else {
-            exit.and_then(|(code, _)| code)
+            exit.and_then(|(code, _)| code).map(ExitCode::from)
         },
         cancelled,
         truncated,

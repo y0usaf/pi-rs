@@ -325,6 +325,12 @@ impl Host {
         self.begin(request, Limit::Idle(EVENT_BUDGET))
     }
 
+    pub fn user_bash(&self, event: Value, resolved: &str, ctx: &Ctx) -> Result<Pending, String> {
+        let mut request = with_ctx(json!({ "op": "user_bash", "resolved": resolved }), ctx);
+        request["event"] = event;
+        self.begin(request, Limit::Unbounded)
+    }
+
     /// Streams one request through the `streamSimple` of a provider an extension registered; each
     /// event arrives as an update.
     pub fn stream(

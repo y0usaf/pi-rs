@@ -1114,8 +1114,13 @@ fn handle(
                     settings.shell_command_prefix().map(str::to_owned),
                 )
             };
-            let (token, rx) =
-                crate::bash_exec::start(&line, &options.cwd, shell.as_deref(), prefix.as_deref());
+            let (token, rx) = crate::bash_exec::start(
+                &line,
+                exclude_from_context,
+                &options.cwd,
+                shell.as_deref(),
+                prefix.as_deref(),
+            );
             runs.push(BashRun {
                 id: id.cloned(),
                 command: line,

@@ -47,6 +47,9 @@ use crate::settings::{Settings, SettingsManager};
 use crate::system_prompt::PromptInput;
 
 mod calls;
+mod user_bash;
+
+pub use user_bash::UserBash;
 
 /// What an extension sees of the models: the session's own, the catalog `find` searches, and the
 /// providers whose credentials are configured.

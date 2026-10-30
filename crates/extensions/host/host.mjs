@@ -106,6 +106,7 @@ const { CONFIG_DIR_NAME, getAgentDir } = await import(new URL("config.js", dist)
 const { normalizeBuildSystemPromptOptions } = await import(new URL("core/system-prompt.js", dist));
 const { estimateProjectedContextTokens } = await import(new URL("core/compaction/compaction.js", dist));
 const { killAll } = await import(new URL("core/exec.js", dist));
+const { executeBashWithOperations } = await import(new URL("core/bash-executor.js", dist));
 const { initTheme } = await import(new URL("modes/interactive/theme/theme.js", dist));
 const { flowOf } = await import(new URL("./node_modules/@earendil-works/pi-ai/dist/providers/all.js", import.meta.url));
 const usage = await import(new URL("core/compaction/compaction.js", dist));
@@ -1091,6 +1092,25 @@ function prepareArguments(request) {
 	return { args: definition.prepareArguments(request.args) };
 }
 
+async function userBash(request) {
+	absorb(request);
+	const { command, excludeFromContext, cwd } = request.event;
+	let answer;
+	try {
+		answer = await runner.emitUserBash({ type: "user_bash", command, excludeFromContext, cwd });
+	} catch (error) {
+		return { refused: error instanceof Error ? error.message : String(error) };
+	}
+	if (!answer) return null;
+	if (answer.result) return { result: answer.result };
+	send({ id: request.id, update: { exec: true } });
+	const ran = await executeBashWithOperations(request.resolved, cwd, answer.operations, {
+		onChunk: (delta) => send({ id: request.id, update: { delta } }),
+		signal: current.getStore()?.signal,
+	});
+	return { ran };
+}
+
 /** One request to a provider an extension registered, each event its stream yields sent as it comes. */
 async function runStream(request) {
 	const provider = providers.get(request.provider)?.provider;
@@ -1134,6 +1154,8 @@ async function handle(request) {
 			return await runStream(request);
 		case "route":
 			return await route(request);
+		case "user_bash":
+			return await userBash(request);
 		case "shutdown":
 			exit();
 		default:

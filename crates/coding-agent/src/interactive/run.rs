@@ -2364,7 +2364,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         }
         let (moved, failure) = bash.poll(&mut chat, &open.root, &cancel);
         if let Some(error) = failure {
-            chat.notice("error", &format!("Bash command failed: {error}"));
+            chat.notice("error", &format!("Error: Bash command failed: {error}"));
         }
         if moved {
             dirty.set(true);

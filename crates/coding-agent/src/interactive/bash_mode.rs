@@ -1,6 +1,3 @@
-//! `BashExecutionComponent` and `handleBashCommand`: a `!` line runs a command on a thread, its
-//! output streams into a bordered block, and Escape cancels it.
-
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc;
@@ -14,20 +11,33 @@ use serde_json::Value;
 
 use super::chat::Chat;
 use super::theme::{bold, fg, fg_fn};
-use crate::bash_exec::{self, Outcome, Update};
+use crate::bash_exec::{self, ExitCode, Outcome, Step};
 use crate::settings::SettingsManager;
 use crate::tools::truncate::{Limits, truncate_tail};
 
 /// Lines of output a collapsed block shows, as the tool rows do.
 const PREVIEW_LINES: usize = 20;
 
-/// The run going, if any: its thread's messages and the block it writes into.
 struct Running {
     command: String,
     exclude_from_context: bool,
     cancel: CancelToken,
-    rx: mpsc::Receiver<Update>,
-    row: Rc<RefCell<BashRow>>,
+    rx: mpsc::Receiver<Step>,
+    row: Option<Rc<RefCell<BashRow>>>,
+}
+
+impl Running {
+    fn row(&mut self, chat: &mut Chat) -> Rc<RefCell<BashRow>> {
+        let (command, exclude) = (&self.command, self.exclude_from_context);
+        Rc::clone(self.row.get_or_insert_with(|| {
+            chat.add_bash(BashRow::new(
+                command,
+                exclude,
+                chat.output_pad,
+                chat.expanded,
+            ))
+        }))
+    }
 }
 
 /// `!` and `!!`: one command at a time, as upstream allows.
@@ -64,14 +74,9 @@ impl BashMode {
         exclude_from_context: bool,
         settings: &SettingsManager,
     ) {
-        let row = chat.add_bash(BashRow::new(
+        let (token, rx) = bash_exec::start_drawn(
             command,
             exclude_from_context,
-            chat.output_pad,
-            chat.expanded,
-        ));
-        let (token, rx) = bash_exec::start(
-            command,
             &chat.cwd,
             settings.shell_path().as_deref(),
             settings.shell_command_prefix(),
@@ -81,7 +86,7 @@ impl BashMode {
             exclude_from_context,
             cancel: token,
             rx,
-            row,
+            row: None,
         });
     }
 
@@ -104,56 +109,55 @@ impl BashMode {
         conversation: &Conversation,
         cancel: &CancelToken,
     ) -> (bool, Option<String>) {
-        let (command, exclude, row, done) = {
-            let Some(running) = &mut self.running else {
-                return (false, None);
-            };
-            let mut changed = false;
-            let done = loop {
-                match running.rx.try_recv() {
-                    Ok(Update::Chunk(text)) => {
-                        running.row.borrow_mut().push(&text);
-                        changed = true;
-                    }
-                    Ok(Update::Done(result)) => break Some(result),
-                    Err(_) => break None,
+        let Some(mut running) = self.running.take() else {
+            return (false, None);
+        };
+        let mut changed = false;
+        let done = loop {
+            match running.rx.try_recv() {
+                Ok(Step::Started) => {
+                    running.row(chat);
+                    changed = true;
                 }
-            };
-            match done {
-                Some(done) => (
-                    running.command.clone(),
-                    running.exclude_from_context,
-                    Rc::clone(&running.row),
-                    done,
-                ),
-                None => return (changed, None),
+                Ok(Step::Chunk(text)) => {
+                    running.row(chat).borrow_mut().push(&text);
+                    changed = true;
+                }
+                Ok(Step::Answered(outcome)) => {
+                    running.row(chat).borrow_mut().push(&outcome.output);
+                    break Ok(outcome);
+                }
+                Ok(Step::Refused(_)) => return (true, None),
+                Ok(Step::Done(result)) => break result,
+                Err(_) => {
+                    self.running = Some(running);
+                    return (changed, None);
+                }
             }
         };
-        self.running = None;
-        let mut failure = None;
-        match done {
-            Ok(outcome) => {
-                row.borrow_mut().complete(&outcome);
-                if !exclude {
-                    chat.drew_bash(&bash_exec::to_text(&command, &outcome));
-                }
-                if let Err(e) = bash_exec::record(conversation, cancel, &command, &outcome, exclude)
-                {
-                    failure = Some(e);
-                }
-            }
+        let outcome = match done {
+            Ok(outcome) => outcome,
             Err(e) => {
-                row.borrow_mut().complete_missing();
-                failure = Some(e);
+                if let Some(row) = &running.row {
+                    row.borrow_mut().complete_missing();
+                }
+                return (true, Some(e));
             }
+        };
+        running.row(chat).borrow_mut().complete(&outcome);
+        let (command, exclude) = (running.command, running.exclude_from_context);
+        if !exclude {
+            chat.drew_bash(&bash_exec::to_text(&command, &outcome));
         }
+        let failure = bash_exec::record(conversation, cancel, &command, &outcome, exclude).err();
         (true, failure)
     }
 
     /// The spinner's next frame, as the status area's.
     pub fn tick(&mut self, now: u64) -> (bool, Option<u64>) {
-        match &mut self.running {
-            Some(running) => running.row.borrow_mut().tick(now),
+        match &self.running {
+            Some(Running { row: Some(row), .. }) => row.borrow_mut().tick(now),
+            Some(Running { row: None, .. }) => (false, Some(now + 50)),
             None => (false, None),
         }
     }
@@ -164,7 +168,7 @@ enum State {
     #[default]
     Running,
     Complete {
-        exit_code: Option<i32>,
+        exit_code: Option<ExitCode>,
         cancelled: bool,
         truncated: bool,
         full_output_path: Option<String>,
@@ -232,8 +236,8 @@ impl BashRow {
         row.state = State::Complete {
             exit_code: data
                 .get("exitCode")
-                .and_then(Value::as_i64)
-                .map(|code| code as i32),
+                .cloned()
+                .and_then(|code| serde_json::from_value(code).ok()),
             cancelled: data
                 .get("cancelled")
                 .and_then(Value::as_bool)
@@ -261,7 +265,10 @@ impl BashRow {
 
     /// `appendOutput`: the run's output keeps arriving a chunk at a time.
     pub fn push(&mut self, chunk: &str) {
-        self.output_text.push_str(chunk);
+        let clean = pi_tui::utils::strip_terminal_sequences(chunk)
+            .replace("\r\n", "\n")
+            .replace('\r', "\n");
+        self.output_text.push_str(&clean);
         self.refresh();
     }
 
