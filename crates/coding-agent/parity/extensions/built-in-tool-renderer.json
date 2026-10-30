@@ -1,0 +1,64 @@
+{
+  "prompts": [
+    "rename beta to gamma in notes.txt and log it"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "read",
+          "arguments": {
+            "path": "notes.txt"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "edit",
+          "arguments": {
+            "path": "notes.txt",
+            "edits": [
+              {
+                "oldText": "beta",
+                "newText": "gamma"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "bash",
+          "arguments": {
+            "command": "cat notes.txt"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "write",
+          "arguments": {
+            "path": "log.txt",
+            "content": "beta renamed\n"
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ],
+  "files": {
+    "notes.txt": "alpha\nbeta\n"
+  },
+  "args": [
+    "--session-id",
+    "parity"
+  ]
+}

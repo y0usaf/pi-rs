@@ -1,0 +1,66 @@
+{
+  "prompts": [
+    "implement the file",
+    "check the result"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "read",
+          "arguments": {
+            "path": "note.txt"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "write",
+          "arguments": {
+            "path": "note.txt",
+            "content": "implemented\n"
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    },
+    {
+      "text": "checked"
+    }
+  ],
+  "files": {
+    "note.txt": "pending\n"
+  },
+  "args": [
+    "--provider",
+    "jev",
+    "--model",
+    "auto"
+  ],
+  "providers": {
+    "openai-codex": {
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "gpt-5.6-sol",
+          "contextWindow": 200000,
+          "maxTokens": 8192
+        },
+        {
+          "id": "gpt-5.6-terra",
+          "contextWindow": 200000,
+          "maxTokens": 8192
+        },
+        {
+          "id": "gpt-5.6-luna",
+          "contextWindow": 200000,
+          "maxTokens": 8192
+        }
+      ]
+    }
+  }
+}

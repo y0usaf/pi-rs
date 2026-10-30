@@ -1,0 +1,43 @@
+{
+  "prompts": [
+    "/todos",
+    "track milk"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "todo",
+          "arguments": {
+            "action": "add",
+            "text": "buy milk"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "todo",
+          "arguments": {
+            "action": "toggle",
+            "id": 1
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "todo",
+          "arguments": {
+            "action": "list"
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ]
+}

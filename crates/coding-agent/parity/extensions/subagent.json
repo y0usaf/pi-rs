@@ -1,0 +1,28 @@
+{
+  "prompts": [
+    "ask echo to say hi"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "subagent",
+          "arguments": {
+            "agent": "echo",
+            "task": "say hi",
+            "agentScope": "project"
+          }
+        }
+      ]
+    },
+    {
+      "text": "hi"
+    },
+    {
+      "text": "done"
+    }
+  ],
+  "files": {
+    ".pi/agents/echo.md": "---\nname: echo\ndescription: Repeats the task\n---\n"
+  }
+}

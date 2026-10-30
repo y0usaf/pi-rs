@@ -1,0 +1,22 @@
+{
+  "prompts": [
+    "reload yourself",
+    "/reload-runtime"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "reload_runtime",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "text": "queued"
+    },
+    {
+      "text": "done"
+    }
+  ]
+}

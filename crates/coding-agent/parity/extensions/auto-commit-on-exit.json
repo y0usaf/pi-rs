@@ -1,0 +1,55 @@
+{
+  "prompts": [
+    "update the notes"
+  ],
+  "files": {
+    "notes.txt": "before\n"
+  },
+  "setup": [
+    [
+      "git",
+      "init",
+      "--initial-branch=main"
+    ],
+    [
+      "git",
+      "config",
+      "user.name",
+      "Parity"
+    ],
+    [
+      "git",
+      "config",
+      "user.email",
+      "parity@example.invalid"
+    ],
+    [
+      "git",
+      "add",
+      "notes.txt"
+    ],
+    [
+      "git",
+      "commit",
+      "-m",
+      "seed"
+    ]
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "edit",
+          "arguments": {
+            "path": "notes.txt",
+            "oldText": "before",
+            "newText": "after"
+          }
+        }
+      ]
+    },
+    {
+      "text": "Updated notes"
+    }
+  ]
+}

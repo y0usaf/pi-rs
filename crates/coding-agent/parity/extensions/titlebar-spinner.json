@@ -1,0 +1,11 @@
+{
+  "prompts": [
+    "hi"
+  ],
+  "turns": [
+    {
+      "text": "done",
+      "after": "setInterval(80)"
+    }
+  ]
+}

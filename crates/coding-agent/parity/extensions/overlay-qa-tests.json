@@ -1,0 +1,18 @@
+{
+  "prompts": [
+    "/overlay-animation",
+    "/overlay-anchors",
+    "/overlay-margins",
+    "/overlay-stack",
+    "/overlay-overflow",
+    "/overlay-edge",
+    "/overlay-percent",
+    "/overlay-maxheight",
+    "/overlay-sidepanel",
+    "/overlay-toggle",
+    "/overlay-passive",
+    "/overlay-focus",
+    "/overlay-streaming"
+  ],
+  "turns": []
+}

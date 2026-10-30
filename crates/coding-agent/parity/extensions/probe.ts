@@ -1,18 +1,47 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
 
 type Fn = (...args: unknown[]) => unknown;
 type Bag = Record<PropertyKey, unknown>;
+type Scope = { api?: boolean; tick?: { timer: string; tick: number } };
 
 const file = process.env.PI_PARITY_LOG;
 const quiet = new Set(["then", "toJSON", "constructor"]);
 let next = 0;
-const callbacks = new WeakMap<Fn, Fn>();
+const callbacks = new WeakMap<Fn, Map<string, Fn>>();
 const watched = new WeakMap<object, object>();
 const methods = new WeakMap<object, Map<string, { original: Fn; wrapped: Fn }>>();
+const registrations = new Map<string, number>();
+const timers = new Map<string, number>();
+const scope = new AsyncLocalStorage<Scope>();
+const interval = globalThis.setInterval;
 
 function write(entry: Bag): void {
-	if (file) fs.appendFileSync(file, `${JSON.stringify(entry)}\n`);
+	const tick = scope.getStore()?.tick;
+	if (file) fs.appendFileSync(file, `${JSON.stringify(tick ? { ...entry, ...tick } : entry)}\n`);
 }
+
+globalThis.setInterval = ((handler: Fn, delay?: number, ...rest: unknown[]) => {
+	const store = scope.getStore();
+	if (!store || store.api) return interval(handler, delay, ...rest);
+	const base = `setInterval(${delay})`;
+	const count = (timers.get(base) ?? 0) + 1;
+	timers.set(base, count);
+	const timer = count === 1 ? base : `${base}@${count}`;
+	let tick = 0;
+	return interval(
+		function (this: unknown, ...args: unknown[]) {
+			tick += 1;
+			return scope.run({ tick: { timer, tick } }, () => {
+				const id = next++;
+				write({ id, kind: "callback", path: timer, args: plain(args) });
+				return settle(id, () => handler.apply(this, args));
+			});
+		},
+		delay,
+		...rest,
+	);
+}) as typeof setInterval;
 
 function isCtx(value: unknown): value is Bag {
 	return typeof value === "object" && value !== null && "ui" in value && "sessionManager" in value;
@@ -78,15 +107,18 @@ function settle(id: number, run: () => unknown): unknown {
 	return result;
 }
 
-function label(path: string, args: unknown[]): string {
-	return typeof args[0] === "string" ? `${path}(${args[0]})` : path;
-}
-
 function isPlain(value: unknown): value is Bag | unknown[] {
 	if (typeof value !== "object" || value === null) return false;
 	if (Array.isArray(value)) return true;
 	const proto = Object.getPrototypeOf(value);
 	return proto === Object.prototype || proto === null;
+}
+
+function label(path: string, args: unknown[]): string {
+	const [first] = args;
+	if (typeof first === "string") return `${path}(${first})`;
+	if (isPlain(first) && !Array.isArray(first) && typeof first.name === "string") return `${path}(${first.name})`;
+	return path;
 }
 
 function bears(value: unknown, open: Set<object>): boolean {
@@ -116,31 +148,47 @@ function outbound(path: string, arg: unknown): unknown {
 }
 
 function callback(path: string, fn: Fn): Fn {
-	const known = callbacks.get(fn);
+	let paths = callbacks.get(fn);
+	if (!paths) {
+		paths = new Map();
+		callbacks.set(fn, paths);
+	}
+	const known = paths.get(path);
 	if (known) return known;
 	const wrapped = function (this: unknown, ...args: unknown[]) {
 		const id = next++;
 		write({ id, kind: "callback", path, args: plain(args) });
-		return settle(id, () =>
-			fn.apply(
-				this,
-				args.map((arg, index) => outbound(`${path}#${index}`, arg)),
+		return scope.run({ tick: scope.getStore()?.tick }, () =>
+			settle(id, () =>
+				fn.apply(
+					this,
+					args.map((arg, index) => outbound(`${path}#${index}`, arg)),
+				),
 			),
 		);
 	};
-	callbacks.set(fn, wrapped);
+	paths.set(path, wrapped);
 	return wrapped;
+}
+
+function registration(name: string, args: unknown[]): string {
+	if (!bears(args, new Set())) return name;
+	const count = (registrations.get(name) ?? 0) + 1;
+	registrations.set(name, count);
+	return count === 1 ? name : `${name}@${count}`;
 }
 
 function host(path: string, fn: Fn, self: unknown): Fn {
 	return (...args: unknown[]) => {
 		const id = next++;
-		const name = label(path, args);
+		const name = registration(label(path, args), args);
 		write({ id, kind: "call", path: name, args: plain(args) });
-		const result = settle(id, () =>
-			fn.apply(
-				self,
-				args.map((arg, index) => inbound(`${name}#${index}`, arg)),
+		const result = scope.run({ api: true, tick: scope.getStore()?.tick }, () =>
+			settle(id, () =>
+				fn.apply(
+					self,
+					args.map((arg, index) => inbound(`${name}#${index}`, arg)),
+				),
 			),
 		);
 		return result instanceof Promise
@@ -187,8 +235,10 @@ function watch<T extends object>(target: T, path: string): T {
 export function wrap(factory: unknown): unknown {
 	if (typeof factory !== "function") return factory;
 	return async (pi: object) => {
+		registrations.clear();
+		timers.clear();
 		const id = next++;
 		write({ id, kind: "load" });
-		await settle(id, () => (factory as Fn)(watch(pi, "pi")));
+		await scope.run({}, () => settle(id, () => (factory as Fn)(watch(pi, "pi"))));
 	};
 }

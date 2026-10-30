@@ -1,0 +1,94 @@
+{
+  "prompts": [
+    "rename beta to gamma in notes.txt, log it, then look around"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "read",
+          "arguments": {
+            "path": "notes.txt"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "edit",
+          "arguments": {
+            "path": "notes.txt",
+            "edits": [
+              {
+                "oldText": "beta",
+                "newText": "gamma"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "bash",
+          "arguments": {
+            "command": "cat notes.txt"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "write",
+          "arguments": {
+            "path": "log.txt",
+            "content": "beta renamed\n"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "ls",
+          "arguments": {
+            "path": "."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "find",
+          "arguments": {
+            "pattern": "*.txt"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "grep",
+          "arguments": {
+            "pattern": "gamma"
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ],
+  "files": {
+    "notes.txt": "alpha\nbeta\n"
+  },
+  "args": [
+    "--session-id",
+    "parity"
+  ]
+}

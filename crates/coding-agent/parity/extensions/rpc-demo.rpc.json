@@ -1,0 +1,31 @@
+{
+  "rpc": [
+    {
+      "type": "prompt",
+      "message": "/rpc-input"
+    },
+    {
+      "type": "prompt",
+      "message": "tidy up"
+    },
+    {
+      "type": "new_session"
+    }
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "bash",
+          "arguments": {
+            "command": "sudo rm -rf /tmp/demo"
+          },
+          "fails": true
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ]
+}

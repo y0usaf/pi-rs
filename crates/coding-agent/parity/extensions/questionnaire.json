@@ -1,0 +1,35 @@
+{
+  "prompts": [
+    "ask me for a color"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "questionnaire",
+          "arguments": {
+            "questions": [
+              {
+                "id": "color",
+                "prompt": "Which color?",
+                "options": [
+                  {
+                    "value": "red",
+                    "label": "Red"
+                  },
+                  {
+                    "value": "blue",
+                    "label": "Blue"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ]
+}

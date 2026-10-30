@@ -1,0 +1,19 @@
+{
+  "rpc": [
+    {
+      "type": "prompt",
+      "message": "hi"
+    },
+    {
+      "type": "clone"
+    },
+    {
+      "type": "new_session"
+    }
+  ],
+  "turns": [
+    {
+      "text": "done"
+    }
+  ]
+}

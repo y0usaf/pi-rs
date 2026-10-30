@@ -1,0 +1,26 @@
+{
+  "prompts": [
+    "hi",
+    "/summarize"
+  ],
+  "turns": [
+    {
+      "text": "done"
+    },
+    {
+      "text": "Summary: the conversation is complete."
+    }
+  ],
+  "providers": {
+    "openai": {
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "gpt-5.2",
+          "contextWindow": 200000,
+          "maxTokens": 8192
+        }
+      ]
+    }
+  }
+}

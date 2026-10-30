@@ -1,0 +1,98 @@
+{
+  "prompts": [
+    "/gondolin",
+    "rename beta to gamma in notes.txt, log it, then look around"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "read",
+          "arguments": {
+            "path": "notes.txt"
+          },
+          "fails": true
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "edit",
+          "arguments": {
+            "path": "notes.txt",
+            "edits": [
+              {
+                "oldText": "beta",
+                "newText": "gamma"
+              }
+            ]
+          },
+          "fails": true
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "bash",
+          "arguments": {
+            "command": "cat notes.txt"
+          },
+          "fails": true
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "write",
+          "arguments": {
+            "path": "log.txt",
+            "content": "beta renamed\n"
+          },
+          "fails": true
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "ls",
+          "arguments": {
+            "path": "."
+          },
+          "fails": true
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "find",
+          "arguments": {
+            "pattern": "*.txt"
+          },
+          "fails": true
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "grep",
+          "arguments": {
+            "pattern": "gamma"
+          },
+          "fails": true
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ],
+  "files": {
+    "notes.txt": "alpha\nbeta\n"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "prompts": [
+    "hi"
+  ],
+  "turns": [],
+  "agent_files": {
+    "auth.json": "{\"custom-anthropic\":{\"type\":\"oauth\",\"access\":\"sk-ant-oat01-parity\",\"refresh\":\"parity-refresh\",\"expires\":4102444800000}}\n",
+    "settings.json": "{\"retry\":{\"enabled\":false}}\n"
+  },
+  "args": [
+    "--provider",
+    "custom-anthropic",
+    "--model",
+    "claude-sonnet-4-5"
+  ]
+}

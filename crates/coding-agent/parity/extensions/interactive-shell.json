@@ -1,0 +1,20 @@
+{
+  "rpc": [
+    {
+      "type": "bash",
+      "command": "vim notes.txt"
+    },
+    {
+      "type": "bash",
+      "command": "i cat notes.txt"
+    },
+    {
+      "type": "bash",
+      "command": "cat notes.txt"
+    }
+  ],
+  "turns": [],
+  "files": {
+    "notes.txt": "alpha\nbeta\n"
+  }
+}

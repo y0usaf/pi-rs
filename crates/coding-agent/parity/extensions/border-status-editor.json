@@ -1,0 +1,44 @@
+{
+  "prompts": [
+    "hi"
+  ],
+  "turns": [
+    {
+      "text": "done",
+      "after": "setInterval(80)"
+    }
+  ],
+  "files": {
+    "notes.txt": "before\n"
+  },
+  "setup": [
+    [
+      "git",
+      "init",
+      "--initial-branch=main"
+    ],
+    [
+      "git",
+      "config",
+      "user.name",
+      "Parity"
+    ],
+    [
+      "git",
+      "config",
+      "user.email",
+      "parity@example.invalid"
+    ],
+    [
+      "git",
+      "add",
+      "notes.txt"
+    ],
+    [
+      "git",
+      "commit",
+      "-m",
+      "seed"
+    ]
+  ]
+}

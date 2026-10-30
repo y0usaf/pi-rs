@@ -1,0 +1,12 @@
+{
+  "prompts": [
+    "hi",
+    "/bookmark first",
+    "/unbookmark"
+  ],
+  "turns": [
+    {
+      "text": "done"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "prompts": [
+    "/timed",
+    "/timed-select",
+    "/timed-signal"
+  ],
+  "turns": []
+}

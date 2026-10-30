@@ -188,6 +188,8 @@
         pkgs.runCommand "pi-extensions-parity-fixtures" { } ''
           cp -r ${./crates/coding-agent/parity/extensions} $out
           chmod u+w $out
+          mkdir $out/bin
+          ln -s ${pkgs.gitMinimal}/bin/git ${pkgs.ripgrep}/bin/rg ${pkgs.fd}/bin/fd ${pkgs.bash}/bin/bash $out/bin/
           cp -r ${examples} $out/upstream
           chmod -R u+w $out/upstream
           ${pkgs.lib.concatMapStrings (name: ''

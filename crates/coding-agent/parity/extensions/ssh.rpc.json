@@ -1,0 +1,16 @@
+{
+  "rpc": [
+    {
+      "type": "bash",
+      "command": "cat notes.txt"
+    }
+  ],
+  "turns": [],
+  "files": {
+    "notes.txt": "alpha\nbeta\n"
+  },
+  "args": [
+    "--ssh",
+    "dev@build:/srv/app"
+  ]
+}

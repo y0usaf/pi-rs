@@ -1,0 +1,108 @@
+[
+  {
+    "examples": [
+      "*"
+    ],
+    "handlers": [
+      "pi.registerTool(*)#0.renderCall",
+      "pi.registerTool(*)#0.renderResult",
+      "pi.registerMessageRenderer(*)#1",
+      "pi.registerEntryRenderer(*)#1"
+    ],
+    "reason": "draws in the TUI; --mode json and RPC draw nothing"
+  },
+  {
+    "examples": [
+      "*"
+    ],
+    "handlers": [
+      "pi.registerCommand(*)#1.getArgumentCompletions"
+    ],
+    "reason": "completes a command's arguments in the TUI editor"
+  },
+  {
+    "examples": [
+      "*"
+    ],
+    "handlers": [
+      "pi.registerShortcut(*)#1.handler"
+    ],
+    "reason": "runs on a key press in the TUI"
+  },
+  {
+    "examples": [
+      "custom-provider-*"
+    ],
+    "handlers": [
+      "pi.registerProvider(*)#1.oauth.login"
+    ],
+    "reason": "runs from the TUI's /login dialog only: src/modes/interactive/interactive-mode.ts:6296 is the one caller of modelRuntime.login"
+  },
+  {
+    "examples": [
+      "tic-tac-toe",
+      "todo",
+      "tools"
+    ],
+    "handlers": [
+      "pi.on(session_tree)#1"
+    ],
+    "reason": "fires only when the session moves in its tree, through the TUI's /tree or an extension calling ctx.navigateTree; RPC has no command for it (src/modes/rpc/rpc-mode.ts), print mode takes none, and no upstream example calls ctx.navigateTree"
+  },
+  {
+    "examples": [
+      "custom-provider-*"
+    ],
+    "handlers": [
+      "pi.registerProvider(*)#1.streamSimple",
+      "pi.registerProvider(*)#1.oauth.refreshToken"
+    ],
+    "ran": true,
+    "reason": "posts to api.anthropic.com, console.anthropic.com or gitlab.com, which the check cannot reach, so its arguments and its failure are compared, not a reply"
+  },
+  {
+    "examples": [
+      "gondolin"
+    ],
+    "handlers": [
+      "pi.registerTool(*)#0.execute",
+      "pi.registerCommand(gondolin)#1.handler",
+      "pi.on(user_bash)#1",
+      "pi.on(session_start)#1",
+      "pi.on(before_agent_start)#1"
+    ],
+    "ran": true,
+    "reason": "boots a Gondolin VM first (gondolin/index.ts:400-408), which needs QEMU and a guest image fetched from the network; the check has neither, so its arguments and the failed boot are compared, not its work"
+  },
+  {
+    "examples": [
+      "sandbox"
+    ],
+    "handlers": [
+      "pi.on(session_start)#1"
+    ],
+    "ran": true,
+    "reason": "sets up the sandbox, which needs bubblewrap and socat on PATH besides ripgrep; the check's PATH has neither, so it reports the failed setup and bash and user_bash then run unsandboxed"
+  },
+  {
+    "examples": [
+      "ssh"
+    ],
+    "handlers": [
+      "pi.registerTool(*)#0.execute",
+      "pi.on(user_bash)#1"
+    ],
+    "ran": true,
+    "reason": "with --ssh it runs each call over ssh, and the check has no host to reach, so the remote path is compared up to ssh's failure to connect; ssh.local runs the local path to completion"
+  },
+  {
+    "examples": [
+      "file-trigger"
+    ],
+    "handlers": [
+      "pi.on(session_start)#1"
+    ],
+    "ran": true,
+    "reason": "watches /tmp/agent-trigger.txt, a fixed path outside the run's directories that the check does not create, so fs.watch throws and the watch callback never runs"
+  }
+]

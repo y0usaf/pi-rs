@@ -1,0 +1,33 @@
+{
+  "args": [
+    "--approve"
+  ],
+  "files": {
+    ".pi/settings.json": "{\"compaction\":{\"keepRecentTokens\":1}}\n"
+  },
+  "providers": {
+    "google": {
+      "models": [
+        {
+          "id": "gemini-2.5-flash",
+          "api": "openai-completions"
+        }
+      ]
+    }
+  },
+  "prompts": [
+    "hi"
+  ],
+  "turns": [
+    {
+      "text": "done",
+      "usage": {
+        "prompt_tokens": 190000,
+        "completion_tokens": 10
+      }
+    },
+    {
+      "text": "## Goal\nSay hi."
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "prompts": [
+    "find beta"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "rg",
+          "arguments": {
+            "pattern": "beta",
+            "path": "."
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ],
+  "files": {
+    "notes.txt": "alpha\nbeta\n"
+  }
+}

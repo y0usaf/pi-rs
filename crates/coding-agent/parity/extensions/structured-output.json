@@ -1,0 +1,22 @@
+{
+  "prompts": [
+    "summarize the release as structured output"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "structured_output",
+          "arguments": {
+            "headline": "Release 1.4",
+            "summary": "Ready to ship.",
+            "actionItems": [
+              "tag v1.4",
+              "announce"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

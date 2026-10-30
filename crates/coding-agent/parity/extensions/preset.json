@@ -1,0 +1,18 @@
+{
+  "args": [
+    "--preset",
+    "plan"
+  ],
+  "files": {
+    ".pi/presets.json": "{\n  \"plan\": {\n    \"thinkingLevel\": \"low\",\n    \"tools\": [\n      \"read\",\n      \"grep\"\n    ],\n    \"instructions\": \"Plan only; edit nothing.\"\n  },\n  \"fake\": {\n    \"provider\": \"fake\",\n    \"model\": \"fake-test\",\n    \"tools\": [\n      \"read\",\n      \"bash\",\n      \"edit\",\n      \"write\"\n    ]\n  }\n}\n"
+  },
+  "prompts": [
+    "hi",
+    "/preset fake"
+  ],
+  "turns": [
+    {
+      "text": "done"
+    }
+  ]
+}

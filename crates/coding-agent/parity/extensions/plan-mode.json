@@ -1,0 +1,40 @@
+{
+  "args": [
+    "--plan"
+  ],
+  "prompts": [
+    "explore the repo",
+    "/todos",
+    "/plan",
+    "go ahead"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "bash",
+          "arguments": {
+            "command": "rm -rf src"
+          },
+          "fails": true
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "bash",
+          "arguments": {
+            "command": "ls"
+          }
+        }
+      ]
+    },
+    {
+      "text": "Plan:\n1. Read the readme file\n2. Update the changelog entry"
+    },
+    {
+      "text": "done"
+    }
+  ]
+}

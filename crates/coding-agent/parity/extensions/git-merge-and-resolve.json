@@ -1,0 +1,106 @@
+{
+  "prompts": [
+    "check the merge"
+  ],
+  "files": {
+    "notes.txt": "before\n"
+  },
+  "setup": [
+    [
+      "git",
+      "init",
+      "--initial-branch=main"
+    ],
+    [
+      "git",
+      "config",
+      "user.name",
+      "Parity"
+    ],
+    [
+      "git",
+      "config",
+      "user.email",
+      "parity@example.invalid"
+    ],
+    [
+      "git",
+      "add",
+      "notes.txt"
+    ],
+    [
+      "git",
+      "commit",
+      "-m",
+      "seed"
+    ],
+    [
+      "git",
+      "checkout",
+      "-b",
+      "incoming"
+    ],
+    [
+      "bash",
+      "-c",
+      "printf 'theirs\\n' > notes.txt"
+    ],
+    [
+      "git",
+      "commit",
+      "-am",
+      "incoming"
+    ],
+    [
+      "git",
+      "checkout",
+      "main"
+    ],
+    [
+      "bash",
+      "-c",
+      "printf 'ours\\n' > notes.txt"
+    ],
+    [
+      "git",
+      "commit",
+      "-am",
+      "ours"
+    ],
+    [
+      "git",
+      "remote",
+      "add",
+      "origin",
+      "."
+    ],
+    [
+      "git",
+      "fetch",
+      "origin"
+    ],
+    [
+      "git",
+      "branch",
+      "--set-upstream-to=origin/incoming"
+    ]
+  ],
+  "turns": [
+    {
+      "text": "Checking merge status"
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "bash",
+          "arguments": {
+            "command": "git checkout -q --ours notes.txt && git add notes.txt && git commit -q -m resolved && git log --oneline -1"
+          }
+        }
+      ]
+    },
+    {
+      "text": "Resolved the merge"
+    }
+  ]
+}

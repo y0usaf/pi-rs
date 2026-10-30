@@ -1,0 +1,34 @@
+{
+  "prompts": [
+    "/rpc-input",
+    "/rpc-editor",
+    "/rpc-prefill",
+    "tidy up"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "bash",
+          "arguments": {
+            "command": "sudo rm -rf /tmp/demo"
+          },
+          "fails": true
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "bash",
+          "arguments": {
+            "command": "echo tidy"
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ]
+}

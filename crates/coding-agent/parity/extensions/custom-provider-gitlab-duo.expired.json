@@ -1,0 +1,16 @@
+{
+  "prompts": [
+    "hi"
+  ],
+  "turns": [],
+  "agent_files": {
+    "auth.json": "{\"gitlab-duo\":{\"type\":\"oauth\",\"access\":\"glpat-parity\",\"refresh\":\"parity-refresh\",\"expires\":0}}\n",
+    "settings.json": "{\"retry\":{\"enabled\":false}}\n"
+  },
+  "args": [
+    "--provider",
+    "gitlab-duo",
+    "--model",
+    "claude-sonnet-4-6"
+  ]
+}

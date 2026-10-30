@@ -1,0 +1,11 @@
+{
+  "prompts": [
+    "/pirate",
+    "hi"
+  ],
+  "turns": [
+    {
+      "text": "done"
+    }
+  ]
+}

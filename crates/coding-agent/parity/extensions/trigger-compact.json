@@ -1,0 +1,23 @@
+{
+  "prompts": [
+    "hi",
+    "again",
+    "/trigger-compact keep the decisions"
+  ],
+  "turns": [
+    {
+      "text": "done",
+      "usage": {
+        "prompt_tokens": 1000,
+        "completion_tokens": 10
+      }
+    },
+    {
+      "text": "done",
+      "usage": {
+        "prompt_tokens": 150000,
+        "completion_tokens": 10
+      }
+    }
+  ]
+}

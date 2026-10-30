@@ -1,0 +1,29 @@
+{
+  "prompts": [
+    "ask me for a color"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "question",
+          "arguments": {
+            "question": "Which color?",
+            "options": [
+              {
+                "label": "red"
+              },
+              {
+                "label": "blue",
+                "description": "the sky"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ]
+}

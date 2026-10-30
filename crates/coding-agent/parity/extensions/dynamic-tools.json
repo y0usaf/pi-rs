@@ -1,0 +1,27 @@
+{
+  "prompts": [
+    "/add-echo-tool shout",
+    "echo hi both ways"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "echo_session",
+          "arguments": {
+            "message": "hi"
+          }
+        },
+        {
+          "name": "shout",
+          "arguments": {
+            "message": "hi"
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ]
+}

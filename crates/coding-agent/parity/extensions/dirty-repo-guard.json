@@ -1,0 +1,53 @@
+{
+  "rpc": [
+    {
+      "type": "prompt",
+      "message": "hi"
+    },
+    {
+      "type": "clone"
+    },
+    {
+      "type": "new_session"
+    }
+  ],
+  "turns": [
+    {
+      "text": "done"
+    }
+  ],
+  "files": {
+    "notes.txt": "before\n",
+    "dirty.txt": "uncommitted work\n"
+  },
+  "setup": [
+    [
+      "git",
+      "init",
+      "--initial-branch=main"
+    ],
+    [
+      "git",
+      "config",
+      "user.name",
+      "Parity"
+    ],
+    [
+      "git",
+      "config",
+      "user.email",
+      "parity@example.invalid"
+    ],
+    [
+      "git",
+      "add",
+      "notes.txt"
+    ],
+    [
+      "git",
+      "commit",
+      "-m",
+      "seed"
+    ]
+  ]
+}

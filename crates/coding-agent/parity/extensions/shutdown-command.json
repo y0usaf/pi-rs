@@ -1,0 +1,25 @@
+{
+  "prompts": [
+    "deploy to staging",
+    "/quit"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "deploy_and_exit",
+          "arguments": {
+            "environment": "staging"
+          }
+        },
+        {
+          "name": "finish_and_exit",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ]
+}

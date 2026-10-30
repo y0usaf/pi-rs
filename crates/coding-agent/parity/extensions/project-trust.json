@@ -1,0 +1,13 @@
+{
+  "prompts": [
+    "hi"
+  ],
+  "turns": [
+    {
+      "text": "done"
+    }
+  ],
+  "files": {
+    ".pi/settings.json": "{}\n"
+  }
+}

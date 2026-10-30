@@ -1,0 +1,31 @@
+{
+  "prompts": [
+    "set GREETING in ~/.profile, then show it and the spawn hook marker"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "write",
+          "arguments": {
+            "path": "~/.profile",
+            "content": "export GREETING=hello\n"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "bash",
+          "arguments": {
+            "command": "echo $PI_SPAWN_HOOK $GREETING"
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ]
+}

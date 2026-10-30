@@ -1,0 +1,24 @@
+{
+  "prompts": [
+    "hi"
+  ],
+  "turns": [
+    {
+      "text": "done"
+    }
+  ],
+  "setup": [
+    [
+      "git",
+      "init",
+      "--initial-branch=main"
+    ],
+    [
+      "git",
+      "remote",
+      "add",
+      "origin",
+      "https://github.com/earendil-works/pi.git"
+    ]
+  ]
+}

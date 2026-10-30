@@ -1,0 +1,33 @@
+{
+  "prompts": [
+    "save the settings"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "write",
+          "arguments": {
+            "path": ".env",
+            "content": "TOKEN=1\n"
+          },
+          "fails": true
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "write",
+          "arguments": {
+            "path": "notes.txt",
+            "content": "TOKEN goes in the vault\n"
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ]
+}

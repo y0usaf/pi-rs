@@ -1,0 +1,24 @@
+{
+  "prompts": [
+    "/sandbox",
+    "show notes.txt"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "bash",
+          "arguments": {
+            "command": "cat notes.txt"
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ],
+  "files": {
+    "notes.txt": "alpha\nbeta\n"
+  }
+}

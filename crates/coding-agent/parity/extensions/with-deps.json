@@ -1,0 +1,31 @@
+{
+  "prompts": [
+    "how long are 2 days and soon"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "parse_duration",
+          "arguments": {
+            "duration": "2 days"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "parse_duration",
+          "arguments": {
+            "duration": "soon"
+          },
+          "fails": true
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ]
+}

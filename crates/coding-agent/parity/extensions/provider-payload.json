@@ -1,5 +1,7 @@
 {
-  "prompt": "hi",
+  "prompts": [
+    "hi"
+  ],
   "turns": [
     {
       "text": "done"

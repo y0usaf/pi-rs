@@ -1,0 +1,42 @@
+{
+  "prompts": [
+    "/tic-tac-toe",
+    "your move"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "tic_tac_toe",
+          "arguments": {
+            "action": "move_down"
+          }
+        },
+        {
+          "name": "tic_tac_toe",
+          "arguments": {
+            "action": "move_right"
+          }
+        },
+        {
+          "name": "tic_tac_toe",
+          "arguments": {
+            "action": "play"
+          },
+          "fails": true
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "tic_tac_toe_see_board",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ]
+}

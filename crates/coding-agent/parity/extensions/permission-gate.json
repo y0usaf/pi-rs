@@ -1,0 +1,31 @@
+{
+  "prompts": [
+    "clean the build dir"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "bash",
+          "arguments": {
+            "command": "rm -rf build"
+          },
+          "fails": true
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "bash",
+          "arguments": {
+            "command": "echo kept"
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ]
+}

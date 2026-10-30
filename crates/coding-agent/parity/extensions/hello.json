@@ -1,5 +1,7 @@
 {
-  "prompt": "greet Ada",
+  "prompts": [
+    "greet Ada"
+  ],
   "turns": [
     {
       "tool_calls": [

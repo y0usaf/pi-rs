@@ -1,0 +1,50 @@
+{
+  "prompts": [
+    "seed an existing access log",
+    "/read-log",
+    "read notes.txt and .env"
+  ],
+  "turns": [
+    {
+      "tool_calls": [
+        {
+          "name": "write",
+          "arguments": {
+            "path": "../agent/read-access.log",
+            "content": "[2000-01-01T00:00:00.000Z] ALLOWED: historical.txt\n"
+          }
+        }
+      ]
+    },
+    {
+      "text": "seeded"
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "read",
+          "arguments": {
+            "path": "notes.txt"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "name": "read",
+          "arguments": {
+            "path": ".env"
+          }
+        }
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ],
+  "files": {
+    "notes.txt": "alpha\nbeta\n",
+    ".env": "TOKEN=secret\n"
+  }
+}

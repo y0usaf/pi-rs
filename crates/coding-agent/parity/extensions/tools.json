@@ -1,0 +1,11 @@
+{
+  "prompts": [
+    "/tools",
+    "hi"
+  ],
+  "turns": [
+    {
+      "text": "done"
+    }
+  ]
+}

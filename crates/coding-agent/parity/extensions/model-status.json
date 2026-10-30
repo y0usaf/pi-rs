@@ -1,0 +1,25 @@
+{
+  "rpc": [
+    {
+      "type": "set_model",
+      "provider": "spare",
+      "modelId": "spare-test"
+    },
+    {
+      "type": "cycle_model"
+    }
+  ],
+  "turns": [],
+  "providers": {
+    "spare": {
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "spare-test",
+          "contextWindow": 200000,
+          "maxTokens": 8192
+        }
+      ]
+    }
+  }
+}

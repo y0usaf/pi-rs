@@ -1,0 +1,11 @@
+{
+  "prompts": [
+    "/debug-provider on",
+    "hi"
+  ],
+  "turns": [
+    {
+      "text": "done"
+    }
+  ]
+}
