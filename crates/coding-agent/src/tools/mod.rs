@@ -34,6 +34,7 @@ pub struct ToolOutput {
     pub details: Option<Value>,
     /// A result the model sees as failed without the tool throwing (bash's non-zero exit).
     pub is_error: bool,
+    pub structured_content: Option<Value>,
 }
 
 impl ToolOutput {
@@ -42,6 +43,7 @@ impl ToolOutput {
             content: vec![text_block(text)],
             details: None,
             is_error: false,
+            structured_content: None,
         }
     }
 
@@ -80,8 +82,7 @@ pub struct ToolContext<'a> {
     /// Variables set for bash commands (`PI_SESSION_ID`, `PI_MODEL`, ..., and PATH with the agent's
     /// bin directory).
     pub env: &'a [(String, String)],
-    /// Called with bash's output so far (the tail it would show), throttled.
-    pub on_update: Option<&'a mut dyn FnMut(&str)>,
+    pub on_update: Option<&'a mut dyn FnMut(Value)>,
 }
 
 pub type Execute = fn(args: &Value, ctx: &mut ToolContext<'_>) -> Result<ToolOutput, String>;

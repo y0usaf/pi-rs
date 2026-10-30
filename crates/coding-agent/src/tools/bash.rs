@@ -8,7 +8,7 @@ use super::{
     PromptContribution, ToolContext, ToolOutput, ToolSpec, js_number, num_arg, str_arg, text_block,
 };
 use serde_json::{Value, json};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 const MAX_TIMEOUT_MS: f64 = 2_147_483_647.0;
 const EXIT_STDIO_GRACE: Duration = Duration::from_millis(100);
 const UPDATE_THROTTLE: Duration = Duration::from_millis(100);
+const STRUCTURED_OUTPUT_MAX_BYTES: usize = 1024 * 1024;
 
 struct Shell {
     name: &'static str,
@@ -178,14 +179,16 @@ fn execute_shell(
     let timeout = num_arg(args, "timeout");
     let mut acc = Accumulator::new();
     if let Some(update) = ctx.on_update.as_deref_mut() {
-        update("");
+        update(json!({ "content": [] }));
     }
-    let ended = run(shell, command, timeout, ctx, &mut acc);
+    let started = Instant::now();
+    let mut dirty = false;
+    let ended = run(shell, command, timeout, ctx, &mut acc, &mut dirty);
     acc.finish();
-    let snapshot = acc.snapshot(true);
-    if let Some(update) = ctx.on_update.as_deref_mut() {
-        update(&snapshot.content);
+    if dirty && let Some(update) = ctx.on_update.as_deref_mut() {
+        update(acc.update());
     }
+    let snapshot = acc.snapshot(true);
     let ended = ended?;
     let status = |text: &str, status: &str| {
         if text.is_empty() {
@@ -208,6 +211,18 @@ fn execute_shell(
             let Some(code) = code else {
                 return Err(status(&text, "Command terminated without an exit code"));
             };
+            let tenths = (started.elapsed().as_secs_f64() * 10.0).round();
+            let (output, truncated) = acc.read_full_output(STRUCTURED_OUTPUT_MAX_BYTES);
+            let mut structured = json!({ "output": output, "truncated": truncated });
+            if truncated && let Some(path) = &snapshot.full_output_path {
+                structured["full_output_path"] = json!(path);
+            }
+            structured["exit_code"] = json!(code);
+            structured["wall_time_seconds"] = if tenths % 10.0 == 0.0 {
+                json!((tenths / 10.0) as u64)
+            } else {
+                json!(tenths / 10.0)
+            };
             let content = if code != 0 {
                 status(&text, &format!("Command exited with code {code}"))
             } else {
@@ -217,6 +232,7 @@ fn execute_shell(
                 content: vec![text_block(content)],
                 details,
                 is_error: code != 0,
+                structured_content: Some(structured),
             })
         }
     }
@@ -228,6 +244,7 @@ fn run(
     timeout: Option<f64>,
     ctx: &mut ToolContext<'_>,
     acc: &mut Accumulator,
+    dirty: &mut bool,
 ) -> Result<Ended, String> {
     let timeout_ms = timeout_ms(timeout)?;
     if ctx.cancel.is_cancelled() {
@@ -303,7 +320,6 @@ fn run(
     let mut exit: Option<(Option<i32>, Instant)> = None;
     let mut killed: Option<Ended> = None;
     let mut last_update = Instant::now() - UPDATE_THROTTLE;
-    let mut dirty = false;
     loop {
         if killed.is_none() {
             if ctx.cancel.is_cancelled() {
@@ -328,7 +344,7 @@ fn run(
         match rx.recv_timeout(Duration::from_millis(10)) {
             Ok(Some(chunk)) => {
                 acc.append(&chunk);
-                dirty = true;
+                *dirty = true;
                 if let Some((code, _)) = exit {
                     exit = Some((code, Instant::now()));
                 }
@@ -337,17 +353,17 @@ fn run(
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => open = 0,
         }
-        if dirty && last_update.elapsed() >= UPDATE_THROTTLE {
+        if *dirty && last_update.elapsed() >= UPDATE_THROTTLE {
             if let Some(update) = ctx.on_update.as_deref_mut() {
-                let snap = acc.snapshot(true);
-                update(&snap.content);
+                update(acc.update());
             }
             last_update = Instant::now();
-            dirty = false;
+            *dirty = false;
         }
     }
     while let Ok(Some(chunk)) = rx.try_recv() {
         acc.append(&chunk);
+        *dirty = true;
     }
     if let Some(ended) = killed {
         return Ok(ended);
@@ -500,6 +516,57 @@ impl Accumulator {
             truncation,
             full_output_path: self.temp.as_ref().map(|(p, _)| p.clone()),
         }
+    }
+
+    fn update(&mut self) -> Value {
+        let snapshot = self.snapshot(true);
+        let mut details = serde_json::Map::new();
+        if snapshot.truncation.truncated {
+            details.insert("truncation".into(), json!(snapshot.truncation));
+        }
+        if let Some(path) = snapshot.full_output_path {
+            details.insert("fullOutputPath".into(), json!(path));
+        }
+        json!({
+            "content": [{ "type": "text", "text": snapshot.content }],
+            "details": details,
+        })
+    }
+
+    pub fn read_full_output(&self, max_bytes: usize) -> (String, bool) {
+        let Some((path, _)) = &self.temp else {
+            return (String::from_utf8_lossy(&self.raw).into_owned(), false);
+        };
+        let Ok(mut file) = std::fs::File::open(path) else {
+            return (String::new(), false);
+        };
+        let size = file.metadata().map_or(0, |meta| meta.len() as usize);
+        if size <= max_bytes {
+            let mut bytes = Vec::new();
+            let _ = file.read_to_end(&mut bytes);
+            return (String::from_utf8_lossy(&bytes).into_owned(), false);
+        }
+        let head_bytes = max_bytes / 2;
+        let tail_bytes = max_bytes - head_bytes;
+        let mut head = vec![0; head_bytes];
+        let mut tail = vec![0; tail_bytes];
+        let _ = file.read_exact(&mut head);
+        let _ = file
+            .seek(std::io::SeekFrom::Start((size - tail_bytes) as u64))
+            .and_then(|_| file.read_exact(&mut tail));
+        let head = decode_stream(&mut head, false);
+        let start = tail
+            .iter()
+            .position(|byte| byte & 0xc0 != 0x80)
+            .unwrap_or(tail.len());
+        let omitted = size - head_bytes - tail_bytes;
+        (
+            format!(
+                "{head}\n\n[... {omitted} bytes omitted ...]\n\n{}",
+                String::from_utf8_lossy(&tail[start..])
+            ),
+            true,
+        )
     }
 
     /// `formatOutput`: the text with its truncation notice, and the details.

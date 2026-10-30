@@ -982,6 +982,7 @@ async function toolResult(event) {
 		input: event.input,
 		content: event.content,
 		details: event.details,
+		...(event.structuredContent === undefined ? {} : { structuredContent: event.structuredContent }),
 		isError: event.isError,
 		usage: event.usage,
 	});

@@ -6,10 +6,11 @@
 //! streamed, so the mapper keeps them as it goes. Events pi-rs has no TypeScript counterpart for
 //! keep the durable name and fields.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
-use pi_durable::ai::types::{AssistantBlock, Message, StopReason};
+use pi_durable::ai::types::{AssistantBlock, Message, StopReason, ToolResultMessage};
 use pi_durable::harness::events::{AgentEvent, MessageChange, SnapshotEvent};
+use pi_durable::harness::tool::{ToolResultData, tool_result_data};
 use pi_durable::types::EntryRecord;
 use serde_json::{Value, json};
 
@@ -32,7 +33,7 @@ pub struct Mapper {
     /// turn, so their lines and messages are held until the run claims them.
     held: Vec<Value>,
     held_messages: Vec<Message>,
-    started: HashSet<String>,
+    started: HashMap<String, Value>,
     tip: Option<String>,
 }
 
@@ -42,6 +43,26 @@ fn message_of(entry: &pi_durable::types::EntryRecord) -> Option<Message> {
         .as_ref()
         .and_then(|model| model.first())
         .cloned()
+}
+
+pub(crate) fn tool_result(message: &ToolResultMessage, data: &ToolResultData) -> Value {
+    let mut result = json!({ "content": value(&message.content) });
+    if let Some(details) = &message.details {
+        result["details"] = details.clone();
+    }
+    if let Some(structured) = &data.structured_content {
+        result["structuredContent"] = structured.clone();
+    }
+    if let Some(is_error) = data.result_is_error {
+        result["isError"] = json!(is_error);
+    }
+    if let Some(usage) = &message.usage {
+        result["usage"] = value(usage);
+    }
+    if data.terminate {
+        result["terminate"] = json!(true);
+    }
+    result
 }
 
 impl Mapper {
@@ -68,12 +89,13 @@ impl Mapper {
     }
 
     fn tool_start(&mut self, id: &str, name: &str, args: Value) -> Value {
-        self.started.insert(id.to_owned());
+        let args = self.call_args(id).unwrap_or(args);
+        self.started.insert(id.to_owned(), args.clone());
         json!({
             "type": "tool_execution_start",
             "toolCallId": id,
             "toolName": name,
-            "args": self.call_args(id).unwrap_or(args),
+            "args": args,
         })
     }
 
@@ -184,9 +206,27 @@ impl Mapper {
             AgentEvent::ToolExecutionUpdate {
                 tool_call_id,
                 tool_name,
+                partial: Some(partial),
+                ..
+            } => vec![json!({
+                "type": "tool_execution_update",
+                "toolCallId": tool_call_id,
+                "toolName": tool_name,
+                "args": self
+                    .started
+                    .get(tool_call_id)
+                    .cloned()
+                    .or_else(|| self.call_args(tool_call_id))
+                    .unwrap_or_else(|| json!({})),
+                "partialResult": partial,
+            })],
+            AgentEvent::ToolExecutionUpdate {
+                tool_call_id,
+                tool_name,
                 output,
                 details,
                 diagnostics,
+                partial: None,
             } => {
                 let mut partial = serde_json::Map::new();
                 if let Some(output) = output {
@@ -211,7 +251,7 @@ impl Mapper {
                 entry,
             } => {
                 let mut lines = Vec::new();
-                if !self.started.remove(tool_call_id) {
+                if self.started.remove(tool_call_id).is_none() {
                     lines.push(self.tool_start(tool_call_id, tool_name, json!({})));
                     self.started.remove(tool_call_id);
                 }
@@ -223,15 +263,11 @@ impl Mapper {
                 if let Some(entry) = entry
                     && let Some(Message::ToolResult(result)) = message_of(entry)
                 {
-                    let mut result_line = json!({ "content": value(&result.content) });
-                    if let Some(details) = &result.details {
-                        result_line["details"] = details.clone();
-                    }
-                    if let Some(usage) = &result.usage {
-                        result_line["usage"] = value(usage);
-                    }
-                    line["result"] = result_line;
+                    line["result"] = tool_result(&result, &tool_result_data(entry));
                     line["isError"] = json!(result.is_error);
+                    if let Some(duration) = result.duration_ms {
+                        line["durationMs"] = json!(duration);
+                    }
                 }
                 lines.push(line);
                 lines

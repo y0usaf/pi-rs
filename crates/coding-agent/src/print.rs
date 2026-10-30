@@ -60,7 +60,10 @@ fn registration(spec: ToolSpec, settings: Arc<ToolSettings>) -> ToolRegistration
         .prepare_arguments
         .map(|f| Arc::new(move |_, _: &str, v: Value| Ok(Some(f(v)))) as PrepareArguments);
     let execute_fn = spec.execute;
-    let execute: ToolExecute = Arc::new(move |args, _api, cancel| {
+    let execute: ToolExecute = Arc::new(move |args, api, cancel| {
+        let mut update = |partial: Value| {
+            let _ = api.update(partial, cancel);
+        };
         let mut ctx = ToolContext {
             cwd: &settings.cwd,
             cancel,
@@ -68,13 +71,15 @@ fn registration(spec: ToolSpec, settings: Arc<ToolSettings>) -> ToolRegistration
             shell_path: settings.shell_path.as_deref(),
             command_prefix: settings.command_prefix.as_deref(),
             env: &settings.env,
-            on_update: None,
+            on_update: Some(&mut update),
         };
         Ok(match execute_fn(&args, &mut ctx) {
             Ok(out) => ToolExecutionResult {
                 content: Some(out.content),
                 is_error: Some(out.is_error),
+                result_is_error: out.is_error.then_some(true),
                 details: out.details,
+                structured_content: out.structured_content,
                 ..ToolExecutionResult::default()
             },
             Err(_) if cancel.is_cancelled() => return Err(Error::Aborted),

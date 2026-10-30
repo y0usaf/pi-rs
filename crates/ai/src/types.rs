@@ -281,7 +281,7 @@ literal!(ThinkingType, "thinking");
 literal!(ImageType, "image");
 literal!(ToolCallType, "toolCall");
 
-fn present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<JsonValue>, D::Error> {
+pub fn present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<JsonValue>, D::Error> {
     JsonValue::deserialize(deserializer).map(Some)
 }
 

@@ -364,6 +364,7 @@ fn slot(
         dropped_lines: None,
         details: None,
         diagnostics: None,
+        partial: None,
         entry,
     }
 }

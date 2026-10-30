@@ -403,6 +403,9 @@ impl Chat {
             if let Some(output) = &slot.output {
                 r.set_partial(output.clone());
             }
+            if let Some(partial) = &slot.partial {
+                r.set_partial(partial_text(&partial.value));
+            }
         }
         if let Some(message) = snapshot
             .generation
@@ -534,6 +537,16 @@ impl Chat {
             }
             AgentEvent::ToolExecutionUpdate {
                 tool_call_id,
+                partial: Some(partial),
+                ..
+            } => {
+                let Some(row) = self.rows.get(tool_call_id) else {
+                    return false;
+                };
+                row.borrow_mut().set_partial(partial_text(partial));
+            }
+            AgentEvent::ToolExecutionUpdate {
+                tool_call_id,
                 output: Some(output),
                 ..
             } => {
@@ -583,6 +596,18 @@ impl Chat {
         }
         true
     }
+}
+
+fn partial_text(partial: &Value) -> String {
+    partial
+        .get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+        .filter_map(|block| block.get("text").and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Appends `delta` to the string at `path` in a streamed tool call's arguments.

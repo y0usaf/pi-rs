@@ -7,10 +7,11 @@ use pi_durable::errors::Error;
 use pi_durable::harness::agent::Agent;
 use pi_durable::harness::harness::Conversation;
 use pi_durable::harness::tool::{
-    BeforeToolDecision, TOOL_HOOK, ToolHooks, ToolRound, ToolRuntime, blocked, tool_result_message,
+    BeforeToolDecision, TOOL_HOOK, ToolHooks, ToolResultData, ToolRound, ToolRuntime, blocked,
+    tool_result_data, tool_result_message,
 };
 use pi_durable::harness::types::{
-    HookApi, HookRegistration, ToolControl, ToolErrorStyle, ToolExecutionResult, ToolGate,
+    HookApi, HookRegistration, ToolErrorStyle, ToolExecutionResult, ToolGate,
 };
 use pi_durable::ids::ConversationId;
 use pi_durable::types::{EntryRecord, JsonObject};
@@ -65,12 +66,14 @@ struct Called {
 struct Rewritten {
     content: Option<Vec<UserBlock>>,
     details: Option<Value>,
+    #[serde(default, deserialize_with = "pi_durable::ai::types::present")]
+    structured_content: Option<Value>,
     is_error: Option<bool>,
     usage: Option<Usage>,
 }
 
-fn terminates(control: Option<&ToolControl>) -> bool {
-    control.is_some_and(|control| control.terminate)
+fn non_nullish(value: Option<Value>) -> Option<Value> {
+    value.filter(|value| !value.is_null())
 }
 
 fn call_id(record: &EntryRecord) -> Option<&str> {
@@ -106,7 +109,7 @@ impl Live {
                     },
                 )),
                 on_update: Some(Arc::new(
-                    move |call: &ToolCall, partial: &ToolExecutionResult, rt: &ToolRuntime<'_>| {
+                    move |call: &ToolCall, partial: &Value, rt: &ToolRuntime<'_>| {
                         if updating.ours(rt.conversation_id())
                             && !lock(&updating.0.round).relayed.contains(&call.id)
                         {
@@ -128,12 +131,12 @@ impl Live {
                 on_end: Some(Arc::new(
                     move |call: &ToolCall,
                           message: &ToolResultMessage,
-                          control: Option<&ToolControl>,
+                          result: &ToolExecutionResult,
                           rt: &ToolRuntime<'_>| {
                         if ending.ours(rt.conversation_id())
                             && !lock(&ending.0.round).ended.remove(&call.id)
                         {
-                            ending.ended(call, message, terminates(control));
+                            ending.ended(call, message, &ToolResultData::of(result));
                         }
                     },
                 )),
@@ -215,7 +218,7 @@ impl Live {
             self.ended(
                 call,
                 &tool_result_message(call, &settled, now_ms(), None),
-                terminates(settled.control.as_ref()),
+                &ToolResultData::of(&settled),
             );
             lock(&self.0.round).ended.insert(call.id.clone());
         }
@@ -369,7 +372,7 @@ impl Live {
                     record.model.as_deref().and_then(<[Message]>::first)
             {
                 self.started(&call);
-                self.ended(&call, result, false);
+                self.ended(&call, result, &tool_result_data(&record));
             }
             lock(&self.0.round).told.insert(call.id.clone());
             let thinking = lock(&self.0.thinking).clone().unwrap_or_default();
@@ -427,13 +430,9 @@ impl Live {
         Some(args)
     }
 
-    fn updated(&self, call: &ToolCall, partial: &ToolExecutionResult) {
+    fn updated(&self, call: &ToolCall, partial: &Value) {
         if !self.handles("tool_execution_update") {
             return;
-        }
-        let mut result = json!({ "content": partial.content.clone().unwrap_or_default() });
-        if let Some(details) = &partial.details {
-            result["details"] = details.clone();
         }
         let event = self.with_parent(
             call,
@@ -441,30 +440,20 @@ impl Live {
                 "toolCallId": call.id,
                 "toolName": call.name,
                 "args": call.arguments,
-                "partialResult": result,
+                "partialResult": partial,
             }),
         );
         self.event("tool_execution_update", event);
     }
 
-    fn ended(&self, call: &ToolCall, message: &ToolResultMessage, terminate: bool) {
+    fn ended(&self, call: &ToolCall, message: &ToolResultMessage, data: &ToolResultData) {
         if !self.handles("tool_execution_end") {
             return;
-        }
-        let mut result = json!({ "content": message.content });
-        if let Some(details) = &message.details {
-            result["details"] = details.clone();
-        }
-        if let Some(usage) = &message.usage {
-            result["usage"] = json!(usage);
-        }
-        if terminate {
-            result["terminate"] = json!(true);
         }
         let mut event = json!({
             "toolCallId": call.id,
             "toolName": call.name,
-            "result": result,
+            "result": crate::modes::json_event::tool_result(message, data),
             "isError": message.is_error,
         });
         if let Some(duration) = message.duration_ms {
@@ -555,6 +544,9 @@ impl Live {
         if let Some(details) = &result.details {
             event["details"] = details.clone();
         }
+        if let Some(structured) = &result.structured_content {
+            event["structuredContent"] = structured.clone();
+        }
         if let Some(usage) = &result.usage {
             event["usage"] = json!(usage);
         }
@@ -575,6 +567,7 @@ impl Live {
         Some(ToolExecutionResult {
             content: rewritten.content.or(result.content),
             details: rewritten.details.or(result.details),
+            structured_content: non_nullish(rewritten.structured_content),
             is_error: rewritten.is_error.or(result.is_error),
             usage: rewritten.usage.or(result.usage),
             ..result

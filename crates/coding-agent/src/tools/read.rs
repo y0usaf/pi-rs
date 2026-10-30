@@ -10,6 +10,7 @@ use super::{
 };
 use crate::node_fs;
 use crate::paths::resolve_read_path;
+use pi_durable::ai::types::UserBlock;
 use serde_json::{Value, json};
 
 pub fn spec() -> ToolSpec {
@@ -66,10 +67,36 @@ fn execute(args: &Value, ctx: &mut ToolContext<'_>) -> Result<ToolOutput, String
         .map_err(|e| read_error(&e, &absolute))?;
     let bytes = std::fs::read(&absolute).map_err(|e| read_error(&e, &absolute))?;
     check_aborted(ctx.cancel)?;
-    if let Some(mime) = mime {
-        return Ok(image_output(&bytes, mime, ctx.model_takes_images));
+    let output = match mime {
+        Some(mime) => image_output(&bytes, mime, ctx.model_takes_images),
+        None => read_text(&String::from_utf8_lossy(&bytes), path, offset, limit)?,
+    };
+    Ok(ToolOutput {
+        structured_content: Some(read_output(&output.content)),
+        ..output
+    })
+}
+
+fn read_output(content: &[UserBlock]) -> Value {
+    let text = content
+        .iter()
+        .find_map(|block| match block {
+            UserBlock::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    match content.iter().find_map(|block| match block {
+        UserBlock::Image(image) => Some(image),
+        _ => None,
+    }) {
+        Some(image) => json!({
+            "type": "image",
+            "data": image.data,
+            "mimeType": image.mime_type,
+            "note": text,
+        }),
+        None => json!(text),
     }
-    read_text(&String::from_utf8_lossy(&bytes), path, offset, limit)
 }
 
 fn read_error(error: &std::io::Error, path: &str) -> String {
@@ -101,6 +128,7 @@ fn image_output(bytes: &[u8], mime: &str, model_takes_images: bool) -> ToolOutpu
         content: vec![text_block(text), image_block(base64(bytes), mime)],
         details: None,
         is_error: false,
+        structured_content: None,
     }
 }
 
@@ -183,5 +211,6 @@ pub fn read_text(
         content: vec![text_block(output)],
         details,
         is_error: false,
+        structured_content: None,
     })
 }

@@ -156,6 +156,8 @@ pub enum AgentEvent {
         details: Option<JsonValue>,
         #[serde(skip_serializing_if = "Option::is_none")]
         diagnostics: Option<Vec<ToolDiagnostic>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        partial: Option<JsonValue>,
     },
     ToolExecutionEnd {
         tool_call_id: String,
@@ -581,7 +583,13 @@ fn translate(
             (slot.details != previous.details).then(|| slot.details.clone().unwrap_or(Value::Null));
         let diagnostics = (slot.diagnostics != previous.diagnostics)
             .then(|| slot.diagnostics.clone().unwrap_or_default());
-        if output.is_none() && details.is_none() && diagnostics.is_none() {
+        let seq = |slot: &ToolSlot| slot.partial.as_ref().map(|partial| partial.seq);
+        let partial = slot
+            .partial
+            .as_ref()
+            .filter(|_| seq(slot) != seq(previous))
+            .map(|partial| partial.value.clone());
+        if output.is_none() && details.is_none() && diagnostics.is_none() && partial.is_none() {
             continue;
         }
         events.push(AgentEvent::ToolExecutionUpdate {
@@ -590,6 +598,7 @@ fn translate(
             output,
             details,
             diagnostics,
+            partial,
         });
     }
     let generation = now.live.generation.as_ref();

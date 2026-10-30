@@ -20,7 +20,7 @@ use crate::entries::{assistant_entry, tool_result_entry};
 use crate::env::ExecutionEnv;
 use crate::errors::{Error, Result};
 use crate::harness::agent::Agent;
-use crate::harness::live::{LiveState, SlotStatus, ToolSlot, live_doc};
+use crate::harness::live::{LiveState, PartialResult, SlotStatus, ToolSlot, live_doc};
 use crate::harness::output::{
     OutputBuffer, OutputChunk, OutputLimits, Retain, ShellOutputSkip, bound_output,
 };
@@ -102,10 +102,10 @@ pub type AfterTool = Arc<
 
 pub type ToolStarted = Arc<dyn Fn(&ToolCall, &ToolRuntime<'_>) + Send + Sync>;
 
-pub type ToolUpdated = Arc<dyn Fn(&ToolCall, &ToolExecutionResult, &ToolRuntime<'_>) + Send + Sync>;
+pub type ToolUpdated = Arc<dyn Fn(&ToolCall, &JsonValue, &ToolRuntime<'_>) + Send + Sync>;
 
 pub type ToolEnded = Arc<
-    dyn Fn(&ToolCall, &ToolResultMessage, Option<&ToolControl>, &ToolRuntime<'_>) + Send + Sync,
+    dyn Fn(&ToolCall, &ToolResultMessage, &ToolExecutionResult, &ToolRuntime<'_>) + Send + Sync,
 >;
 
 #[derive(Clone, Default)]
@@ -343,7 +343,8 @@ fn nested_run(
         ToolGate::Blocked(result) => return Ok((*result, None)),
     };
     let began = Instant::now();
-    let result = match (tool.execute)(JsonValue::Object(arguments), api, cancel) {
+    let nested = NestedApi { api, call: &call };
+    let result = match (tool.execute)(JsonValue::Object(arguments), &nested, cancel) {
         Ok(result) => result,
         Err(error) if cancel.is_cancelled() => return Err(error),
         Err(error) => plain_error(&error.to_string()),
@@ -530,7 +531,7 @@ struct Api<'s> {
     assistant: EntryId,
     shared: &'s Shared,
     progress: &'s Progress<'s>,
-    call_id: String,
+    call: &'s ToolCall,
     env: Option<Arc<dyn ExecutionEnv>>,
 }
 
@@ -576,7 +577,7 @@ fn run(
             assistant,
             shared: &shared,
             progress: &progress,
-            call_id: call.id.clone(),
+            call,
             env,
         };
         let started = Instant::now();
@@ -726,26 +727,30 @@ fn publish(
         }),
         cancel,
     )?;
-    let partial = ToolExecutionResult {
-        content: Some(if snapshot.text.is_empty() {
-            Vec::new()
-        } else {
-            vec![text_block(snapshot.text.clone())]
-        }),
-        details: details.clone(),
-        ..ToolExecutionResult::default()
+    let content: Vec<UserBlock> = if snapshot.text.is_empty() {
+        Vec::new()
+    } else {
+        vec![text_block(snapshot.text.clone())]
     };
+    let mut partial = serde_json::json!({ "content": content });
+    if let Some(details) = &details {
+        partial["details"] = details.clone();
+    }
     written.text = snapshot.text;
     written.details = details;
     written.diagnostics = count;
     drop(written);
+    updated(rt, call, &partial)?;
+    Ok(bytes)
+}
+
+fn updated(rt: &ToolRuntime<'_>, call: &ToolCall, partial: &JsonValue) -> Result<()> {
     rt.hooks().each(&mut |hook: &ToolHooks| {
         if let Some(updated) = &hook.on_update {
-            updated(call, &partial, rt);
+            updated(call, partial, rt);
         }
         Ok(())
-    })?;
-    Ok(bytes)
+    })
 }
 
 fn final_result(
@@ -826,7 +831,7 @@ fn settle(
         rt,
         call,
         &tool_result_message(call, &result, timestamp, duration_ms),
-        result.control.as_ref(),
+        &result,
     )?;
     store(
         rt,
@@ -848,7 +853,7 @@ fn settle_from_slot(
     cancel: &CancelToken,
 ) -> Result<()> {
     match store(rt, call, ending, build, rt.now(), None, cancel)? {
-        Some(message) => ended(rt, call, &message, None),
+        Some((message, result)) => ended(rt, call, &message, &result),
         None => Ok(()),
     }
 }
@@ -866,11 +871,11 @@ fn ended(
     rt: &ToolRuntime<'_>,
     call: &ToolCall,
     message: &ToolResultMessage,
-    control: Option<&ToolControl>,
+    result: &ToolExecutionResult,
 ) -> Result<()> {
     rt.hooks().each(&mut |hook: &ToolHooks| {
         if let Some(ended) = &hook.on_end {
-            ended(call, message, control, rt);
+            ended(call, message, result, rt);
         }
         Ok(())
     })
@@ -884,7 +889,7 @@ fn store(
     timestamp: u64,
     duration_ms: Option<u64>,
     cancel: &CancelToken,
-) -> Result<Option<ToolResultMessage>> {
+) -> Result<Option<(ToolResultMessage, ToolExecutionResult)>> {
     let task_id = rt.task_id();
     let conversation = rt.conversation_id();
     let mut stored = None;
@@ -897,7 +902,9 @@ fn store(
             let result = build(slot.as_ref());
             let entry =
                 append_tool_result(tx, conversation, call, &result, timestamp, duration_ms)?;
-            *out = Some(tool_result_message(call, &result, timestamp, duration_ms));
+            let message = tool_result_message(call, &result, timestamp, duration_ms);
+            let control = result.control.clone();
+            *out = Some((message, result));
             let entry_id = entry.id;
             let finished = live
                 .tool_slot(erase(task_id))
@@ -908,10 +915,7 @@ fn store(
             }
             let outcome = match ending {
                 Ending::Completed => TaskOutcome::Completed {
-                    result: ToolTaskResult {
-                        entry_id,
-                        control: result.control,
-                    },
+                    result: ToolTaskResult { entry_id, control },
                 },
                 Ending::Aborted => TaskOutcome::Aborted {
                     reason: None,
@@ -974,16 +978,29 @@ fn from_slot(slot: Option<&ToolSlot>, code: &str, message: &str) -> ToolExecutio
         ));
     }
     diagnostics.push(tool_diagnostic(code, message));
+    let partial = slot
+        .and_then(|slot| slot.partial.as_ref())
+        .map(|partial| &partial.value);
+    let content = slot
+        .and_then(|slot| slot.output.clone())
+        .filter(|text| !text.is_empty())
+        .map(|text| vec![text_block(text)])
+        .or_else(|| {
+            partial
+                .and_then(|partial| partial.get("content"))
+                .and_then(|content| serde_json::from_value(content.clone()).ok())
+        })
+        .unwrap_or_default();
+    let details = slot.and_then(|slot| slot.details.clone()).or_else(|| {
+        partial
+            .and_then(|partial| partial.get("details"))
+            .filter(|details| !details.is_null())
+            .cloned()
+    });
     ToolExecutionResult {
-        content: Some(
-            slot.and_then(|slot| slot.output.clone())
-                .filter(|text| !text.is_empty())
-                .map(text_block)
-                .into_iter()
-                .collect(),
-        ),
+        content: Some(content),
         is_error: Some(true),
-        details: slot.and_then(|slot| slot.details.clone()),
+        details,
         diagnostics: Some(diagnostics),
         ..ToolExecutionResult::default()
     }
@@ -1129,9 +1146,43 @@ fn bound_content(content: Vec<UserBlock>, limits: OutputLimits) -> Bounded {
     }
 }
 
-#[derive(Serialize)]
-struct ToolResultData {
-    diagnostics: Vec<ToolDiagnostic>,
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolResultData {
+    #[serde(default)]
+    pub diagnostics: Vec<ToolDiagnostic>,
+    #[serde(
+        default,
+        deserialize_with = "crate::ai::types::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub structured_content: Option<JsonValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_is_error: Option<bool>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub terminate: bool,
+}
+
+impl ToolResultData {
+    pub fn of(result: &ToolExecutionResult) -> Self {
+        ToolResultData {
+            diagnostics: result.diagnostics.clone().unwrap_or_default(),
+            structured_content: result.structured_content.clone(),
+            result_is_error: result.result_is_error,
+            terminate: result
+                .control
+                .as_ref()
+                .is_some_and(|control| control.terminate),
+        }
+    }
+}
+
+pub fn tool_result_data(entry: &EntryRecord) -> ToolResultData {
+    entry
+        .data
+        .clone()
+        .and_then(|data| serde_json::from_value(data).ok())
+        .unwrap_or_default()
 }
 
 pub fn append_tool_result(
@@ -1146,9 +1197,7 @@ pub fn append_tool_result(
         record_usage(tx, conversation, UsageBucket::Tools, &call.name, usage)?;
     }
     let message = tool_result_message(call, result, timestamp, duration_ms);
-    let data = serde_json::to_value(ToolResultData {
-        diagnostics: result.diagnostics.clone().unwrap_or_default(),
-    })?;
+    let data = serde_json::to_value(ToolResultData::of(result))?;
     tx.append_entry(
         conversation,
         EntryDraft {
@@ -1213,10 +1262,169 @@ impl Api<'_> {
         if self.shared.settled.load(Ordering::SeqCst) {
             return Err(Error::Invalid(format!(
                 "Tool call {} has settled",
-                self.call_id
+                self.call.id
             )));
         }
         Ok(())
+    }
+}
+
+struct NestedApi<'a> {
+    api: &'a dyn ToolExecutionApi,
+    call: &'a ToolCall,
+}
+
+impl DocumentObserver for NestedApi<'_> {
+    fn watch_doc(
+        &self,
+        doc: DocRef,
+        cancel: &CancelToken,
+    ) -> Result<Option<crate::session::types::DocumentWatch>> {
+        self.api.watch_doc(doc, cancel)
+    }
+}
+
+impl DocumentReader for NestedApi<'_> {
+    fn snapshot(&self, doc: DocRef, cancel: &CancelToken) -> Result<Option<JsonObject>> {
+        self.api.snapshot(doc, cancel)
+    }
+
+    fn snapshot_as_of(
+        &self,
+        doc: DocRef,
+        at: EntryId,
+        cancel: &CancelToken,
+    ) -> Result<Option<JsonObject>> {
+        self.api.snapshot_as_of(doc, at, cancel)
+    }
+}
+
+impl ToolExecutionApi for NestedApi<'_> {
+    fn task_id(&self) -> TaskId {
+        self.api.task_id()
+    }
+
+    fn conversation_id(&self) -> ConversationId {
+        self.api.conversation_id()
+    }
+
+    fn call_id(&self) -> &str {
+        &self.call.id
+    }
+
+    fn assistant_entry(&self) -> Option<EntryId> {
+        self.api.assistant_entry()
+    }
+
+    fn registry(&self) -> Arc<RegistrySnapshot> {
+        self.api.registry()
+    }
+
+    fn agent(&self, cancel: &CancelToken) -> Result<Agent> {
+        self.api.agent(cancel)
+    }
+
+    fn models(&self) -> &dyn Models {
+        self.api.models()
+    }
+
+    fn env(&self) -> Option<&dyn ExecutionEnv> {
+        self.api.env()
+    }
+
+    fn conversation(
+        &self,
+        id: ConversationId,
+        cancel: &CancelToken,
+    ) -> Result<Option<Box<dyn crate::harness::types::ConversationHandle>>> {
+        self.api.conversation(id, cancel)
+    }
+
+    fn output(&self, chunk: OutputChunk<'_>, skipped: Option<ShellOutputSkip>) -> Result<()> {
+        self.api.output(chunk, skipped)
+    }
+
+    fn diagnostic(&self, diagnostic: ToolDiagnostic) -> Result<()> {
+        self.api.diagnostic(diagnostic)
+    }
+
+    fn details(&self, value: JsonValue, cancel: &CancelToken) -> Result<()> {
+        self.api.details(value, cancel)
+    }
+
+    fn update(&self, partial: JsonValue, cancel: &CancelToken) -> Result<()> {
+        if cancel.is_cancelled() {
+            return Err(Error::Aborted);
+        }
+        self.api.nested_updated(self.call, &partial)
+    }
+
+    fn commit(
+        &self,
+        change: &mut dyn FnMut(&mut dyn Tx) -> Result<()>,
+        cancel: &CancelToken,
+    ) -> Result<()> {
+        self.api.commit(change, cancel)
+    }
+
+    fn memo(&self, name: &str, cancel: &CancelToken) -> Result<Option<JsonValue>> {
+        self.api.memo(name, cancel)
+    }
+
+    fn memo_or_set(
+        &self,
+        name: &str,
+        candidate: JsonValue,
+        cancel: &CancelToken,
+    ) -> Result<JsonValue> {
+        self.api.memo_or_set(name, candidate, cancel)
+    }
+
+    fn get_task(&self, id: TaskId, cancel: &CancelToken) -> Result<Option<AnyTaskRecord>> {
+        self.api.get_task(id, cancel)
+    }
+
+    fn branch_entries(&self, cancel: &CancelToken) -> Result<Vec<EntryRecord>> {
+        self.api.branch_entries(cancel)
+    }
+
+    fn append_custom_entry(&self, kind: &str, data: JsonValue, cancel: &CancelToken) -> Result<()> {
+        self.api.append_custom_entry(kind, data, cancel)
+    }
+
+    fn before_tool(
+        &self,
+        tool: &ToolRegistration,
+        call: &ToolCall,
+        cancel: &CancelToken,
+    ) -> Result<ToolGate> {
+        self.api.before_tool(tool, call, cancel)
+    }
+
+    fn after_tool(
+        &self,
+        call: &ToolCall,
+        result: ToolExecutionResult,
+        cancel: &CancelToken,
+    ) -> Result<ToolExecutionResult> {
+        self.api.after_tool(call, result, cancel)
+    }
+
+    fn nested_started(&self, call: &ToolCall) -> Result<()> {
+        self.api.nested_started(call)
+    }
+
+    fn nested_updated(&self, call: &ToolCall, partial: &JsonValue) -> Result<()> {
+        self.api.nested_updated(call, partial)
+    }
+
+    fn nested_ended(
+        &self,
+        call: &ToolCall,
+        result: &ToolExecutionResult,
+        duration_ms: Option<u64>,
+    ) -> Result<()> {
+        self.api.nested_ended(call, result, duration_ms)
     }
 }
 
@@ -1255,7 +1463,7 @@ impl ToolExecutionApi for Api<'_> {
     }
 
     fn call_id(&self) -> &str {
-        &self.call_id
+        &self.call.id
     }
 
     fn assistant_entry(&self) -> Option<EntryId> {
@@ -1316,6 +1524,37 @@ impl ToolExecutionApi for Api<'_> {
             }),
             Err(_) => Err(Error::Aborted),
         }
+    }
+
+    fn update(&self, partial: JsonValue, cancel: &CancelToken) -> Result<()> {
+        self.live()?;
+        if cancel.is_cancelled() {
+            return Err(Error::Aborted);
+        }
+        let task_id = self.rt.task_id();
+        let conversation = self.rt.conversation_id();
+        let value = partial.clone();
+        self.rt.commit(
+            Box::new(move |tx: &mut dyn Tx, _task| {
+                edit_doc(
+                    tx,
+                    &live_doc()?,
+                    conversation,
+                    move |live: &mut LiveState| {
+                        if let Some(slot) = live.tool_slot(erase(task_id)) {
+                            let seq = slot.partial.as_ref().map_or(0, |partial| partial.seq);
+                            slot.partial = Some(PartialResult {
+                                seq: seq + 1,
+                                value,
+                            });
+                        }
+                    },
+                )?;
+                Ok(None)
+            }),
+            cancel,
+        )?;
+        updated(self.rt, self.call, &partial)
     }
 
     fn commit(
@@ -1402,6 +1641,10 @@ impl ToolExecutionApi for Api<'_> {
         started(self.rt, call)
     }
 
+    fn nested_updated(&self, call: &ToolCall, partial: &JsonValue) -> Result<()> {
+        updated(self.rt, call, partial)
+    }
+
     fn nested_ended(
         &self,
         call: &ToolCall,
@@ -1409,6 +1652,6 @@ impl ToolExecutionApi for Api<'_> {
         duration_ms: Option<u64>,
     ) -> Result<()> {
         let message = tool_result_message(call, result, self.rt.now(), duration_ms);
-        ended(self.rt, call, &message, result.control.as_ref())
+        ended(self.rt, call, &message, result)
     }
 }

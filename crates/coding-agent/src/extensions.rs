@@ -22,7 +22,6 @@ use pi_durable::errors::Error;
 use pi_durable::harness::events::AgentEvent;
 use pi_durable::harness::generation::{GENERATION_HOOK, GenerationHooks};
 use pi_durable::harness::harness::{Conversation, Harness};
-use pi_durable::harness::output::OutputChunk;
 use pi_durable::harness::registry::Registry;
 use pi_durable::harness::tool::ToolRound;
 use pi_durable::harness::types::{
@@ -1115,12 +1114,16 @@ fn registration(info: &ToolInfo) -> ToolRegistration {
 struct Outcome {
     #[serde(default)]
     content: Vec<UserBlock>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "pi_durable::ai::types::present")]
     details: Option<Value>,
+    #[serde(default, deserialize_with = "pi_durable::ai::types::present")]
+    structured_content: Option<Value>,
     #[serde(default)]
     is_error: Option<bool>,
     #[serde(default)]
     terminate: Option<bool>,
+    #[serde(default)]
+    usage: Option<Value>,
 }
 
 fn failed_result(message: String) -> ToolExecutionResult {
@@ -1134,20 +1137,6 @@ fn failed_result(message: String) -> ToolExecutionResult {
         details: Some(json!({})),
         ..ToolExecutionResult::default()
     }
-}
-
-fn text_blocks(blocks: Option<&Value>) -> String {
-    blocks
-        .and_then(Value::as_array)
-        .map(|blocks| {
-            blocks
-                .iter()
-                .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
-                .filter_map(|block| block.get("text").and_then(Value::as_str))
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-        .unwrap_or_default()
 }
 
 /// The child this process loads its extensions in, once main has found them.
@@ -1866,22 +1855,8 @@ impl Live {
         let pending = self
             .begin(|host, ctx| host.tool(name, &call_id, args, announced, ctx))
             .map_err(Error::Invalid)?;
-        let mut shown = String::new();
-        let mut details: Option<Value> = None;
         let answer = pending.wait(Some(cancel), &mut |partial| {
-            let text = text_blocks(partial.get("content"));
-            if let Some(added) = text.strip_prefix(shown.as_str())
-                && !added.is_empty()
-            {
-                let _ = api.output(OutputChunk::Text(added), None);
-                shown = text;
-            }
-            if let Some(next) = partial.get("details").filter(|next| !next.is_null())
-                && details.as_ref() != Some(next)
-            {
-                details = Some(next.clone());
-                let _ = api.details(next.clone(), cancel);
-            }
+            let _ = api.update(partial, cancel);
         });
         if cancel.is_cancelled() {
             return Err(Error::Aborted);
@@ -1900,7 +1875,12 @@ impl Live {
         Ok(ToolExecutionResult {
             content: Some(outcome.content),
             is_error: outcome.is_error,
-            details: Some(outcome.details.unwrap_or(Value::Null)),
+            result_is_error: outcome.is_error,
+            details: outcome.details,
+            structured_content: outcome.structured_content,
+            usage: outcome
+                .usage
+                .and_then(|usage| serde_json::from_value(usage).ok()),
             control: outcome
                 .terminate
                 .filter(|terminate| *terminate)

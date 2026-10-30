@@ -43,7 +43,15 @@ pub struct ToolSlot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<Vec<ToolDiagnostic>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partial: Option<PartialResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry: Option<EntryId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PartialResult {
+    pub seq: u64,
+    pub value: JsonValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -181,6 +189,7 @@ impl ToolSlot {
         self.dropped_lines = None;
         self.details = None;
         self.diagnostics = None;
+        self.partial = None;
     }
 }
 

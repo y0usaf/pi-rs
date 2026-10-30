@@ -665,11 +665,24 @@ export default function (pi: any): void {
 		}),
 	);
 	pi.registerTool({
+		name: "graded",
+		label: "Graded",
+		description: "returns structured content in an error result",
+		parameters: Type.Object({}),
+		async execute() {
+			return { content: [{ type: "text", text: "raw" }], details: {}, structuredContent: { score: 1 }, isError: true };
+		},
+	});
+	pi.on("tool_result", (event: any) =>
+		event.toolName === "graded" ? { content: [{ type: "text", text: "redacted" }], isError: false } : undefined,
+	);
+	pi.registerTool({
 		name: "wait_abort",
 		label: "Wait",
 		description: "waits until it is aborted",
 		parameters: Type.Object({}),
-		execute(_id: string, _params: any, signal: AbortSignal) {
+		execute(_id: string, _params: any, signal: AbortSignal, onUpdate: any) {
+			onUpdate({ content: [{ type: "text", text: "halfway" }], details: { at: "halfway" } });
 			note("wait_abort:started");
 			return new Promise((_resolve, reject) => {
 				signal.addEventListener("abort", () => {
@@ -794,6 +807,7 @@ fn tools(bin: &Path, scratch: &Scratch) -> Result<()> {
         TOOLS,
         vec![
             Turn::Tool("late_echo", json!({"text": "hi"})),
+            Turn::Tool("graded", json!({})),
             Turn::Text("done"),
         ],
     )?;
@@ -850,6 +864,19 @@ fn tools(bin: &Path, scratch: &Scratch) -> Result<()> {
         || end["isError"] == true
     {
         return fail(format!("late_echo ended with {end}"));
+    }
+    let graded = events
+        .iter()
+        .find(|event| event["type"] == "tool_execution_end" && event["toolName"] == "graded")
+        .ok_or_else(|| format!("graded never ended:\n{stdout}"))?;
+    if graded["result"]["content"][0]["text"] != "redacted"
+        || graded["result"].get("structuredContent").is_some()
+        || graded["result"]["isError"] != true
+        || graded["isError"] != false
+    {
+        return fail(format!(
+            "a tool_result handler that replaced content and cleared the error left {graded}, where upstream drops structuredContent and keeps the tool's own result.isError"
+        ));
     }
     let seen = std::fs::read_to_string(&log).unwrap_or_default();
     if !seen.lines().any(|line| line == "late_echo:call_1:hi:true") {
@@ -921,6 +948,10 @@ fn cancel(bin: &Path, scratch: &Scratch) -> Result<()> {
         &|value| value["type"] == "tool_execution_start" && value["toolName"] == "wait_abort",
         "tool_execution_start",
     )?;
+    wait_for(
+        &|value| value["type"] == "tool_execution_update" && value["toolName"] == "wait_abort",
+        "tool_execution_update for wait_abort",
+    )?;
     let started = Instant::now() + Duration::from_secs(30);
     while !std::fs::read_to_string(&log)
         .unwrap_or_default()
@@ -933,6 +964,15 @@ fn cancel(bin: &Path, scratch: &Scratch) -> Result<()> {
     }
     writeln!(stdin, "{}", json!({"type": "abort", "id": "a"}))?;
     stdin.flush()?;
+    wait_for(
+        &|value| {
+            value["type"] == "tool_execution_end"
+                && value["toolName"] == "wait_abort"
+                && value["result"]["content"][0]["text"] == "halfway"
+                && value["result"]["details"]["at"] == "halfway"
+        },
+        "tool_execution_end keeping wait_abort's last partial result",
+    )?;
     wait_for(
         &|value| value["type"] == "agent_end",
         "agent_end after the abort",

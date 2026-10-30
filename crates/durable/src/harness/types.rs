@@ -117,6 +117,8 @@ pub struct ToolExecutionResult {
     pub content: Option<Vec<UserBlock>>,
     pub is_error: Option<bool>,
     pub details: Option<JsonValue>,
+    pub structured_content: Option<JsonValue>,
+    pub result_is_error: Option<bool>,
     pub diagnostics: Option<Vec<ToolDiagnostic>>,
     pub usage: Option<Usage>,
     pub control: Option<ToolControl>,
@@ -170,6 +172,7 @@ pub trait ToolExecutionApi: DocumentObserver + DocumentReader + Sync {
     fn output(&self, chunk: OutputChunk<'_>, skipped: Option<ShellOutputSkip>) -> Result<()>;
     fn diagnostic(&self, diagnostic: ToolDiagnostic) -> Result<()>;
     fn details(&self, value: JsonValue, cancel: &CancelToken) -> Result<()>;
+    fn update(&self, partial: JsonValue, cancel: &CancelToken) -> Result<()>;
     fn commit(
         &self,
         change: &mut dyn FnMut(&mut dyn Tx) -> Result<()>,
@@ -204,6 +207,9 @@ pub trait ToolExecutionApi: DocumentObserver + DocumentReader + Sync {
         Ok(result)
     }
     fn nested_started(&self, _call: &ToolCall) -> Result<()> {
+        Ok(())
+    }
+    fn nested_updated(&self, _call: &ToolCall, _partial: &JsonValue) -> Result<()> {
         Ok(())
     }
     fn nested_ended(
