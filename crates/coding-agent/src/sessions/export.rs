@@ -54,7 +54,8 @@ pub fn lines(
 ) -> Result<Vec<Value>, String> {
     let agent = root.agent(cancel).map_err(|e| e.to_string())?;
     let view = root.context(None, cancel).map_err(|e| e.to_string())?;
-    let timestamp = iso8601(now_ms());
+    let now = now_ms();
+    let timestamp = iso8601(now);
     let mut lines: Vec<Value> = vec![header(session_id, cwd, &timestamp)];
     let mut parent: Option<String> = None;
     let mut push = |entry: Map<String, Value>, lines: &mut Vec<Value>| {
@@ -91,14 +92,34 @@ pub fn lines(
     );
     change.insert("thinkingLevel".into(), phrase.as_str().into());
     push(change, &mut lines);
+    let head = view
+        .head
+        .as_ref()
+        .filter(|head| head.kind == "pi.compaction")
+        .map(|head| head.id);
+    let restated = head.and_then(|head| {
+        view.entries
+            .iter()
+            .filter(|entry| entry.kind == "pi.system" && entry.id > head)
+            .min_by_key(|entry| entry.id)
+    });
     // The system prompt is appended when the first run starts, after the message that started
     // it; upstream stores it first and pi-rs leads the transcript with it, so it goes first here.
     let (system, rest): (Vec<_>, Vec<_>) = view
         .entries
         .iter()
-        .partition(|entry| entry.kind == "pi.system");
+        .filter(|entry| restated.is_none_or(|restated| restated.id != entry.id))
+        .partition(|entry| entry.kind == "pi.system" && head.is_none_or(|head| entry.id < head));
     for record in system.into_iter().chain(rest) {
-        if let Some(entry) = mapped(record, &timestamp, &phrase)? {
+        if let Some(mut entry) = mapped(record, &timestamp, &phrase)? {
+            if Some(record.id) == head
+                && let Some(prompt) = restated
+                && let Some(mut message) =
+                    mapped(prompt, &timestamp, &phrase)?.and_then(|mut e| e.remove("message"))
+            {
+                message["timestamp"] = now.into();
+                entry.insert("systemMessage".into(), message);
+            }
             push(entry, &mut lines);
         }
     }
@@ -159,8 +180,24 @@ fn mapped(
                     None => Value::Null,
                 },
             );
-            // Durable keeps the tokens the summary was budgeted, not the count it replaced.
-            entry.insert("tokensBefore".into(), 0.into());
+            let data = record.data.as_ref();
+            entry.insert(
+                "tokensBefore".into(),
+                data.and_then(|data| data.get("tokensBefore"))
+                    .cloned()
+                    .unwrap_or_else(|| 0.into()),
+            );
+            for key in ["details", "usage"] {
+                if let Some(value) = data.and_then(|data| data.get(key)) {
+                    entry.insert(key.into(), value.clone());
+                }
+            }
+            entry.insert(
+                "fromHook".into(),
+                data.and_then(|data| data.get("fromHook"))
+                    .cloned()
+                    .unwrap_or_else(|| false.into()),
+            );
         }
         "pi.context-edit" => {
             let edit = record

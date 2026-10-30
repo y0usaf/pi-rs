@@ -119,6 +119,7 @@ fn write(
 ) -> DurableResult<()> {
     let mut ids: BTreeMap<String, EntryId> = BTreeMap::new();
     let mut written: BTreeMap<String, Message> = BTreeMap::new();
+    let mut prompts: Vec<EntryId> = Vec::new();
     let mut model: Option<ModelRef> = None;
     let mut thinking = None;
     for entry in entries {
@@ -170,8 +171,13 @@ fn write(
                         edits: None,
                     };
                     record(&mut *tx, conversation, &message)?;
+                    let prompt = matches!(message, Message::System(_));
                     written.insert(source.to_owned(), message);
-                    tx.append_entry(conversation, draft)?.id
+                    let id = tx.append_entry(conversation, draft)?.id;
+                    if prompt {
+                        prompts.push(id);
+                    }
+                    id
                 }
             }
             "compaction" => {
@@ -192,14 +198,40 @@ fn write(
                     })]),
                     timestamp: time,
                 }));
+                let mut data = json!({ "reason": "manual" });
+                for key in ["tokensBefore", "details", "usage", "fromHook"] {
+                    if let Some(value) = entry.get(key) {
+                        data[key] = value.clone();
+                    }
+                }
                 let draft = EntryDraft {
                     kind: compaction_entry().kind().to_owned(),
                     model: Some(vec![message]),
-                    data: Some(json!({ "reason": "manual" })),
+                    data: Some(data),
                     head: head.map(EntryHead::Entry),
                     edits: None,
                 };
-                tx.append_entry(conversation, draft)?.id
+                let id = tx.append_entry(conversation, draft)?.id;
+                if let Some(raw) = entry.get("systemMessage") {
+                    let message: Message = serde_json::from_value(raw.clone())?;
+                    let edits: Vec<ContextEdit> = prompts
+                        .iter()
+                        .filter(|prompt| head.is_some_and(|head| **prompt >= head))
+                        .map(|&target| ContextEdit {
+                            target,
+                            action: ContextAction::Omit,
+                        })
+                        .collect();
+                    let restated = EntryDraft {
+                        kind: durable_kind(&message),
+                        model: Some(vec![message]),
+                        data: None,
+                        head: None,
+                        edits: (!edits.is_empty()).then_some(edits),
+                    };
+                    prompts.push(tx.append_entry(conversation, restated)?.id);
+                }
+                id
             }
             "context_edit" => {
                 let mentioned = entry.get("targetId").and_then(Value::as_str);

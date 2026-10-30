@@ -141,10 +141,16 @@ fn boundary(
                 .get("summary")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            let data = serde_json::to_value(CompactionData {
+            let mut data = serde_json::to_value(CompactionData {
                 reason: CompactionReason::Manual,
             })
             .map_err(|e| e.to_string())?;
+            for key in ["tokensBefore", "details", "usage"] {
+                if let Some(value) = draft.get(key) {
+                    data[key] = value.clone();
+                }
+            }
+            data["fromHook"] = true.into();
             Ok(EntryDraft {
                 kind: compaction_entry().kind().to_owned(),
                 model: Some(vec![user(

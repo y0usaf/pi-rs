@@ -840,33 +840,38 @@ async function toolResult(event) {
 }
 
 function applyDrafts(manager, drafts) {
-	for (const draft of drafts) {
+	return drafts.map((draft) => {
 		switch (draft.type) {
 			case "custom":
 				manager.appendCustomEntry(draft.customType, draft.data);
-				break;
+				return draft;
 			case "custom_message":
 				manager.appendCustomMessageEntry(draft.customType, draft.content, draft.display, draft.details);
-				break;
+				return draft;
 			case "context_edit":
 				manager.appendContextEdit(draft.targetId, draft.replacement);
-				break;
+				return draft;
 			case "compaction": {
 				const tokensBefore = estimateProjectedContextTokens(manager.buildSessionProjection(), manager.getBranch()).tokens;
 				manager.appendCompaction(draft.summary, draft.firstKeptEntryId, tokensBefore, draft.details, true, draft.usage);
-				break;
+				return { ...draft, tokensBefore };
 			}
+			default:
+				return draft;
 		}
-	}
+	});
+}
+
+function preview(prefix, drafts) {
+	const header = session.getHeader();
+	if (!header) throw new Error("Session header is missing");
+	const manager = SessionManager.inMemory(state.cwd, undefined, [header, ...prefix]);
+	return { manager, stored: applyDrafts(manager, drafts) };
 }
 
 function boundaryContext(prefix, pendingMessages) {
 	return (drafts) => {
-		const header = session.getHeader();
-		if (!header) throw new Error("Session header is missing");
-		const preview = SessionManager.inMemory(state.cwd, undefined, [header, ...prefix]);
-		applyDrafts(preview, drafts);
-		const projection = preview.buildSessionProjection();
+		const projection = preview(prefix, drafts).manager.buildSessionProjection();
 		const llmMessages = convertToLlm(projection.messages);
 		const finalRole = llmMessages.at(-1)?.role;
 		const runnable = llmMessages.some((message) => message.role !== "system") && finalRole !== "assistant";
@@ -899,7 +904,8 @@ async function turnEnd(request) {
 	}
 	const message = branch[at].message;
 	const outcome = message.stopReason === "aborted" ? "aborted" : message.stopReason === "error" ? "error" : "completed";
-	const contextOf = boundaryContext(branch.slice(0, at + 1 + results.length), request.pendingMessages ?? []);
+	const prefix = branch.slice(0, at + 1 + results.length);
+	const contextOf = boundaryContext(prefix, request.pendingMessages ?? []);
 	const boundary = await runner.emitBoundary(
 		{
 			type: "turn_end",
@@ -921,7 +927,7 @@ async function turnEnd(request) {
 			error: "turn_end requested continuation without runnable model context",
 		});
 	}
-	return { entries: boundary.entries, continue: proceed };
+	return { entries: preview(prefix, boundary.entries).stored, continue: proceed };
 }
 
 async function runCommand(request) {
