@@ -63,7 +63,7 @@ struct BashRun {
     id: Option<Value>,
     command: String,
     exclude_from_context: bool,
-    cancel: CancelToken,
+    abort: crate::bash_exec::Abort,
     rx: std::sync::mpsc::Receiver<crate::bash_exec::Update>,
 }
 
@@ -95,10 +95,10 @@ fn drain_bash(runs: &mut Vec<BashRun>, root: &Conversation, cancel: &CancelToken
                 match run.rx.try_recv() {
                     Ok(crate::bash_exec::Update::Chunk(delta)) => {
                         let mut line = serde_json::Map::new();
+                        line.insert("type".into(), json!("bash_execution_update"));
                         if let Some(id) = &run.id {
                             line.insert("id".into(), id.clone());
                         }
-                        line.insert("type".into(), json!("bash_execution_update"));
                         line.insert("delta".into(), json!(delta));
                         output.line(&Value::Object(line));
                     }
@@ -1119,7 +1119,7 @@ fn handle(
                     settings.shell_command_prefix().map(str::to_owned),
                 )
             };
-            let (token, rx) = crate::bash_exec::start(
+            let (abort, rx) = crate::bash_exec::start(
                 &line,
                 exclude_from_context,
                 &options.cwd,
@@ -1130,7 +1130,7 @@ fn handle(
                 id: id.cloned(),
                 command: line,
                 exclude_from_context,
-                cancel: token,
+                abort,
                 rx,
             });
             return None;
@@ -1138,7 +1138,7 @@ fn handle(
 
         "abort_bash" => {
             for run in runs.iter() {
-                run.cancel.cancel();
+                run.abort.abort();
             }
             success(id, kind, None)
         }

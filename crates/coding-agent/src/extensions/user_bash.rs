@@ -24,8 +24,7 @@ impl Live {
         &self,
         event: Value,
         resolved: &str,
-        abort: &CancelToken,
-        started: &mut dyn FnMut(),
+        started: &mut dyn FnMut() -> CancelToken,
         chunk: &mut dyn FnMut(String),
     ) -> UserBash {
         if !self.handles("user_bash") {
@@ -39,9 +38,8 @@ impl Live {
         let mut link = None;
         let answer = pending.wait(Some(&exec), &mut |part| {
             if part.get("exec").is_some() {
-                started();
                 let exec = exec.clone();
-                link = Some(abort.subscribe(move || exec.cancel()));
+                link = Some(started().subscribe(move || exec.cancel()));
             } else if let Some(delta) = part.get("delta").and_then(Value::as_str) {
                 chunk(delta.to_owned());
             }

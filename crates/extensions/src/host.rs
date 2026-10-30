@@ -63,15 +63,19 @@ pub enum Call {
     Unsupported {
         member: String,
     },
+    /// What `emitError` hands the mode's `onError`.
+    Failed(Failed),
 }
 
 /// A handler that threw, as upstream's `emitError` reports it.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Failed {
     pub path: String,
     #[serde(default)]
     pub event: String,
     pub error: String,
+    #[serde(default)]
+    pub stack: Option<String>,
 }
 
 pub trait Peer: Send + Sync {
@@ -555,6 +559,7 @@ impl Shared {
                         path: "registerProvider".to_owned(),
                         event: String::new(),
                         error: format!("the extension host sent providers pi-rs cannot read: {e}"),
+                        stack: None,
                     }),
                 }
             }
@@ -594,6 +599,7 @@ impl Shared {
                         path: "registerTool".to_owned(),
                         event: String::new(),
                         error: format!("the extension host sent tools pi-rs cannot read: {e}"),
+                        stack: None,
                     }),
                 }
             }

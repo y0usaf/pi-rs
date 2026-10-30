@@ -119,6 +119,26 @@ impl Chat {
         self.add(Rc::new(RefCell::new(line)));
     }
 
+    /// `showExtensionError`: what a handler threw, then its stack below the line that repeats the
+    /// message, dimmed.
+    pub fn extension_error(&mut self, path: &str, error: &str, stack: Option<&str>) {
+        let line = Text::new(
+            &fg("error", &format!("Extension \"{path}\" error: {error}")),
+            1,
+            0,
+        );
+        self.add(Rc::new(RefCell::new(line)));
+        let frames: Vec<String> = stack
+            .into_iter()
+            .flat_map(|stack| stack.split('\n').skip(1))
+            .map(|line| fg("dim", &format!("  {}", line.trim())))
+            .collect();
+        if !frames.is_empty() {
+            let text = Text::new(&frames.join("\n"), 1, 0);
+            self.add(Rc::new(RefCell::new(text)));
+        }
+    }
+
     /// A status message in the chat. Back-to-back statuses update the line already there
     /// instead of appending more, as upstream's `showStatus` does.
     pub fn show_status(&mut self, message: &str) {

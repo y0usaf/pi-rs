@@ -370,6 +370,9 @@ pub fn run_turns(
                 }
                 Call::Shutdown => queued.clear(),
                 Call::Unsupported { .. } => {}
+                Call::Failed(failed) => {
+                    eprintln!("Extension error ({}): {}", failed.path, failed.error)
+                }
             }
         }
     }

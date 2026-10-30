@@ -834,7 +834,7 @@ async function load(request) {
 	}
 	runner = new ExtensionRunner(result.extensions, result.runtime, state.cwd, session, modelRegistry);
 	runner.onError((error) =>
-		effect({ call: "error", path: error.extensionPath, event: error.event ?? "", error: error.error }),
+		effect({ call: "error", path: error.extensionPath, event: error.event ?? "", error: error.error, stack: error.stack }),
 	);
 	runner.bindCore(actions, contextActions, providerActions);
 	if (hadVirtualModels && virtualModels.size === 0) reportVirtualModels();

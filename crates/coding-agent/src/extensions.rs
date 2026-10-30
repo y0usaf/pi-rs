@@ -984,10 +984,7 @@ impl Peer for Sink {
     }
 
     fn failed(&self, failed: Failed) {
-        self.call(Call::Notify {
-            text: format!("Extension error ({}): {}", failed.path, failed.error),
-            level: "error".to_owned(),
-        });
+        self.call(Call::Failed(failed));
     }
 
     fn tools(&self, tools: Vec<ToolInfo>) {
@@ -1012,6 +1009,7 @@ impl Sink {
                 path: "setActiveTools".to_owned(),
                 event: String::new(),
                 error: format!("the extension host sent tool names pi-rs cannot read: {e}"),
+                stack: None,
             }),
         }
         live().map(Live::take_shown).unwrap_or_default()

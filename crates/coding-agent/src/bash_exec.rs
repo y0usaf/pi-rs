@@ -4,8 +4,8 @@
 
 use std::io::{Read, Write};
 use std::os::unix::process::CommandExt;
-use std::sync::Arc;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use pi_durable::ai::types::{
@@ -76,6 +76,28 @@ pub struct Spawn<'a> {
     pub on_chunk: &'a mut dyn FnMut(&str),
 }
 
+/// `_bashAbortControllers` for one run: what `abortBash` reaches. The run joins it only once it
+/// executes, so an abort while the extensions' handlers decide misses it, as upstream's does.
+#[derive(Clone, Default)]
+pub struct Abort(Arc<Mutex<Option<CancelToken>>>);
+
+impl Abort {
+    /// `abortBash`: true when the run was executing, and is now cancelled.
+    pub fn abort(&self) -> bool {
+        let slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(token) = slot.as_ref() {
+            token.cancel();
+        }
+        slot.is_some()
+    }
+
+    fn arm(&self) -> CancelToken {
+        let token = CancelToken::new();
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(token.clone());
+        token
+    }
+}
+
 /// What a run's thread reports: the output as it arrives, then the result.
 pub enum Update {
     Chunk(String),
@@ -90,15 +112,15 @@ pub enum Step {
     Done(Result<Outcome, String>),
 }
 
-/// The run on its own thread, for a caller that polls while it works: the token that cancels it,
-/// and the messages it sends.
+/// The run on its own thread, for a caller that polls while it works: what aborts it, and the
+/// messages it sends.
 pub fn start(
     command: &str,
     exclude_from_context: bool,
     cwd: &str,
     shell: Option<&str>,
     prefix: Option<&str>,
-) -> (CancelToken, mpsc::Receiver<Update>) {
+) -> (Abort, mpsc::Receiver<Update>) {
     spawn_run(
         command,
         exclude_from_context,
@@ -121,7 +143,7 @@ pub fn start_drawn(
     cwd: &str,
     shell: Option<&str>,
     prefix: Option<&str>,
-) -> (CancelToken, mpsc::Receiver<Step>) {
+) -> (Abort, mpsc::Receiver<Step>) {
     spawn_run(command, exclude_from_context, cwd, shell, prefix, Some)
 }
 
@@ -132,10 +154,10 @@ fn spawn_run<T: Send + 'static>(
     shell: Option<&str>,
     prefix: Option<&str>,
     message: fn(Step) -> Option<T>,
-) -> (CancelToken, mpsc::Receiver<T>) {
-    let token = CancelToken::new();
+) -> (Abort, mpsc::Receiver<T>) {
+    let abort = Abort::default();
     let (tx, rx) = mpsc::channel();
-    let abort = token.clone();
+    let armed = abort.clone();
     let (command, cwd) = (command.to_owned(), cwd.to_owned());
     let (shell, prefix) = (shell.map(str::to_owned), prefix.map(str::to_owned));
     std::thread::spawn(move || {
@@ -144,46 +166,44 @@ fn spawn_run<T: Send + 'static>(
                 let _ = tx.send(message);
             }
         };
-        run(
-            &command,
-            exclude_from_context,
-            Spawn {
-                cwd: &cwd,
-                shell: shell.as_deref(),
-                prefix: prefix.as_deref(),
-                cancel: &abort,
-                on_chunk: &mut |text| emit(Step::Chunk(text.to_owned())),
-            },
-            &emit,
-        );
-    });
-    (token, rx)
-}
-
-fn run(command: &str, exclude_from_context: bool, spawn: Spawn<'_>, emit: &dyn Fn(Step)) {
-    let decided = match crate::extensions::live() {
-        Some(live) => live.user_bash(
-            serde_json::json!({
-                "command": command,
-                "excludeFromContext": exclude_from_context,
-                "cwd": spawn.cwd,
-            }),
-            &resolved(command, spawn.prefix),
-            spawn.cancel,
-            &mut || emit(Step::Started),
-            &mut |delta| emit(Step::Chunk(delta)),
-        ),
-        None => UserBash::Local,
-    };
-    emit(match decided {
-        UserBash::Answered(result) => Step::Answered(result),
-        UserBash::Refused(error) => Step::Refused(error),
-        UserBash::Ran(result) => Step::Done(result),
-        UserBash::Local => {
+        let mut started = || {
+            let token = armed.arm();
             emit(Step::Started);
-            Step::Done(execute(command, spawn))
-        }
+            token
+        };
+        let decided = match crate::extensions::live() {
+            Some(live) => live.user_bash(
+                serde_json::json!({
+                    "command": command,
+                    "excludeFromContext": exclude_from_context,
+                    "cwd": cwd,
+                }),
+                &resolved(&command, prefix.as_deref()),
+                &mut started,
+                &mut |delta| emit(Step::Chunk(delta)),
+            ),
+            None => UserBash::Local,
+        };
+        emit(match decided {
+            UserBash::Answered(result) => Step::Answered(result),
+            UserBash::Refused(error) => Step::Refused(error),
+            UserBash::Ran(result) => Step::Done(result),
+            UserBash::Local => {
+                let cancel = started();
+                Step::Done(execute(
+                    &command,
+                    Spawn {
+                        cwd: &cwd,
+                        shell: shell.as_deref(),
+                        prefix: prefix.as_deref(),
+                        cancel: &cancel,
+                        on_chunk: &mut |text| emit(Step::Chunk(text.to_owned())),
+                    },
+                ))
+            }
+        });
     });
+    (abort, rx)
 }
 
 fn resolved(command: &str, prefix: Option<&str>) -> String {

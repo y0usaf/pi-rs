@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use super::chat::Chat;
 use super::theme::{bold, fg, fg_fn};
-use crate::bash_exec::{self, ExitCode, Outcome, Step};
+use crate::bash_exec::{self, Abort, ExitCode, Outcome, Step};
 use crate::settings::SettingsManager;
 use crate::tools::truncate::{Limits, truncate_tail};
 
@@ -21,7 +21,7 @@ const PREVIEW_LINES: usize = 20;
 struct Running {
     command: String,
     exclude_from_context: bool,
-    cancel: CancelToken,
+    abort: Abort,
     rx: mpsc::Receiver<Step>,
     row: Option<Rc<RefCell<BashRow>>>,
 }
@@ -74,7 +74,7 @@ impl BashMode {
         exclude_from_context: bool,
         settings: &SettingsManager,
     ) {
-        let (token, rx) = bash_exec::start_drawn(
+        let (abort, rx) = bash_exec::start_drawn(
             command,
             exclude_from_context,
             &chat.cwd,
@@ -84,21 +84,18 @@ impl BashMode {
         self.running = Some(Running {
             command: command.to_owned(),
             exclude_from_context,
-            cancel: token,
+            abort,
             rx,
             row: None,
         });
     }
 
-    /// `abortBash`: the command is killed and its block ends as cancelled.
+    /// `abortBash`: an executing command is killed and its block ends as cancelled; false while
+    /// none executes, the extensions' handlers still deciding included.
     pub fn cancel(&mut self) -> bool {
-        match &self.running {
-            Some(running) => {
-                running.cancel.cancel();
-                true
-            }
-            None => false,
-        }
+        self.running
+            .as_ref()
+            .is_some_and(|running| running.abort.abort())
     }
 
     /// Takes what the thread produced; true when the screen changed. The run is recorded as an

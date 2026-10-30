@@ -567,6 +567,10 @@ fn serve_extension_calls(live: &crate::extensions::Live, calls: Calls<'_>) -> bo
                 chat.notice("dim", &format!("{member} is not available in pi-rs yet"));
                 drew = true;
             }
+            Call::Failed(failed) => {
+                chat.extension_error(&failed.path, &failed.error, failed.stack.as_deref());
+                drew = true;
+            }
         }
     }
     live.settle(*interrupted);
