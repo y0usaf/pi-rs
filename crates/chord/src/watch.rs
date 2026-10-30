@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread::{self, ThreadId};
 
 use pi_rt::cancel::CancelToken;
 
@@ -105,12 +106,13 @@ pub fn retirement_operations() -> Vec<Op> {
 #[derive(Default)]
 pub struct Deliveries {
     queue: Mutex<Queue>,
+    settled: Condvar,
 }
 
 #[derive(Default)]
 struct Queue {
     jobs: VecDeque<Box<dyn FnOnce() + Send>>,
-    draining: bool,
+    draining: Option<ThreadId>,
 }
 
 impl Deliveries {
@@ -121,10 +123,10 @@ impl Deliveries {
     pub fn drain(&self) {
         {
             let mut queue = self.queue.lock().expect(LOCK);
-            if queue.draining {
+            if queue.draining.is_some() {
                 return;
             }
-            queue.draining = true;
+            queue.draining = Some(thread::current().id());
         }
         loop {
             let job = {
@@ -132,12 +134,28 @@ impl Deliveries {
                 match queue.jobs.pop_front() {
                     Some(job) => job,
                     None => {
-                        queue.draining = false;
+                        queue.draining = None;
+                        self.settled.notify_all();
                         return;
                     }
                 }
             };
             job();
+        }
+    }
+
+    pub fn settle(&self) {
+        loop {
+            self.drain();
+            let mut queue = self.queue.lock().expect(LOCK);
+            loop {
+                match queue.draining {
+                    Some(id) if id == thread::current().id() => return,
+                    Some(_) => queue = self.settled.wait(queue).expect(LOCK),
+                    None if queue.jobs.is_empty() => return,
+                    None => break,
+                }
+            }
         }
     }
 }

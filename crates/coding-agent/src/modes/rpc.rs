@@ -893,13 +893,6 @@ fn replace(
     let _ = open.root.abort(false, cancel);
     let _ = open.root.wait_for_idle(cancel);
     observe(state);
-    if let Ok(mut state) = state.lock() {
-        for waiting in &mut state.waiting {
-            if let Awaited::Compaction { ended, .. } = &mut waiting.awaited {
-                *ended = true;
-            }
-        }
-    }
     drain_waiting(state, cancel, output);
     let live = crate::extensions::live();
     if let Some(live) = live {

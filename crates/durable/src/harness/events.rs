@@ -12,6 +12,7 @@ use crate::chord::watch::{NativeWatch, WatchEnd};
 use crate::documents::DocDefinition;
 use crate::errors::{Error, Result};
 use crate::harness::agent::{AgentState, agent_doc};
+use crate::harness::compaction::CANCELLED;
 use crate::harness::inbox::{InboxItem, InboxState};
 use crate::harness::live::{
     CompactionStatus, DeferredStatus, GenerationStatus, LiveState, SlotStatus, ToolSlot,
@@ -204,6 +205,8 @@ pub enum AgentEvent {
     CompactionEnd {
         task_id: TaskId,
         reason: CompactionReason,
+        aborted: bool,
+        error: Option<String>,
     },
 }
 
@@ -724,9 +727,29 @@ fn translate(
             .iter()
             .any(|status| status.task_id == previous.task_id)
         {
+            let outcome = tasks
+                .iter()
+                .find(|task| task.id == previous.task_id)
+                .and_then(|task| match &task.state {
+                    TaskState::Terminal { outcome } => Some(outcome),
+                    _ => None,
+                });
+            let (aborted, error) = match outcome {
+                Some(TaskOutcome::Aborted { .. }) => (true, None),
+                Some(TaskOutcome::Failed { error, .. }) if error.message == CANCELLED => {
+                    (true, None)
+                }
+                Some(TaskOutcome::Failed { error, .. } | TaskOutcome::Faulted { error }) => {
+                    (false, Some(error.message.clone()))
+                }
+                Some(TaskOutcome::Orphaned { reason }) => (false, Some(reason.clone())),
+                _ => (false, None),
+            };
             events.push(AgentEvent::CompactionEnd {
                 task_id: previous.task_id,
                 reason: previous.reason,
+                aborted,
+                error,
             });
         }
     }

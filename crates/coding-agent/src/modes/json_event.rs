@@ -12,7 +12,7 @@ use pi_durable::ai::types::{AssistantBlock, Message, StopReason, ToolResultMessa
 use pi_durable::entries::{compaction_entry, system_entry};
 use pi_durable::harness::events::{AgentEvent, MessageChange, SnapshotEvent};
 use pi_durable::harness::tool::{ToolResultData, tool_result_data};
-use pi_durable::types::EntryRecord;
+use pi_durable::types::{CompactionReason, EntryRecord};
 use serde_json::{Value, json};
 
 use super::value;
@@ -360,11 +360,29 @@ impl Mapper {
                 "reason": value(reason),
                 "blocking": blocking,
             })],
-            AgentEvent::CompactionEnd { task_id, reason } => vec![json!({
-                "type": "compaction_end",
-                "taskId": value(task_id),
-                "reason": value(reason),
-            })],
+            AgentEvent::CompactionEnd {
+                task_id,
+                reason,
+                aborted,
+                error,
+            } => {
+                let mut line = json!({
+                    "type": "compaction_end",
+                    "taskId": value(task_id),
+                    "reason": value(reason),
+                    "aborted": aborted,
+                    "willRetry": !aborted && error.is_none() && *reason == CompactionReason::Overflow,
+                });
+                if let Some(error) = error {
+                    let failed = match reason {
+                        CompactionReason::Manual => "Compaction failed",
+                        CompactionReason::Threshold => "Auto-compaction failed",
+                        CompactionReason::Overflow => "Context overflow recovery failed",
+                    };
+                    line["errorMessage"] = json!(format!("{failed}: {error}"));
+                }
+                vec![line]
+            }
         }
     }
 }

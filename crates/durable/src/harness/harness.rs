@@ -298,7 +298,7 @@ impl Harness {
     pub fn wait_for_idle(&self, cancel: &CancelToken) -> Result<()> {
         self.0.tasks.resume();
         self.0.tasks.wait_for_idle(None, cancel)?;
-        self.0.session.deliveries().drain();
+        self.0.session.deliveries().settle();
         Ok(())
     }
 
@@ -581,7 +581,7 @@ impl Conversation {
     pub fn wait_for_idle(&self, cancel: &CancelToken) -> Result<()> {
         self.inner.tasks.resume();
         self.inner.tasks.wait_for_idle(Some(self.id), cancel)?;
-        self.inner.session.deliveries().drain();
+        self.inner.session.deliveries().settle();
         Ok(())
     }
 
