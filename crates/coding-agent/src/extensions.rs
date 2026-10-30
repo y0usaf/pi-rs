@@ -42,7 +42,7 @@ pub use runtime::request_hooks;
 use crate::config::CONFIG_DIR_NAME;
 use crate::loadout::{Entry, Loadout, PromptView, Source, ToolsView};
 use crate::models::ModelRegistry;
-use crate::paths::{PathInput, join, resolve_path};
+use crate::paths::{PathInput, join, resolve_path, within};
 use crate::settings::{Settings, SettingsManager};
 use crate::system_prompt::PromptInput;
 
@@ -425,12 +425,11 @@ fn now_ms() -> u64 {
         .unwrap_or_default()
 }
 
-/// A command an extension registered, and the extension that registered it.
 #[derive(Clone, Debug)]
 pub struct ExtensionCommand {
     pub name: String,
     pub description: String,
-    pub path: String,
+    pub source_info: Value,
 }
 
 #[derive(Default)]
@@ -449,6 +448,8 @@ pub struct Resources {
     pub project_trusted: bool,
     pub no_skills: bool,
     pub skill_paths: Vec<String>,
+    pub templates: Vec<crate::prompt_templates::PromptTemplate>,
+    pub skills: Vec<crate::skills::Skill>,
 }
 
 fn unknown_options(names: &[&str]) -> Option<String> {
@@ -476,10 +477,6 @@ pub struct SourceInfo {
 pub struct LoadedExtension {
     pub path: String,
     pub source_info: Option<SourceInfo>,
-}
-
-fn within(path: &str, root: &str) -> bool {
-    path == root || path.starts_with(&format!("{}/", root.trim_end_matches('/')))
 }
 
 fn source_info(resolved: &str, cli: &[String], cwd: &str, dirs: &[String]) -> Option<SourceInfo> {
@@ -765,7 +762,7 @@ pub fn load(
             extensions.commands.push(ExtensionCommand {
                 name: command.name,
                 description: command.description,
-                path: extension.path.clone(),
+                source_info: command.source_info,
             });
         }
     }
@@ -1008,6 +1005,11 @@ impl Peer for Sink {
             return live()
                 .ok_or("no extension host is running")?
                 .set_thinking_level(args, cancel);
+        }
+        if call == "setLabel" {
+            return live()
+                .ok_or("no extension host is running")?
+                .set_label(args, cancel);
         }
         let models = lock(&self.models).clone();
         match models {
@@ -1263,7 +1265,19 @@ impl Live {
     }
 
     pub fn set_resources(&self, resources: Resources) {
+        self.show_commands(&resources);
         *lock(&self.0.resources) = Some(resources);
+    }
+
+    fn show_commands(&self, resources: &Resources) {
+        let commands = crate::source_info::slash_commands(
+            &resources.templates,
+            &resources.skills,
+            &resources.cwd,
+            &resources.agent_dir,
+            resources.project_trusted,
+        );
+        self.update("commands", Value::Array(commands));
     }
 
     pub fn extension_entries(&self) -> Vec<Entry> {
@@ -1330,14 +1344,16 @@ impl Live {
                     resources.skill_paths.push(found.path);
                 }
             }
-            crate::skills::load_skills(&crate::skills::SkillsInput {
+            resources.skills = crate::skills::load_skills(&crate::skills::SkillsInput {
                 cwd: &resources.cwd,
                 agent_dir: &resources.agent_dir,
                 project_trusted: resources.project_trusted,
                 no_skills: resources.no_skills,
                 cli_paths: &resources.skill_paths,
             })
-            .skills
+            .skills;
+            self.show_commands(resources);
+            resources.skills.clone()
         };
         if let Err(error) = self
             .0

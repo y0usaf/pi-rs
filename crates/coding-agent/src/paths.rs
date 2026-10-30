@@ -110,6 +110,10 @@ pub fn join(base: &str, rest: &str) -> String {
     normalize_absolute(&format!("{base}/{rest}"))
 }
 
+pub fn within(path: &str, root: &str) -> bool {
+    path == root || path.starts_with(&format!("{}/", root.trim_end_matches('/')))
+}
+
 /// `path.dirname` of an absolute normalized path.
 pub fn dirname(path: &str) -> String {
     match path.rfind('/') {

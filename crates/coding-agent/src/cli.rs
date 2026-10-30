@@ -430,6 +430,8 @@ fn run() -> Result<ExitCode, String> {
             project_trusted: trusted,
             no_skills: parsed.no_skills,
             skill_paths: parsed.skills.clone().unwrap_or_default(),
+            templates: templates.clone(),
+            skills: assembled.input.skills.clone(),
         });
     }
 
@@ -644,26 +646,17 @@ fn run() -> Result<ExitCode, String> {
                     "name": command.name,
                     "description": command.description,
                     "source": "extension",
-                    "sourceInfo": { "path": command.path },
+                    "sourceInfo": command.source_info,
                 })
             })
-            .chain(templates.iter().map(|template| {
-                serde_json::json!({
-                    "name": template.name,
-                    "description": template.description,
-                    "source": "prompt",
-                    "sourceInfo": { "path": template.file_path },
-                })
-            }))
             .collect();
-        commands.extend(assembled.input.skills.iter().map(|skill| {
-            serde_json::json!({
-                "name": format!("skill:{}", skill.name),
-                "description": skill.description,
-                "source": "skill",
-                "sourceInfo": { "path": skill.file_path },
-            })
-        }));
+        commands.extend(crate::source_info::slash_commands(
+            &templates,
+            &assembled.input.skills,
+            &cwd,
+            &agent_dir,
+            trusted,
+        ));
         let options = modes::rpc::Options {
             model: input.model.clone(),
             thinking: input.thinking,

@@ -260,6 +260,27 @@ fn write(
                 };
                 tx.append_entry(conversation, draft)?.id
             }
+            "label" => {
+                let Some(target) = entry
+                    .get("targetId")
+                    .and_then(Value::as_str)
+                    .and_then(|target| ids.get(target))
+                else {
+                    *dropped.entry(kind.to_owned()).or_default() += 1;
+                    continue;
+                };
+                let draft = EntryDraft {
+                    kind: super::drafts::LABEL_KIND.to_owned(),
+                    model: None,
+                    data: Some(json!({
+                        "targetId": super::export::short_id(target.0),
+                        "label": entry.get("label").cloned().unwrap_or(Value::Null),
+                    })),
+                    head: None,
+                    edits: None,
+                };
+                tx.append_entry(conversation, draft)?.id
+            }
             "model_change" => {
                 model = Some(ModelRef {
                     provider: entry

@@ -439,6 +439,31 @@ impl Live {
         Ok(answer)
     }
 
+    pub(super) fn set_label(&self, args: &Value, cancel: &CancelToken) -> Result<Value, String> {
+        let root = self
+            .root()
+            .ok_or("no session is open to label an entry in")?;
+        let target = match args.get("entryId") {
+            Some(Value::String(id)) => id.clone(),
+            Some(other) => other.to_string(),
+            None => "undefined".to_owned(),
+        };
+        let held = self.session_update(cancel).is_some_and(|session| {
+            session["entries"]
+                .as_array()
+                .is_some_and(|entries| entries.iter().any(|entry| entry["id"] == target.as_str()))
+        });
+        if !held {
+            return Err(format!("Entry {target} not found"));
+        }
+        let draft = json!({ "type": "label", "targetId": target, "label": args.get("label") });
+        crate::sessions::drafts::append(&root, &[draft], cancel)?;
+        let session = self
+            .session_update(cancel)
+            .ok_or("the session could not be read after the label was set")?;
+        Ok(json!({ "session": session }))
+    }
+
     pub(super) fn compact(&self, args: &Value, cancel: &CancelToken) -> Result<Value, String> {
         let args: CompactArgs = serde_json::from_value(args.clone())
             .map_err(|e| format!("ctx.compact was asked with {e}"))?;

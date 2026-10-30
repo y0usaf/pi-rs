@@ -35,6 +35,8 @@ pub struct Command {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default, rename = "sourceInfo")]
+    pub source_info: Value,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

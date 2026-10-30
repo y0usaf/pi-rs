@@ -15,6 +15,7 @@ use serde_json::{Map, Value, json};
 
 pub const MESSAGE_KIND: &str = "pi.custom-message";
 pub const CUSTOM_KIND: &str = "pi.custom";
+pub const LABEL_KIND: &str = "pi.label";
 
 fn text_block(text: &str) -> UserBlock {
     UserBlock::Text(TextContent {
@@ -119,6 +120,16 @@ fn boundary(
             edits: None,
         }),
         Some("custom_message") => Ok(message(draft, now)),
+        Some("label") => Ok(EntryDraft {
+            kind: LABEL_KIND.to_owned(),
+            model: None,
+            data: Some(json!({
+                "targetId": draft.get("targetId").cloned().unwrap_or(Value::Null),
+                "label": draft.get("label").cloned().unwrap_or(Value::Null),
+            })),
+            head: None,
+            edits: None,
+        }),
         Some("context_edit") => {
             let target = entry_id(draft.get("targetId"))?;
             let action = match draft.get("replacement") {

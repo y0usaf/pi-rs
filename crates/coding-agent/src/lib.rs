@@ -37,6 +37,7 @@ pub mod session_tree;
 pub mod sessions;
 pub mod settings;
 pub mod skills;
+pub mod source_info;
 pub mod stdout;
 pub mod system_prompt;
 pub mod tool_search;

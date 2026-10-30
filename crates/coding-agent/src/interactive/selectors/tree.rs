@@ -16,6 +16,7 @@ use serde_json::Value;
 use super::{ActionSlot, OverlayAction, border, fit, push, wrap};
 use crate::interactive::theme::{bold, fg};
 use crate::session_tree::Tree;
+use crate::sessions::drafts::LABEL_KIND;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Filter {
@@ -136,7 +137,8 @@ impl TreeSelector {
         let entry = &self.tree.nodes[index].entry;
         let is_settings = entry.kind == context_edit_entry().kind()
             || entry.kind == reset_entry().kind()
-            || entry.kind == system_entry().kind();
+            || entry.kind == system_entry().kind()
+            || entry.kind == LABEL_KIND;
         if entry.kind == pi_durable::entries::user_entry().kind() {
             if self.filter == Filter::UserOnly
                 || self.filter == Filter::Default
@@ -553,6 +555,13 @@ impl TreeSelector {
             fg("dim", &target)
         } else if entry.kind == reset_entry().kind() {
             fg("dim", "[reset]")
+        } else if entry.kind == LABEL_KIND {
+            let label = match entry.data.as_ref().map(|data| &data["label"]) {
+                Some(Value::String(label)) => label.clone(),
+                Some(Value::Null) | None => "(cleared)".to_owned(),
+                Some(other) => other.to_string(),
+            };
+            fg("dim", &format!("[label: {label}]"))
         } else if entry.kind == system_entry().kind() {
             let text = entry
                 .model

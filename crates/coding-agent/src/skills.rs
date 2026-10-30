@@ -604,7 +604,7 @@ fn find_git_repo_root(start: &str) -> Option<String> {
 }
 
 /// `collectAncestorAgentsSkillDirs`: `.agents/skills` from the cwd up to the git root (or `/`).
-fn ancestor_agents_skill_dirs(start: &str) -> Vec<String> {
+pub(crate) fn ancestor_agents_skill_dirs(start: &str) -> Vec<String> {
     let start = resolve("/", start);
     let root = find_git_repo_root(&start);
     let mut dirs = Vec::new();

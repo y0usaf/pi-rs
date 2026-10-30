@@ -102,6 +102,7 @@ const { createEventBus } = await import(new URL("core/event-bus.js", dist));
 const { SessionManager } = await import(new URL("core/session-manager.js", dist));
 const { convertToLlm } = await import(new URL("core/messages.js", dist));
 const { createSourceInfo, createSyntheticSourceInfo } = await import(new URL("core/source-info.js", dist));
+const { CONFIG_DIR_NAME, getAgentDir } = await import(new URL("config.js", dist));
 const { normalizeBuildSystemPromptOptions } = await import(new URL("core/system-prompt.js", dist));
 const { estimateProjectedContextTokens } = await import(new URL("core/compaction/compaction.js", dist));
 const { killAll } = await import(new URL("core/exec.js", dist));
@@ -214,6 +215,7 @@ const state = {
 	session: undefined,
 	models: { current: undefined, list: [], configured: [] },
 	tools: { active: [], all: [], known: [] },
+	commands: [],
 	prompt: undefined,
 };
 
@@ -448,14 +450,35 @@ function setActiveTools(names) {
 	Object.assign(state, askNow("activeTools", { names: [...names] }));
 }
 
+function applySource(extension, sourceInfo) {
+	extension.sourceInfo = sourceInfo;
+	for (const command of extension.commands.values()) command.sourceInfo = sourceInfo;
+	for (const tool of extension.tools.values()) tool.sourceInfo = sourceInfo;
+}
+
+function applyDirSources(extensions, dirs, cwd) {
+	const discovered = new Set((dirs ?? []).map((dir) => path.resolve(cwd, dir)));
+	const roots = [
+		{ baseDir: path.resolve(cwd, CONFIG_DIR_NAME), scope: "project" },
+		{ baseDir: path.resolve(getAgentDir()), scope: "user" },
+	].filter(({ baseDir }) => discovered.has(path.join(baseDir, "extensions")));
+	for (const extension of extensions) {
+		const resolved = path.resolve(extension.path);
+		const root = roots.find(({ baseDir }) => resolved.startsWith(`${path.join(baseDir, "extensions")}${path.sep}`));
+		if (!root) continue;
+		applySource(
+			extension,
+			createSourceInfo(extension.path, { source: "auto", scope: root.scope, origin: "top-level", baseDir: root.baseDir }),
+		);
+	}
+}
+
 function applyCliSources(extensions, cli, cwd) {
 	const roots = (cli ?? []).map((entry) => path.resolve(cwd, entry));
 	for (const extension of extensions) {
 		const resolved = path.resolve(extension.path);
 		if (!roots.some((root) => resolved === root || resolved.startsWith(`${root}${path.sep}`))) continue;
-		extension.sourceInfo = createSourceInfo(extension.path, { source: "cli", scope: "temporary", origin: "top-level" });
-		for (const command of extension.commands.values()) command.sourceInfo = extension.sourceInfo;
-		for (const tool of extension.tools.values()) tool.sourceInfo = extension.sourceInfo;
+		applySource(extension, createSourceInfo(extension.path, { source: "cli", scope: "temporary", origin: "top-level" }));
 	}
 }
 
@@ -514,13 +537,23 @@ const actions = {
 	},
 	setSessionName: thrower("pi.setSessionName"),
 	getSessionName: () => state.session?.name ?? undefined,
-	setLabel: thrower("pi.setLabel"),
+	setLabel: (entryId, label) => {
+		absorb({ updates: askNow("setLabel", { entryId, label }) });
+	},
 	getActiveTools: activeTools,
 	getAllTools: allTools,
 	getSettings: thrower("pi.getSettings"),
 	setActiveTools,
 	refreshTools: () => effect({ call: "tools", tools: toolInfos() }),
-	getCommands: thrower("pi.getCommands"),
+	getCommands: () => [
+		...runner.getRegisteredCommands().map((command) => ({
+			name: command.invocationName,
+			description: command.description,
+			source: "extension",
+			sourceInfo: command.sourceInfo,
+		})),
+		...state.commands,
+	],
 	setModel: rejecter("pi.setModel"),
 	getThinkingLevel: () => askNow("thinkingLevel", {}).level,
 	setThinkingLevel: (level) => {
@@ -727,6 +760,7 @@ function summary(extension, servers) {
 		commands: [...extension.commands.values()].map((command) => ({
 			name: command.name,
 			description: command.description ?? "",
+			sourceInfo: command.sourceInfo,
 		})),
 		unsupported: unconsumed(extension, servers),
 	};
@@ -742,6 +776,7 @@ async function load(request) {
 	const hadVirtualModels = virtualModels.size > 0;
 	virtualModels.clear();
 	const result = await loadSet(resolvePaths(request));
+	applyDirSources(result.extensions, request.paths, request.cwd ?? state.cwd);
 	applyCliSources(result.extensions, request.cli, request.cwd ?? state.cwd);
 	registrants.clear();
 	for (const { name, extensionPath } of result.runtime.pendingProviderRegistrations) registrants.set(name, extensionPath);

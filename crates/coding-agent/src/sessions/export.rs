@@ -249,6 +249,17 @@ fn mapped(
                 entry.insert("data".into(), value.clone());
             }
         }
+        kind if kind == super::drafts::LABEL_KIND => {
+            let data = record.data.clone().unwrap_or(Value::Null);
+            entry.insert("type".into(), "label".into());
+            entry.insert(
+                "targetId".into(),
+                data.get("targetId").cloned().unwrap_or(Value::Null),
+            );
+            if let Some(label) = data.get("label").filter(|label| !label.is_null()) {
+                entry.insert("label".into(), label.clone());
+            }
+        }
         kind if kind == crate::bash_exec::KIND => {
             let data = record
                 .data

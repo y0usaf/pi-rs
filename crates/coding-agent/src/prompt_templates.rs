@@ -146,35 +146,29 @@ fn load_dir(
     }
 }
 
-/// `loadPromptTemplates`: `--prompt-template` paths first, then the project's `.pi/prompts` when
-/// it is trusted and `<agentDir>/prompts`; the first template of a name wins, as `dedupePrompts`
-/// keeps it.
 pub fn load(input: &Input) -> Loaded {
     let cwd = resolve("/", input.cwd);
     let agent_dir = resolve("/", input.agent_dir);
-    let mut paths: Vec<(String, &'static str)> = input
-        .cli_paths
-        .iter()
-        .map(|p| {
-            (
-                resolve_path(
-                    p,
-                    &cwd,
-                    PathInput {
-                        trim: true,
-                        ..PathInput::default()
-                    },
-                ),
-                "t",
-            )
-        })
-        .collect();
+    let mut paths: Vec<(String, &'static str)> = Vec::new();
     if !input.no_defaults {
         if input.project_trusted {
             paths.push((join(&cwd, &format!("{CONFIG_DIR_NAME}/prompts")), "p"));
         }
         paths.push((join(&agent_dir, "prompts"), "u"));
     }
+    paths.extend(input.cli_paths.iter().map(|p| {
+        (
+            resolve_path(
+                p,
+                &cwd,
+                PathInput {
+                    trim: true,
+                    ..PathInput::default()
+                },
+            ),
+            "t",
+        )
+    }));
     let mut templates: Vec<PromptTemplate> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
     for (path, tag) in paths {
