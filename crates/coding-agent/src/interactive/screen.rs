@@ -215,12 +215,11 @@ impl Screen {
         self.terminal().set_title(title);
     }
 
-    pub fn switch(
+    fn switch(
         self,
         fullscreen: bool,
         settings: &SettingsManager,
         layout_root: &ComponentRef,
-        start: bool,
     ) -> Screen {
         if fullscreen == self.is_fullscreen() || self.has_overlay() {
             return self;
@@ -236,9 +235,6 @@ impl Screen {
         let mut next = Screen::mounted(fullscreen, settings, core, terminal, layout_root);
         next.invalidate();
         next.set_focus(focus);
-        if start {
-            next.start();
-        }
         next
     }
 
@@ -254,7 +250,7 @@ impl Screen {
             while screen.has_overlay() {
                 screen.hide_overlay();
             }
-            screen = screen.switch(false, settings, layout_root, false);
+            screen = screen.switch(false, settings, layout_root);
             screen.render_now(false, now);
         }
         let preserve = screen.is_fullscreen();

@@ -5,6 +5,7 @@
 //! are the same.
 
 pub mod autocomplete;
+pub mod colors;
 pub mod components;
 pub mod fuzzy;
 pub mod keybindings;
@@ -15,6 +16,7 @@ pub mod layout;
 pub mod program_status;
 pub mod stdin_buffer;
 pub mod terminal;
+pub mod terminal_colors;
 pub mod tui;
 pub mod tui_alt_screen;
 pub mod tui_main_screen;

@@ -6,6 +6,7 @@
 //! [`TuiCore::handle_terminal_input`] and frames are drawn by the screen's `tick`/`render_now`.
 
 use crate::keys::{is_key_release, matches_key};
+use crate::terminal_colors::TerminalColorQueries;
 use crate::utils::{
     extract_segments, normalize_terminal_output, slice_by_column, slice_with_width, visible_width,
 };
@@ -430,6 +431,7 @@ pub struct TuiCore {
     pub(crate) term_size: (usize, usize),
     /// Set by `hide_terminal_cursor`; the screen writes it out.
     pub(crate) pending_hide_cursor: bool,
+    pub terminal_colors: TerminalColorQueries,
 }
 
 impl Default for TuiCore {
@@ -452,6 +454,7 @@ impl Default for TuiCore {
             focus_restore: FocusRestore::Inactive,
             term_size: (80, 24),
             pending_hide_cursor: false,
+            terminal_colors: TerminalColorQueries::default(),
         }
     }
 }
@@ -882,6 +885,9 @@ impl TuiCore {
     /// Route one input sequence: listeners, debug key, overlay focus repair, then the focused
     /// component. Returns whether a frame should be drawn now.
     pub fn handle_terminal_input(&mut self, data: &str) -> bool {
+        if self.terminal_colors.consume(data) {
+            return false;
+        }
         let mut data = data.to_string();
         if !self.listeners.is_empty() {
             let mut current = data.clone();

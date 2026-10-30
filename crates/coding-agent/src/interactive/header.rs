@@ -1,14 +1,15 @@
+use pi_tui::colors::{Color, Rgb, background_ansi, foreground_ansi};
 use pi_tui::components::text::Text;
 use pi_tui::terminal::is_apple_terminal_session;
 use pi_tui::tui::Component;
 
 use super::selectors::{key_hint, key_text, raw_key_hint};
-use super::theme::{Color, fg};
+use super::theme::{color_mode, fg};
 use crate::config::VERSION;
 
-const CORAL: Color = Color::Rgb(228, 138, 122);
-const BLUE: Color = Color::Rgb(79, 142, 179);
-const YELLOW: Color = Color::Rgb(234, 182, 93);
+const CORAL: Color = Color::Rgb(Rgb::new(228, 138, 122));
+const BLUE: Color = Color::Rgb(Rgb::new(79, 142, 179));
+const YELLOW: Color = Color::Rgb(Rgb::new(234, 182, 93));
 const RESET: &str = "\x1b[0m";
 
 pub type Build = Box<dyn Fn() -> String>;
@@ -64,25 +65,24 @@ impl Component for ExpandableText {
 }
 
 pub fn pi_logo_lines() -> (String, String) {
+    let mode = color_mode();
+    let fg = |color| foreground_ansi(color, mode);
     let top = format!(
         "{}{}▀{RESET}{}▀█{RESET} ",
-        CORAL.ansi(false),
-        BLUE.ansi(true),
-        CORAL.ansi(false)
+        fg(CORAL),
+        background_ansi(BLUE, mode),
+        fg(CORAL)
     );
-    let bottom = format!(
-        "{}█▀{RESET} {}█{RESET}",
-        BLUE.ansi(false),
-        YELLOW.ansi(false)
-    );
+    let bottom = format!("{}█▀{RESET} {}█{RESET}", fg(BLUE), fg(YELLOW));
     (top, bottom)
 }
 
 pub fn pi_wordmark() -> String {
+    let mode = color_mode();
     format!(
         "{}P{RESET}{}i{RESET}",
-        CORAL.ansi(false),
-        YELLOW.ansi(false)
+        foreground_ansi(CORAL, mode),
+        foreground_ansi(YELLOW, mode)
     )
 }
 

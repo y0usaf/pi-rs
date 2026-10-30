@@ -908,23 +908,10 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     }
 
     let mut chat = Chat::new(&cwd);
-    for notice in &extensions.notices {
-        chat.notice("warning", notice);
-    }
     let mut bash = BashMode::new();
     chat.hide_thinking = settings.borrow().hide_thinking_block();
     chat.output_pad = settings.borrow().output_pad() as usize;
     let mut scope = run_config::scope(&settings.borrow(), &run_config::available(&registry));
-    chat.load(&open.stream.snapshot);
-    if !mcp_problems.is_empty() {
-        chat.notice("warning", &mcp_report(&mcp_problems));
-    }
-    if run_config::is_unknown_model(&model) {
-        chat.notice(
-            "warning",
-            &format!("Warning: {}", crate::list_models::no_models_available()),
-        );
-    }
 
     let start = Instant::now();
     let now = || start.elapsed().as_millis() as u64;
@@ -933,24 +920,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let show_details = verbose || quiet == crate::settings::QuietStartup::Off;
     let built_in_header: Option<Rc<RefCell<ExpandableText>>> =
         show_header.then(|| component(built_in_header(show_details, verbose || chat.expanded)));
-    let header_container = match &built_in_header {
-        Some(header) => container(vec![
-            as_ref(&component(Spacer::new(1))),
-            as_ref(header),
-            as_ref(&component(Spacer::new(1))),
-        ]),
-        None => container(vec![as_ref(&component(Text::new("", 0, 0)))]),
-    };
+    let header_container = container(Vec::new());
     let resources_container = container(Vec::new());
-    let resource_sections = if show_details {
-        super::resources::show_loaded(
-            &resources_container,
-            &extensions.loaded,
-            verbose || chat.expanded,
-        )
-    } else {
-        Vec::new()
-    };
     let document = container(vec![
         as_ref(&header_container),
         as_ref(&resources_container),
@@ -1023,7 +994,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     }
     let actions: Rc<RefCell<Vec<Action>>> = Rc::new(RefCell::new(Vec::new()));
     let selector_open = Rc::new(Cell::new(false));
+    let starting = Rc::new(Cell::new(true));
     let (acts, ed, sel_open) = (actions.clone(), editor.clone(), selector_open.clone());
+    let started = starting.clone();
     tui.add_input_listener(Box::new(move |data: &str| {
         if is_key_release(data) {
             return None;
@@ -1070,6 +1043,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         } else {
             return None;
         };
+        if started.get() && !matches!(action, Action::Clear | Action::Exit) {
+            return None;
+        }
         acts.borrow_mut().push(action);
         Some(InputListenerResult {
             consume: true,
@@ -1090,6 +1066,62 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let mut signalled = false;
     let mut title_stale = true;
     let mut context_stale = true;
+    let mut startup_submitted = false;
+    let query = theme::query_terminal_colors(&mut tui, now());
+    tui.terminal().write(query);
+    while let Some(colors_due) = theme::poll_terminal_colors(&mut tui, now()) {
+        let due = tui
+            .tick(now())
+            .map_or(colors_due, |due| due.min(colors_due));
+        let events = tui.terminal().poll(Some(due.saturating_sub(now())));
+        for event in events {
+            tui.handle_events(vec![event]);
+            for text in submitted.borrow_mut().drain(..) {
+                editor.borrow_mut().set_text(&text);
+                startup_submitted = true;
+                tui.request_render(false);
+            }
+        }
+    }
+    starting.set(false);
+
+    {
+        let mut header = header_container.borrow_mut();
+        match &built_in_header {
+            Some(built_in) => {
+                header.add_child(as_ref(&component(Spacer::new(1))));
+                header.add_child(as_ref(built_in));
+                header.add_child(as_ref(&component(Spacer::new(1))));
+            }
+            None => header.add_child(as_ref(&component(Text::new("", 0, 0)))),
+        }
+    }
+    let resource_sections = if show_details {
+        super::resources::show_loaded(
+            &resources_container,
+            &extensions.loaded,
+            verbose || chat.expanded,
+        )
+    } else {
+        Vec::new()
+    };
+    chat.load(&open.stream.snapshot);
+    if startup_submitted {
+        chat.show_status("Startup is still in progress");
+    }
+    for notice in &extensions.notices {
+        chat.notice("warning", notice);
+    }
+    if !mcp_problems.is_empty() {
+        chat.notice("warning", &mcp_report(&mcp_problems));
+    }
+    if run_config::is_unknown_model(&model) {
+        chat.notice(
+            "warning",
+            &format!("Warning: {}", crate::list_models::no_models_available()),
+        );
+    }
+    tui.request_render(false);
 
     let mut pending: Vec<(UserContent, &'static str)> = Vec::new();
     if let Some((text, images)) = &initial {
@@ -1152,6 +1184,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 handed = Some(reference);
             }
         }
+        let colors_due = theme::poll_terminal_colors(&mut tui, now());
         let mut due = tui.tick(now());
         let (spun, spin_due) = embedded
             .borrow_mut()
@@ -1168,7 +1201,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
         };
-        due = [due, bash_due].into_iter().flatten().min();
+        due = [due, bash_due, colors_due].into_iter().flatten().min();
         let timeout = due.map_or(50, |d| d.saturating_sub(now()).min(50));
         let events = tui.terminal().poll(Some(timeout));
         tui.handle_events(events);
@@ -1342,6 +1375,10 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                     for section in &resource_sections {
                         section.borrow_mut().set_expanded(expanded);
                     }
+                    chat.show_status(&format!(
+                        "Tool output: {}",
+                        if expanded { "expanded" } else { "collapsed" }
+                    ));
                 }
                 Action::ModelCycle(forward) => {
                     let available = run_config::available(&registry);

@@ -21,6 +21,11 @@ const APP_DEFS: &[(&str, &[&str], &str)] = &[
         &["alt+up"],
         "Restore queued messages",
     ),
+    (
+        "app.clipboard.pasteImage",
+        &["ctrl+v"],
+        "Paste files on macOS, images, or text from clipboard",
+    ),
     ("app.thinking.cycle", &["shift+tab"], "Cycle thinking level"),
     ("app.thinking.save", &["ctrl+s"], "Save thinking level"),
     ("app.model.cycleForward", &["ctrl+p"], "Cycle to next model"),

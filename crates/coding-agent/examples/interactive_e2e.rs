@@ -248,8 +248,8 @@ fn headless_refusals(bin: &Path, scratch: &Scratch) -> Result<()> {
 
 fn interactive_without_model(bin: &Path, scratch: &Scratch) -> Result<()> {
     let mut tui = Tui::start(&mut scratch.command(bin, &[]))?;
-    tui.expect("Warning: No models available.", "at startup")?;
     tui.expect("unknown", "in the footer")?;
+    tui.expect("Warning: No models available.", "at startup")?;
     std::thread::sleep(Duration::from_millis(500));
     tui.running("after startup")?;
 
