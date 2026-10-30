@@ -328,6 +328,9 @@ pub fn run_turns(
         .collect();
     let mut aborted = false;
     while let Some((content, source)) = queued.pop_front() {
+        if let Some(live) = live {
+            live.wait_compactions();
+        }
         if let Some(text) = crate::extensions::text_of(&content)
             && live.is_some_and(|live| live.run_command(text.trim()))
         {
@@ -382,6 +385,7 @@ pub fn run_turns(
         }
     }
     if let Some(live) = live {
+        live.wait_compactions();
         live.set_state(&input.cwd, false, 0);
         live.settle(aborted);
         live.event("session_shutdown", serde_json::json!({ "reason": "quit" }));

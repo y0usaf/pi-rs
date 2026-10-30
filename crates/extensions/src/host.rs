@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
 use pi_rt::cancel::CancelToken;
@@ -137,6 +137,8 @@ struct Shared {
     failure: Mutex<Option<String>>,
     groups: Mutex<HashSet<i32>>,
     asks: Mutex<HashMap<u64, CancelToken>>,
+    unanswered: Mutex<HashMap<String, usize>>,
+    answered: Condvar,
     stderr: Arc<Mutex<Vec<String>>>,
     next: AtomicU64,
 }
@@ -222,6 +224,8 @@ impl Host {
             failure: Mutex::new(None),
             groups: Mutex::new(HashSet::new()),
             asks: Mutex::new(HashMap::new()),
+            unanswered: Mutex::new(HashMap::new()),
+            answered: Condvar::new(),
             stderr: collected,
             next: AtomicU64::new(1),
         });
@@ -232,6 +236,14 @@ impl Host {
 
     pub fn failure(&self) -> Option<String> {
         lock(&self.0.failure).clone()
+    }
+
+    pub fn wait_answered(&self, call: &str) {
+        let mut unanswered = lock(&self.0.unanswered);
+        while unanswered.contains_key(call) {
+            unanswered =
+                pause(|| self.0.answered.wait(unanswered)).unwrap_or_else(|e| e.into_inner());
+        }
     }
 
     /// Loads `paths`, discovering what sits inside `dirs`: upstream's `discoverAndLoadExtensions`.
@@ -486,6 +498,28 @@ impl Drop for Pending {
     }
 }
 
+struct Unanswered(Arc<Shared>, String);
+
+impl Unanswered {
+    fn new(shared: &Arc<Shared>, call: &str) -> Self {
+        *lock(&shared.unanswered).entry(call.to_owned()).or_default() += 1;
+        Self(Arc::clone(shared), call.to_owned())
+    }
+}
+
+impl Drop for Unanswered {
+    fn drop(&mut self) {
+        let mut unanswered = lock(&self.0.unanswered);
+        if let Some(count) = unanswered.get_mut(&self.1) {
+            *count -= 1;
+            if *count == 0 {
+                unanswered.remove(&self.1);
+            }
+        }
+        self.0.answered.notify_all();
+    }
+}
+
 impl Shared {
     fn write(&self, message: &Value) -> Result<(), String> {
         let mut stdin = lock(&self.stdin);
@@ -524,6 +558,7 @@ impl Shared {
             if let Some(key) = call_id.as_u64() {
                 lock(&self.asks).insert(key, cancel.clone());
             }
+            let unanswered = Unanswered::new(self, call);
             let shared = Arc::clone(self);
             let peer = Arc::clone(peer);
             let call = call.to_owned();
@@ -539,6 +574,7 @@ impl Shared {
                     lock(&shared.asks).remove(&key);
                 }
                 let _ = shared.write(&reply);
+                drop(unanswered);
                 if let Some(id) = request {
                     shared.route(id, Incoming::Answered);
                 }

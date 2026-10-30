@@ -564,6 +564,7 @@ impl Conversation {
         let input = CompactionInput {
             reason: CompactionReason::Manual,
             instructions: instructions.map(str::to_owned),
+            after: None,
         };
         self.inner
             .session

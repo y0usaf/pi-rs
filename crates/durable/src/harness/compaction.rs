@@ -6,8 +6,8 @@ use serde_json::json;
 
 use crate::ai::types::{
     AssistantBlock, AssistantMessage, CacheRetention, Message, StopReason, SystemContent,
-    SystemMessage, SystemRole, TextContent, TextType, TranscriptContext, UserBlock, UserContent,
-    UserMessage, UserRole,
+    SystemMessage, SystemRole, TextContent, TextType, TranscriptContext, Usage, UserBlock,
+    UserContent, UserMessage, UserRole,
 };
 use crate::ai::utils::estimate::{calculate_context_tokens, estimate_message_tokens};
 use crate::ai::utils::js;
@@ -17,19 +17,29 @@ use crate::cancel::CancelToken;
 use crate::entries::{CompactionData, compaction_entry};
 use crate::errors::{Error, Result};
 use crate::harness::context::{ContextView, order_tool_results};
-use crate::harness::generation::{edit_live, queue_modes, simple_options};
+use crate::harness::generation::{
+    GENERATION_KIND, edit_live, queue_modes, read_live, simple_options,
+};
 use crate::harness::inbox::{WriteDraft, WriteHead};
 use crate::harness::live::{CompactionStatus, RetryStatus};
 use crate::harness::provider::ensure_provider_session_id;
 use crate::harness::runtime::{HarnessPhaseHandler, HarnessTaskDefinition, HarnessTaskRuntime};
 use crate::harness::submissions::{SubmissionDraft, admit_submission};
 use crate::harness::tool::erase;
-use crate::harness::types::{ConversationStreamOptions, HookApi, HookTask, ModelRef};
+use crate::harness::types::{
+    CompactionPolicy, ConversationStreamOptions, HookApi, HookTask, ModelRef,
+};
 use crate::harness::usage::{UsageBucket, record_usage};
 use crate::ids::{ConversationId, EntryId, SubmissionId, TaskId};
 use crate::session::types::{TaskCreate, TaskOptions, Tx};
-use crate::tasks::{NextTaskState, RunningTask, TaskOutcome, TaskOutcomeError, TaskOwnership};
-use crate::types::{CompactionReason, EntryDraft, EntryHead, EntryRecord, JsonObject};
+use crate::tasks::{
+    JoinPolicy, NextTaskState, RunningTask, TaskOutcome, TaskOutcomeError, TaskOwnership,
+    TaskState, TaskStatus,
+};
+use crate::types::{
+    CompactionReason, EntryDraft, EntryHead, EntryRecord, JsonObject, JsonValue, ScanOrder,
+    TaskQuery,
+};
 
 pub const COMPACTION_KIND: &str = "pi.compaction";
 pub const COMPACTION_HOOK: HookTask<CompactionHooks> = HookTask::new(COMPACTION_KIND);
@@ -83,6 +93,8 @@ pub struct CompactionInput {
     pub reason: CompactionReason,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<TaskId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -100,6 +112,9 @@ pub struct SummaryRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "phase", rename_all = "lowercase")]
 pub enum CompactionCheckpoint {
+    After {
+        task: TaskId,
+    },
     Select,
     Summarize {
         #[serde(flatten)]
@@ -121,10 +136,21 @@ pub struct CompactionResult {
     pub submission_id: Option<SubmissionId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CompactionDecision {
     Decline,
     Summary(String),
+    Cancel,
+    Provided(Box<ProvidedCompaction>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProvidedCompaction {
+    pub summary: String,
+    pub first_kept: EntryId,
+    pub tokens_before: u64,
+    pub details: Option<JsonValue>,
+    pub usage: Option<Usage>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -134,7 +160,10 @@ pub struct CompactionSource {
     pub messages: Vec<Message>,
     pub first_kept: EntryId,
     pub instructions: Option<String>,
+    pub policy: CompactionPolicy,
 }
+
+pub const CANCELLED: &str = "Compaction cancelled";
 
 pub type BeforeCompact =
     Box<dyn Fn(&HookApi, &CompactionSource) -> Result<Option<CompactionDecision>> + Send + Sync>;
@@ -170,6 +199,7 @@ pub fn definition() -> Compaction {
             CompactionHooks,
         >,
     > = BTreeMap::new();
+    phases.insert("after".to_owned(), Box::new(after));
     phases.insert("select".to_owned(), Box::new(select));
     phases.insert("summarize".to_owned(), Box::new(summarize));
     phases.insert("retry".to_owned(), Box::new(retry));
@@ -194,6 +224,7 @@ pub fn create_compaction(
         CompactionInput {
             reason,
             instructions: None,
+            after: None,
         },
         owner,
     )
@@ -237,6 +268,141 @@ pub fn create_compaction_with(
     Ok(task_id)
 }
 
+pub fn create_answer_compaction(
+    tx: &mut dyn Tx,
+    conversation_id: ConversationId,
+    answering: TaskId,
+) -> Result<TaskId> {
+    tx.create_task(
+        TaskCreate {
+            kind: COMPACTION_KIND.to_owned(),
+            version: COMPACTION_VERSION,
+            input: serde_json::to_value(CompactionInput {
+                reason: CompactionReason::Threshold,
+                instructions: None,
+                after: Some(answering),
+            })?,
+            checkpoint: serde_json::to_value(CompactionCheckpoint::After { task: answering })?,
+        },
+        TaskOptions {
+            ownership: TaskOwnership::Conversation,
+            conversation_id: Some(conversation_id),
+            background: Some(false),
+        },
+    )
+}
+
+fn after(task: Task, runtime: Runtime<'_>, cancel: &CancelToken) -> Result<()> {
+    let CompactionCheckpoint::After { task: answering } = task.checkpoint().clone() else {
+        return Err(mismatch("after"));
+    };
+    let answered = runtime.get_task(answering, cancel)?;
+    let settled = answered
+        .as_ref()
+        .is_none_or(|record| record.status() == TaskStatus::Terminal);
+    if !settled {
+        return runtime.commit(
+            Box::new(move |_tx, _task| {
+                Ok(Some(NextTaskState::Waiting {
+                    checkpoint: CompactionCheckpoint::After { task: answering },
+                    on: vec![answering],
+                    policy: JoinPolicy::AllSettled,
+                }))
+            }),
+            cancel,
+        );
+    }
+    let aborted = answered.is_some_and(|record| {
+        matches!(
+            record.state,
+            TaskState::Terminal {
+                outcome: TaskOutcome::Aborted { .. }
+            }
+        )
+    });
+    let view = runtime.context(None, cancel)?;
+    let cuts = !aborted
+        && !compacted(&view)
+        && select_cut(&view, runtime.settings().compaction.keep_recent_tokens).is_some();
+    let conversation_id = runtime.conversation_id();
+    let task_id = erase(runtime.task_id());
+    runtime.commit(
+        Box::new(move |tx, _task| {
+            if !cuts
+                || superseded(tx, conversation_id, answering)?
+                || read_live(tx, conversation_id)?.compactions.is_some()
+            {
+                return Ok(Some(NextTaskState::Terminal {
+                    outcome: TaskOutcome::Completed {
+                        result: CompactionResult::default(),
+                    },
+                }));
+            }
+            let status = CompactionStatus {
+                task_id,
+                reason: CompactionReason::Threshold,
+                blocking: false,
+                attempt: 1,
+                retry: None,
+            };
+            edit_live(tx, conversation_id, |live| {
+                live.add_compaction_status(status)
+            })?;
+            Ok(Some(NextTaskState::Running {
+                checkpoint: CompactionCheckpoint::Select,
+            }))
+        }),
+        cancel,
+    )
+}
+
+fn superseded(tx: &mut dyn Tx, conversation_id: ConversationId, answering: TaskId) -> Result<bool> {
+    let newest = tx.scan_tasks(
+        &TaskQuery {
+            conversation_id: Some(conversation_id),
+            kind: Some(GENERATION_KIND.to_owned()),
+            order: Some(ScanOrder::Descending),
+            ..TaskQuery::default()
+        },
+        1,
+        None,
+    )?;
+    Ok(newest
+        .items
+        .first()
+        .is_some_and(|task| task.id != answering))
+}
+
+fn drop_superseded(runtime: Runtime<'_>, answering: TaskId, cancel: &CancelToken) -> Result<bool> {
+    let conversation_id = runtime.conversation_id();
+    let task_id = erase(runtime.task_id());
+    let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let seen = Arc::clone(&dropped);
+    runtime.commit(
+        Box::new(move |tx, _task| {
+            if !superseded(tx, conversation_id, answering)? {
+                return Ok(None);
+            }
+            seen.store(true, std::sync::atomic::Ordering::SeqCst);
+            remove_status(tx, conversation_id, task_id)?;
+            Ok(Some(NextTaskState::Terminal {
+                outcome: TaskOutcome::Completed {
+                    result: CompactionResult::default(),
+                },
+            }))
+        }),
+        cancel,
+    )?;
+    Ok(dropped.load(std::sync::atomic::Ordering::SeqCst))
+}
+
+fn compacted(view: &ContextView) -> bool {
+    view.head.as_ref().is_some_and(|head| {
+        head.kind == compaction_entry().kind()
+            && view.entries.iter().all(|entry| entry.id <= head.id)
+    })
+}
+
 fn select(task: Task, runtime: Runtime<'_>, cancel: &CancelToken) -> Result<()> {
     let agent = runtime.agent(cancel)?;
     let settings = runtime.settings().clone();
@@ -251,9 +417,28 @@ fn select(task: Task, runtime: Runtime<'_>, cancel: &CancelToken) -> Result<()> 
         return fail_no_model(runtime, agent.model.as_ref(), cancel);
     };
     let view = runtime.context(None, cancel)?;
-    let Some(cut) = select_cut(&view, policy.keep_recent_tokens) else {
-        return complete(runtime, cancel);
+    let compacted = compacted(&view);
+    let cut = if compacted {
+        None
+    } else {
+        select_cut(&view, policy.keep_recent_tokens)
     };
+    let Some(cut) = cut else {
+        if task.input.reason != CompactionReason::Manual {
+            return complete(runtime, cancel);
+        }
+        let message = if compacted {
+            "Already compacted"
+        } else {
+            "Nothing to compact (session too small)"
+        };
+        return fail(runtime, message.to_owned(), "nothing_to_compact", cancel);
+    };
+    if let Some(answering) = task.input.after
+        && drop_superseded(runtime, answering, cancel)?
+    {
+        return Ok(());
+    }
     let first_kept = view.entries[cut].id;
     let source = CompactionSource {
         reason: task.input.reason,
@@ -264,6 +449,7 @@ fn select(task: Task, runtime: Runtime<'_>, cancel: &CancelToken) -> Result<()> 
         messages: summarized_messages(&view, cut),
         first_kept,
         instructions: task.input.instructions.clone(),
+        policy,
     };
     let mut decision = None;
     let api = HookApi {
@@ -277,10 +463,19 @@ fn select(task: Task, runtime: Runtime<'_>, cancel: &CancelToken) -> Result<()> 
         }
         Ok(())
     })?;
+    let reason = task.input.reason;
     match decision {
         Some(CompactionDecision::Decline) => return complete(runtime, cancel),
+        Some(CompactionDecision::Cancel) => {
+            return fail(runtime, CANCELLED.to_owned(), "cancelled", cancel);
+        }
         Some(CompactionDecision::Summary(summary)) => {
-            return place(runtime, first_kept, summary, cancel);
+            let data = compaction_data(reason, None)?;
+            return place(runtime, first_kept, summary, data, cancel);
+        }
+        Some(CompactionDecision::Provided(provided)) => {
+            let data = compaction_data(reason, Some(&provided))?;
+            return place(runtime, provided.first_kept, provided.summary, data, cancel);
         }
         None => {}
     }
@@ -393,7 +588,9 @@ fn summarize(task: Task, runtime: Runtime<'_>, cancel: &CancelToken) -> Result<(
                 &message.usage,
             )?;
             if let Some(summary) = summary {
-                return place_summary(tx, &current, now, modes, first_kept, &summary).map(Some);
+                let data = compaction_data(current.input.reason, None)?;
+                return place_summary(tx, &current, now, modes, first_kept, &summary, data)
+                    .map(Some);
             }
             if retry {
                 let error = message.error_message.clone().unwrap_or_default();
@@ -467,17 +664,36 @@ fn abort(_task: Task, runtime: Runtime<'_>, cancel: &CancelToken) -> Result<()> 
     )
 }
 
+fn compaction_data(
+    reason: CompactionReason,
+    provided: Option<&ProvidedCompaction>,
+) -> Result<JsonValue> {
+    let mut data = serde_json::to_value(CompactionData { reason })?;
+    if let Some(provided) = provided {
+        data["tokensBefore"] = provided.tokens_before.into();
+        if let Some(details) = &provided.details {
+            data["details"] = details.clone();
+        }
+        if let Some(usage) = &provided.usage {
+            data["usage"] = serde_json::to_value(usage)?;
+        }
+        data["fromHook"] = true.into();
+    }
+    Ok(data)
+}
+
 fn place(
     runtime: Runtime<'_>,
     first_kept: EntryId,
     summary: String,
+    data: JsonValue,
     cancel: &CancelToken,
 ) -> Result<()> {
     let now = runtime.now();
     let modes = queue_modes(runtime.settings());
     runtime.commit(
         Box::new(move |tx, current| {
-            place_summary(tx, &current, now, modes, first_kept, &summary).map(Some)
+            place_summary(tx, &current, now, modes, first_kept, &summary, data.clone()).map(Some)
         }),
         cancel,
     )
@@ -490,17 +706,24 @@ fn place_summary(
     modes: crate::harness::inbox::QueueModes,
     first_kept: EntryId,
     summary: &str,
+    data: JsonValue,
 ) -> Result<Next> {
     let task_id = erase(current.id);
     let conversation_id = current.conversation_id;
     remove_status(tx, conversation_id, task_id)?;
+    if let Some(answering) = current.input.after
+        && superseded(tx, conversation_id, answering)?
+    {
+        return Ok(NextTaskState::Terminal {
+            outcome: TaskOutcome::Completed {
+                result: CompactionResult::default(),
+            },
+        });
+    }
     let model = vec![Message::User(user_text_message(
         format!("{SUMMARY_PREFIX}{summary}{SUMMARY_SUFFIX}"),
         now,
     ))];
-    let data = serde_json::to_value(CompactionData {
-        reason: current.input.reason,
-    })?;
     let kind = compaction_entry().kind().to_owned();
     let result = match current.owner {
         None => CompactionResult {
@@ -572,6 +795,11 @@ fn fail_no_model(
             reference.provider, reference.model_id
         ),
     };
+    fail(runtime, message, "no_model", cancel)
+}
+
+fn fail(runtime: Runtime<'_>, message: String, reason: &str, cancel: &CancelToken) -> Result<()> {
+    let detail = json!({ "reason": reason });
     let conversation_id = runtime.conversation_id();
     let task_id = erase(runtime.task_id());
     runtime.commit(
@@ -581,7 +809,7 @@ fn fail_no_model(
                 outcome: TaskOutcome::Failed {
                     error: TaskOutcomeError {
                         message,
-                        detail: Some(json!({ "reason": "no_model" })),
+                        detail: Some(detail),
                     },
                     result: None,
                 },

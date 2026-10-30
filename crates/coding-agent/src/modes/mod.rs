@@ -48,5 +48,7 @@ fn write(value: &Value) {
 }
 
 pub fn value<T: serde::Serialize>(item: &T) -> Value {
-    serde_json::to_value(item).unwrap_or(Value::Null)
+    let mut value = serde_json::to_value(item).unwrap_or(Value::Null);
+    crate::sessions::export::upstream_usage(&mut value);
+    value
 }

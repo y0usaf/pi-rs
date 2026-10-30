@@ -46,6 +46,7 @@ use crate::settings::SettingsManager;
 use crate::system_prompt::PromptInput;
 
 mod calls;
+mod compaction;
 mod registry;
 mod user_bash;
 
@@ -828,6 +829,7 @@ struct Inner {
     sequence: Mutex<()>,
     session: Mutex<Option<SessionSource>>,
     announced: Mutex<Option<EntryId>>,
+    compacted: Mutex<Option<EntryId>>,
     thinking: Mutex<Option<String>>,
     thinking_change: Mutex<Option<pi_durable::ai::types::ModelThinkingLevel>>,
     printer: Mutex<Option<Printer>>,
@@ -1217,6 +1219,7 @@ impl Live {
             sequence: Mutex::new(()),
             session: Mutex::new(None),
             announced: Mutex::new(None),
+            compacted: Mutex::new(None),
             thinking: Mutex::new(None),
             thinking_change: Mutex::new(None),
             printer: Mutex::new(None),
@@ -1415,6 +1418,7 @@ impl Live {
             .is_none_or(|source| source.root.id() != root.id());
         if moved {
             self.skip_announced(root, cancel);
+            self.skip_compactions(root, cancel);
         }
         *lock(&self.0.session) = Some(SessionSource {
             root: root.clone(),
@@ -1570,6 +1574,7 @@ impl Live {
         };
         let _sequence = lock(&self.0.sequence);
         let cancel = CancelToken::new();
+        self.report_compactions(&root, &cancel);
         if self
             .close_open(&root, &cancel)
             .is_some_and(|outcome| outcome != "completed")
@@ -1735,6 +1740,9 @@ impl Live {
         }
         *lock(&self.0.sink.failed) = None;
         self.end_prompt_run();
+        if let Some(root) = self.root() {
+            self.report_compactions(&root, &cancel);
+        }
     }
 
     fn end_prompt_run(&self) {
@@ -2022,6 +2030,9 @@ impl Live {
             {
                 self.end_run();
             }
+            if matches!(event, AgentEvent::CompactionEnd { .. }) {
+                self.compaction_ended();
+            }
         }
     }
 
@@ -2155,6 +2166,7 @@ impl Live {
                 },
             ),
             self.tool_hooks(),
+            self.compaction_hooks(),
         ]
     }
 

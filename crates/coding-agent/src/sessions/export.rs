@@ -4,6 +4,7 @@
 use pi_durable::ai::types::{Message, TextType, UserBlock, UserContent};
 use pi_durable::cancel::CancelToken;
 use pi_durable::harness::compaction::{SUMMARY_PREFIX, SUMMARY_SUFFIX};
+use pi_durable::harness::context::ContextView;
 use pi_durable::harness::harness::Conversation;
 use pi_durable::ids::EntryId;
 use pi_durable::types::{ContextAction, EntryQuery, EntryRecord, ScanOrder};
@@ -105,6 +106,11 @@ pub fn lines(
     });
     // The system prompt is appended when the first run starts, after the message that started
     // it; upstream stores it first and pi-rs leads the transcript with it, so it goes first here.
+    let stated = match (restated, view.head.as_ref().filter(|_| head.is_some())) {
+        (Some(restated), _) => Some(EntryRecord::clone(restated)),
+        (None, Some(compaction)) => prompt_at(root, &view, compaction, cancel)?,
+        (None, None) => None,
+    };
     let (system, rest): (Vec<_>, Vec<_>) = view
         .entries
         .iter()
@@ -113,7 +119,7 @@ pub fn lines(
     for record in system.into_iter().chain(rest) {
         if let Some(mut entry) = mapped(record, &timestamp, &phrase)? {
             if Some(record.id) == head
-                && let Some(prompt) = restated
+                && let Some(prompt) = &stated
                 && let Some(mut message) =
                     mapped(prompt, &timestamp, &phrase)?.and_then(|mut e| e.remove("message"))
             {
@@ -124,6 +130,39 @@ pub fn lines(
         }
     }
     Ok(lines)
+}
+
+fn prompt_at(
+    root: &Conversation,
+    view: &ContextView,
+    compaction: &EntryRecord,
+    cancel: &CancelToken,
+) -> Result<Option<EntryRecord>, String> {
+    if let Some(kept) = last_prompt(view, compaction.id) {
+        return Ok(Some(kept));
+    }
+    let Some(first_kept) = compaction.head else {
+        return Ok(None);
+    };
+    let before = root
+        .context(Some(first_kept), cancel)
+        .map_err(|e| e.to_string())?;
+    Ok(last_prompt(&before, EntryId(u64::MAX)))
+}
+
+fn last_prompt(view: &ContextView, below: EntryId) -> Option<EntryRecord> {
+    view.entries
+        .iter()
+        .zip(&view.contributions)
+        .rev()
+        .find(|(entry, messages)| {
+            entry.kind == "pi.system"
+                && entry.id < below
+                && messages
+                    .iter()
+                    .any(|message| matches!(message, Message::System(_)))
+        })
+        .map(|(entry, _)| EntryRecord::clone(entry))
 }
 
 fn header(session_id: &str, cwd: &str, timestamp: &str) -> Value {

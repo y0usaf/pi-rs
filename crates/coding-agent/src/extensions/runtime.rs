@@ -490,15 +490,29 @@ impl Live {
             .commit(|tx| tx.task(task), cancel)
             .map_err(|e| e.to_string())?
             .ok_or("the compaction task is gone")?;
+        use pi_durable::harness::compaction::CANCELLED;
+        let manual = pi_durable::harness::types::CompactionReason::Manual;
         match record.state {
             TaskState::Terminal {
                 outcome: TaskOutcome::Completed { .. },
             } => {}
             TaskState::Terminal {
                 outcome: TaskOutcome::Failed { error, .. },
-            } => return Err(error.message),
-            _ => return Err("Compaction cancelled".to_owned()),
+            } => {
+                if error.message != CANCELLED {
+                    self.compaction_failed(
+                        manual,
+                        Some(format!("Compaction failed: {}", error.message)),
+                    );
+                }
+                return Err(error.message);
+            }
+            _ => {
+                self.compaction_failed(manual, None);
+                return Err(CANCELLED.to_owned());
+            }
         }
+        self.compaction_ended();
         let session = self
             .session_update(cancel)
             .ok_or("the compacted session could not be read")?;

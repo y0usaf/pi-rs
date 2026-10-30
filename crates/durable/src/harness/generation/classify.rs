@@ -4,11 +4,13 @@ use crate::ai::types::{
     AssistantBlock, AssistantMessage, AssistantMessageEvent, Message, Model, SimpleStreamOptions,
     StopReason, ToolCall,
 };
+use crate::ai::utils::estimate::{calculate_context_tokens, estimate_message_tokens};
 use crate::ai::utils::overflow::is_context_overflow;
 use crate::ai::utils::retry::{is_retryable_assistant_error, retry_delay_ms};
 use crate::cancel::CancelToken;
+use crate::entries::compaction_entry;
 use crate::errors::{Error, Result};
-use crate::harness::compaction::{create_compaction, select_cut};
+use crate::harness::compaction::{create_answer_compaction, create_compaction, select_cut};
 use crate::harness::context::ContextView;
 use crate::harness::generation::{
     GenerationCheckpoint, PartialHook, Runtime, append_assistant, edit_live, fail_run, queue_modes,
@@ -302,6 +304,15 @@ pub fn classify(
         message.stop_reason,
         StopReason::Stop | StopReason::Length | StopReason::ToolUse
     ) {
+        if calls.is_empty() && compacts_after(runtime, request, &message, cancel)? {
+            runtime.commit(
+                Box::new(move |tx, _task| {
+                    create_answer_compaction(tx, conversation_id, task_id)?;
+                    Ok(None)
+                }),
+                cancel,
+            )?;
+        }
         return crate::harness::generation::rounds::answer(runtime, message, cancel);
     }
     let settings = runtime.settings().clone();
@@ -360,10 +371,14 @@ pub fn classify(
     let compacted = request.compacted;
     let modes = queue_modes(&settings);
     let now = runtime.now();
+    let compacts = !retry && !overflow && compacts_after(runtime, request, &message, cancel)?;
     runtime.commit(
         Box::new(move |tx, _task| {
             let mut boundary = prepare_boundary(tx, conversation_id, modes)?;
             append_assistant(tx, conversation_id, &message)?;
+            if compacts {
+                create_answer_compaction(tx, conversation_id, task_id)?;
+            }
             if retry {
                 edit_live(tx, conversation_id, |live| {
                     live.generation = Some(GenerationStatus {
@@ -416,6 +431,100 @@ pub fn classify(
         }),
         cancel,
     )
+}
+
+fn compacts_after(
+    runtime: Runtime<'_>,
+    request: &Request,
+    answer: &AssistantMessage,
+    cancel: &CancelToken,
+) -> Result<bool> {
+    let policy = runtime.settings().compaction;
+    if !policy.enabled || answer.stop_reason == StopReason::Aborted {
+        return Ok(false);
+    }
+    let models = runtime.models();
+    let Some(model) = models
+        .get_model(&answer.provider, &answer.model)
+        .or_else(|| models.get_model(&request.model.provider, &request.model.model_id))
+    else {
+        return Ok(false);
+    };
+    let window = super::budgeted_window(
+        model.context_window,
+        runtime.agent(cancel)?.context_budget_tokens,
+    );
+    if window == 0 {
+        return Ok(false);
+    }
+    let tokens = if measured(answer) {
+        Some(calculate_context_tokens(&answer.usage))
+    } else {
+        let view = match &request.view {
+            Some(view) => Arc::clone(view),
+            None => runtime.context(Some(request.cutoff), cancel)?,
+        };
+        estimated(&view, answer)
+    };
+    Ok(
+        tokens
+            .is_some_and(|tokens| tokens as i128 > window as i128 - policy.reserve_tokens as i128),
+    )
+}
+
+fn measured(message: &AssistantMessage) -> bool {
+    !matches!(message.stop_reason, StopReason::Aborted | StopReason::Error)
+        && calculate_context_tokens(&message.usage) > 0
+}
+
+fn estimated(view: &ContextView, answer: &AssistantMessage) -> Option<u64> {
+    let answer = Message::Assistant(Arc::new(answer.clone()));
+    let sum = |messages: &[Message]| {
+        messages
+            .iter()
+            .chain([&answer])
+            .map(estimate_message_tokens)
+            .sum::<u64>()
+    };
+    let last = (0..view.entries.len()).rev().find_map(|index| {
+        view.contributions[index]
+            .iter()
+            .rev()
+            .find_map(|message| match message {
+                Message::Assistant(assistant) if measured(assistant) => {
+                    Some((view.entries[index].id, assistant))
+                }
+                _ => None,
+            })
+    });
+    let Some((entry, usage)) = last else {
+        return Some(sum(&view.messages));
+    };
+    let compaction = view
+        .head
+        .as_ref()
+        .filter(|head| head.kind == compaction_entry().kind())
+        .map(|head| head.id);
+    let edited = view
+        .entries
+        .iter()
+        .filter(|entry| entry.edits.is_some())
+        .map(|entry| entry.id)
+        .max();
+    let invalidated = match edited {
+        Some(edited) => entry < edited.max(compaction.unwrap_or(edited)),
+        None if compaction.is_some_and(|head| entry < head) => return None,
+        None => false,
+    };
+    if invalidated {
+        return Some(sum(&view.messages));
+    }
+    let after = view
+        .messages
+        .iter()
+        .rposition(|message| matches!(message, Message::Assistant(a) if a == usage))
+        .map_or(view.messages.len(), |index| index + 1);
+    Some(calculate_context_tokens(&usage.usage) + sum(&view.messages[after..]))
 }
 
 fn stop_reason_text(reason: StopReason) -> &'static str {

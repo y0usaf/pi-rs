@@ -255,6 +255,10 @@ function custom(item) {
 	return { ...item, display: item.display, details: item.details };
 }
 
+function compaction(entry) {
+	return { ...entry, details: entry.details, usage: entry.usage };
+}
+
 /** `ctx.sessionManager`: upstream's own SessionManager over the entries pi-rs last sent, refusing writes. */
 const session = (() => {
 	const view = SessionManager.inMemory(state.cwd);
@@ -271,7 +275,9 @@ const session = (() => {
 	view.isPersisted = () => typeof state.session?.file === "string";
 	view.getSessionName = () => state.session?.name ?? undefined;
 	view.refresh = () => {
-		const stored = (state.session?.entries ?? []).map((entry) => (entry.type === "custom_message" ? custom(entry) : entry));
+		const stored = (state.session?.entries ?? []).map((entry) =>
+			entry.type === "custom_message" ? custom(entry) : entry.type === "compaction" ? compaction(entry) : entry,
+		);
 		const entries = state.session?.header ? [state.session.header, ...stored] : [];
 		if (entries.length > 0) load(entries);
 	};
@@ -1100,10 +1106,50 @@ async function emitEvent(request) {
 		return await runner.emitBeforeAgentStart(trigger, event.systemPromptOptions);
 	}
 	if (request.name === "turn_end") return await turnEnd(event);
+	if (request.name === "session_before_compact") return await beforeCompact(event);
+	if (request.name === "session_compact") return await compacted(event);
+	if (request.name === "session_compact_failed") return await compactFailed(event);
 	if (request.name === "resources_discover") return await runner.emitResourcesDiscover(event.cwd, event.reason);
 	if (request.name === "tool_call") return await toolCall(event);
 	if (request.name === "tool_result") return await toolResult(event);
 	return (await runner.emit(event)) ?? null;
+}
+
+async function beforeCompact(event) {
+	if (!runner.hasHandlers("session_before_compact")) return null;
+	const branchEntries = session.getBranch();
+	const preparation = usage.prepareCompaction(branchEntries, event.settings);
+	if (!preparation) return null;
+	const result = await runner.emit({
+		type: "session_before_compact",
+		preparation,
+		branchEntries,
+		customInstructions: event.customInstructions ?? undefined,
+		reason: event.reason,
+		willRetry: event.willRetry,
+		signal: current.getStore()?.signal,
+	});
+	if (result?.cancel) return { cancel: true };
+	return result?.compaction ? { compaction: plain(result.compaction) } : null;
+}
+
+async function compacted(event) {
+	const compactionEntry = session.getEntries().find((entry) => entry.id === event.entryId);
+	if (!compactionEntry) return null;
+	await runner.emit({
+		type: "session_compact",
+		compactionEntry,
+		fromExtension: event.fromExtension,
+		reason: event.reason,
+		willRetry: event.willRetry,
+	});
+	return null;
+}
+
+async function compactFailed(event) {
+	if (!runner.hasHandlers("session_compact_failed")) return null;
+	await runner.emit({ ...event, errorMessage: event.errorMessage ?? undefined });
+	return null;
 }
 
 async function toolCall(event) {

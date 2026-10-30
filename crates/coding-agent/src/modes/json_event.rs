@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 
 use pi_durable::ai::types::{AssistantBlock, Message, StopReason, ToolResultMessage};
+use pi_durable::entries::{compaction_entry, system_entry};
 use pi_durable::harness::events::{AgentEvent, MessageChange, SnapshotEvent};
 use pi_durable::harness::tool::{ToolResultData, tool_result_data};
 use pi_durable::types::EntryRecord;
@@ -35,6 +36,8 @@ pub struct Mapper {
     held_messages: Vec<Message>,
     started: HashMap<String, Value>,
     tip: Option<String>,
+    starting: Option<Value>,
+    restating: bool,
 }
 
 fn message_of(entry: &pi_durable::types::EntryRecord) -> Option<Message> {
@@ -155,10 +158,8 @@ impl Mapper {
                     let mut lines = std::mem::take(&mut self.held);
                     lines.push(line);
                     lines
-                } else if self.running {
-                    vec![line]
                 } else {
-                    self.held.push(line);
+                    self.starting = Some(line);
                     Vec::new()
                 }
             }
@@ -174,6 +175,12 @@ impl Mapper {
                 .collect(),
             AgentEvent::MessageEnd { entry } => {
                 self.follow(entry);
+                let start = self.starting.take();
+                let compaction = entry.kind == compaction_entry().kind();
+                if compaction || (self.restating && entry.kind == system_entry().kind()) {
+                    self.restating = compaction;
+                    return Vec::new();
+                }
                 let Some(message) = message_of(entry) else {
                     return Vec::new();
                 };
@@ -188,11 +195,12 @@ impl Mapper {
                     _ => {}
                 }
                 let line = json!({ "type": "message_end", "message": value(&message) });
+                let lines: Vec<Value> = start.into_iter().chain([line]).collect();
                 if self.running || matches!(message, Message::Assistant(_)) {
                     self.messages.push(message);
-                    vec![line]
+                    lines
                 } else {
-                    self.held.push(line);
+                    self.held.extend(lines);
                     self.held_messages.push(message);
                     Vec::new()
                 }
