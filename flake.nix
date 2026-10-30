@@ -52,7 +52,7 @@
           doCheck = false;
           buildPhase = ''
             runHook preBuild
-            cargo build --release --workspace --lib --bins --frozen --examples --features "${features}"
+            cargo build -j $NIX_BUILD_CORES --release --workspace --lib --bins --frozen --examples --features "${features}"
             runHook postBuild
           '';
           installPhase = ''
@@ -257,12 +257,12 @@
           clippy = self.packages.${system}.default.overrideAttrs (old: {
             pname = "${pname}-clippy";
             nativeBuildInputs = old.nativeBuildInputs ++ [ pkgs.clippy ];
-            buildPhase = "cargo clippy --workspace --all-targets --frozen --features pi-durable/providers -- -D warnings";
+            buildPhase = "cargo clippy -j $NIX_BUILD_CORES --workspace --all-targets --frozen --features pi-durable/providers -- -D warnings";
             installPhase = "mkdir -p $out $examples";
           });
           tests = self.packages.${system}.default.overrideAttrs (old: {
             pname = "${pname}-tests";
-            buildPhase = "cargo test --release --workspace --frozen --features pi-durable/providers";
+            buildPhase = "cargo test -j $NIX_BUILD_CORES --release --workspace --frozen --features pi-durable/providers";
             installPhase = "mkdir -p $out $examples";
           });
           oauth-flow = pkgs.runCommand "${pname}-oauth-flow" { } ''
