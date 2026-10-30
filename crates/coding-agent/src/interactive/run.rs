@@ -1061,8 +1061,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     // The `/import` a confirmation dialog is asking about.
     let mut import_request: Option<String> = None;
     parts.mount(&mut tui, None);
-    tui.start();
     let shutdown = super::signals::Shutdown::install();
+    tui.start();
     let mut signalled = false;
     let mut title_stale = true;
     let mut context_stale = true;
