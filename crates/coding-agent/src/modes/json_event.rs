@@ -6,6 +6,8 @@
 //! streamed, so the mapper keeps them as it goes. Events pi-rs has no TypeScript counterpart for
 //! keep the durable name and fields.
 
+use std::collections::HashSet;
+
 use pi_durable::ai::types::{AssistantBlock, Message, StopReason};
 use pi_durable::harness::events::{AgentEvent, MessageChange};
 use serde_json::{Value, json};
@@ -28,6 +30,7 @@ pub struct Mapper {
     /// turn, so their lines and messages are held until the run claims them.
     held: Vec<Value>,
     held_messages: Vec<Message>,
+    started: HashSet<String>,
 }
 
 fn message_of(entry: &pi_durable::types::EntryRecord) -> Option<Message> {
@@ -39,6 +42,28 @@ fn message_of(entry: &pi_durable::types::EntryRecord) -> Option<Message> {
 }
 
 impl Mapper {
+    fn call_args(&self, id: &str) -> Option<Value> {
+        let Some(Message::Assistant(message)) = &self.turn else {
+            return None;
+        };
+        message.content.iter().find_map(|block| match block {
+            AssistantBlock::ToolCall(call) if call.id == id => {
+                Some(Value::Object(call.arguments.clone()))
+            }
+            _ => None,
+        })
+    }
+
+    fn tool_start(&mut self, id: &str, name: &str, args: Value) -> Value {
+        self.started.insert(id.to_owned());
+        json!({
+            "type": "tool_execution_start",
+            "toolCallId": id,
+            "toolName": name,
+            "args": self.call_args(id).unwrap_or(args),
+        })
+    }
+
     /// The event as JSON lines: one per assistant delta, one for everything else.
     pub fn lines(&mut self, event: &AgentEvent) -> Vec<Value> {
         match event {
@@ -138,12 +163,7 @@ impl Mapper {
                 tool_call_id,
                 tool_name,
                 args,
-            } => vec![json!({
-                "type": "tool_execution_start",
-                "toolCallId": tool_call_id,
-                "toolName": tool_name,
-                "args": args,
-            })],
+            } => vec![self.tool_start(tool_call_id, tool_name, Value::Object(args.clone()))],
             AgentEvent::ToolExecutionUpdate {
                 tool_call_id,
                 tool_name,
@@ -173,6 +193,11 @@ impl Mapper {
                 tool_name,
                 entry,
             } => {
+                let mut lines = Vec::new();
+                if !self.started.remove(tool_call_id) {
+                    lines.push(self.tool_start(tool_call_id, tool_name, json!({})));
+                    self.started.remove(tool_call_id);
+                }
                 let mut line = json!({
                     "type": "tool_execution_end",
                     "toolCallId": tool_call_id,
@@ -185,10 +210,14 @@ impl Mapper {
                     if let Some(details) = &result.details {
                         result_line["details"] = details.clone();
                     }
+                    if let Some(usage) = &result.usage {
+                        result_line["usage"] = value(usage);
+                    }
                     line["result"] = result_line;
                     line["isError"] = json!(result.is_error);
                 }
-                vec![line]
+                lines.push(line);
+                lines
             }
 
             AgentEvent::InboxUpdate { items } => vec![json!({

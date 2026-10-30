@@ -147,7 +147,7 @@ pub fn extension_with(
             .unwrap_or_default(),
         selection: selection.clone(),
         mode: crate::codemode::Mode::parse(&settings.codemode_mode),
-        hooks: live.map(|live| vec![live.hooks()]).unwrap_or_default(),
+        hooks: live.map(|live| live.hooks()).unwrap_or_default(),
         prompt,
     })
 }

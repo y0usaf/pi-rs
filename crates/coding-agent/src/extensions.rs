@@ -24,6 +24,7 @@ use pi_durable::harness::generation::{GENERATION_HOOK, GenerationHooks};
 use pi_durable::harness::harness::{Conversation, Harness};
 use pi_durable::harness::output::OutputChunk;
 use pi_durable::harness::registry::Registry;
+use pi_durable::harness::tool::ToolRound;
 use pi_durable::harness::types::{
     HookApi, HookRegistration, OutputLimitsSpec, ToolControl, ToolExecute, ToolExecutionApi,
     ToolExecutionMode, ToolExecutionResult, ToolExposure, ToolRegistration,
@@ -44,6 +45,8 @@ use crate::models::ModelRegistry;
 use crate::paths::join;
 use crate::settings::SettingsManager;
 use crate::system_prompt::PromptInput;
+
+mod calls;
 
 /// What an extension sees of the models: the session's own, the catalog `find` searches, and the
 /// providers whose credentials are configured.
@@ -687,6 +690,8 @@ struct Inner {
     session: Mutex<Option<SessionSource>>,
     announced: Mutex<Option<EntryId>>,
     thinking: Mutex<Option<String>>,
+    round: Mutex<calls::Round>,
+    ahead: Mutex<Option<calls::Ahead>>,
 }
 
 #[derive(Default)]
@@ -1019,6 +1024,8 @@ impl Live {
             session: Mutex::new(None),
             announced: Mutex::new(None),
             thinking: Mutex::new(None),
+            round: Mutex::new(calls::Round::default()),
+            ahead: Mutex::new(None),
         })))
     }
 
@@ -1166,6 +1173,7 @@ impl Live {
         let mut entries =
             crate::sessions::export::lines(&source.root, cancel, &session_id, &source.cwd).ok()?;
         let header = entries.remove(0);
+        self.unstored(&mut entries);
         Some(json!({
             "header": header,
             "entries": entries,
@@ -1314,6 +1322,7 @@ impl Live {
     }
 
     pub fn end_run(&self) {
+        self.close_round();
         if let Some(root) = self.root() {
             self.announce(&root);
         }
@@ -1531,8 +1540,9 @@ impl Live {
             return Err(Error::Aborted);
         }
         let call_id = api.call_id().to_owned();
+        let announced = self.relays(api.conversation_id(), &call_id, name);
         let pending = self
-            .begin(|host, ctx| host.tool(name, &call_id, args, ctx))
+            .begin(|host, ctx| host.tool(name, &call_id, args, announced, ctx))
             .map_err(Error::Invalid)?;
         let mut shown = String::new();
         let mut details: Option<Value> = None;
@@ -1658,58 +1668,70 @@ impl Live {
         std::mem::take(&mut *lock(&self.0.sink.calls))
     }
 
-    pub fn hooks(&self) -> HookRegistration {
+    pub fn hooks(&self) -> Vec<HookRegistration> {
         let streamed = self.clone();
         let ended = self.clone();
         let requested = self.clone();
         let finished = self.clone();
         let router = self.clone();
         let answered = self.clone();
-        HookRegistration::new(
-            &GENERATION_HOOK,
-            GenerationHooks {
-                before_request: Some(Box::new(move |api: &HookApi, messages: &[Message]| {
-                    requested.turn_start();
-                    let Some(root) = requested.root_of(api) else {
-                        return Ok(requested.forced(messages));
-                    };
-                    requested.remember_thinking(&root);
-                    requested.announce(&root);
-                    let context = requested.context(messages)?;
-                    Ok(requested
-                        .forced(context.as_deref().unwrap_or(messages))
-                        .or(context))
-                })),
-                routes: Some(Box::new(crate::models::is_virtual)),
-                route: Some(Box::new(
-                    move |_api: &HookApi, model: &Model, messages: &[Message], level, signal| {
-                        router.routed(model, messages, level, signal)
-                    },
-                )),
-                after_response: Some(Box::new(
-                    move |_api: &HookApi, message: &AssistantMessage| {
-                        answered.responded(message);
+        let ahead = self.clone();
+        vec![
+            HookRegistration::new(
+                &GENERATION_HOOK,
+                GenerationHooks {
+                    before_request: Some(Box::new(move |api: &HookApi, messages: &[Message]| {
+                        requested.turn_start();
+                        let Some(root) = requested.root_of(api) else {
+                            return Ok(requested.forced(messages));
+                        };
+                        requested.remember_thinking(&root);
+                        requested.announce(&root);
+                        let context = requested.context(messages)?;
+                        Ok(requested
+                            .forced(context.as_deref().unwrap_or(messages))
+                            .or(context))
+                    })),
+                    routes: Some(Box::new(crate::models::is_virtual)),
+                    route: Some(Box::new(
+                        move |_api: &HookApi, model: &Model, messages: &[Message], level, signal| {
+                            router.routed(model, messages, level, signal)
+                        },
+                    )),
+                    after_response: Some(Box::new(
+                        move |_api: &HookApi, message: &AssistantMessage| {
+                            answered.responded(message);
+                            Ok(())
+                        },
+                    )),
+                    after_tools: Some(Box::new(
+                        move |api: &HookApi, _assistant: EntryId, _results: &[EntryId]| {
+                            if let Some(root) = finished.root_of(api) {
+                                finished.tools_done(&root);
+                            }
+                            finished.turn_end();
+                            Ok(())
+                        },
+                    )),
+                    on_stream: Some(Arc::new(
+                        move |_api: &HookApi,
+                              event: &AssistantMessageEvent,
+                              current: &dyn Fn() -> Option<AssistantMessage>| {
+                            streamed.streaming(event, current)
+                        },
+                    )),
+                    message_end: Some(Arc::new(move |_api: &HookApi, message: &Message| {
+                        ended.replaced(message)
+                    })),
+                    before_tools: Some(Box::new(move |api: &HookApi, round: &ToolRound<'_>| {
+                        ahead.tools_ahead(api, round);
                         Ok(())
-                    },
-                )),
-                after_tools: Some(Box::new(
-                    move |api: &HookApi, _assistant: EntryId, _results: &[EntryId]| {
-                        if let Some(root) = finished.root_of(api) {
-                            finished.announce(&root);
-                        }
-                        finished.turn_end();
-                        Ok(())
-                    },
-                )),
-                on_partial: Some(Arc::new(move |_api: &HookApi, message| {
-                    streamed.partial(message.as_deref())
-                })),
-                message_end: Some(Arc::new(move |_api: &HookApi, message: &Message| {
-                    ended.replaced(message)
-                })),
-                ..GenerationHooks::default()
-            },
-        )
+                    })),
+                    ..GenerationHooks::default()
+                },
+            ),
+            self.tool_hooks(),
+        ]
     }
 
     fn root(&self) -> Option<Conversation> {
@@ -1753,6 +1775,10 @@ impl Live {
                 return;
             }
         };
+        self.tell(messages);
+    }
+
+    fn tell(&self, messages: Vec<Value>) {
         for message in messages {
             self.event("message_start", json!({ "message": message }));
             if let Some(Value::Object(_)) = self.event("message_end", json!({ "message": message }))
@@ -1773,12 +1799,13 @@ impl Live {
             records
         };
         let assistant = pi_durable::entries::assistant_entry();
-        let inputs: Vec<EntryRecord> = records
+        let mut inputs: Vec<EntryRecord> = records
             .into_iter()
             .filter(|record| {
                 record.kind != assistant.kind() && record.kind != crate::bash_exec::KIND
             })
             .collect();
+        self.in_call_order(&mut inputs);
         let thinking = lock(&self.0.thinking).clone().unwrap_or_default();
         crate::sessions::export::run_messages(&inputs, &thinking)
     }
@@ -1809,18 +1836,34 @@ impl Live {
         }
     }
 
-    fn partial(&self, message: Option<&AssistantMessage>) {
-        let Some(message) = message else {
-            return;
-        };
-        let started = self.0.started.swap(true, Ordering::SeqCst);
-        let Ok(payload) = serde_json::to_value(message) else {
-            return;
-        };
-        if !started {
-            self.event("message_start", json!({ "message": payload }));
+    fn streaming(
+        &self,
+        event: &AssistantMessageEvent,
+        current: &dyn Fn() -> Option<AssistantMessage>,
+    ) {
+        match event {
+            AssistantMessageEvent::Start { partial } => {
+                self.0.started.store(true, Ordering::SeqCst);
+                if let Ok(message) = serde_json::to_value(partial) {
+                    self.event("message_start", json!({ "message": message }));
+                }
+            }
+            AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. } => {}
+            _ if !self.0.started.load(Ordering::SeqCst) || !self.handles("message_update") => {}
+            _ => {
+                let Ok(mut update) = serde_json::to_value(event) else {
+                    return;
+                };
+                let message = current()
+                    .and_then(|current| serde_json::to_value(current).ok())
+                    .unwrap_or_else(|| update["partial"].clone());
+                update["partial"] = message.clone();
+                self.event(
+                    "message_update",
+                    json!({ "message": message, "assistantMessageEvent": update }),
+                );
+            }
         }
-        self.event("message_update", json!({ "message": payload }));
     }
 
     fn replaced(&self, message: &Message) -> std::result::Result<Option<Message>, Error> {

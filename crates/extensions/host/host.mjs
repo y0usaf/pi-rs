@@ -219,8 +219,17 @@ const providers = new Map();
 const registrants = new Map();
 const virtualModels = new Map();
 
+const produced = new Set();
+
+function asProduced(message) {
+	if (message?.role !== "toolResult" || !produced.has(message.toolCallId)) return;
+	if (!("details" in message)) message.details = undefined;
+	if (!("usage" in message)) message.usage = undefined;
+}
+
 function absorb(request) {
 	Object.assign(state, request.updates);
+	for (const entry of request.updates?.session?.entries ?? []) asProduced(entry.message);
 	if (typeof request.mode === "string") state.mode = request.mode;
 	if (typeof request.hasUI === "boolean") state.hasUI = request.hasUI;
 	if (typeof request.cwd === "string") state.cwd = request.cwd;
@@ -748,6 +757,14 @@ async function emitEvent(request) {
 		return { payload: await runner.emitBeforeProviderRequest(payload) };
 	}
 	const event = { type: request.name, ...request.event };
+	if ((request.name === "message_start" || request.name === "message_end") && event.message?.role === "toolResult") {
+		produced.add(event.message.toolCallId);
+	}
+	asProduced(event.message);
+	for (const message of Array.isArray(event.messages) ? event.messages : []) asProduced(message);
+	if (request.name === "tool_execution_end" && rewritten.delete(event.toolCallId)) {
+		for (const key of ["details", "usage", "terminate"]) if (!(key in event.result)) event.result[key] = undefined;
+	}
 	if (request.name === "message_end") {
 		const message = await runner.emitMessageEnd(event);
 		return message ? { message } : null;
@@ -766,8 +783,50 @@ async function emitEvent(request) {
 	}
 	if (request.name === "turn_end") return await turnEnd(event.turnIndex);
 	if (request.name === "resources_discover") return await runner.emitResourcesDiscover(event.cwd, event.reason);
+	if (request.name === "tool_call") return await toolCall(event);
+	if (request.name === "tool_result") return await toolResult(event);
 	await runner.emit(event);
 	return null;
+}
+
+async function toolCall(event) {
+	const input = event.input;
+	let result;
+	try {
+		result = await runner.emitToolCall({
+			type: "tool_call",
+			toolName: event.toolName,
+			toolCallId: event.toolCallId,
+			...(event.parentToolCallId ? { parentToolCallId: event.parentToolCallId } : {}),
+			input,
+		});
+	} catch (error) {
+		if (error instanceof Error) throw error;
+		throw new Error(`Extension failed, blocking execution: ${String(error)}`);
+	}
+	if (result?.block) {
+		return { block: true, reason: result.reason || "Tool execution was blocked", terminate: result.terminate === true };
+	}
+	return { input };
+}
+
+const rewritten = new Set();
+
+async function toolResult(event) {
+	const result = await runner.emitToolResult({
+		type: "tool_result",
+		toolName: event.toolName,
+		toolCallId: event.toolCallId,
+		...(event.parentToolCallId ? { parentToolCallId: event.parentToolCallId } : {}),
+		input: event.input,
+		content: event.content,
+		details: event.details,
+		isError: event.isError,
+		usage: event.usage,
+	});
+	if (!result) return null;
+	rewritten.add(event.toolCallId);
+	return result;
 }
 
 function boundaryContext() {
@@ -839,15 +898,36 @@ async function runTool(request) {
 	const definition = runner.getToolDefinition(request.name);
 	if (!definition) throw new Error(`Tool ${request.name} not found`);
 	const signal = current.getStore()?.signal;
-	const onUpdate = (partial) => send({ id: request.id, update: partial ?? null });
-	const result = await definition.execute(
-		request.toolCallId,
-		request.params,
-		signal,
-		onUpdate,
-		runner.createToolContext(request.toolCallId, signal),
-	);
-	return result ?? null;
+	const updates = [];
+	let accepting = true;
+	const onUpdate = (partial) => {
+		if (!accepting) return;
+		send({ id: request.id, update: partial ?? null });
+		if (request.announce) {
+			updates.push(
+				runner.emit({
+					type: "tool_execution_update",
+					toolCallId: request.toolCallId,
+					toolName: request.name,
+					args: request.announce.args,
+					partialResult: partial,
+				}),
+			);
+		}
+	};
+	try {
+		const result = await definition.execute(
+			request.toolCallId,
+			request.params,
+			signal,
+			onUpdate,
+			runner.createToolContext(request.toolCallId, signal),
+		);
+		return result ?? null;
+	} finally {
+		accepting = false;
+		await Promise.all(updates);
+	}
 }
 
 /** One request to a provider an extension registered, each event its stream yields sent as it comes. */

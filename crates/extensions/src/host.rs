@@ -280,6 +280,7 @@ impl Host {
         name: &str,
         call_id: &str,
         params: Value,
+        announced: Option<Value>,
         ctx: &Ctx,
     ) -> Result<Pending, String> {
         let mut request = with_ctx(
@@ -287,6 +288,9 @@ impl Host {
             ctx,
         );
         request["params"] = params;
+        if let Some(args) = announced {
+            request["announce"] = json!({ "args": args });
+        }
         self.begin(request, Limit::Unbounded)
     }
 
