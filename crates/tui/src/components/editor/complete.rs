@@ -1,9 +1,9 @@
-//! Autocomplete: triggers, requests (synchronous here) and applying completions.
+//! Autocomplete: triggers, requests and applying completions.
 
 use super::edit::trim_start;
 use super::text::{DEFAULT_TRIGGER_CHARACTERS, matches_trigger};
 use super::{AutocompleteMode, Editor};
-use crate::autocomplete::{AutocompleteItem, AutocompleteSuggestions};
+use crate::autocomplete::{AutocompleteItem, AutocompleteSuggestions, Suggesting};
 use crate::components::select_list::{SelectItem, SelectList, SelectListLayoutOptions};
 use crate::utils::{is_whitespace_char, js_trim};
 
@@ -71,7 +71,52 @@ impl Editor {
         if force && !p.should_trigger_file_completion(&self.state.lines, cl, cc) {
             return;
         }
-        let suggestions = p.get_suggestions(&self.state.lines, cl, cc, force);
+        self.cancel_autocomplete_request();
+        self.autocomplete_request += 1;
+        let request = self.autocomplete_request;
+        match p.get_suggestions(request, &self.state.lines, cl, cc, force) {
+            Suggesting::Ready(suggestions) => {
+                self.receive_suggestions(suggestions, force, explicit_tab);
+            }
+            Suggesting::Pending => {
+                self.autocomplete_waiting = Some(AutocompleteWaiting {
+                    request,
+                    text: self.get_text(),
+                    cursor_line: cl,
+                    cursor_col: cc,
+                    force,
+                    explicit_tab,
+                });
+            }
+        }
+    }
+
+    pub fn deliver_suggestions(
+        &mut self,
+        request: u64,
+        suggestions: Option<AutocompleteSuggestions>,
+    ) {
+        let Some(waiting) = self
+            .autocomplete_waiting
+            .take_if(|waiting| waiting.request == request)
+        else {
+            return;
+        };
+        if waiting.text != self.get_text()
+            || waiting.cursor_line != self.state.cursor_line
+            || waiting.cursor_col != self.state.cursor_col
+        {
+            return;
+        }
+        self.receive_suggestions(suggestions, waiting.force, waiting.explicit_tab);
+    }
+
+    fn receive_suggestions(
+        &mut self,
+        suggestions: Option<AutocompleteSuggestions>,
+        force: bool,
+        explicit_tab: bool,
+    ) {
         let Some(s) = suggestions.filter(|s| !s.items.is_empty()) else {
             self.cancel_autocomplete();
             self.render_requested();
@@ -171,7 +216,16 @@ impl Editor {
             .map(from_select_item)
     }
 
+    fn cancel_autocomplete_request(&mut self) {
+        if let Some(waiting) = self.autocomplete_waiting.take()
+            && let Some(p) = &self.autocomplete_provider
+        {
+            p.abandon(waiting.request);
+        }
+    }
+
     pub(crate) fn cancel_autocomplete(&mut self) {
+        self.cancel_autocomplete_request();
         self.autocomplete_state = None;
         self.autocomplete_list = None;
         self.autocomplete_prefix.clear();
@@ -186,6 +240,15 @@ impl Editor {
         }
         self.request_autocomplete(mode == AutocompleteMode::Force, false);
     }
+}
+
+pub(crate) struct AutocompleteWaiting {
+    request: u64,
+    text: String,
+    cursor_line: usize,
+    cursor_col: usize,
+    force: bool,
+    explicit_tab: bool,
 }
 
 fn to_select_item(i: &AutocompleteItem) -> SelectItem {

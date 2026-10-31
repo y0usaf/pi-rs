@@ -5,20 +5,94 @@ use pi_tui::tui::{Component, OverlayAnchor, OverlayMargin, OverlayOptions, SizeV
 use pi_tui::utils::{truncate_to_width, visible_width};
 use serde::{Deserialize, Serialize};
 
+use super::completions::ItemWire;
 use crate::extensions::Live;
 
 #[derive(Serialize)]
 #[serde(tag = "action", rename_all = "camelCase")]
 pub enum ToHost<'a> {
-    Size { columns: usize, rows: usize },
-    Kitty { active: bool },
-    Expanded { expanded: bool },
-    Providers { count: usize },
-    Render { component: u64, width: usize },
-    Input { component: u64, data: &'a str },
-    Focus { component: u64, focused: bool },
-    Removed { component: u64 },
-    TerminalInput { sequence: u64, data: &'a str },
+    Size {
+        columns: usize,
+        rows: usize,
+    },
+    Kitty {
+        active: bool,
+    },
+    Expanded {
+        expanded: bool,
+    },
+    Providers {
+        count: usize,
+    },
+    Render {
+        component: u64,
+        width: usize,
+    },
+    Input {
+        component: u64,
+        data: &'a str,
+    },
+    Focus {
+        component: u64,
+        focused: bool,
+    },
+    Removed {
+        component: u64,
+    },
+    TerminalInput {
+        sequence: u64,
+        data: &'a str,
+    },
+    EditorInput {
+        component: u64,
+        sequence: u64,
+        data: &'a str,
+    },
+    EditorSetText {
+        component: u64,
+        text: &'a str,
+    },
+    EditorAddHistory {
+        component: u64,
+        text: &'a str,
+    },
+    EditorDropped {
+        component: u64,
+    },
+    #[serde(rename_all = "camelCase")]
+    EditorStyle {
+        padding_x: usize,
+        autocomplete_max_visible: usize,
+        bash: bool,
+        thinking: &'a str,
+    },
+    #[serde(rename_all = "camelCase")]
+    AutocompleteSuggest {
+        request: u64,
+        lines: &'a [String],
+        cursor_line: usize,
+        cursor_col: usize,
+        force: bool,
+    },
+    AutocompleteAbandon {
+        request: u64,
+    },
+    #[serde(rename_all = "camelCase")]
+    AutocompleteApply {
+        request: u64,
+        lines: &'a [String],
+        cursor_line: usize,
+        cursor_col: usize,
+        item: ItemWire,
+        prefix: &'a str,
+    },
+    #[serde(rename_all = "camelCase")]
+    AutocompleteShouldTrigger {
+        request: u64,
+        lines: &'a [String],
+        cursor_line: usize,
+        cursor_col: usize,
+    },
 }
 
 #[derive(Deserialize)]

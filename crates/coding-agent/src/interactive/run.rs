@@ -42,6 +42,7 @@ use super::extension_ui::{ExtensionUi, Surface};
 use super::external_editor;
 use super::footer::{Footer, FooterState, Totals, git_branch};
 use super::header::{ExpandableText, built_in_header};
+use super::hosted_editor::EditorAction;
 use super::keybindings;
 use super::pending::PendingMessages;
 use super::screen::{Screen, ViewportParts, chat_viewport};
@@ -64,7 +65,7 @@ use super::selectors::{
     trust::TrustSelector,
 };
 use super::slash_commands::{self, Command, Counts, SessionInfo};
-use super::status::{Embedded, StatusIndicator, WORKING, embedded_top_border};
+use super::status::{Detached, Embedded, StatusIndicator, WORKING, embedded_top_border};
 use super::theme;
 use crate::model_resolver;
 use crate::models::ModelRegistry;
@@ -75,6 +76,7 @@ use crate::session_list;
 use crate::session_open::{Open, Sink, Source};
 use crate::session_tree::{self, Tree};
 use crate::settings::{self as settings_mod, SettingsManager};
+use pi_tui::components::text::StyleFn;
 
 /// What the loop hears from other threads.
 pub enum Incoming {
@@ -178,16 +180,40 @@ enum Action {
     Session(&'static str),
 }
 
+impl From<EditorAction> for Action {
+    fn from(action: EditorAction) -> Self {
+        match action {
+            EditorAction::Interrupt => Action::Interrupt,
+            EditorAction::Clear => Action::Clear,
+            EditorAction::Exit => Action::Exit,
+            EditorAction::Expand => Action::Expand,
+            EditorAction::FollowUp => Action::FollowUp,
+            EditorAction::Dequeue => Action::Dequeue,
+            EditorAction::ThinkingToggle => Action::ThinkingToggle,
+            EditorAction::ThinkingCycle => Action::ThinkingCycle,
+            EditorAction::ModelForward => Action::ModelCycle(true),
+            EditorAction::ModelBackward => Action::ModelCycle(false),
+            EditorAction::ModelSelect => Action::ModelSelect,
+            EditorAction::ExternalEditor => Action::ExternalEditor,
+            EditorAction::Suspend => Action::Suspend,
+            EditorAction::SessionNew => Action::Session("/new"),
+            EditorAction::SessionTree => Action::Session("/tree"),
+            EditorAction::SessionFork => Action::Session("/fork"),
+            EditorAction::SessionResume => Action::Session("/resume"),
+        }
+    }
+}
+
 struct Parts {
     editor_slot: Rc<RefCell<Container>>,
-    editor: ComponentRef,
+    editor: Rc<RefCell<ComponentRef>>,
 }
 
 impl Parts {
     fn mount(&self, tui: &mut Screen, selector: Option<&ComponentRef>) {
         let focus = match selector {
             Some(selector) => selector.clone(),
-            None => self.editor.clone(),
+            None => self.editor.borrow().clone(),
         };
         {
             let mut slot = self.editor_slot.borrow_mut();
@@ -317,12 +343,16 @@ fn update_working(
     embedded: &Embedded,
     working: Option<(&str, Option<&LoaderIndicatorOptions>)>,
     color: &Rc<RefCell<Style>>,
+    detached: bool,
+    idle: &Cell<bool>,
+    idles: bool,
 ) -> bool {
     let mut slot = embedded.borrow_mut();
     match (working, slot.as_mut()) {
         (None, None) => false,
         (None, Some(_)) => {
             *slot = None;
+            idle.set(detached && idles);
             true
         }
         (Some((message, indicator)), Some(shown)) => {
@@ -331,12 +361,20 @@ fn update_working(
             false
         }
         (Some((message, indicator)), None) => {
-            let color = color.clone();
+            let (spinner, text): (StyleFn, StyleFn) = if detached {
+                (theme::fg_fn("accent"), theme::fg_fn("muted"))
+            } else {
+                let color = color.clone();
+                let border: StyleFn = Rc::new(move |text: &str| (color.borrow())(text));
+                (border.clone(), border)
+            };
             *slot = Some(StatusIndicator::new(
                 message,
-                Rc::new(move |text: &str| (color.borrow())(text)),
+                spinner,
+                text,
                 indicator.cloned(),
             ));
+            idle.set(false);
             true
         }
     }
@@ -965,8 +1003,13 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         as_ref(&resources_container),
         chat.container.clone(),
     ]);
-    let status_container = container(Vec::new());
     let embedded: Embedded = Rc::new(RefCell::new(None));
+    let (detached, idle) = (Rc::new(Cell::new(false)), Rc::new(Cell::new(false)));
+    let status_container = container(vec![as_ref(&component(Detached {
+        status: embedded.clone(),
+        shown: detached.clone(),
+        idle: idle.clone(),
+    }))]);
     let pending_area = component(PendingMessages::new());
     let editor = component(Editor::new(
         theme::editor(),
@@ -1019,19 +1062,20 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let submitted: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
     let bash_border = Rc::new(Cell::new((false, level_name(thinking))));
     let dirty = Rc::new(Cell::new(true));
+    let autocomplete = Rc::new(CombinedAutocompleteProvider::new(
+        slash_commands::with_templates(
+            slash_commands::autocomplete_commands(&extensions.commands),
+            &templates,
+        ),
+        &cwd,
+        crate::config::tool_path("fd").as_deref(),
+    ));
     {
         let mut e = editor.borrow_mut();
         let (s, d) = (submitted.clone(), dirty.clone());
         e.on_submit = Some(Box::new(move |t: &str| s.borrow_mut().push(t.to_string())));
         e.request_render = Some(Rc::new(move || d.set(true)));
-        e.set_autocomplete_provider(Rc::new(CombinedAutocompleteProvider::new(
-            slash_commands::with_templates(
-                slash_commands::autocomplete_commands(&extensions.commands),
-                &templates,
-            ),
-            &cwd,
-            crate::config::tool_path("fd").as_deref(),
-        )));
+        e.set_autocomplete_provider(autocomplete.clone());
     }
     let actions: Rc<RefCell<Vec<Action>>> = Rc::new(RefCell::new(Vec::new()));
     let selector_open = Rc::new(Cell::new(false));
@@ -1097,9 +1141,10 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             data: None,
         })
     }));
+    let active_editor = Rc::new(RefCell::new(as_ref(&editor)));
     let parts = Parts {
         editor_slot: editor_slot.clone(),
-        editor: as_ref(&editor),
+        editor: active_editor.clone(),
     };
     let mut selector: Option<(ComponentRef, ActionSlot)> = None;
     let mut login_dialog: Option<Rc<RefCell<LoginDialog>>> = None;
@@ -1193,6 +1238,12 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let (mut extension_ui, requests) = ExtensionUi::new(
         Surface {
             terminal_input,
+            active_editor,
+            busy: {
+                let (acting, submitting) = (actions.clone(), submitted.clone());
+                Box::new(move || !acting.borrow().is_empty() || !submitting.borrow().is_empty())
+            },
+            autocomplete,
             editor: editor.clone(),
             editor_slot: editor_slot.clone(),
             widgets_above: widgets_above.clone(),
@@ -1212,6 +1263,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let quitting = || super::signals::requested() || wants_quit(&actions);
     let mut shown_title: Option<String> = None;
     let mut handed: Option<(String, String)> = None;
+    extension_ui.set_border(false, &level_name(thinking));
     if let Some(live) = live {
         extension_ui.install(live, requests);
         live.hand_models(&registry, &model);
@@ -1284,7 +1336,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             (a, b) => a.or(b),
         };
         due = [due, bash_due, colors_due].into_iter().flatten().min();
-        let timeout = due.map_or(50, |d| d.saturating_sub(now()).min(50));
+        let cap = if extension_ui.hurry() { 2 } else { 50 };
+        let timeout = due.map_or(cap, |d| d.saturating_sub(now()).min(cap));
         let events = tui.terminal().poll(Some(timeout));
         tui.handle_events(events);
 
@@ -1373,6 +1426,12 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             selector = None;
             login_dialog = None;
         }
+        for action in effects.editor_actions.into_iter().map(Action::from) {
+            if !starting.get() || matches!(action, Action::Clear | Action::Exit) {
+                actions.borrow_mut().push(action);
+            }
+        }
+        submitted.borrow_mut().extend(effects.submitted);
         if effects
             .tools_expanded
             .is_some_and(|expanded| expanded != chat.expanded)
@@ -1419,7 +1478,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 Action::FollowUp => {
                     let text = editor.borrow().get_text().trim().to_owned();
                     if !text.is_empty() && chat.working {
-                        editor.borrow_mut().add_to_history(&text);
+                        extension_ui.add_to_history(&text);
                         editor.borrow_mut().set_text("");
                         let expanded = crate::prompt_templates::expand(&text, &templates);
                         let (root, chosen, stop) =
@@ -1774,7 +1833,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                                                 footer.state.branch = git_branch(&cwd);
                                             }
                                             chat.cwd = cwd.clone();
-                                            editor.borrow_mut().set_autocomplete_provider(Rc::new(
+                                            extension_ui.set_autocomplete_base(Rc::new(
                                                 CombinedAutocompleteProvider::new(
                                                     slash_commands::autocomplete_commands(
                                                         &extensions.commands,
@@ -2428,13 +2487,13 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                     );
                     editor.borrow_mut().set_text(&text);
                 } else {
-                    editor.borrow_mut().add_to_history(&text);
+                    extension_ui.add_to_history(&text);
                     bash.start(&mut chat, command, exclude, &settings.borrow());
                 }
                 dirty.set(true);
                 continue;
             }
-            editor.borrow_mut().add_to_history(&text);
+            extension_ui.add_to_history(&text);
             let expanded = crate::prompt_templates::expand(&text, &templates);
             let busy = chat.working;
             let (root, chosen, stop) = (open.root.clone(), model.clone(), cancel.clone());
@@ -2466,7 +2525,16 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             )),
             None => None,
         };
-        if update_working(&embedded, working, &border_style) {
+        detached.set(extension_ui.hosts_editor());
+        let idles = !fullscreen && settings.borrow().clear_on_shrink();
+        if update_working(
+            &embedded,
+            working,
+            &border_style,
+            detached.get(),
+            &idle,
+            idles,
+        ) {
             dirty.set(true);
         }
         {
@@ -2490,6 +2558,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             editor.borrow().get_text().trim_start().starts_with('!'),
             level_name(thinking),
         );
+        extension_ui.set_border(wants_border.0, &wants_border.1);
         if wants_border != bash_border.replace(wants_border.clone()) {
             let style = if wants_border.0 {
                 theme::fg_fn("bashMode")

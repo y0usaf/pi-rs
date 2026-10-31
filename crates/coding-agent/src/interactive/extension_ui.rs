@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use pi_durable::cancel::CancelToken;
 use pi_extensions::Failed;
+use pi_tui::autocomplete::CombinedAutocompleteProvider;
 use pi_tui::components::editor::Editor;
 use pi_tui::components::loader::LoaderIndicatorOptions;
 use pi_tui::components::spacer::Spacer;
@@ -16,8 +17,10 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::chat::{Chat, DEFAULT_THINKING_LABEL};
+use super::completions::{Completing, CompletionAsked, CompletionShown, Completions, Served};
 use super::footer::Footer;
 use super::hosted::{Hosted, HostedWire, OverlayWire, ToHost};
+use super::hosted_editor::{EditorAction, HostedEditor, Step};
 use super::screen::Screen;
 use super::selectors::extension::{
     ExtensionDialog, ExtensionEditor, ExtensionInput, ExtensionSelector, Outcome,
@@ -137,6 +140,22 @@ enum Shown {
         #[serde(default, rename = "widgetPlacement")]
         placement: Option<String>,
     },
+    #[serde(rename = "setEditorComponent")]
+    SetEditorComponent {
+        #[serde(default)]
+        hosted: Option<HostedWire>,
+    },
+    #[serde(rename = "editorChange")]
+    EditorChange { component: u64, text: String },
+    #[serde(rename = "editorSubmit")]
+    EditorSubmit { component: u64, text: String },
+    #[serde(rename = "editorAction")]
+    EditorAction {
+        component: u64,
+        action: EditorAction,
+    },
+    #[serde(rename = "editorInputDone")]
+    EditorInputDone { component: u64, sequence: u64 },
     #[serde(rename = "setFooter")]
     SetFooter { hosted: Option<HostedWire> },
     #[serde(rename = "setHeader")]
@@ -184,6 +203,8 @@ enum Asked {
     },
     #[serde(rename = "get_editor_text")]
     GetEditorText,
+    #[serde(rename = "get_editor_raw_text")]
+    GetEditorRawText,
     #[serde(rename = "get_tools_expanded")]
     GetToolsExpanded,
     #[serde(rename = "custom")]
@@ -212,37 +233,62 @@ enum Message {
     Unreadable(String),
 }
 
-pub struct Requests(Sender<Message>);
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+enum Line<C, U> {
+    #[serde(rename = "extension_completion")]
+    Completion(C),
+    #[serde(rename = "extension_ui_request")]
+    Ui(U),
+}
+
+pub struct Requests {
+    messages: Sender<Message>,
+    completing: Sender<Completing>,
+}
 
 impl crate::extensions::Ui for Requests {
     fn show(&self, request: Value) {
-        let message = match serde_json::from_value(request) {
-            Ok(shown) => Message::Show(shown),
-            Err(e) => Message::Unreadable(format!(
-                "Warning: the extension host asked for UI pi-rs cannot read: {e}"
-            )),
-        };
-        let _ = self.0.send(message);
+        match serde_json::from_value::<Line<CompletionShown, Shown>>(request) {
+            Ok(Line::Completion(shown)) => {
+                let _ = self.completing.send(shown.into());
+            }
+            Ok(Line::Ui(shown)) => {
+                let _ = self.messages.send(Message::Show(shown));
+            }
+            Err(e) => {
+                let _ = self.messages.send(Message::Unreadable(format!(
+                    "Warning: the extension host asked for UI pi-rs cannot read: {e}"
+                )));
+            }
+        }
     }
 
     fn ask(&self, request: Value, cancel: &CancelToken) -> Result<Value, String> {
-        let asked = serde_json::from_value(request)
+        let line = serde_json::from_value::<Line<CompletionAsked, Asked>>(request)
             .map_err(|e| format!("the extension host asked for UI pi-rs cannot read: {e}"))?;
         let (answer, answered) = channel();
-        self.0
-            .send(Message::Ask {
-                asked,
-                cancel: cancel.clone(),
-                answer,
-            })
-            .map_err(|_| "the screen is closed".to_owned())?;
+        let sent = match line {
+            Line::Completion(asked) => self.completing.send(asked.answered_by(answer)).is_ok(),
+            Line::Ui(asked) => self
+                .messages
+                .send(Message::Ask {
+                    asked,
+                    cancel: cancel.clone(),
+                    answer,
+                })
+                .is_ok(),
+        };
+        if !sent {
+            return Err("the screen is closed".to_owned());
+        }
         answered
             .recv()
             .map_err(|_| "the dialog closed without an answer".to_owned())
     }
 
     fn failed(&self, failed: &Failed) {
-        let _ = self.0.send(Message::Failed(failed.clone()));
+        let _ = self.messages.send(Message::Failed(failed.clone()));
     }
 }
 
@@ -333,6 +379,7 @@ struct Told {
     kitty: Option<bool>,
     expanded: Option<bool>,
     providers: Option<usize>,
+    style: Option<(usize, usize, bool, String)>,
 }
 
 fn widget(lines: &[String]) -> ComponentRef {
@@ -352,6 +399,9 @@ fn widget(lines: &[String]) -> ComponentRef {
 
 pub struct Surface {
     pub terminal_input: TerminalInput,
+    pub active_editor: Rc<RefCell<ComponentRef>>,
+    pub busy: Box<dyn Fn() -> bool>,
+    pub autocomplete: Rc<CombinedAutocompleteProvider>,
     pub editor: Rc<RefCell<Editor>>,
     pub editor_slot: Rc<RefCell<Container>>,
     pub widgets_above: Rc<RefCell<Container>>,
@@ -368,10 +418,13 @@ pub struct Surface {
 pub struct Effects {
     pub opened: bool,
     pub tools_expanded: Option<bool>,
+    pub editor_actions: Vec<EditorAction>,
+    pub submitted: Vec<String>,
 }
 
 pub struct ExtensionUi {
     receiver: Receiver<Message>,
+    completions: Completions,
     surface: Surface,
     start: Instant,
     live: Option<&'static Live>,
@@ -383,6 +436,8 @@ pub struct ExtensionUi {
     overlays: HashMap<u64, Overlay>,
     footer: Option<u64>,
     header: Option<(u64, ComponentRef)>,
+    editor: Option<HostedEditor>,
+    border: (bool, String),
     told: Told,
     effects: Effects,
     pub working_message: Option<String>,
@@ -392,9 +447,11 @@ pub struct ExtensionUi {
 
 impl ExtensionUi {
     pub fn new(surface: Surface, start: Instant) -> (ExtensionUi, Requests) {
-        let (sender, receiver) = channel();
+        let (messages, receiver) = channel();
+        let (completing, completed) = channel();
         let ui = ExtensionUi {
             receiver,
+            completions: Completions::new(completed, surface.autocomplete.clone()),
             surface,
             start,
             live: None,
@@ -406,13 +463,104 @@ impl ExtensionUi {
             overlays: HashMap::new(),
             footer: None,
             header: None,
+            editor: None,
+            border: (false, String::new()),
             told: Told::default(),
             effects: Effects::default(),
             working_message: None,
             working_visible: true,
             working_indicator: None,
         };
-        (ui, Requests(sender))
+        (
+            ui,
+            Requests {
+                messages,
+                completing,
+            },
+        )
+    }
+
+    pub fn set_autocomplete_base(&mut self, base: Rc<CombinedAutocompleteProvider>) {
+        self.completions.set_base(&self.surface.editor, base);
+    }
+
+    pub fn set_border(&mut self, bash: bool, thinking: &str) {
+        if self.border.0 != bash || self.border.1 != thinking {
+            self.border = (bash, thinking.to_owned());
+        }
+    }
+
+    pub fn add_to_history(&mut self, text: &str) {
+        match (&self.editor, self.live) {
+            (Some(editor), Some(live)) => live.ui(&ToHost::EditorAddHistory {
+                component: editor.component,
+                text,
+            }),
+            _ => self.surface.editor.borrow_mut().add_to_history(text),
+        }
+    }
+
+    pub fn hosts_editor(&self) -> bool {
+        self.editor.is_some()
+    }
+
+    pub fn hurry(&self) -> bool {
+        self.editor.as_ref().is_some_and(HostedEditor::in_flight)
+            || self.surface.terminal_input.waiting()
+    }
+
+    fn swap_editor(&mut self, tui: &mut Screen, hosted: Option<HostedWire>) {
+        let leftover = match self.editor.take() {
+            Some(old) => {
+                self.hosted.remove(&old.component);
+                old.leftover()
+            }
+            None => Vec::new(),
+        };
+        let text = self.surface.editor.borrow().get_text();
+        let shown: ComponentRef = match hosted.and_then(|wire| {
+            let component = wire.component;
+            self.host(wire).map(|proxy| (component, proxy))
+        }) {
+            Some((component, proxy)) => {
+                let editor = HostedEditor::new(component, proxy, text);
+                let shown = editor.shown.clone();
+                self.editor = Some(editor);
+                shown
+            }
+            None => self.surface.editor.clone(),
+        };
+        *self.surface.active_editor.borrow_mut() = shown;
+        self.effects.opened = true;
+        if self.dialogs.is_empty() {
+            self.show_top(tui);
+        }
+        for data in leftover {
+            tui.handle_terminal_input(&data);
+        }
+    }
+
+    fn step_editor(&mut self, tui: &mut Screen, chat: &mut Chat) -> bool {
+        let held = (self.surface.busy)()
+            || !self.effects.editor_actions.is_empty()
+            || !self.effects.submitted.is_empty();
+        let (Some(editor), Some(live)) = (self.editor.as_mut(), self.live) else {
+            return false;
+        };
+        editor.sync(live, &self.surface.editor.borrow().get_text());
+        let component = editor.component;
+        match editor.step(live, held) {
+            Step::Idle | Step::Sent => false,
+            Step::TimedOut => {
+                live.ui(&ToHost::EditorDropped { component });
+                chat.notice(
+                    "warning",
+                    "Extension editor did not answer; restored the built-in editor",
+                );
+                self.swap_editor(tui, None);
+                true
+            }
+        }
     }
 
     pub fn install(&mut self, live: &'static Live, requests: Requests) {
@@ -445,6 +593,18 @@ impl ExtensionUi {
         while let Ok(message) = self.receiver.try_recv() {
             drew |= self.apply(message, tui, chat, now);
         }
+        match self.completions.serve(&self.surface.editor, self.live) {
+            Served::Quiet => {}
+            Served::Delivered => drew = true,
+            Served::TimedOut => {
+                chat.notice(
+                    "warning",
+                    "Extension autocomplete provider timed out; extension autocomplete disabled",
+                );
+                drew = true;
+            }
+        }
+        drew |= self.step_editor(tui, chat);
         let (input_drew, timed_out) = self.surface.terminal_input.dispatch(tui, self.live);
         if timed_out {
             chat.notice(
@@ -484,6 +644,24 @@ impl ExtensionUi {
             self.told.providers = Some(providers);
             live.ui(&ToHost::Providers { count: providers });
         }
+        let style = {
+            let editor = self.surface.editor.borrow();
+            (
+                editor.padding_x(),
+                editor.autocomplete_max_visible(),
+                self.border.0,
+                self.border.1.clone(),
+            )
+        };
+        if self.told.style.as_ref() != Some(&style) {
+            live.ui(&ToHost::EditorStyle {
+                padding_x: style.0,
+                autocomplete_max_visible: style.1,
+                bash: style.2,
+                thinking: &style.3,
+            });
+            self.told.style = Some(style);
+        }
     }
 
     fn host(&mut self, wire: HostedWire) -> Option<Rc<RefCell<Hosted>>> {
@@ -509,6 +687,10 @@ impl ExtensionUi {
                     Asked::GetEditorText => {
                         let _ =
                             answer.send(json!(self.surface.editor.borrow().get_expanded_text()));
+                        return false;
+                    }
+                    Asked::GetEditorRawText => {
+                        let _ = answer.send(json!(self.surface.editor.borrow().get_text()));
                         return false;
                     }
                     Asked::GetToolsExpanded => {
@@ -794,6 +976,41 @@ impl ExtensionUi {
                 }
             }
             Shown::SetTitle { title } => tui.set_title(&title),
+            Shown::SetEditorComponent { hosted } => self.swap_editor(tui, hosted),
+            Shown::EditorChange { component, text } => {
+                if let Some(editor) = self.editor.as_mut().filter(|e| e.component == component) {
+                    let local = self.surface.editor.borrow().get_text();
+                    if editor.accept(&local, &text) {
+                        self.surface.editor.borrow_mut().set_text(&text);
+                    }
+                }
+            }
+            Shown::EditorSubmit { component, text } => {
+                if self
+                    .editor
+                    .as_ref()
+                    .is_some_and(|e| e.component == component)
+                {
+                    self.effects.submitted.push(text);
+                }
+            }
+            Shown::EditorAction { component, action } => {
+                if self
+                    .editor
+                    .as_ref()
+                    .is_some_and(|e| e.component == component)
+                {
+                    self.effects.editor_actions.push(action);
+                }
+            }
+            Shown::EditorInputDone {
+                component,
+                sequence,
+            } => {
+                if let Some(editor) = self.editor.as_mut().filter(|e| e.component == component) {
+                    editor.done(sequence);
+                }
+            }
             Shown::SetEditorText { text } => self.surface.editor.borrow_mut().set_text(&text),
             Shown::PasteToEditor { text } => self
                 .surface
@@ -966,7 +1183,7 @@ impl ExtensionUi {
     fn show_top(&self, tui: &mut Screen) {
         let top: ComponentRef = match self.dialogs.last() {
             Some(open) => open.shown.clone(),
-            None => self.surface.editor.clone(),
+            None => self.surface.active_editor.borrow().clone(),
         };
         {
             let mut slot = self.surface.editor_slot.borrow_mut();

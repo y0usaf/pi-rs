@@ -67,6 +67,10 @@ impl TerminalInput {
         }
     }
 
+    pub fn waiting(&self) -> bool {
+        self.pending.is_some() || !self.queue.borrow().items.is_empty()
+    }
+
     pub fn enable(&mut self, enabled: bool) {
         self.queue.borrow_mut().enabled = enabled;
     }

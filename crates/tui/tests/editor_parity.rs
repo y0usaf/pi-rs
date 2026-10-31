@@ -3,7 +3,7 @@
 //! lines, cursors, callbacks and autocomplete visibility must match.
 
 use pi_tui::autocomplete::{
-    AutocompleteItem, AutocompleteProvider, AutocompleteSuggestions, Completion,
+    AutocompleteItem, AutocompleteProvider, AutocompleteSuggestions, Completion, Suggesting,
 };
 use pi_tui::components::editor::{Editor, EditorOptions, EditorTheme};
 use pi_tui::components::select_list::SelectListTheme;
@@ -27,6 +27,58 @@ const WORDS: [&str; 7] = [
 
 struct TestProvider;
 
+fn suggestions(
+    lines: &[String],
+    cl: usize,
+    cc: usize,
+    force: bool,
+) -> Option<AutocompleteSuggestions> {
+    let line = lines.get(cl).map_or("", String::as_str);
+    let before = &line[..cc.min(line.len())];
+    if let Some(rest) = before.strip_prefix('/')
+        && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        let items: Vec<AutocompleteItem> = COMMANDS
+            .iter()
+            .filter(|c| c.starts_with(rest))
+            .map(|c| AutocompleteItem {
+                value: c.to_string(),
+                label: c.to_string(),
+                description: Some(format!("run {c}")),
+            })
+            .collect();
+        return (!items.is_empty()).then(|| AutocompleteSuggestions {
+            items,
+            prefix: before.to_string(),
+        });
+    }
+    let start = before
+        .char_indices()
+        .rfind(|(_, c)| c.is_whitespace())
+        .map_or(0, |(i, c)| i + c.len_utf8());
+    let token = &before[start..];
+    let (trig, word) = match token.chars().next() {
+        Some(c @ ('@' | '\x23' | '$')) => (&token[..1], &token[c.len_utf8()..]),
+        _ => ("", token),
+    };
+    if trig.is_empty() && !force {
+        return None;
+    }
+    let items: Vec<AutocompleteItem> = WORDS
+        .iter()
+        .filter(|w| w.starts_with(word))
+        .map(|w| AutocompleteItem {
+            value: format!("{trig}{w}"),
+            label: w.to_string(),
+            description: None,
+        })
+        .collect();
+    (!items.is_empty()).then(|| AutocompleteSuggestions {
+        items,
+        prefix: token.to_string(),
+    })
+}
+
 impl AutocompleteProvider for TestProvider {
     fn trigger_characters(&self) -> Option<Vec<String>> {
         Some(vec!["$".into()])
@@ -34,55 +86,13 @@ impl AutocompleteProvider for TestProvider {
 
     fn get_suggestions(
         &self,
+        _request: u64,
         lines: &[String],
         cl: usize,
         cc: usize,
         force: bool,
-    ) -> Option<AutocompleteSuggestions> {
-        let line = lines.get(cl).map_or("", String::as_str);
-        let before = &line[..cc.min(line.len())];
-        if let Some(rest) = before.strip_prefix('/')
-            && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-        {
-            let items: Vec<AutocompleteItem> = COMMANDS
-                .iter()
-                .filter(|c| c.starts_with(rest))
-                .map(|c| AutocompleteItem {
-                    value: c.to_string(),
-                    label: c.to_string(),
-                    description: Some(format!("run {c}")),
-                })
-                .collect();
-            return (!items.is_empty()).then(|| AutocompleteSuggestions {
-                items,
-                prefix: before.to_string(),
-            });
-        }
-        let start = before
-            .char_indices()
-            .rfind(|(_, c)| c.is_whitespace())
-            .map_or(0, |(i, c)| i + c.len_utf8());
-        let token = &before[start..];
-        let (trig, word) = match token.chars().next() {
-            Some(c @ ('@' | '\x23' | '$')) => (&token[..1], &token[c.len_utf8()..]),
-            _ => ("", token),
-        };
-        if trig.is_empty() && !force {
-            return None;
-        }
-        let items: Vec<AutocompleteItem> = WORDS
-            .iter()
-            .filter(|w| w.starts_with(word))
-            .map(|w| AutocompleteItem {
-                value: format!("{trig}{w}"),
-                label: w.to_string(),
-                description: None,
-            })
-            .collect();
-        (!items.is_empty()).then(|| AutocompleteSuggestions {
-            items,
-            prefix: token.to_string(),
-        })
+    ) -> Suggesting {
+        Suggesting::Ready(suggestions(lines, cl, cc, force))
     }
 
     fn apply_completion(

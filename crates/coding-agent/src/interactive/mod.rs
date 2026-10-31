@@ -4,11 +4,13 @@
 pub mod bash_mode;
 pub mod chat;
 pub mod clipboard;
+pub mod completions;
 pub mod extension_ui;
 pub mod external_editor;
 pub mod footer;
 pub mod header;
 pub mod hosted;
+pub mod hosted_editor;
 pub mod keybindings;
 pub mod messages;
 pub mod open_browser;

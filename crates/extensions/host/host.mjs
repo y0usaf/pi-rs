@@ -111,7 +111,7 @@ const { normalizeBuildSystemPromptOptions } = await import(new URL("core/system-
 const { estimateProjectedContextTokens } = await import(new URL("core/compaction/compaction.js", dist));
 const { killAll } = await import(new URL("core/exec.js", dist));
 const { executeBashWithOperations } = await import(new URL("core/bash-executor.js", dist));
-const { getAvailableThemesWithPaths, getThemeByName, initTheme } = await import(
+const { getAvailableThemesWithPaths, getEditorTheme, getThemeByName, initTheme, theme } = await import(
 	new URL("modes/interactive/theme/theme.js", dist)
 );
 const { KeybindingsManager } = await import(new URL("core/keybindings.js", dist));
@@ -935,8 +935,7 @@ function rendered(entry) {
 	}
 }
 
-function hostComponent(component, member, width) {
-	const id = nextHosted++;
+function hostComponent(component, member, width, id = nextHosted++) {
 	const entry = { component, member, width, drawn: undefined };
 	hosted.set(id, entry);
 	const shown = {
@@ -1065,11 +1064,221 @@ function terminalInput(message) {
 	uiShow({ method: "terminalInputResult", sequence: message.sequence, verdict: { consume, data } });
 }
 
+function completionShow(fields) {
+	effect({ call: "ui", line: { type: "extension_completion", ...fields } });
+}
+
+function completionAsk(fields) {
+	return askNow("ui", { line: { type: "extension_completion", ...fields } });
+}
+
+const completionBase = {
+	getSuggestions: async (lines, cursorLine, cursorCol, options) =>
+		completionAsk({ method: "autocompleteBaseSuggest", lines, cursorLine, cursorCol, force: options?.force === true }),
+	applyCompletion: (lines, cursorLine, cursorCol, item, prefix) =>
+		completionAsk({ method: "autocompleteBaseApply", lines, cursorLine, cursorCol, item, prefix }),
+	shouldTriggerFileCompletion: (lines, cursorLine, cursorCol) =>
+		completionAsk({ method: "autocompleteBaseShouldTrigger", lines, cursorLine, cursorCol }),
+};
+
+const completion = { wrappers: [], provider: completionBase, requests: new Map(), items: new Map() };
+
+const completionKey = (item) => JSON.stringify([item.value, item.label ?? "", item.description ?? null]);
+
+const editorSlot = { factory: undefined, id: undefined, editor: undefined };
+const editorStyle = { paddingX: 0, autocompleteMaxVisible: 5, bash: false, thinking: "off" };
+const EDITOR_ACTIONS = [
+	"app.clear",
+	"app.tools.expand",
+	"app.message.followUp",
+	"app.message.dequeue",
+	"app.thinking.toggle",
+	"app.thinking.cycle",
+	"app.model.cycleForward",
+	"app.model.cycleBackward",
+	"app.model.select",
+	"app.editor.external",
+	"app.suspend",
+	"app.session.new",
+	"app.session.tree",
+	"app.session.fork",
+	"app.session.resume",
+];
+
+const editorBorder = () =>
+	editorStyle.bash ? theme.getBashModeBorderColor() : theme.getThinkingBorderColor(editorStyle.thinking);
+
+function setEditorComponent(factory) {
+	editorSlot.factory = factory;
+	const text = !factory
+		? undefined
+		: editorSlot.editor === undefined
+			? askNow("ui", { line: uiRequest({ method: "get_editor_raw_text" }) })
+			: editorSlot.editor.getText();
+	if (editorSlot.id !== undefined) dropHosted(editorSlot.id);
+	editorSlot.id = undefined;
+	editorSlot.editor = undefined;
+	if (!factory) {
+		uiShow({ method: "setEditorComponent" });
+		return;
+	}
+	let editor;
+	try {
+		editor = factory(hostTui, getEditorTheme(), keybindings);
+	} catch (error) {
+		uiShow({ method: "setEditorComponent" });
+		throw error;
+	}
+	const id = nextHosted++;
+	editor.onSubmit = (submitted) => uiShow({ method: "editorSubmit", component: id, text: submitted });
+	editor.onChange = (changed) => uiShow({ method: "editorChange", component: id, text: changed });
+	editor.setText(text);
+	if (editor.borderColor !== undefined) editor.borderColor = editorBorder();
+	if (editor.setPaddingX !== undefined) editor.setPaddingX(editorStyle.paddingX);
+	if (editor.setAutocompleteMaxVisible !== undefined) editor.setAutocompleteMaxVisible(editorStyle.autocompleteMaxVisible);
+	if (editor.setAutocompleteProvider) editor.setAutocompleteProvider(completion.provider);
+	if ("actionHandlers" in editor && editor.actionHandlers instanceof Map) {
+		const act = (action) => () => uiShow({ method: "editorAction", component: id, action });
+		if (!editor.onEscape) editor.onEscape = act("app.interrupt");
+		if (!editor.onCtrlD) editor.onCtrlD = act("app.exit");
+		for (const action of EDITOR_ACTIONS) editor.actionHandlers.set(action, act(action));
+	}
+	const shown = hostComponent(editor, "ctx.ui.setEditorComponent", screen.columns, id);
+	editorSlot.id = id;
+	editorSlot.editor = editor;
+	uiShow({ method: "setEditorComponent", hosted: shown });
+}
+
+function editorInput(message, entry) {
+	if (message.component === editorSlot.id) {
+		try {
+			entry?.component.handleInput?.(message.data);
+		} catch (error) {
+			hostedFailed(entry, error);
+		}
+		requestDraw();
+	}
+	uiShow({ method: "editorInputDone", component: message.component, sequence: message.sequence });
+}
+
+function editorStyled(message) {
+	editorStyle.paddingX = message.paddingX;
+	editorStyle.autocompleteMaxVisible = message.autocompleteMaxVisible;
+	editorStyle.bash = message.bash;
+	editorStyle.thinking = message.thinking;
+	const editor = editorSlot.editor;
+	if (editor === undefined) return;
+	editor.borderColor = editorBorder();
+	editor.setPaddingX?.(editorStyle.paddingX);
+	editor.setAutocompleteMaxVisible?.(editorStyle.autocompleteMaxVisible);
+	requestDraw();
+}
+
+function setupAutocomplete() {
+	let provider = completionBase;
+	const triggerCharacters = [];
+	for (const wrapProvider of completion.wrappers) {
+		provider = wrapProvider(provider);
+		triggerCharacters.push(...(provider.triggerCharacters ?? []));
+	}
+	if (triggerCharacters.length > 0) provider.triggerCharacters = [...new Set(triggerCharacters)];
+	completion.provider = provider;
+	editorSlot.editor?.setAutocompleteProvider?.(provider);
+	completionShow({
+		method: "autocompleteChain",
+		active: completion.wrappers.length > 0,
+		triggerCharacters: provider.triggerCharacters ?? [],
+		shouldTrigger: typeof provider.shouldTriggerFileCompletion === "function",
+	});
+}
+
+function resetAutocomplete() {
+	for (const controller of completion.requests.values()) controller.abort();
+	completion.requests.clear();
+	completion.items.clear();
+	if (completion.wrappers.length === 0) return;
+	completion.wrappers = [];
+	setupAutocomplete();
+}
+
+async function suggestCompletion(message) {
+	const controller = new AbortController();
+	completion.requests.set(message.request, controller);
+	let suggestions = null;
+	try {
+		suggestions = await completion.provider.getSuggestions(message.lines, message.cursorLine, message.cursorCol, {
+			signal: controller.signal,
+			force: message.force,
+		});
+	} catch (error) {
+		hostedFailed({ member: "ctx.ui.addAutocompleteProvider" }, error);
+	}
+	if (completion.requests.get(message.request) !== controller) return;
+	completion.requests.delete(message.request);
+	completion.items = new Map((suggestions?.items ?? []).map((item) => [completionKey(item), item]));
+	completionShow({ method: "autocompleteSuggested", request: message.request, suggestions: suggestions ?? null });
+}
+
+function applyCompletion(message) {
+	const item = completion.items.get(completionKey(message.item)) ?? message.item;
+	completion.items.clear();
+	let applied = null;
+	try {
+		applied = completion.provider.applyCompletion(message.lines, message.cursorLine, message.cursorCol, item, message.prefix);
+	} catch (error) {
+		hostedFailed({ member: "ctx.ui.addAutocompleteProvider" }, error);
+	}
+	completionShow({ method: "autocompleteApplied", request: message.request, completion: applied });
+}
+
+function triggerCompletion(message) {
+	let trigger = true;
+	try {
+		trigger = Boolean(completion.provider.shouldTriggerFileCompletion(message.lines, message.cursorLine, message.cursorCol));
+	} catch (error) {
+		hostedFailed({ member: "ctx.ui.addAutocompleteProvider" }, error);
+	}
+	completionShow({ method: "autocompleteTriggered", request: message.request, trigger });
+}
+
 function fromScreen(message) {
 	const entry = hosted.get(message.component);
 	switch (message.action) {
 		case "terminalInput":
 			terminalInput(message);
+			return;
+		case "editorInput":
+			editorInput(message, entry);
+			return;
+		case "editorSetText":
+			if (message.component === editorSlot.id) editorSlot.editor.setText(message.text);
+			requestDraw();
+			return;
+		case "editorAddHistory":
+			if (message.component === editorSlot.id) editorSlot.editor.addToHistory?.(message.text);
+			return;
+		case "editorDropped":
+			if (message.component !== editorSlot.id) return;
+			dropHosted(editorSlot.id);
+			editorSlot.id = undefined;
+			editorSlot.editor = undefined;
+			editorSlot.factory = undefined;
+			return;
+		case "editorStyle":
+			editorStyled(message);
+			return;
+		case "autocompleteSuggest":
+			void suggestCompletion(message);
+			return;
+		case "autocompleteAbandon":
+			completion.requests.get(message.request)?.abort();
+			completion.requests.delete(message.request);
+			return;
+		case "autocompleteApply":
+			applyCompletion(message);
+			return;
+		case "autocompleteShouldTrigger":
+			triggerCompletion(message);
 			return;
 		case "size":
 			screen.columns = message.columns;
@@ -1196,9 +1405,6 @@ function chromeOf(slot, member, method, make) {
 function tuiUI(noOp) {
 	const dialog = (opts, fallback, fields, parse) => uiDialog(opts, fallback, fields, parse, undefined);
 	const read = (method) => askNow("ui", { line: uiRequest({ method }) });
-	const restoreOnly = (member) => (factory) => {
-		if (factory !== undefined) throw unported(member);
-	};
 	const theme = noOp.theme;
 	keybindings ??= KeybindingsManager.create();
 	setKeybindings(keybindings);
@@ -1248,13 +1454,27 @@ function tuiUI(noOp) {
 			),
 		setTitle: (title) => uiShow({ method: "setTitle", title }),
 		custom: (factory, options) => showCustom(theme, factory, options),
-		pasteToEditor: (text) => uiShow({ method: "paste_to_editor", text }),
-		setEditorText: (text) => uiShow({ method: "set_editor_text", text }),
-		getEditorText: () => read("get_editor_text"),
+		pasteToEditor: (text) => {
+			if (editorSlot.editor === undefined) return uiShow({ method: "paste_to_editor", text });
+			editorSlot.editor.handleInput(`\x1b[200~${text}\x1b[201~`);
+			requestDraw();
+		},
+		setEditorText: (text) => {
+			if (editorSlot.editor === undefined) return uiShow({ method: "set_editor_text", text });
+			editorSlot.editor.setText(text);
+			requestDraw();
+		},
+		getEditorText: () =>
+			editorSlot.editor === undefined
+				? read("get_editor_text")
+				: (editorSlot.editor.getExpandedText?.() ?? editorSlot.editor.getText()),
 		editor: (title, prefill) => dialog(undefined, undefined, { method: "editor", title, prefill }, uiChosen),
-		addAutocompleteProvider: thrower("ctx.ui.addAutocompleteProvider"),
-		setEditorComponent: restoreOnly("ctx.ui.setEditorComponent"),
-		getEditorComponent: () => undefined,
+		addAutocompleteProvider: (factory) => {
+			completion.wrappers.push(factory);
+			setupAutocomplete();
+		},
+		setEditorComponent,
+		getEditorComponent: () => editorSlot.factory,
 		get theme() {
 			return noOp.theme;
 		},
@@ -1350,6 +1570,8 @@ async function load(request) {
 		terminalInputHandlers.clear();
 		uiShow({ method: "terminalInput", enabled: false });
 	}
+	resetAutocomplete();
+	if (editorSlot.factory !== undefined) setEditorComponent(undefined);
 	providers.clear();
 	const hadVirtualModels = virtualModels.size > 0;
 	virtualModels.clear();

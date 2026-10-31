@@ -326,6 +326,11 @@ pub struct Completion {
     pub cursor_col: usize,
 }
 
+pub enum Suggesting {
+    Ready(Option<AutocompleteSuggestions>),
+    Pending,
+}
+
 /// Supplies suggestions for the editor.
 pub trait AutocompleteProvider {
     /// Characters that trigger suggestions at token boundaries.
@@ -334,11 +339,13 @@ pub trait AutocompleteProvider {
     }
     fn get_suggestions(
         &self,
+        request: u64,
         lines: &[String],
         cursor_line: usize,
         cursor_col: usize,
         force: bool,
-    ) -> Option<AutocompleteSuggestions>;
+    ) -> Suggesting;
+    fn abandon(&self, _request: u64) {}
     fn apply_completion(
         &self,
         lines: &[String],
@@ -712,6 +719,39 @@ impl CombinedAutocompleteProvider {
 impl AutocompleteProvider for CombinedAutocompleteProvider {
     fn get_suggestions(
         &self,
+        _request: u64,
+        lines: &[String],
+        cursor_line: usize,
+        cursor_col: usize,
+        force: bool,
+    ) -> Suggesting {
+        Suggesting::Ready(self.suggestions(lines, cursor_line, cursor_col, force))
+    }
+
+    fn apply_completion(
+        &self,
+        lines: &[String],
+        cursor_line: usize,
+        cursor_col: usize,
+        item: &AutocompleteItem,
+        prefix: &str,
+    ) -> Completion {
+        self.completion(lines, cursor_line, cursor_col, item, prefix)
+    }
+
+    fn should_trigger_file_completion(
+        &self,
+        lines: &[String],
+        cursor_line: usize,
+        cursor_col: usize,
+    ) -> bool {
+        self.triggers_file_completion(lines, cursor_line, cursor_col)
+    }
+}
+
+impl CombinedAutocompleteProvider {
+    pub fn suggestions(
+        &self,
         lines: &[String],
         cursor_line: usize,
         cursor_col: usize,
@@ -808,7 +848,7 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
         })
     }
 
-    fn apply_completion(
+    fn completion(
         &self,
         lines: &[String],
         cursor_line: usize,
@@ -866,7 +906,7 @@ impl AutocompleteProvider for CombinedAutocompleteProvider {
         }
     }
 
-    fn should_trigger_file_completion(
+    fn triggers_file_completion(
         &self,
         lines: &[String],
         cursor_line: usize,

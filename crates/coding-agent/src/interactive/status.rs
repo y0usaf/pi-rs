@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use pi_tui::components::editor::{Style, TopBorder};
@@ -17,10 +17,11 @@ pub struct StatusIndicator {
 impl StatusIndicator {
     pub fn new(
         message: &str,
-        color: StyleFn,
+        spinner: StyleFn,
+        text: StyleFn,
         indicator: Option<LoaderIndicatorOptions>,
     ) -> StatusIndicator {
-        let mut loader = Loader::new(color.clone(), color, message, indicator.clone());
+        let mut loader = Loader::new(spinner, text, message, indicator.clone());
         loader.start();
         StatusIndicator { loader, indicator }
     }
@@ -61,6 +62,32 @@ impl StatusIndicator {
 }
 
 pub type Embedded = Rc<RefCell<Option<StatusIndicator>>>;
+
+pub struct Detached {
+    pub status: Embedded,
+    pub shown: Rc<Cell<bool>>,
+    pub idle: Rc<Cell<bool>>,
+}
+
+impl Component for Detached {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        if self.shown.get()
+            && let Some(indicator) = self.status.borrow_mut().as_mut()
+        {
+            return indicator.loader.render(width);
+        }
+        if self.idle.get() {
+            return vec![" ".repeat(width); 2];
+        }
+        Vec::new()
+    }
+
+    fn invalidate(&mut self) {
+        if let Some(indicator) = self.status.borrow_mut().as_mut() {
+            indicator.invalidate();
+        }
+    }
+}
 
 pub fn embedded_top_border(status: Embedded) -> TopBorder {
     Box::new(move |width: usize, hidden: usize, border: &Style| {

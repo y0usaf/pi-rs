@@ -1,5 +1,4 @@
 //! Multi-line editor (upstream `components/editor.ts`). Cursor columns are byte offsets.
-//! Autocomplete is synchronous: providers answer at once, so there is no debounce or abort.
 
 mod complete;
 mod edit;
@@ -88,6 +87,8 @@ pub struct Editor {
     pub(crate) scroll_offset: usize,
     pub border_color: Style,
     autocomplete_provider: Option<Rc<dyn AutocompleteProvider>>,
+    autocomplete_request: u64,
+    autocomplete_waiting: Option<complete::AutocompleteWaiting>,
     pub(crate) autocomplete_trigger_characters: Vec<String>,
     pub(crate) autocomplete_list: Option<SelectList>,
     pub(crate) autocomplete_state: Option<AutocompleteMode>,
@@ -139,6 +140,8 @@ impl Editor {
             rendered_autocomplete_height: 0,
             scroll_offset: 0,
             autocomplete_provider: None,
+            autocomplete_request: 0,
+            autocomplete_waiting: None,
             autocomplete_trigger_characters: text::DEFAULT_TRIGGER_CHARACTERS
                 .iter()
                 .map(|s| s.to_string())

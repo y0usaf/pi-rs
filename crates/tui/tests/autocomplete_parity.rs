@@ -116,7 +116,7 @@ fn autocomplete_matches_upstream() {
         let t = c["t"].as_str().unwrap();
         let force = c["force"].as_bool().unwrap();
         let lines = vec![t.to_string()];
-        let s = p.get_suggestions(&lines, 0, t.len(), force);
+        let s = p.suggestions(&lines, 0, t.len(), force);
         let got_s = s.as_ref().map_or(Value::Null, |s| json!({ "items": s.items.iter().map(item_json).collect::<Vec<_>>(), "prefix": s.prefix }));
         let applied: Vec<Value> = s.as_ref().map_or(vec![], |s| {
             s.items
