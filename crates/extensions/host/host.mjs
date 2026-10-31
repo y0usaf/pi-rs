@@ -111,9 +111,16 @@ const { normalizeBuildSystemPromptOptions } = await import(new URL("core/system-
 const { estimateProjectedContextTokens } = await import(new URL("core/compaction/compaction.js", dist));
 const { killAll } = await import(new URL("core/exec.js", dist));
 const { executeBashWithOperations } = await import(new URL("core/bash-executor.js", dist));
-const { getAvailableThemesWithPaths, getEditorTheme, getThemeByName, initTheme, theme } = await import(
-	new URL("modes/interactive/theme/theme.js", dist)
-);
+const {
+	getAvailableThemesWithPaths,
+	getEditorTheme,
+	getThemeByName,
+	initTheme,
+	setTerminalColors,
+	setTheme: applyTheme,
+	Theme,
+	theme,
+} = await import(new URL("modes/interactive/theme/theme.js", dist));
 const { KeybindingsManager } = await import(new URL("core/keybindings.js", dist));
 const { FooterDataProvider } = await import(new URL("core/footer-data-provider.js", dist));
 const { setKeybindings, setKittyProtocolActive } = await import(
@@ -905,7 +912,7 @@ function uiDialog(opts, fallback, fields, parse, timeout) {
 const uiChosen = (response) => (response.cancelled ? undefined : "value" in response ? response.value : undefined);
 const uiConfirmed = (response) => (response.cancelled ? false : "confirmed" in response ? response.confirmed : false);
 
-const screen = { columns: 80, rows: 24, expanded: false };
+const screen = { columns: 80, rows: 24, expanded: false, theme: "system" };
 const hosted = new Map();
 const overlaysShown = new Map();
 const widgetsShown = new Map();
@@ -1161,6 +1168,21 @@ function editorInput(message, entry) {
 	uiShow({ method: "editorInputDone", component: message.component, sequence: message.sequence });
 }
 
+function themed(name) {
+	screen.theme = name;
+	applyTheme(name, false);
+	for (const entry of hosted.values()) {
+		try {
+			entry.component.invalidate?.();
+		} catch (error) {
+			hostedFailed(entry, error);
+		}
+		entry.drawn = undefined;
+	}
+	if (editorSlot.editor !== undefined) editorSlot.editor.borderColor = editorBorder();
+	requestDraw();
+}
+
 function editorStyled(message) {
 	editorStyle.paddingX = message.paddingX;
 	editorStyle.autocompleteMaxVisible = message.autocompleteMaxVisible;
@@ -1266,6 +1288,17 @@ function fromScreen(message) {
 			return;
 		case "editorStyle":
 			editorStyled(message);
+			return;
+		case "theme":
+			themed(message.name);
+			return;
+		case "terminalColors":
+			setTerminalColors({
+				foreground: message.foreground ?? undefined,
+				background: message.background ?? undefined,
+				palette: message.palette ?? undefined,
+			});
+			themed(screen.theme);
 			return;
 		case "autocompleteSuggest":
 			void suggestCompletion(message);
@@ -1404,7 +1437,7 @@ function chromeOf(slot, member, method, make) {
 
 function tuiUI(noOp) {
 	const dialog = (opts, fallback, fields, parse) => uiDialog(opts, fallback, fields, parse, undefined);
-	const read = (method) => askNow("ui", { line: uiRequest({ method }) });
+	const read = (method, name) => askNow("ui", { line: uiRequest({ method, name }) });
 	const theme = noOp.theme;
 	keybindings ??= KeybindingsManager.create();
 	setKeybindings(keybindings);
@@ -1480,7 +1513,12 @@ function tuiUI(noOp) {
 		},
 		getAllThemes: () => getAvailableThemesWithPaths(),
 		getTheme: (name) => getThemeByName(name),
-		setTheme: thrower("ctx.ui.setTheme"),
+		setTheme: (themeOrName) => {
+			if (themeOrName instanceof Theme) throw unported("ctx.ui.setTheme with a Theme instance");
+			const result = read("setTheme", themeOrName);
+			themed(result.success ? themeOrName : "system");
+			return result;
+		},
 		getToolsExpanded: () => read("get_tools_expanded"),
 		setToolsExpanded: (expanded) => uiShow({ method: "setToolsExpanded", expanded }),
 	};
@@ -1564,7 +1602,7 @@ async function load(request) {
 	absorb(request);
 	state.trusted = request.trusted === true;
 	if (request.agentDir) process.env.PI_CODING_AGENT_DIR = request.agentDir;
-	initTheme(request.theme, false);
+	initTheme(request.theme ?? screen.theme, false);
 	runner?.invalidate();
 	if (terminalInputHandlers.size > 0) {
 		terminalInputHandlers.clear();
@@ -1629,7 +1667,7 @@ function trustContext() {
 async function projectTrust(request) {
 	absorb(request);
 	if (request.agentDir) process.env.PI_CODING_AGENT_DIR = request.agentDir;
-	initTheme(request.theme, false);
+	initTheme(request.theme ?? screen.theme, false);
 	const bus = createEventBus();
 	const resources = await settingsResources(request, false);
 	const result = await loadExtensionsCached(withResources(resolvePaths(request), resources), state.cwd, bus);

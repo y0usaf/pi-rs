@@ -12,6 +12,7 @@ use pi_tui::components::loader::LoaderIndicatorOptions;
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
 use pi_tui::terminal::Terminal;
+use pi_tui::terminal_colors::TerminalColors;
 use pi_tui::tui::{Component, ComponentRef, Container, OverlayId, component, overlay_width, same};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -205,6 +206,8 @@ enum Asked {
     GetEditorText,
     #[serde(rename = "get_editor_raw_text")]
     GetEditorRawText,
+    #[serde(rename = "setTheme")]
+    SetTheme { name: String },
     #[serde(rename = "get_tools_expanded")]
     GetToolsExpanded,
     #[serde(rename = "custom")]
@@ -380,6 +383,8 @@ struct Told {
     expanded: Option<bool>,
     providers: Option<usize>,
     style: Option<(usize, usize, bool, String)>,
+    theme: Option<String>,
+    colors: Option<TerminalColors>,
 }
 
 fn widget(lines: &[String]) -> ComponentRef {
@@ -399,6 +404,8 @@ fn widget(lines: &[String]) -> ComponentRef {
 
 pub struct Surface {
     pub terminal_input: TerminalInput,
+    pub themes: super::theme::Sources,
+    pub settings: Rc<RefCell<crate::settings::SettingsManager>>,
     pub active_editor: Rc<RefCell<ComponentRef>>,
     pub busy: Box<dyn Fn() -> bool>,
     pub autocomplete: Rc<CombinedAutocompleteProvider>,
@@ -653,6 +660,21 @@ impl ExtensionUi {
                 self.border.1.clone(),
             )
         };
+        if let Some(colors) = super::theme::reported_colors()
+            && self.told.colors.as_ref() != Some(&colors)
+        {
+            live.ui(&ToHost::TerminalColors {
+                foreground: colors.foreground.map(Into::into),
+                background: colors.background.map(Into::into),
+                palette: colors.palette.map(|palette| palette.map(Into::into).into()),
+            });
+            self.told.colors = Some(colors);
+        }
+        let theme = super::theme::current().name.clone();
+        if self.told.theme.as_ref() != Some(&theme) {
+            live.ui(&ToHost::Theme { name: &theme });
+            self.told.theme = Some(theme);
+        }
         if self.told.style.as_ref() != Some(&style) {
             live.ui(&ToHost::EditorStyle {
                 padding_x: style.0,
@@ -692,6 +714,21 @@ impl ExtensionUi {
                     Asked::GetEditorRawText => {
                         let _ = answer.send(json!(self.surface.editor.borrow().get_text()));
                         return false;
+                    }
+                    Asked::SetTheme { name } => {
+                        let result = match super::theme::set_named(&name, &self.surface.themes) {
+                            Ok(()) => {
+                                let mut settings = self.surface.settings.borrow_mut();
+                                if settings.theme() != Some(name.as_str()) {
+                                    settings.set_theme(&name);
+                                }
+                                json!({ "success": true })
+                            }
+                            Err(error) => json!({ "success": false, "error": error }),
+                        };
+                        let _ = answer.send(result);
+                        tui.invalidate();
+                        return true;
                     }
                     Asked::GetToolsExpanded => {
                         let expanded = self.effects.tools_expanded.unwrap_or(chat.expanded);

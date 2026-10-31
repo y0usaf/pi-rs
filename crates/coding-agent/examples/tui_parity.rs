@@ -296,6 +296,20 @@ const CASES: &[Case] = &[
         ],
     },
     Case {
+        name: "set-theme",
+        extension: Some("set-theme.ts"),
+        replies: &[],
+        steps: &[
+            Step::Shows("started", "fake-test"),
+            Step::Type("/set-theme light"),
+            Step::Key("\r"),
+            Step::Shows("light", "theme light: true, now light"),
+            Step::Type("/set-theme nope"),
+            Step::Key("\r"),
+            Step::Shows("missing", "theme nope: false"),
+        ],
+    },
+    Case {
         name: "shortcut",
         extension: Some("upstream/plan-mode/index.ts"),
         replies: &[],

@@ -1238,6 +1238,8 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let (mut extension_ui, requests) = ExtensionUi::new(
         Surface {
             terminal_input,
+            themes: sources.clone(),
+            settings: settings.clone(),
             active_editor,
             busy: {
                 let (acting, submitting) = (actions.clone(), submitted.clone());

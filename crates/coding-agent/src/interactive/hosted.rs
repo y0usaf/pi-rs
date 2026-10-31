@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use pi_tui::colors::Rgb;
 use pi_tui::tui::{Component, OverlayAnchor, OverlayMargin, OverlayOptions, SizeValue};
 use pi_tui::utils::{truncate_to_width, visible_width};
 use serde::{Deserialize, Serialize};
@@ -17,6 +18,14 @@ pub enum ToHost<'a> {
     },
     Kitty {
         active: bool,
+    },
+    Theme {
+        name: &'a str,
+    },
+    TerminalColors {
+        foreground: Option<RgbWire>,
+        background: Option<RgbWire>,
+        palette: Option<Vec<RgbWire>>,
     },
     Expanded {
         expanded: bool,
@@ -93,6 +102,23 @@ pub enum ToHost<'a> {
         cursor_line: usize,
         cursor_col: usize,
     },
+}
+
+#[derive(Serialize)]
+pub struct RgbWire {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+impl From<Rgb> for RgbWire {
+    fn from(rgb: Rgb) -> Self {
+        RgbWire {
+            r: rgb.r,
+            g: rgb.g,
+            b: rgb.b,
+        }
+    }
 }
 
 #[derive(Deserialize)]

@@ -715,6 +715,10 @@ thread_local! {
     static TERMINAL: RefCell<TerminalState> = RefCell::default();
 }
 
+pub fn reported_colors() -> Option<TerminalColors> {
+    TERMINAL.with_borrow(|terminal| terminal.reported.clone())
+}
+
 fn terminal_colors() -> TerminalColors {
     TERMINAL.with_borrow(|terminal| terminal.reported.clone().unwrap_or_default())
 }
@@ -780,6 +784,19 @@ pub fn set(name: &str, sources: &Sources) -> Result<(), String> {
     let theme = load(name, sources)?;
     put(theme);
     Ok(())
+}
+
+pub fn set_named(name: &str, sources: &Sources) -> Result<(), String> {
+    match set(name, sources) {
+        Ok(()) => {
+            remember(sources, Some(name));
+            Ok(())
+        }
+        Err(error) => {
+            put(system_theme());
+            Err(error)
+        }
+    }
 }
 
 fn apply_terminal_colors(reported: TerminalColors) -> bool {
