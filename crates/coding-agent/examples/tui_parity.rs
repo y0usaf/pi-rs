@@ -55,7 +55,7 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "notify",
-        extension: Some("session-name.ts"),
+        extension: Some("upstream/session-name.ts"),
         replies: &[],
         steps: &[
             Step::Shows("started", "fake-test"),
@@ -66,7 +66,7 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "dialog",
-        extension: Some("commands.ts"),
+        extension: Some("upstream/commands.ts"),
         replies: &[],
         steps: &[
             Step::Shows("started", "fake-test"),
@@ -88,7 +88,7 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "status",
-        extension: Some("status-line.ts"),
+        extension: Some("upstream/status-line.ts"),
         replies: &["Fake reply for the status line."],
         steps: &[
             Step::Shows("ready", "Ready"),
@@ -99,7 +99,7 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "widget-resize",
-        extension: Some("widget-placement.ts"),
+        extension: Some("upstream/widget-placement.ts"),
         replies: &[],
         steps: &[
             Step::Shows("started", "Below editor widget"),
@@ -111,7 +111,7 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "overlay",
-        extension: Some("overlay-test.ts"),
+        extension: Some("upstream/overlay-test.ts"),
         replies: &[],
         steps: &[
             Step::Shows("started", "fake-test"),
@@ -126,7 +126,7 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "footer",
-        extension: Some("custom-footer.ts"),
+        extension: Some("upstream/custom-footer.ts"),
         replies: &[],
         steps: &[
             Step::Shows("started", "fake-test"),
@@ -140,7 +140,7 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "header",
-        extension: Some("custom-header.ts"),
+        extension: Some("upstream/custom-header.ts"),
         replies: &[],
         steps: &[
             Step::Shows("started", "shitty coding agent"),
@@ -151,7 +151,7 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "editor",
-        extension: Some("rpc-demo.ts"),
+        extension: Some("upstream/rpc-demo.ts"),
         replies: &[],
         steps: &[
             Step::Shows("started", "Loaded and ready."),
@@ -166,7 +166,7 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "inline-custom",
-        extension: Some("todo.ts"),
+        extension: Some("upstream/todo.ts"),
         replies: &[],
         steps: &[
             Step::Shows("started", "fake-test"),
@@ -179,7 +179,7 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "overlay-sidepanel",
-        extension: Some("overlay-qa-tests.ts"),
+        extension: Some("upstream/overlay-qa-tests.ts"),
         replies: &[],
         steps: &[
             Step::Shows("started", "fake-test"),
@@ -196,7 +196,7 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "overlay-stack",
-        extension: Some("overlay-qa-tests.ts"),
+        extension: Some("upstream/overlay-qa-tests.ts"),
         replies: &[],
         steps: &[
             Step::Shows("started", "fake-test"),
@@ -213,7 +213,7 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "overlay-focus",
-        extension: Some("overlay-qa-tests.ts"),
+        extension: Some("upstream/overlay-qa-tests.ts"),
         replies: &[],
         steps: &[
             Step::Shows("started", "fake-test"),
@@ -229,8 +229,27 @@ const CASES: &[Case] = &[
         ],
     },
     Case {
+        name: "terminal-input",
+        extension: Some("terminal-input.ts"),
+        replies: &[],
+        steps: &[
+            Step::Shows("started", "fake-test"),
+            Step::Type("/input-hooks"),
+            Step::Key("\r"),
+            Step::Shows("registered", "Input hooks ready"),
+            Step::Type("~:"),
+            Step::Shows("mapped", "b"),
+            Step::Key("?"),
+            Step::Shows("reentrant-query", "editor=b"),
+            Step::Key("!\x03zq"),
+            Step::Shows("removed", "zq"),
+            Step::Type(":"),
+            Step::Shows("unsubscribed", "zq:"),
+        ],
+    },
+    Case {
         name: "shortcut",
-        extension: Some("plan-mode/index.ts"),
+        extension: Some("upstream/plan-mode/index.ts"),
         replies: &[],
         steps: &[
             Step::Shows("started", "fake-test"),
@@ -242,7 +261,7 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "message-renderer",
-        extension: Some("message-renderer.ts"),
+        extension: Some("upstream/message-renderer.ts"),
         replies: &[],
         steps: &[
             Step::Shows("started", "fake-test"),
@@ -715,7 +734,7 @@ fn command(bin: &Path, setup: &Setup, case: &Case) -> Result<Command> {
         .env("PI_TELEMETRY", "0")
         .envs(std::env::var_os("PI_EXTENSION_HOST").map(|host| ("PI_EXTENSION_HOST", host)));
     if let Some(extension) = case.extension {
-        let path = setup.fixtures.join("upstream").join(extension);
+        let path = setup.fixtures.join(extension);
         if !path.is_file() {
             return Err(format!("{} is not a fixture extension", path.display()).into());
         }

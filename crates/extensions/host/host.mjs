@@ -910,6 +910,7 @@ const hosted = new Map();
 const overlaysShown = new Map();
 const widgetsShown = new Map();
 const chrome = { footer: undefined, header: undefined };
+const terminalInputHandlers = new Set();
 let nextHosted = 1;
 let drawQueued = false;
 let footerData;
@@ -1036,9 +1037,40 @@ const hostTui = {
 	hideOverlay: () => uiShow({ method: "hideTopOverlay" }),
 };
 
+function listenToTerminalInput(handler) {
+	const subscription = { handler };
+	terminalInputHandlers.add(subscription);
+	uiShow({ method: "terminalInput", enabled: true });
+	return () => {
+		terminalInputHandlers.delete(subscription);
+		uiShow({ method: "terminalInput", enabled: terminalInputHandlers.size > 0 });
+	};
+}
+
+function terminalInput(message) {
+	let data = message.data;
+	let consume = false;
+	for (const { handler } of terminalInputHandlers) {
+		try {
+			const result = handler(data);
+			if (result?.consume) {
+				consume = true;
+				break;
+			}
+			if (result?.data !== undefined) data = result.data;
+		} catch (error) {
+			hostedFailed({ member: "ctx.ui.onTerminalInput" }, error);
+		}
+	}
+	uiShow({ method: "terminalInputResult", sequence: message.sequence, verdict: { consume, data } });
+}
+
 function fromScreen(message) {
 	const entry = hosted.get(message.component);
 	switch (message.action) {
+		case "terminalInput":
+			terminalInput(message);
+			return;
 		case "size":
 			screen.columns = message.columns;
 			screen.rows = message.rows;
@@ -1179,7 +1211,7 @@ function tuiUI(noOp) {
 		input: (title, _placeholder, opts) =>
 			dialog(opts, undefined, { method: "input", title, timeout: opts?.timeout }, uiChosen),
 		notify: (message, type) => uiShow({ method: "notify", message, notifyType: type }),
-		onTerminalInput: thrower("ctx.ui.onTerminalInput"),
+		onTerminalInput: listenToTerminalInput,
 		setStatus: (key, text) => {
 			footerData.setExtensionStatus(key, text);
 			uiShow({ method: "setStatus", statusKey: key, statusText: text });
@@ -1314,6 +1346,10 @@ async function load(request) {
 	if (request.agentDir) process.env.PI_CODING_AGENT_DIR = request.agentDir;
 	initTheme(request.theme, false);
 	runner?.invalidate();
+	if (terminalInputHandlers.size > 0) {
+		terminalInputHandlers.clear();
+		uiShow({ method: "terminalInput", enabled: false });
+	}
 	providers.clear();
 	const hadVirtualModels = virtualModels.size > 0;
 	virtualModels.clear();

@@ -21,5 +21,6 @@ pub mod signals;
 pub mod slash_commands;
 pub mod status;
 pub mod syntax;
+pub mod terminal_input;
 pub mod theme;
 pub mod tool_row;

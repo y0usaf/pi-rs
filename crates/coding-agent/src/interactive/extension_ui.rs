@@ -22,6 +22,7 @@ use super::screen::Screen;
 use super::selectors::extension::{
     ExtensionDialog, ExtensionEditor, ExtensionInput, ExtensionSelector, Outcome,
 };
+use super::terminal_input::{TerminalInput, Verdict};
 use super::theme::fg;
 use crate::extensions::Live;
 
@@ -54,6 +55,10 @@ impl Indicator {
 #[derive(Deserialize)]
 #[serde(tag = "method")]
 enum Shown {
+    #[serde(rename = "terminalInput")]
+    TerminalInput { enabled: bool },
+    #[serde(rename = "terminalInputResult")]
+    TerminalInputResult { sequence: u64, verdict: Verdict },
     #[serde(rename = "notify")]
     Notify {
         message: String,
@@ -346,6 +351,7 @@ fn widget(lines: &[String]) -> ComponentRef {
 }
 
 pub struct Surface {
+    pub terminal_input: TerminalInput,
     pub editor: Rc<RefCell<Editor>>,
     pub editor_slot: Rc<RefCell<Container>>,
     pub widgets_above: Rc<RefCell<Container>>,
@@ -439,7 +445,14 @@ impl ExtensionUi {
         while let Ok(message) = self.receiver.try_recv() {
             drew |= self.apply(message, tui, chat, now);
         }
-        drew | self.settle(tui, chat, now)
+        let (input_drew, timed_out) = self.surface.terminal_input.dispatch(tui, self.live);
+        if timed_out {
+            chat.notice(
+                "warning",
+                "Extension terminal-input callback timed out; input callbacks disabled",
+            );
+        }
+        drew | input_drew | self.settle(tui, chat, now)
     }
 
     fn tell(&mut self, tui: &mut Screen, chat: &Chat) {
@@ -619,6 +632,10 @@ impl ExtensionUi {
 
     fn show(&mut self, shown: Shown, tui: &mut Screen, chat: &mut Chat) -> bool {
         match shown {
+            Shown::TerminalInput { enabled } => self.surface.terminal_input.enable(enabled),
+            Shown::TerminalInputResult { sequence, verdict } => {
+                return self.surface.terminal_input.answer(tui, sequence, verdict);
+            }
             Shown::Notify { message, kind } => match kind.as_deref() {
                 Some("error") => chat.notice("error", &format!("Error: {message}")),
                 Some("warning") => chat.notice("warning", &format!("Warning: {message}")),

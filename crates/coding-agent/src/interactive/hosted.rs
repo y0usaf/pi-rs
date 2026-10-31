@@ -18,6 +18,7 @@ pub enum ToHost<'a> {
     Input { component: u64, data: &'a str },
     Focus { component: u64, focused: bool },
     Removed { component: u64 },
+    TerminalInput { sequence: u64, data: &'a str },
 }
 
 #[derive(Deserialize)]

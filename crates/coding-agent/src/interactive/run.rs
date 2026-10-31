@@ -1036,6 +1036,10 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let actions: Rc<RefCell<Vec<Action>>> = Rc::new(RefCell::new(Vec::new()));
     let selector_open = Rc::new(Cell::new(false));
     let starting = Rc::new(Cell::new(true));
+    let queued = actions.clone();
+    let terminal_input = super::terminal_input::TerminalInput::install(&mut tui, move || {
+        !queued.borrow().is_empty()
+    });
     let (acts, ed, sel_open) = (actions.clone(), editor.clone(), selector_open.clone());
     let started = starting.clone();
     tui.add_input_listener(Box::new(move |data: &str| {
@@ -1188,6 +1192,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let live = crate::extensions::live();
     let (mut extension_ui, requests) = ExtensionUi::new(
         Surface {
+            terminal_input,
             editor: editor.clone(),
             editor_slot: editor_slot.clone(),
             widgets_above: widgets_above.clone(),
