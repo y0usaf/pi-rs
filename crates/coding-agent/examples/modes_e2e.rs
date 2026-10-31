@@ -321,8 +321,6 @@ fn json_run(bin: &Path, scratch: &Scratch, written: &Path) -> Result<()> {
         })
         .and_then(|line| line["message"]["content"][0]["text"].as_str())
         .unwrap_or_default();
-    // The harness folds a message's last commit into the authoritative `message_end`, so the
-    // snapshot and deltas build a prefix of it and `message_end` carries the whole text.
     let streamed = format!("{snapshot}{streamed}");
     if streamed.is_empty() || !"all done".starts_with(&streamed) {
         return fail(format!(
@@ -646,7 +644,6 @@ fn rpc_session_run(bin: &Path, scratch: &Scratch) -> Result<()> {
         ],
     )?;
 
-    // Queue modes, auto-compaction and auto-retry are saved and reported back.
     for command in [
         json!({"type": "set_steering_mode", "mode": "all"}),
         json!({"type": "set_follow_up_mode", "mode": "one-at-a-time"}),
@@ -668,13 +665,11 @@ fn rpc_session_run(bin: &Path, scratch: &Scratch) -> Result<()> {
         .ok_or("get_state named no sessionFile")?
         .to_owned();
 
-    // An empty queue empties to two empty lists.
     let queue = rpc.ok(json!({"type": "clear_queue"}))?;
     if queue["steering"] != json!([]) || queue["followUp"] != json!([]) {
         return fail(format!("clear_queue answered {queue}"));
     }
 
-    // A run, then the reads over it.
     rpc.ok(json!({"type": "prompt", "message": "say hi"}))?;
     let state = rpc.idle()?;
     let count = state["messageCount"].as_u64().ok_or("no messageCount")?;
@@ -729,7 +724,6 @@ fn rpc_session_run(bin: &Path, scratch: &Scratch) -> Result<()> {
         return fail(format!("get_session_stats answered {stats}"));
     }
 
-    // A steering message queued behind a run is handed back by clear_queue.
     rpc.ok(json!({"type": "prompt", "message": "second"}))?;
     rpc.ok(json!({"type": "steer", "message": "queued note"}))?;
     let queue = rpc.ok(json!({"type": "clear_queue"}))?;
@@ -741,7 +735,6 @@ fn rpc_session_run(bin: &Path, scratch: &Scratch) -> Result<()> {
         return fail(format!("a cleared queue still holds messages: {settled}"));
     }
 
-    // A model that does not reason has one thinking level and nothing to cycle to.
     let levels = rpc.ok(json!({"type": "get_available_thinking_levels"}))?;
     if levels["levels"] != json!(["off"]) {
         return fail(format!("get_available_thinking_levels answered {levels}"));
@@ -752,7 +745,6 @@ fn rpc_session_run(bin: &Path, scratch: &Scratch) -> Result<()> {
         );
     }
 
-    // cycle_model walks the catalog; the second model reasons, so the levels open up.
     let cycled = rpc.ok(json!({"type": "cycle_model"}))?;
     if cycled["model"]["id"] != "fake-thinky" || cycled["isScoped"] != false {
         return fail(format!("cycle_model answered {cycled}"));
@@ -766,7 +758,6 @@ fn rpc_session_run(bin: &Path, scratch: &Scratch) -> Result<()> {
         return fail(format!("cycle_thinking_level answered {cycled}"));
     }
 
-    // clone writes the active path to a new file and switches to it.
     let before = rpc.idle()?;
     let cloned = rpc.ok(json!({"type": "clone"}))?;
     if cloned["cancelled"] != false {
@@ -778,7 +769,6 @@ fn rpc_session_run(bin: &Path, scratch: &Scratch) -> Result<()> {
     }
     let clone_path = after["sessionFile"].clone();
 
-    // fork stops before the chosen user message and hands its text back.
     let forks = rpc.ok(json!({"type": "get_fork_messages"}))?;
     let first = forks["messages"][0]["entryId"].clone();
     let forked = rpc.ok(json!({"type": "fork", "entryId": first}))?;
@@ -799,7 +789,6 @@ fn rpc_session_run(bin: &Path, scratch: &Scratch) -> Result<()> {
         ));
     }
 
-    // new_session opens an empty file of its own.
     let fresh = rpc.ok(json!({"type": "new_session"}))?;
     if fresh["cancelled"] != false {
         return fail(format!("new_session answered {fresh}"));
@@ -809,7 +798,6 @@ fn rpc_session_run(bin: &Path, scratch: &Scratch) -> Result<()> {
         return fail(format!("new_session left the session at {after}"));
     }
 
-    // switch_session goes back to the first file, with everything it held.
     let switched = rpc.ok(json!({"type": "switch_session", "sessionPath": source}))?;
     if switched["cancelled"] != false {
         return fail(format!("switch_session answered {switched}"));
@@ -819,7 +807,6 @@ fn rpc_session_run(bin: &Path, scratch: &Scratch) -> Result<()> {
         return fail(format!("switch_session left the session at {after}"));
     }
 
-    // A path that is not there, and an entry that is not in the session, are refused.
     let missing =
         rpc.send(json!({"type": "switch_session", "sessionPath": "/nonexistent/nope.db"}))?;
     if missing["success"] != false

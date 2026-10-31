@@ -1,6 +1,3 @@
-// Runs the tool cases of tools.json through upstream's tool definitions and pi-ai's argument
-// validation, printing one JSON line per case like examples/tools_parity.rs.
-// Usage: node --import <pi>/packages/coding-agent/src/experimental/source-resolver.ts tools-driver.ts CASES WORKDIR
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";

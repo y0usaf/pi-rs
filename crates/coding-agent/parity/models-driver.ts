@@ -1,5 +1,3 @@
-// Runs parity/models.json through upstream's model-resolver.ts (resolveCliModel,
-// resolveModelScopeFromModels), one JSON line per case, like examples/models_parity.rs.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";

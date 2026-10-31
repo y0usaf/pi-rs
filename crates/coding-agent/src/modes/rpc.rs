@@ -723,7 +723,6 @@ pub fn run(
         ended: Vec::new(),
     }));
 
-    // The conversation's agent starts with no model; the run's settings are the session's.
     root.configure(
         &AgentChange {
             model: Change::Set(ModelRef {
@@ -749,9 +748,6 @@ pub fn run(
         pending: Mutex::new(Some(HashMap::new())),
     });
 
-    // A thread reads stdin, so a running `bash` command's output and `abort_bash` reach the
-    // client while nothing is typed, and a dialog's answer reaches the extension waiting on it,
-    // startup's session_start handlers included.
     let (lines, reading) = std::sync::mpsc::channel::<String>();
     let answers = Arc::clone(&dialogs);
     std::thread::spawn(move || {
@@ -1519,7 +1515,6 @@ fn handle(
                 });
                 match text {
                     Some(text) => success(id, kind, Some(json!({ "text": text }))),
-                    // Upstream answers the key with a null text.
                     None => success(id, kind, Some(json!({}))),
                 }
             }

@@ -185,7 +185,6 @@ impl AssistantView {
                     i += 1;
                 }
                 AssistantBlock::Thinking(_) => {
-                    // A run of thinking blocks is shown as one.
                     let mut blocks = Vec::new();
                     while let Some(AssistantBlock::Thinking(t)) = content.get(i) {
                         let text = t.thinking.trim();

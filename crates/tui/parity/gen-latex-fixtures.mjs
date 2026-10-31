@@ -1,6 +1,3 @@
-// Golden fixtures for render_latex: node parity/gen-latex-fixtures.mjs <ref/packages/tui> > tests/fixtures/latex.json
-// Inputs: every source in upstream test/latex.test.ts, every command upstream knows (alone, with
-// arguments, with scripts), and seeded random token soups. Each is rendered inline and display.
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
@@ -10,12 +7,10 @@ const latexSource = readFileSync(`${root}/src/latex.ts`, "utf8");
 const testSource = readFileSync(`${root}/test/latex.test.ts`, "utf8");
 
 const inputs = new Set();
-// Sources from the upstream tests: String.raw`...` and "..." first arguments.
 for (const m of testSource.matchAll(/String\.raw`([^`]*)`/g)) inputs.add(m[1]);
 for (const m of testSource.matchAll(/\[\s*("(?:[^"\\]|\\.)*")\s*,/g)) inputs.add(JSON.parse(m[1]));
 for (const m of testSource.matchAll(/renderLatex\(("(?:[^"\\]|\\.)*")/g)) inputs.add(JSON.parse(m[1]));
 
-// Every identifier upstream lists in its tables, plus the commands handled in code.
 const commands = new Set();
 for (const m of latexSource.matchAll(/^\t([A-Za-z]+): "/gm)) commands.add(m[1]);
 for (const m of latexSource.matchAll(/^\t"([A-Za-z]+)",$/gm)) commands.add(m[1]);
@@ -45,7 +40,6 @@ for (const e of envs) {
 	inputs.add(`\\begin{${e}}x`);
 }
 
-// Seeded token soups.
 let seed = 0x2545f491;
 const rand = (n) => {
 	seed ^= seed << 13; seed >>>= 0;
@@ -74,8 +68,6 @@ for (const a of ["😀", "日本", "é", "👍🏽", "e\u0301"]) {
 		`\\begin{cases}${a}&x\\\\1&${a}\\end{cases}`, `\\frac{${a}${a}}{\\frac{1}{${a}}}`]) inputs.add(t);
 }
 
-// Upstream walks UTF-16 code units, so a bare astral argument (`x^😀`) is split into lone
-// surrogates; Rust strings cannot hold those, so such cases are left out.
 const cases = [...inputs]
 	.map((s) => ({ s, i: renderLatex(s) ?? null, d: renderLatex(s, { display: true }) ?? null }))
 	.filter((c) => (c.i ?? "").isWellFormed() && (c.d ?? "").isWellFormed());

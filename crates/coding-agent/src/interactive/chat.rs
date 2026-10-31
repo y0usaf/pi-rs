@@ -395,7 +395,6 @@ impl Chat {
                 self.show(message);
             }
         }
-        // Calls without a stored result are still pending; their live slots say which run.
         for slot in &snapshot.tools {
             let row = self.row(&slot.call_id, &slot.name, &serde_json::Map::new());
             let mut r = row.borrow_mut();
@@ -559,7 +558,6 @@ impl Chat {
                     ToolOutput::Edit { trim_start, append } => {
                         let current = r.partial().unwrap_or_default();
                         let skip = trim_start.unwrap_or(0);
-                        // Counted in UTF-16 units, as chord's Truncate counts them.
                         let units: Vec<u16> = current.encode_utf16().skip(skip).collect();
                         let kept = String::from_utf16_lossy(&units);
                         kept + append.as_deref().unwrap_or("")

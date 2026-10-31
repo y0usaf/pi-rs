@@ -136,7 +136,6 @@ fn load_dir(
             continue;
         }
         let path = join(dir, &name);
-        // Metadata follows a symlink, and a broken one is skipped.
         if !std::fs::metadata(&path).is_ok_and(|meta| meta.is_file()) {
             continue;
         }

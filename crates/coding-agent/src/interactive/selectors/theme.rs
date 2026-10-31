@@ -312,7 +312,6 @@ impl ThemeSubmenu {
                         self.preview(&value);
                     }
                 }
-                // Closing with a value hands it to the settings row, which applies and saves it.
                 Event::Apply(value) if value == AUTOMATIC => {
                     self.done.close_with(&self.pair());
                 }

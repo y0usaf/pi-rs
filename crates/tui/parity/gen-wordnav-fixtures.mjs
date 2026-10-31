@@ -1,4 +1,3 @@
-// Golden fixtures for word navigation: node parity/gen-wordnav-fixtures.mjs <ref/packages/tui> > tests/fixtures/wordnav.json
 import { pathToFileURL } from "node:url";
 const { findWordBackward, findWordForward } = await import(pathToFileURL(`${process.argv[2]}/src/word-navigation.ts`).href);
 const { getWordSegmenter } = await import(pathToFileURL(`${process.argv[2]}/src/utils.ts`).href);

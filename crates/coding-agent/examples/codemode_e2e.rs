@@ -927,7 +927,6 @@ fn loadout_modes(bin: &Path) -> Result<()> {
             {
                 return fail(format!("mode only's system prompt lists {tools_section:?}"));
             }
-            // The script still reaches read although the request never declares it.
             let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
             if stdout.trim() != "done" {
                 return fail(format!("mode only's run printed {stdout:?}"));

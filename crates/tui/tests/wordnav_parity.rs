@@ -65,8 +65,6 @@ fn word_navigation_matches_upstream() {
             let cur = byte_at(t, i);
             let wb = byte_at(t, b.as_u64().unwrap() as usize);
             let wf = byte_at(t, fw.as_u64().unwrap() as usize);
-            // Known gap: V8's ICU keeps an incomplete Thai word ("ไทยภ") as one segment, ICU4X
-            // splits it after the dictionary word.
             if t == "ไทยภาษา" && cur == 12 {
                 continue;
             }

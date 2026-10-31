@@ -369,7 +369,6 @@ fn parse_kitty(data: &str) -> Option<KittySeq> {
             event: event_type(event),
         });
     }
-    // ESC [ 1 ; mod (:event)? (A|B|C|D|H|F)
     let mut c = Cur::new(data);
     if c.lit("\x1b[1;")
         && let Some(m) = c.digits1()
@@ -398,7 +397,6 @@ fn parse_kitty(data: &str) -> Option<KittySeq> {
             }
         }
     }
-    // ESC [ num (;mod)? (:event)? ~
     let mut c = Cur::new(data);
     if c.lit("\x1b[")
         && let Some(k) = c.digits1()

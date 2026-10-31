@@ -117,8 +117,6 @@ fn run_script(
         ))
         .map_err(|e| describe(&e))?;
 
-    // The prefix shares the first line with the script so reported line numbers
-    // match the script as written.
     let source = format!("(async (tools, console) => {{{}\n}})", start.code);
     let script: Function = match ctx.eval_with_options(source, options("codemode.js")) {
         Ok(script) => script,

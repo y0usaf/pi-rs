@@ -225,8 +225,6 @@ fn join_layouts(layouts: &[Layout]) -> Layout {
         };
     }
     let baseline = layouts.iter().map(|l| l.baseline).max().unwrap_or(0);
-    // `lines.length - baseline - 1` may be negative upstream (a script with neither part never
-    // happens, so lines are never empty); keep it signed.
     let below = layouts
         .iter()
         .map(|l| l.lines.len() as isize - l.baseline as isize - 1)

@@ -114,14 +114,10 @@ struct OpenString {
     change: Option<usize>,
 }
 
-// Changes are reported at most this deep, so a path costs O(1) to build.
 const MAX_REPORTED_DEPTH: usize = 32;
 
-// Copy credit per append and per appended character. The floor keeps small documents fresh at every
-// snapshot.
 const CREDIT_PER_APPEND: usize = 256;
 const CREDIT_PER_CHARACTER: usize = 8;
-// An unterminated number longer than this is not shown until it ends, so snapshot() stays cheap.
 const MAX_PENDING_SCALAR_LENGTH: usize = 64;
 
 const LITERALS: [&str; 3] = ["true", "false", "null"];
@@ -215,7 +211,6 @@ impl StreamingJsonParser {
                     index += width;
                     continue;
                 }
-                // Not part of the escape: read it as a normal string character below.
                 run_start = index;
             }
             if character == '"' {
@@ -310,7 +305,6 @@ impl StreamingJsonParser {
         };
         match &frame.container {
             Value::Array(items) => Some(Slot::Element(items.len())),
-            // A missing colon is tolerated: {"a" 1} reads as {"a": 1}.
             Value::Object(_) => match (&frame.phase, &frame.key) {
                 (Phase::Value | Phase::Colon, Some(key)) => Some(Slot::Member(key.clone())),
                 _ => None,
@@ -320,7 +314,6 @@ impl StreamingJsonParser {
     }
 
     fn start_string(&mut self) {
-        // A missing comma is tolerated: {"a": 1 "b": 2} reads the second member.
         let is_key = self.stack.last().is_some_and(|frame| {
             matches!(frame.container, Value::Object(_))
                 && matches!(frame.phase, Phase::Key | Phase::Comma)
@@ -394,8 +387,6 @@ impl StreamingJsonParser {
                 open.escape.push('u');
                 return true;
             }
-            // Invalid escape: keep the backslash as text and read the character normally, as
-            // repair_json() does.
             open.escape.clear();
             self.append_string(open, "\\");
             return false;
@@ -410,7 +401,6 @@ impl StreamingJsonParser {
             self.append_code_unit(open, unit);
             return true;
         }
-        // A backslash-u without four hex digits: keep it as text and read the character normally.
         let literal = std::mem::take(&mut open.escape);
         self.append_string(open, &literal);
         false
@@ -450,7 +440,6 @@ impl StreamingJsonParser {
             open.text.push_str(text);
             return;
         }
-        // A value string grows in its container, so a delta never copies the text read so far.
         self.path_bytes += text.len();
         self.push_text(open.slot.as_ref(), text);
         if let Some(path) = open.path.clone() {
@@ -507,7 +496,6 @@ impl StreamingJsonParser {
 
     fn end_string(&mut self, mut open: OpenString) {
         self.string = None;
-        // A high surrogate whose low half never arrived cannot live in a Rust String.
         if open.pending_high.take().is_some() {
             self.append_decoded(&mut open, &REPLACEMENT_CHARACTER.to_string());
         }
@@ -567,7 +555,6 @@ impl StreamingJsonParser {
         });
         self.path_bytes += 1;
         self.dirty = true;
-        // A fresh container: the working one keeps changing, and a change never does.
         if let Some(path) = path {
             let empty = if matches!(container_value, Value::Array(_)) {
                 Value::Array(Vec::new())
@@ -580,7 +567,6 @@ impl StreamingJsonParser {
 
     fn close_container(&mut self) {
         let Some(frame) = self.stack.pop() else {
-            // A stray closer outside any container is ignored.
             return;
         };
         let Frame {
@@ -590,13 +576,10 @@ impl StreamingJsonParser {
             reports_inside,
             ..
         } = frame;
-        // The frame's own contents leave the open path; placing the finished container into its parent
-        // puts them back there, so only the frame itself is gone.
         self.path_bytes = self
             .path_bytes
             .saturating_sub(1 + value_cost(Some(&container), 0));
         self.dirty = true;
-        // Too deep to report inside: the whole value, final now that it is closed.
         if let Some(path) = path
             && !reports_inside
         {
@@ -605,8 +588,6 @@ impl StreamingJsonParser {
                 value: container.clone(),
             });
         }
-        // The container owns its value while open; a copy of it sits in the parent, so the finished
-        // value takes its place there.
         self.place(slot.as_ref(), container);
         self.value_ended();
     }
@@ -614,7 +595,6 @@ impl StreamingJsonParser {
     /// A value in the innermost open frame, or the root value when there is none, has ended.
     fn value_ended(&mut self) {
         match self.stack.last_mut() {
-            // Text after the root value is ignored, but only once a root value exists.
             None => {
                 if self.root.is_some() {
                     self.done = true;
@@ -777,7 +757,6 @@ impl ToolCallArgumentsStream {
         if self.parser.snapshot() == self.snapshot.as_ref() {
             return self.arguments.clone();
         }
-        // Tool arguments are an object; any other partial value shows as no arguments yet.
         self.arguments = match self.parser.snapshot() {
             Some(Value::Object(members)) => members.clone(),
             _ => JsonObject::new(),
@@ -867,7 +846,6 @@ fn number_without_exponent_digits(token: &str) -> Option<&str> {
 }
 
 fn json_number(token: &str) -> Option<Value> {
-    // The crate's own number parse, so a value read here equals the same text parsed whole.
     let number: Number = serde_json::from_str(token).ok()?;
     Some(Value::Number(number))
 }

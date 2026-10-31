@@ -1,8 +1,3 @@
-// Generates src/unicode_tables.rs from the Unicode data in Node's V8/ICU, so widths and
-// character classes match upstream pi-tui exactly. Run from a dir whose node_modules holds
-// get-east-asian-width@1.6.0:  node gen-tables.mjs EMOJI_DIR > ../src/unicode_tables.rs
-// EMOJI_DIR holds emoji-zwj-sequences.txt and emoji-variation-sequences.txt; they only add
-// candidates, V8's /\p{RGI_Emoji}/v decides membership.
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";

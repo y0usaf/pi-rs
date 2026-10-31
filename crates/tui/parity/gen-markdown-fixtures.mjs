@@ -1,12 +1,9 @@
-// Golden fixtures for Markdown: node parity/gen-markdown-fixtures.mjs <ref/packages/tui> > tests/fixtures/markdown.json
-// Needs marked@18.0.11, marked-cjk-friendly@0.1.2 and get-east-asian-width@1.6.0 resolvable from the ref tree.
 import { pathToFileURL } from "node:url";
 const src = (f) => pathToFileURL(`${process.argv[2]}/src/${f}`).href;
 const { Markdown } = await import(src("components/markdown.ts"));
 const { setCapabilities } = await import(src("terminal-image.ts"));
 
 const E = "\x1b";
-// chalk-like styles: reopen after an inner close, close/reopen around newlines.
 const sty = (open, close) => (s) => {
 	let t = s.split(`${E}[${close}m`).join(`${E}[${close}m${E}[${open}m`);
 	t = t.split("\n").join(`${E}[${close}m\n${E}[${open}m`);

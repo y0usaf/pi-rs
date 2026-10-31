@@ -1,8 +1,5 @@
-// node parity/gen-markdown-rules.mjs > src/components/markdown_rules.rs (marked@18.0.11 resolvable):
-// emits marked's gfm rules as Rust consts, JS regex syntax rewritten for fancy-regex.
 import { Lexer } from "marked";
 const R = Lexer.rules;
-// JS whitespace (\s) and dot differ from Rust's; spell them out.
 const WS = "\\t\\n\\x0B\\x0C\\r \\xA0\\x{1680}\\x{2000}-\\x{200A}\\x{2028}\\x{2029}\\x{202F}\\x{205F}\\x{3000}\\x{FEFF}";
 function conv(src) {
   let out = "", inClass = false;

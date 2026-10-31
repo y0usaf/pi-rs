@@ -1,6 +1,3 @@
-// Golden fixtures for the main-screen renderer: scripted frames rendered by upstream
-// TuiMainScreen; the exact bytes written to the terminal are recorded.
-// node parity/gen-render-fixtures.mjs <ref/packages/tui> > tests/fixtures/render.json
 import { pathToFileURL } from "node:url";
 const src = (f) => pathToFileURL(`${process.argv[2]}/src/${f}`).href;
 const { TuiMainScreen } = await import(src("tui-main-screen.ts"));
@@ -68,7 +65,6 @@ const mkLine = (w) => {
 	return s.length > 0 && rnd(10) === 0 ? s + CURSOR_MARKER : s;
 };
 const truncate = (s, w) => {
-	// keep lines inside the width so the renderer never throws
 	let out = "";
 	for (const ch of s) {
 		const t = out + ch;

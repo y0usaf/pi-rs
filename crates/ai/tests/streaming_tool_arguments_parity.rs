@@ -16,8 +16,6 @@ use pi_ai::types::{
 };
 use pi_ai::utils::streaming_json::ToolCallArgumentsStream;
 
-// #9265: every provider re-parsed the accumulated tool-call arguments on each delta.
-
 const LINES: usize = 200;
 const DELTA: usize = 24;
 
@@ -289,8 +287,6 @@ fn faux_streams_growing_arguments() {
 
 #[test]
 fn the_arguments_parser_keeps_one_parse_for_the_finished_text() {
-    // The providers hand the complete text to one full parse; the incremental parser only feeds the
-    // partial arguments in between.
     let (_, text) = write_arguments();
     let mut stream = ToolCallArgumentsStream::new();
     for piece in deltas(&text, DELTA) {

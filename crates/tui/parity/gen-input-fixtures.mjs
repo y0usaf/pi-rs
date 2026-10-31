@@ -1,4 +1,3 @@
-// Golden fixtures for Input: node parity/gen-input-fixtures.mjs <ref/packages/tui> > tests/fixtures/input.json
 import { pathToFileURL } from "node:url";
 const src = (f) => pathToFileURL(`${process.argv[2]}/src/${f}`).href;
 const { Input } = await import(src("components/input.ts"));

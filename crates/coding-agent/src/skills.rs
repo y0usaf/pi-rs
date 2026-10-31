@@ -75,7 +75,6 @@ fn parse_mapping(yaml: &str) -> Result<Vec<(String, Yaml)>, String> {
         let key = unquote_key(line[..colon].trim());
         let rest = strip_comment(line[colon + 1..].trim());
         i += 1;
-        // The lines that belong to this key: indented, or blank.
         let start = i;
         while i < lines.len() && (lines[i].trim().is_empty() || indent_of(lines[i]) > 0) {
             i += 1;
@@ -447,7 +446,6 @@ fn rule_matches(rule: &str, path: &str, is_dir: bool) -> bool {
     }
     let anchored = rule.contains('/');
     let segments: Vec<&str> = path.split('/').collect();
-    // A rule matching a parent directory ignores everything below it.
     for end in 1..=segments.len() {
         let is_last = end == segments.len();
         if dir_only && is_last && !is_dir {
@@ -495,7 +493,6 @@ fn read_entries(dir: &str) -> Option<Vec<Entry>> {
             is_file,
         });
     }
-    // Node's readdirSync goes through libuv's scandir, which sorts names with strcmp.
     entries.sort_by(|a, b| a.name.cmp(&b.name));
     Some(entries)
 }
@@ -660,7 +657,6 @@ pub fn load_skills(input: &SkillsInput) -> LoadedSkills {
         auto.extend(collect(&join(&agent_dir, "skills"), Mode::Pi));
         auto.extend(collect(&user_agents, Mode::Agents));
     }
-    // toResolvedPaths then mergePaths: drop paths whose real path was already seen.
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut paths: Vec<String> = Vec::new();
     let cli: Vec<String> = input

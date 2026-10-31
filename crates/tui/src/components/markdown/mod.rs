@@ -430,7 +430,6 @@ impl Markdown {
             }
             Kind::Html => lines.push(self.apply_default_style(js_trim(&token.raw))),
             Kind::Space => lines.push(String::new()),
-            // def has no text; inline kinds never reach here at block level
             Kind::Def | Kind::Checkbox => {}
             _ => lines.push(token.text.clone()),
         }
@@ -509,7 +508,6 @@ impl Markdown {
                     out += &((th.strikethrough)(&self.render_inline(&t.tokens, Some(ctx))) + prefix)
                 }
                 Kind::Html => out += &with_newlines(&t.raw),
-                // tokens without text (checkbox, space, hr, br-like) add nothing
                 Kind::Checkbox | Kind::Space | Kind::Hr | Kind::Def | Kind::List | Kind::Table => {}
                 _ => out += &with_newlines(&t.text),
             }

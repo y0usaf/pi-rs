@@ -56,7 +56,6 @@ fn rewrites_const_as_enum() {
     );
 }
 
-// Regression coverage for #11308.
 #[test]
 fn preserves_literal_data_under_non_schema_keywords() {
     let literal = json!({"const": "literal-data", "properties": {"nested": {"const": 1}}});

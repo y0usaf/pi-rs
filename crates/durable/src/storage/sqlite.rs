@@ -910,7 +910,6 @@ fn initialize(connection: &mut Connection) -> Result<(u64, u64)> {
             "Durable SQLite schema version {schema} is newer than supported version {latest}"
         )));
     }
-    // A new file starts at the version every build of this port has written; a sleep upgrades it.
     if schema == 0 {
         apply_migrations(connection, &SQLITE_MIGRATIONS[..1])?;
     }
@@ -1088,7 +1087,6 @@ pub fn read_session_overview(path: &Path) -> Result<SessionOverview> {
     let mut documents = statement.query([]).map_err(sql)?;
     let mut session_docs: Vec<(u64, String)> = Vec::new();
     while let Some(row) = documents.next().map_err(sql)? {
-        // Columns that carry a name store it JSON-encoded, as every indexed value does.
         let kind: String = decode(&row.get::<_, String>(1).map_err(sql)?)?;
         session_docs.push((row.get(0).map_err(sql)?, kind));
     }
@@ -1147,8 +1145,6 @@ impl Storage for SqliteStorage {
         let mut guard = self.lock();
         let state = &mut *guard;
         let connection = state.connection.as_mut().ok_or_else(closed)?;
-        // A sleep needs the schema version that admits it. A store an older build wrote stays at
-        // version 1 until then, so a TypeScript package at the older pin can still read it.
         let sleeping = writes.iter().any(|write| {
             matches!(write, StorageWrite::Table(change)
                 if matches!(change.as_ref(), TableChange::Task(record) if record.status() == TaskStatus::Sleeping))

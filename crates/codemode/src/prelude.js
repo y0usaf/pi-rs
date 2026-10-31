@@ -1,13 +1,6 @@
 (function (bridge, toolsJson, globalsJson, storeJson) {
 	"use strict";
 
-	// Freeze every object reachable from the built-in globals, plus the intrinsics that are only
-	// reachable from instances (iterator and generator prototypes, %TypedArray%).
-	//
-	// Freezing alone breaks ordinary code through the "override mistake": a data property that is
-	// read-only on a prototype cannot be assigned on an instance either, so
-	// this.name = "MyError" in an Error subclass would throw. Commonly overridden properties
-	// become accessors whose setter defines an own property on the instance instead.
 	(function lockdown() {
 		const OVERRIDABLE = new Set(["constructor", "name", "message", "toString", "toLocaleString", "valueOf", "toJSON"]);
 		const seen = new Set([globalThis]);
@@ -21,8 +14,6 @@
 			}
 		};
 
-		// Accessors from an object literal have no own prototype object, unlike function expressions,
-		// whose prototype.constructor would be converted again without end.
 		function allowOverride(object, key, value, enumerable) {
 			const { get, set } = Object.getOwnPropertyDescriptor(
 				{
@@ -99,7 +90,6 @@
 	const pending = new Map();
 	let nextId = 1;
 	let finished = false;
-	// Thrown by exit() to unwind the script after it already reported success.
 	const EXIT = Object.freeze({});
 
 	function done(ok, payload, writes) {
@@ -112,8 +102,6 @@
 		return value === undefined ? undefined : stringify(value);
 	}
 
-	// QuickJS stacks list frames only. Prefix "Name: message" like V8 so the
-	// text reads the same as a Node error, and drop this prelude's frames.
 	function errorText(error) {
 		const head = error.message ? error.name + ": " + error.message : String(error.name);
 		const frames =
@@ -134,8 +122,6 @@
 		}
 	}
 
-	// The host requires string fields. A script can set an error's name or message to anything, so
-	// they are coerced, and a value whose coercion throws gets a placeholder.
 	function describeError(error) {
 		try {
 			if (error instanceof ErrorCtor) {
@@ -167,7 +153,6 @@
 	const allTools = [];
 	for (const { name, jsName, description } of parse(toolsJson)) {
 		const fn = caller("call", name);
-		// The first tool wins when two names normalize to the same identifier.
 		if (!(jsName in tools)) {
 			tools[jsName] = fn;
 			allTools.push(Object.freeze({ name: jsName, description }));
@@ -177,8 +162,6 @@
 	Object.freeze(tools);
 	Object.freeze(allTools);
 
-	// Reading a member that does not exist throws an error that names the close matches, instead of
-	// a later "not a function". `in` checks still work.
 	const comparable = (name) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
 	function guard(target, label, names, hint) {
 		return new Proxy(target, {
@@ -223,7 +206,6 @@
 		Object.defineProperty(globalThis, namespace, { value, enumerable: true });
 	}
 
-	// key -> JSON text. Sizes count key and JSON characters.
 	const stored = new Map(Object.entries(parse(storeJson)));
 	const writes = new Map();
 	let storedChars = 0;
@@ -290,8 +272,6 @@
 	let outputChars = 0;
 	let outputItems = 0;
 
-	// Past the output limits the script fails: done() reports the error, so catching it does not
-	// resume output, and the host ends the script.
 	function output(kind, data, mimeType) {
 		if (finished) return;
 		outputChars += data.length;
@@ -307,7 +287,6 @@
 		bridge("output", kind, data, mimeType);
 	}
 
-	// Primitives become their string form, everything else JSON.
 	function outputText(value) {
 		if (value === undefined || value === null || typeof value !== "object" && typeof value !== "function") {
 			return String(value);
@@ -344,8 +323,6 @@
 		return "data:;base64," + value.data;
 	}
 
-	// Base64 of the signatures of the formats providers accept inline (PNG, JPEG except
-	// JPEG-LS, GIF, "RIFF....WEBP"). Signatures start at byte 0, so their encodings are prefixes.
 	const IMAGE_SIGNATURES = [
 		["image/png", /^iVBORw0KGg/],
 		["image/jpeg", /^[/]9j[/](?!9)/],
@@ -366,9 +343,6 @@
 		if (scheme !== "data" || comma === -1 || header.slice(1).every((part) => part.toLowerCase() !== "base64")) {
 			throw new TypeErrorCtor("invalid image output. Pass a base64 data URI instead");
 		}
-		// Providers reject the whole request on a bad image, and a persisted image block would be
-		// resent on every later turn. Line breaks from wrapped base64 are dropped. The declared type
-		// is ignored in favor of the detected one, as providers also reject mismatches.
 		const data = url.slice(comma + 1).replace(/\s+/g, "");
 		if (data.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) {
 			throw new TypeErrorCtor("invalid image output. The image data is not valid base64 (truncated or corrupted?)");

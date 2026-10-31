@@ -1,6 +1,3 @@
-// Port of upstream test/latex.test.ts to Rust: node parity/gen-latex-tests.mjs <ref/packages/tui> > tests/latex.rs
-// Runs the upstream test file with node:test / node:assert stubbed so every
-// assert.strictEqual(renderLatex(source, options), expected) is recorded with its test name.
 import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

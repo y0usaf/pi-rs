@@ -1062,7 +1062,6 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     };
     let mut selector: Option<(ComponentRef, ActionSlot)> = None;
     let mut login_dialog: Option<Rc<RefCell<LoginDialog>>> = None;
-    // The `/import` a confirmation dialog is asking about.
     let mut import_request: Option<String> = None;
     parts.mount(&mut tui, None);
     let shutdown = super::signals::Shutdown::install();
@@ -1165,7 +1164,6 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let mut quit = false;
     let mut next_timer = Instant::now();
     while !quit {
-        // Queued command-line messages go one per idle turn, as print mode sends them.
         if !chat.working && !pending.is_empty() {
             let (content, source) = pending.remove(0);
             match submit(&open.root, &model, content, source, false, &cancel, live) {
@@ -1286,14 +1284,11 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             match action {
                 Action::Interrupt => {
                     if !chat.working && bash.cancel() {
-                        // `abortBash`: the block ends as cancelled.
                     } else if !chat.working
                         && editor.borrow().get_text().trim_start().starts_with('!')
                     {
                         editor.borrow_mut().set_text("");
                     } else if chat.working {
-                        // `restoreQueuedMessagesToEditor({abort: true})`: the queued lines go
-                        // back in the editor before the run is aborted.
                         match take_queued(&open.root, &cancel) {
                             Ok((steering, follow_up)) => {
                                 let queued: Vec<String> =
@@ -1335,7 +1330,6 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         }
                         refresh_pending(&pending_area, &open.root, &cancel);
                     } else if !text.is_empty() {
-                        // Idle, it acts like Enter: the line is submitted as a prompt.
                         editor.borrow_mut().set_text("");
                         submitted.borrow_mut().push(text);
                     }

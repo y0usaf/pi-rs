@@ -1,5 +1,3 @@
-// Golden fixtures for StdinBuffer: random chunkings of terminal input with a fake clock.
-// node parity/gen-stdin-fixtures.mjs <ref/packages/tui> > tests/fixtures/stdin.json
 import { pathToFileURL } from "node:url";
 let now = 0;
 let timers = [];

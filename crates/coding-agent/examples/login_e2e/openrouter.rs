@@ -46,8 +46,6 @@ pub fn run(agent_dir: &str) {
         },
         agent_dir,
     );
-    // The screen shows the paste prompt while the browser's redirect races it; the answer arrives
-    // when the loopback server has taken the code.
     let arrival: std::sync::Arc<std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>> =
         Default::default();
     let arrival_taken = arrival.clone();

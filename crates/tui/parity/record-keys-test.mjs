@@ -1,5 +1,3 @@
-// Records every keys.ts call an upstream test makes, for replay against the Rust port.
-// Usage: node parity/record-keys-test.mjs <ref/packages/tui> <out.json>
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";

@@ -771,7 +771,6 @@ mod tests {
         let (input, out) = route_all(&mut r, &["\x1b[?62;4c", "\x1b[?1;2c"]);
         assert!(!r.kitty_active);
         assert_eq!(out, "\x1b[>4;2m");
-        // A second DA nobody asked for is input.
         assert_eq!(input, vec!["\x1b[?1;2c"]);
     }
 

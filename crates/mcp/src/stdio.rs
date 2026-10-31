@@ -235,7 +235,6 @@ impl Transport for StdioTransport {
         }
         let _ = child.kill();
         let _ = child.wait();
-        // The server's last words are usually written as it dies.
         if let Some(handle) = self.stderr_thread.take() {
             for _ in 0..20 {
                 if handle.is_finished() {

@@ -165,8 +165,6 @@ fn build_completion_value(path: &str, at: bool, quoted: bool) -> String {
     }
 }
 
-// POSIX path helpers with Node's semantics.
-
 fn normalize_string(path: &str, allow_above_root: bool) -> String {
     let mut out: Vec<&str> = Vec::new();
     for seg in path.split('/') {

@@ -1,6 +1,3 @@
-// Runs each case of e2e.json through upstream `pi` and `pi-rs` against a scripted
-// OpenAI-compatible server, then compares the requests (minus volatile fields) and the output.
-// Usage: node e2e.mjs CASES OUTDIR PI_RS_BIN   (PI_TS names the upstream checkout)
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -82,8 +79,6 @@ function normalize(body, dir) {
 	const copy = JSON.parse(scrub(JSON.stringify(body), dir));
 	delete copy.prompt_cache_key;
 	delete copy.metadata;
-	// Known pi-ai gap (crates/ai/parity/known.json): Rust sends `strict: false` on
-	// openai-completions tools where TS leaves it out for unknown providers.
 	for (const tool of copy.tools ?? []) delete tool.function?.strict;
 	return copy;
 }

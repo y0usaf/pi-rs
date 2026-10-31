@@ -1244,8 +1244,6 @@ fn main() -> Result<()> {
             let mut found = Vec::new();
             let mut traces = Vec::new();
             let mut covered = Vec::new();
-            // Both sides run at one path and one URL, so what derives from them (the prompt's cwd,
-            // its length, the tokens it counts) matches; each run then moves to its side's name.
             let root = scratch.join(name).join("run");
             let base_url = format!("http://127.0.0.1:{port}/{name}/v1");
             for (side, program) in SIDES.iter().zip(&programs) {

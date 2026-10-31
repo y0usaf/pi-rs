@@ -105,7 +105,6 @@ impl Source {
         let root = print::root(&harness, cancel).map_err(|e| e.to_string())?;
         let stream = root.events(cancel).map_err(|e| e.to_string())?;
         stream.start(sink).map_err(|e| e.to_string())?;
-        // Picks up a run a killed process left behind.
         harness.resume().map_err(|e| e.to_string())?;
         Ok(Open {
             harness,

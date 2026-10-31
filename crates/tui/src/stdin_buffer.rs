@@ -43,7 +43,6 @@ fn has_terminal_reply_header(s: &str) -> bool {
         return true;
     }
     if let Some(g) = rest.strip_prefix("_G") {
-        // One or more `x=123` separated by commas, then a semicolon.
         let b = g.as_bytes();
         let mut i = 0;
         loop {
@@ -179,14 +178,13 @@ fn extract_complete_sequences(buffer: &str) -> (Vec<String>, String) {
             continue;
         }
         let reply = is_control_string(remaining) && has_terminal_reply_header(remaining);
-        // Char boundaries of `remaining`, so candidate lengths step one character at a time.
         let bounds: Vec<usize> = remaining
             .char_indices()
             .map(|(i, _)| i)
             .skip(1)
             .chain([remaining.len()])
             .collect();
-        let mut k = 0; // candidate = remaining[..bounds[k]]
+        let mut k = 0;
         let mut finished = false;
         while k < bounds.len() {
             let end = bounds[k];
@@ -356,7 +354,6 @@ impl StdinBuffer {
         if self.deadline.is_some_and(|d| now >= d) {
             for seq in self.flush() {
                 if seq.chars().count() > 2 && is_control_string(&seq) {
-                    // Recover the Alt key and reparse its tail.
                     let split = seq.char_indices().nth(2).map_or(seq.len(), |(i, _)| i);
                     self.emit_data(seq[..split].to_string(), &mut out);
                     self.process_into(&seq[split..], now, &mut out);

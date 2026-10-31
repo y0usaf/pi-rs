@@ -1,5 +1,3 @@
-// Compares two JSON-lines files line by line, showing a line diff of the first differing
-// string field. Usage: node compare-lines.mjs LABEL TS.jsonl RS.jsonl
 import { readFileSync } from "node:fs";
 
 const [label, tsPath, rsPath] = process.argv.slice(2);

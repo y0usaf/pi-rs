@@ -83,7 +83,6 @@ fn counts_cached_characters_up_to_the_first_difference() {
         FauxResponse::Message(assistant("c")),
     ]);
 
-    // Prompt texts: "user:hello world" (16 characters), then 16 + 2 + "user:next" (9) = 27.
     let first = complete(&faux, &model, vec![user("hello world")]);
     assert_eq!(
         (
@@ -108,7 +107,6 @@ fn counts_cached_characters_up_to_the_first_difference() {
         extended.usage
     );
 
-    // The first message now differs after "user:hello w" (12 characters): "user:hello wide" + 2 + 9 = 26.
     let edited = complete(&faux, &model, vec![user("hello wide"), user("next")]);
     assert_eq!(
         (

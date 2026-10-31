@@ -235,7 +235,6 @@ fn main() -> Out<()> {
     let path = dir.join("sleep.db");
     let _ = std::fs::remove_file(&path);
     let cancel = CancelToken::new();
-    // A store as an older build wrote it: schema version 1, which has no sleeping status.
     create_v1(&path)?;
     {
         let connection = Connection::open(&path)?;
@@ -295,7 +294,6 @@ fn main() -> Out<()> {
         "a sleeping task holds no invocation",
     )?;
 
-    // A restart: nothing is held, so close returns without waiting for the backoff.
     let closed = Instant::now();
     harness.close(&cancel)?;
     check(

@@ -259,7 +259,6 @@ impl KeybindingsManager {
     fn rebuild(&mut self) {
         self.keys.clear();
         self.conflicts.clear();
-        // Claims in first-seen key order, ids in insertion order, as JS Maps and Sets keep them.
         let mut claims: Vec<(String, Vec<String>)> = Vec::new();
         for (id, keys) in &self.user {
             if self.definition(id).is_none() {
@@ -368,7 +367,6 @@ mod tests {
             .collect()
     }
 
-    // Ported from upstream test/keybindings.test.ts.
     #[test]
     fn ctrl_j_is_a_default_newline_alias() {
         let kb = KeybindingsManager::new(tui_keybindings(), vec![]);

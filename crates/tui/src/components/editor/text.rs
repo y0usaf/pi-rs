@@ -24,7 +24,6 @@ pub fn paste_marker_at(text: &str, i: usize) -> Option<(usize, u64)> {
     if tail.starts_with(MARKER_CLOSE) {
         return Some((head + 1, id));
     }
-    // Optional " +L lines" or " C chars", then the closing bracket.
     let lines_end = " lines\x5d";
     let chars_end = " chars\x5d";
     if let Some(t) = tail.strip_prefix(' ') {
@@ -230,7 +229,6 @@ pub fn matches_trigger(text: &str, triggers: &[String], debounce: bool) -> bool 
     };
     let unquoted = |s: &str| !s.chars().any(is_autocomplete_separator);
     let quoted = |s: &str| !s.contains(QUOTE);
-    // Token starts: the beginning, or just after a separator.
     let mut starts = vec![0];
     for (i, c) in text.char_indices() {
         if is_autocomplete_separator(c) {

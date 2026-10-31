@@ -76,9 +76,6 @@ pub fn lines(
         lines.push(Value::Object(entry));
         parent = Some(id);
     };
-    // Durable records no model or thinking change: both live in the agent document, so the
-    // branch carries the conversation's current pair at its head, where upstream writes them
-    // for a new session.
     if let Some(model) = &agent.model {
         let mut change = plain("model_change", &short_id(MODEL_CHANGE_ID), &timestamp);
         change.insert("provider".into(), model.provider.as_str().into());
@@ -104,8 +101,6 @@ pub fn lines(
             .filter(|entry| entry.kind == "pi.system" && entry.id > head)
             .min_by_key(|entry| entry.id)
     });
-    // The system prompt is appended when the first run starts, after the message that started
-    // it; upstream stores it first and pi-rs leads the transcript with it, so it goes first here.
     let stated = match (restated, view.head.as_ref().filter(|_| head.is_some())) {
         (Some(restated), _) => Some(EntryRecord::clone(restated)),
         (None, Some(compaction)) => prompt_at(root, &view, compaction, cancel)?,
@@ -512,7 +507,6 @@ pub fn write(
     cwd: &str,
     argument: Option<&str>,
 ) -> Result<String, String> {
-    // Upstream writes HTML for every other path, and for none; that export is not ported.
     let Some(argument) = argument.filter(|path| path.ends_with(".jsonl")) else {
         return Err("HTML export is not ported; name a path ending in .jsonl".to_owned());
     };

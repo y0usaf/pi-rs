@@ -435,7 +435,6 @@ fn main() -> Result<()> {
     }
     println!("stdio and http tools ok");
 
-    // --no-mcp leaves the servers out: no MCP tool is declared and the model's calls fail.
     requests.lock().map_err(|_| "requests lock")?.clear();
     let (stdout, stderr, status) = run(&bin, &scratch, &["--no-mcp"])?;
     if !status.success() {

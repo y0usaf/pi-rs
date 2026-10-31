@@ -446,8 +446,6 @@ impl ModelRegistry {
     }
 
     fn has_api_key_auth(&self, provider: &str) -> bool {
-        // Every built-in provider but openai-codex takes a key; a models.json provider gets key
-        // auth unless it only inherits OAuth.
         if self.builtin.contains(provider) {
             return provider != "openai-codex"
                 || self

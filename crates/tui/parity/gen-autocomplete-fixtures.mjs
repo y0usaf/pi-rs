@@ -1,5 +1,3 @@
-// Golden fixtures for autocomplete over a fixture tree.
-// node parity/gen-autocomplete-fixtures.mjs <ref/packages/tui> <fixture-root> > tests/fixtures/autocomplete.json
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";

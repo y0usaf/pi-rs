@@ -1,4 +1,3 @@
-// Golden fixtures for components: node parity/gen-components-fixtures.mjs <ref/packages/tui> > tests/fixtures/components.json
 import { pathToFileURL } from "node:url";
 const src = (f) => pathToFileURL(`${process.argv[2]}/src/${f}`).href;
 const { Text } = await import(src("components/text.ts"));

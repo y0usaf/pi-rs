@@ -176,7 +176,6 @@ fn editor_matches_upstream() {
                 break;
             }
             ed.handle_input(d);
-            // Upstream's onSubmit also records history.
             let submitted: Vec<String> = events
                 .borrow()
                 .iter()

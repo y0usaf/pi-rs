@@ -751,8 +751,6 @@ fn stream_with_deltas(
                     partial: partial.clone(),
                 });
                 let encoded = js::stringify(&Value::Object(call.arguments.clone()));
-                // Partial arguments come from the same parser real providers use, so consumers see them
-                // grow.
                 let mut arguments = ToolCallArgumentsStream::new();
                 for chunk in split_by_token_size(&encoded, core) {
                     pause(core, &chunk);

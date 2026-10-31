@@ -1,6 +1,3 @@
-// Token-tree fixtures: node parity/gen-markdown-tokens.mjs <ref/packages/tui> > tests/fixtures/markdown_tokens.json
-// Lexes every Markdown fixture input with upstream's configured marked instance and projects the
-// tokens onto the fields the Rust lexer keeps (see tests/markdown_lexer_parity.rs).
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 const dir = `${process.argv[2]}/src/components`;

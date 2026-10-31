@@ -65,7 +65,6 @@ fn input_matches_upstream() {
             }
         }
     }
-    // Known: V8 splits a repeated ideograph ("日日") into two words, ICU4X keeps one.
     assert!(
         diverged <= 10,
         "{diverged} scripts hit segmentation differences"

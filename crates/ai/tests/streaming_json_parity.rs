@@ -6,8 +6,6 @@ use pi_ai::utils::streaming_json::{
 };
 use serde_json::{Map, Value};
 
-// #9265: streamed tool-call arguments were re-parsed in full on every delta.
-
 /// A 31-bit linear congruential generator, so every run checks the same documents.
 struct Random(u64);
 
@@ -212,14 +210,12 @@ fn read_string(chars: &[char], start: usize) -> (String, bool, usize) {
             if end == chars.len() {
                 return (String::from_utf16_lossy(&units), false, end);
             }
-            // Not four hex digits: the escape stays literal and the next character is read normally.
             for character in &chars[index..end] {
                 push_units(&mut units, *character);
             }
             index = end;
             continue;
         }
-        // Invalid escape: the backslash stays literal and the next character is read normally.
         units.push('\\' as u16);
         index += 1;
     }
@@ -358,7 +354,6 @@ fn read_scalar(chars: &[char], start: usize, pending: bool) -> Option<Reference>
     if !pending {
         return None;
     }
-    // At the end of the text: a literal prefix, a number, or a number whose exponent has no digits.
     for (literal, value) in [
         ("true", Value::Bool(true)),
         ("false", Value::Bool(false)),
@@ -576,8 +571,6 @@ fn matches_the_reference_after_every_piece_at_every_chunk_size() {
 fn matches_parse_streaming_json_at_every_prefix_of_compact_documents() {
     for text in random_documents(2, 400, false) {
         for step in stream(&text, 1) {
-            // Documented differences: parse_streaming_json trims trailing whitespace, and shows an
-            // unfinished root null as {}.
             if step.read.ends_with(char::is_whitespace) {
                 continue;
             }
@@ -715,8 +708,6 @@ fn joins_surrogate_pairs_split_across_pieces() {
             );
         }
     }
-    // A lone high surrogate cannot live in a Rust String: it is held back like an unterminated
-    // escape and shows as U+FFFD once the string ends.
     let mut parser = StreamingJsonParser::new();
     parser.append(r#"{"a":"\ud83d"#);
     assert_eq!(
@@ -796,10 +787,6 @@ fn keeps_the_last_value_of_a_duplicate_key_in_the_first_keys_position() {
 
 /// Expected values of the inputs, from other partial-JSON parsers' public test suites.
 fn vectors() -> Vec<(&'static str, Option<Value>)> {
-    // partial-json (MIT, https://github.com/promplate/partial-json-parser-js), with every partial type
-    // allowed, as parse_streaming_json uses it. Differences, documented in the module: an invalid
-    // escape stays visible (partial-json cuts the string at the backslash), and Infinity/NaN words are
-    // not JSON and are dropped.
     let mut vectors: Vec<(&'static str, Option<Value>)> = vec![
         (r#"""#, Some(Value::from(""))),
         (r#"[""#, Some(serde_json::json!([""]))),
@@ -816,7 +803,6 @@ fn vectors() -> Vec<(&'static str, Option<Value>)> {
         ("-I", None),
         ("N", None),
     ];
-    // Vercel AI SDK fixJson (Apache-2.0): the expected values are the parses of its repaired texts.
     vectors.extend([
         ("", None),
         ("nul", Some(Value::Null)),
@@ -918,8 +904,6 @@ fn vectors() -> Vec<(&'static str, Option<Value>)> {
             r#"{"type":"div","children":[{"type":"Card","props":{}"#,
             Some(serde_json::json!({"type": "div", "children": [{"type": "Card", "props": {}}]})),
         ),
-        // Difference: fixJson completes 12. to 12; like parse_streaming_json, a number cut after its
-        // dot is omitted.
         ("12.", None),
         ("12.e", None),
     ]);
@@ -1065,7 +1049,6 @@ fn survives_random_corruption_of_valid_documents() {
         for step in steps_for(&corrupted, 0) {
             expect_json(&step.snapshot, &corrupted);
         }
-        // The changes keep a copy equal to the parser's own value, malformed or not.
         let mut parser = StreamingJsonParser::new();
         let mut mirror = Mirror::default();
         let mut index = 0;
@@ -1077,7 +1060,6 @@ fn survives_random_corruption_of_valid_documents() {
             mirror.apply(parser.append(&corrupted[index..end]));
             index = end;
         }
-        // A space ends a number or literal at the end, which snapshots show and changes do not yet.
         mirror.apply(parser.append(" "));
         assert_eq!(mirror.value, parser.snapshot().cloned(), "{corrupted}");
     }
@@ -1128,7 +1110,6 @@ fn changes_keep_a_copy_equal_to_the_value_read_so_far_and_to_a_full_parse_at_the
                     mirror.apply(parser.append(&text[index..end]));
                     index = end;
                     reads.push(text[..index].to_owned());
-                    // Changes leave out unterminated numbers and literals, which snapshots show.
                     assert_eq!(
                         mirror.value,
                         reference_snapshot(&text[..index], false),
@@ -1139,7 +1120,6 @@ fn changes_keep_a_copy_equal_to_the_value_read_so_far_and_to_a_full_parse_at_the
                 reads
             };
             let _ = steps;
-            // A space ends a number or literal at the very end, which changes report only then.
             mirror.apply(parser.append(" "));
             assert_eq!(
                 mirror.value,

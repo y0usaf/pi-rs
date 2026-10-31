@@ -11,8 +11,6 @@ fn opt(v: &Value) -> Option<String> {
 #[test]
 fn keys_match_upstream() {
     let _guard = ENV_LOCK.lock().unwrap();
-    // Lone surrogates (from `String.fromCodePoint(0xd800)`) are not valid JSON for serde_json;
-    // Rust strings cannot hold them either, so the fixture writes them as escapes we map to U+FFFD.
     let raw = include_str!("fixtures/keys.json").replace("\\ud800", "\\ufffd");
     let fx: Value = serde_json::from_str(&raw).unwrap();
     let ids: Vec<&str> = fx["ids"]

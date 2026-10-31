@@ -1963,7 +1963,6 @@ impl TaskScheduler {
         let callback = Arc::new(move || scheduler.wake());
         let armed = self.0.timers.foreground(callback, at.saturating_sub(now));
         let mut st = self.lock();
-        // A timer that fired inline may have armed its own: keep only one for this deadline.
         if st.closing || st.wake_timer.is_some() {
             armed();
             return;

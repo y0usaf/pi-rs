@@ -72,8 +72,6 @@ pub fn run(
         })
         .collect::<std::result::Result<_, _>>()?;
     std::fs::create_dir_all(session_dir).map_err(|e| e.to_string())?;
-    // The file keeps the session id its header declares, as upstream's copy does, and a suffix
-    // when that name is taken.
     let id = header
         .get("id")
         .and_then(Value::as_str)
@@ -240,7 +238,6 @@ fn write(
                     *dropped.entry(kind.to_owned()).or_default() += 1;
                     continue;
                 };
-                // A replacement carries only content; the target's own message supplies the rest.
                 let custom = mentioned.is_some_and(|target| customs.contains(target));
                 let action = match (
                     entry.get("replacement").and_then(|r| r.get("content")),

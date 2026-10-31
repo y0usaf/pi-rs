@@ -264,7 +264,6 @@ fn run() -> Result<ExitCode, String> {
         registry.network = false;
     }
     let registry = Arc::new(registry);
-    // Upstream's resolveAppMode: the TUI without -p or --mode when stdin and stdout are terminals.
     let tui = !parsed.print
         && parsed.mode.is_none()
         && std::io::stdin().is_terminal()
@@ -338,7 +337,6 @@ fn run() -> Result<ExitCode, String> {
     let mut mcp_notices: Vec<String> = mcp.problems();
     mcp_notices.extend(mcp.unreachable_warning());
 
-    // The session: a durable sqlite file, or memory with --no-session.
     let initial_name = parsed
         .name
         .as_deref()
@@ -435,7 +433,6 @@ fn run() -> Result<ExitCode, String> {
         });
     }
 
-    // A first look at the stored conversation, for --continue's model and thinking level.
     let cancel = CancelToken::new();
     let (session_model, session_thinking) = match session_path
         .as_deref()
@@ -486,13 +483,11 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::from(1));
     }
 
-    // RPC mode reads its commands from stdin, as upstream does.
     let stdin = if matches!(mode, Some(Mode::Rpc)) {
         None
     } else {
         piped_stdin()
     };
-    // Upstream starts the TUI without -p or --mode when stdin and stdout are terminals.
     let interactive = !parsed.print
         && mode.is_none()
         && stdin.is_none()

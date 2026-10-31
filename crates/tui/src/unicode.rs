@@ -107,8 +107,6 @@ pub struct WordSegment<'a> {
 pub fn word_segments(s: &str) -> Vec<WordSegment<'_>> {
     use icu_segmenter::WordSegmenter;
     use icu_segmenter::options::WordBreakInvariantOptions;
-    // ICU's dictionaries for CJK match V8 best; for South-East Asian scripts ICU4X's model
-    // segmenter is closer.
     let sea = s
         .chars()
         .any(|c| matches!(c as u32, 0x0E00..=0x0EFF | 0x1000..=0x109F | 0x1780..=0x17FF));
@@ -122,8 +120,6 @@ pub fn word_segments(s: &str) -> Vec<WordSegment<'_>> {
     let mut prev = it.next().unwrap_or(0);
     for b in it {
         let segment = &s[prev..b];
-        // ICU's word-like statuses (letter, number, kana, ideo) all mean the segment holds a letter
-        // or number; ICU4X's own flag marks some emoji as word-like.
         let is_word_like = segment.chars().any(|c| is_letter(c) || is_number(c));
         out.push(WordSegment {
             index: prev,

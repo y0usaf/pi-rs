@@ -1,4 +1,3 @@
-// Golden fixtures for utils: node parity/gen-utils-fixtures.mjs <ref/packages/tui> > tests/fixtures/utils.json
 import { pathToFileURL } from "node:url";
 const u = await import(pathToFileURL(process.argv[2] + "/src/utils.ts").href);
 const E = "\x1b";

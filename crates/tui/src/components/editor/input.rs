@@ -101,7 +101,6 @@ impl Editor {
                     self.emit_change();
                     return;
                 }
-                // Slash commands fall through to submit.
             }
         }
 

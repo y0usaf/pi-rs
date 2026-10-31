@@ -176,7 +176,6 @@ fn anthropic_copy_code(agent_dir: &str) {
         "auth.json is two-space pretty"
     );
 
-    // The stored token is what a request carries.
     let models = serde_json::json!({
         "providers": {"anthropic": {"baseUrl": "http://127.0.0.1:1"}}
     });
@@ -407,7 +406,6 @@ fn serve_oauth(listener: TcpListener) {
 }
 
 fn token_reply(body: &str) -> (&'static str, String) {
-    // Anthropic posts JSON, OpenAI Codex a form; the fields read the same way.
     let value: serde_json::Value = match serde_json::from_str(body) {
         Ok(value) => value,
         Err(_) => {

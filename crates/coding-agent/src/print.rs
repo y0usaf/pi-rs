@@ -256,8 +256,6 @@ pub fn transcript_after(
             _ => break,
         }
     }
-    // Hidden entries (a cut-off reply the harness dropped) are left out, as upstream prints
-    // from the projected context.
     let kept: Vec<_> = entries
         .into_iter()
         .filter(|(id, _)| !omitted.contains(id))
@@ -293,7 +291,6 @@ pub fn run_turns(
         cancel,
     )?;
     let mut prompts: Vec<UserContent> = Vec::new();
-    // `session.prompt` sends `[{type: "text", text}, ...images]`, never a bare string.
     if let Some((text, images)) = &input.initial {
         let mut blocks = vec![text_block(crate::prompt_templates::expand(
             text,
@@ -498,10 +495,8 @@ pub fn open_harness_with(
         HarnessOptions {
             models: mounted.models,
             registry,
-            // Upstream's agent loop sends a bad call's error as bare text.
             settings: Some(HarnessSettings {
                 tool_errors: Some(ToolErrorStyle::Plain),
-                // A reply cut by the output limit is hidden and retried after compaction.
                 length_recovery: Some(true),
                 steering_first: Some(true),
                 compaction: Some(compaction),

@@ -1,5 +1,3 @@
-// Golden fixtures for Editor: node parity/gen-editor-fixtures.mjs <ref/packages/tui> > tests/fixtures/editor.json
-// Random key scripts with a small in-memory autocomplete provider (mirrored in tests/editor_parity.rs).
 import { pathToFileURL } from 'node:url';
 const src = (f) => pathToFileURL(`${process.argv[2]}/src/${f}`).href;
 const { Editor } = await import(src('components/editor.ts'));

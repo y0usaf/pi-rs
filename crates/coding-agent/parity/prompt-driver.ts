@@ -1,7 +1,3 @@
-// Builds the system prompt for each case of prompt.json the way upstream's print mode does
-// (DefaultResourceLoader + the built-in tools' prompt contributions + buildSystemPrompt),
-// printing one JSON line per case like examples/prompt_parity.rs.
-// Usage: node --import <pi>/.../source-resolver.ts prompt-driver.ts CASES WORKDIR
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";

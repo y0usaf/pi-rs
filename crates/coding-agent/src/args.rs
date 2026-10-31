@@ -110,7 +110,6 @@ fn error(message: impl Into<String>) -> Diagnostic {
 pub fn parse(args: &[String]) -> Args {
     let mut r = Args::default();
     let mut i = 0;
-    // `args[i + 1]` when there is one.
     let next = |i: usize| args.get(i + 1).map(String::as_str);
     while i < args.len() {
         let arg = args[i].as_str();

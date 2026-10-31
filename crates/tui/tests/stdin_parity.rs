@@ -54,7 +54,6 @@ fn stdin_buffer_matches_upstream() {
 
 #[test]
 fn astral_characters_stay_whole() {
-    // Upstream emits the two UTF-16 halves of an astral character as separate events.
     let mut buf = StdinBuffer::default();
     assert_eq!(
         buf.process("a\u{1F600}", 0),

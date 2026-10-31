@@ -92,10 +92,6 @@ fn token(name: &str) -> Option<(&'static str, Slot, Option<&'static str>)> {
     TOKENS.iter().find(|(token, ..)| *token == name).copied()
 }
 
-// ============================================================================
-// Parsing color values
-// ============================================================================
-
 /// A CSS number: [+-]?( digits[.digits] | .digits )(e[+-]digits)?
 fn number(text: &str) -> Option<(f64, &str)> {
     let bytes = text.as_bytes();
@@ -210,10 +206,6 @@ fn function_args(mut rest: &str) -> Option<[(f64, Option<char>); 3]> {
     let tail = rest.strip_prefix(')')?;
     tail.trim().is_empty().then_some(values)
 }
-
-// ============================================================================
-// Loading themes
-// ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Appearance {
@@ -830,10 +822,6 @@ pub fn poll_terminal_colors(core: &mut TuiCore, now: u64) -> Option<u64> {
     }
     core.terminal_colors.deadline()
 }
-
-// ============================================================================
-// Drawing
-// ============================================================================
 
 fn ansi(theme: &Theme, name: &str, background: bool) -> String {
     match theme.ansi(name, background) {

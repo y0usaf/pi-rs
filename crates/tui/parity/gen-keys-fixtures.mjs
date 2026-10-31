@@ -1,4 +1,3 @@
-// Golden fixtures for keys: node parity/gen-keys-fixtures.mjs <ref/packages/tui> > tests/fixtures/keys.json
 import { pathToFileURL } from "node:url";
 delete process.env.WT_SESSION;
 const k = await import(pathToFileURL(process.argv[2] + "/src/keys.ts").href);

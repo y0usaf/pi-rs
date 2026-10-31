@@ -1,7 +1,3 @@
-// Compares the JSON lines of the TS and Rust tool drivers. Each side's work directory is
-// replaced by DIR, and temp file names by TMP, before comparing. For cases marked `unordered`
-// (fd and rg walk directories in parallel), the lines before the first blank line are sorted.
-// Usage: node compare-tools.mjs TS.jsonl RS.jsonl CASES.json
 import { readFileSync } from "node:fs";
 
 const unordered = new Set(

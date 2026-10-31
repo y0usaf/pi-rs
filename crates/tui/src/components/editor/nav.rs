@@ -286,7 +286,6 @@ impl Editor {
                     find_from(line, ch, from)
                 }
             } else if current {
-                // lastIndexOf with a negative start only matches at 0.
                 match self.state.cursor_col.checked_sub(1) {
                     Some(from) => rfind_upto(line, ch, from),
                     None => line.starts_with(ch).then_some(0),

@@ -49,7 +49,6 @@ pub fn git_branch(cwd: &str) -> Option<String> {
         let head = if git.is_dir() {
             Some(git.join("HEAD"))
         } else if git.is_file() {
-            // A worktree: `gitdir: <path>`.
             let text = std::fs::read_to_string(&git).ok()?;
             let path = text.trim().strip_prefix("gitdir:")?.trim().to_string();
             Some(dir.join(path).join("HEAD"))

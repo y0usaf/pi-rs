@@ -103,8 +103,6 @@ pub fn registration(description: String) -> ToolRegistration {
         },
         replay: None,
         execution_mode: None,
-        // The script's output is formatted and truncated here, as upstream does, so the
-        // harness's own bound is lifted.
         output_limits: Some(OutputLimitsSpec {
             max_bytes: Some(usize::MAX),
             max_lines: Some(usize::MAX),

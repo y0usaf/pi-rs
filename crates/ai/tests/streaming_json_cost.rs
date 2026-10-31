@@ -97,7 +97,6 @@ fn stream_snapshots(text: &str, delta: usize) -> Option<Value> {
 
 #[test]
 fn parser_cost_is_linear_in_the_streamed_text() {
-    // Tool-call arguments: ten times the text must cost about ten times the memory, not a hundred.
     let small = write_arguments(5_000);
     let large = write_arguments(50_000);
     let small_bytes = allocated(|| stream_snapshots(&small, 32));
@@ -114,7 +113,6 @@ fn parser_cost_is_linear_in_the_streamed_text() {
         large_bytes / small_bytes
     );
 
-    // A very large open array keeps its preview behind, which keeps the cost linear.
     let elements = |count: usize| {
         let items: Vec<String> = (0..count).map(|index| index.to_string()).collect();
         format!("{{\"items\":[{}]}}", items.join(","))
@@ -135,7 +133,6 @@ fn parser_cost_is_linear_in_the_streamed_text() {
         large_bytes / small_bytes
     );
 
-    // The preview only moves forward, and ends on the whole value.
     let mut parser = StreamingJsonParser::new();
     let mut shown = 0;
     for piece in deltas(&large_array, 16) {
@@ -148,8 +145,6 @@ fn parser_cost_is_linear_in_the_streamed_text() {
         assert!(items >= shown, "the preview only moves forward");
         shown = items;
     }
-    // Copying costs the open path's bytes, so the preview stays a little behind the text; it never
-    // shows anything but the elements read so far.
     let expected: Value = serde_json::from_str(&large_array).expect("valid JSON");
     let expected_items = expected["items"].as_array().cloned().unwrap_or_default();
     let shown_items = parser
@@ -164,11 +159,9 @@ fn parser_cost_is_linear_in_the_streamed_text() {
         shown_items.len(),
         expected_items.len()
     );
-    // Every element but the last, which may still be arriving, matches what is read so far.
     let settled = shown_items.len().saturating_sub(1);
     assert_eq!(shown_items[..settled], expected_items[..settled]);
 
-    // One huge piece, such as a provider's complete arguments, is also linear.
     let bytes = allocated(|| {
         let mut parser = StreamingJsonParser::new();
         parser.append(&large);

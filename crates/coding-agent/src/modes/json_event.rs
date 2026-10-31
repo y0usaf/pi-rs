@@ -105,7 +105,6 @@ impl Mapper {
     /// The event as JSON lines: one per assistant delta, one for everything else.
     pub fn lines(&mut self, event: &AgentEvent) -> Vec<Value> {
         match event {
-            // The current state, not a change; clients start from the commands they send.
             AgentEvent::Snapshot(snapshot) => {
                 self.seed(snapshot);
                 Vec::new()
@@ -459,8 +458,6 @@ fn assistant_event(change: &MessageChange) -> Option<Value> {
                 "toolCall": value(call),
             }),
         },
-        // The whole-message fallback: `message_end` carries that message authoritatively, and
-        // upstream's streamed events never carry it.
         MessageChange::Message { .. } => return None,
     })
 }

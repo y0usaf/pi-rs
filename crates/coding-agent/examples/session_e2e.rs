@@ -224,7 +224,6 @@ fn main() -> Result<()> {
     need_files(&scratch, &alone, "the first run")?;
     println!("a session in project a is {}", source.display());
 
-    // A whole id, then a prefix of it, name the session that exists: same file, nothing new.
     for arg in [id.clone(), id.chars().take(8).collect()] {
         let mut args = base.to_vec();
         args.extend(["--session", &arg]);
@@ -249,8 +248,6 @@ fn main() -> Result<()> {
         ));
     }
 
-    // Another project's session, by prefix, with a stdin that ends at once: upstream names the
-    // project, asks, and does nothing, because nothing answered.
     let prefix: String = id.chars().take(8).collect();
     let mut args = base.to_vec();
     args.extend(["--session", &prefix]);
@@ -282,7 +279,6 @@ fn main() -> Result<()> {
     need_files(&scratch, &alone, "a refused fork")?;
     println!("a refused fork changes nothing");
 
-    // An accepted one copies the session into this project, recording where it came from.
     let out = scratch.run(&bin, "b", &args, &format!("yes\n{GET_STATE}"))?;
     let forked = answered(&out).ok_or("the fork named no sessionFile")?;
     if forked.parent() == source.parent() || !forked.is_file() {
@@ -308,7 +304,6 @@ fn main() -> Result<()> {
     }
     println!("an accepted fork copies it into project b");
 
-    // --fork reads the same argument: another project's session, by prefix, without a prompt.
     let mut args = base.to_vec();
     args.extend(["--fork", &prefix]);
     let out = scratch.run(&bin, "b", &args, GET_STATE)?;
@@ -320,7 +315,6 @@ fn main() -> Result<()> {
     need_files(&scratch, &expected, "--fork by prefix")?;
     println!("--fork {prefix} finds project a's session");
 
-    // Nothing matches: the run says so and exits 1.
     for flag in ["--session", "--fork"] {
         let mut args = base.to_vec();
         args.extend([flag, "no-such-session"]);
