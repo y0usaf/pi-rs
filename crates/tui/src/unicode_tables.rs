@@ -1,4 +1,3 @@
-
 pub(crate) static ZERO_WIDTH: &[(u32, u32)] = &[
     (0x0, 0x1f),
     (0x7f, 0x9f),
