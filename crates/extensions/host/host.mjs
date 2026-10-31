@@ -114,6 +114,11 @@ const { executeBashWithOperations } = await import(new URL("core/bash-executor.j
 const { getAvailableThemesWithPaths, getThemeByName, initTheme } = await import(
 	new URL("modes/interactive/theme/theme.js", dist)
 );
+const { KeybindingsManager } = await import(new URL("core/keybindings.js", dist));
+const { FooterDataProvider } = await import(new URL("core/footer-data-provider.js", dist));
+const { setKeybindings, setKittyProtocolActive } = await import(
+	new URL("./node_modules/@earendil-works/pi-tui/dist/index.js", import.meta.url)
+);
 const { flowOf } = await import(new URL("./node_modules/@earendil-works/pi-ai/dist/providers/all.js", import.meta.url));
 const usage = await import(new URL("core/compaction/compaction.js", dist));
 const { getLatestCompactionEntry } = await import(new URL("core/session-manager.js", dist));
@@ -900,12 +905,272 @@ function uiDialog(opts, fallback, fields, parse, timeout) {
 const uiChosen = (response) => (response.cancelled ? undefined : "value" in response ? response.value : undefined);
 const uiConfirmed = (response) => (response.cancelled ? false : "confirmed" in response ? response.confirmed : false);
 
+const screen = { columns: 80, rows: 24, expanded: false };
+const hosted = new Map();
+const overlaysShown = new Map();
+const widgetsShown = new Map();
+const chrome = { footer: undefined, header: undefined };
+let nextHosted = 1;
+let drawQueued = false;
+let footerData;
+let keybindings;
+
+function hostedFailed(entry, error) {
+	effect({
+		call: "error",
+		path: entry.member,
+		event: "render",
+		error: error instanceof Error ? error.message : String(error),
+		stack: error instanceof Error ? error.stack : undefined,
+	});
+}
+
+function rendered(entry) {
+	try {
+		return entry.component.render(entry.width);
+	} catch (error) {
+		hostedFailed(entry, error);
+		return [];
+	}
+}
+
+function hostComponent(component, member, width) {
+	const id = nextHosted++;
+	const entry = { component, member, width, drawn: undefined };
+	hosted.set(id, entry);
+	const shown = {
+		component: id,
+		input: typeof component.handleInput === "function",
+		focusable: "focused" in component,
+		keyRelease: component.wantsKeyRelease === true,
+	};
+	if (width === undefined) return shown;
+	const lines = rendered(entry);
+	entry.drawn = JSON.stringify([width, lines]);
+	return { ...shown, drawn: { width, lines } };
+}
+
+function draw(id, entry) {
+	if (entry.width === undefined) return;
+	const lines = rendered(entry);
+	const drawn = JSON.stringify([entry.width, lines]);
+	if (drawn === entry.drawn) return;
+	entry.drawn = drawn;
+	uiShow({ method: "componentLines", component: id, width: entry.width, lines });
+}
+
+function requestDraw() {
+	if (drawQueued) return;
+	drawQueued = true;
+	setImmediate(() => {
+		drawQueued = false;
+		for (const [id, entry] of hosted) draw(id, entry);
+	});
+}
+
+function dropHosted(id) {
+	const entry = hosted.get(id);
+	if (!entry) return;
+	hosted.delete(id);
+	overlaysShown.delete(id);
+	entry.component.dispose?.();
+}
+
+function overlayVisible(visible) {
+	return Boolean(visible(screen.columns, screen.rows));
+}
+
+function overlayOf(component, options, member) {
+	const shown = hostComponent(component, member, undefined);
+	const { visible, ...placed } = options ?? {};
+	const id = shown.component;
+	if (typeof visible === "function") overlaysShown.set(id, { visible, now: overlayVisible(visible) });
+	const line = uiRequest({
+		method: "showOverlay",
+		hosted: shown,
+		options: placed,
+		visible: overlaysShown.get(id)?.now ?? true,
+	});
+	let hidden = false;
+	const act = (action, fields) => uiShow({ method: "overlay", component: id, action, ...fields });
+	return {
+		id,
+		line,
+		handle: {
+			hide: () => {
+				act("hide");
+				hosted.delete(id);
+				overlaysShown.delete(id);
+			},
+			setHidden: (value) => {
+				hidden = value;
+				act("setHidden", { hidden: value });
+			},
+			isHidden: () => hidden,
+			focus: () => act("focus"),
+			unfocus: (unfocusOptions) => {
+				if (unfocusOptions?.target !== undefined) throw unported("OverlayHandle.unfocus with a target");
+				act("unfocus");
+			},
+			isFocused: () => askNow("ui", { line: uiRequest({ method: "overlayFocused", component: id }) }),
+			getBounds: () => askNow("ui", { line: uiRequest({ method: "overlayBounds", component: id }) }) ?? undefined,
+		},
+	};
+}
+
+const hostTui = {
+	requestRender: () => requestDraw(),
+	terminal: {
+		get columns() {
+			return screen.columns;
+		},
+		get rows() {
+			return screen.rows;
+		},
+	},
+	showOverlay: (component, options) => {
+		const overlay = overlayOf(component, options, "tui.showOverlay");
+		effect({ call: "ui", line: overlay.line });
+		return overlay.handle;
+	},
+	hideOverlay: () => uiShow({ method: "hideTopOverlay" }),
+};
+
+function fromScreen(message) {
+	const entry = hosted.get(message.component);
+	switch (message.action) {
+		case "size":
+			screen.columns = message.columns;
+			screen.rows = message.rows;
+			for (const [id, overlay] of overlaysShown) {
+				const now = overlayVisible(overlay.visible);
+				if (now === overlay.now) continue;
+				overlay.now = now;
+				uiShow({ method: "overlay", component: id, action: "visible", visible: now });
+			}
+			return;
+		case "kitty":
+			setKittyProtocolActive(message.active);
+			return;
+		case "expanded": {
+			screen.expanded = message.expanded;
+			const header = hosted.get(chrome.header);
+			if (typeof header?.component.setExpanded !== "function") return;
+			try {
+				header.component.setExpanded(message.expanded);
+			} catch (error) {
+				hostedFailed(header, error);
+			}
+			requestDraw();
+			return;
+		}
+		case "providers":
+			footerData?.setAvailableProviderCount(message.count);
+			return;
+		case "render":
+			if (!entry) return;
+			entry.width = message.width;
+			draw(message.component, entry);
+			return;
+		case "input":
+			if (!entry) return;
+			try {
+				entry.component.handleInput?.(message.data);
+			} catch (error) {
+				hostedFailed(entry, error);
+			}
+			requestDraw();
+			return;
+		case "focus":
+			if (!entry) return;
+			entry.component.focused = message.focused;
+			requestDraw();
+			return;
+		case "removed":
+			hosted.delete(message.component);
+			overlaysShown.delete(message.component);
+			return;
+		default:
+			throw new Error(`unknown screen action: ${message.action}`);
+	}
+}
+
+function showCustom(theme, factory, options) {
+	return new Promise((resolve, reject) => {
+		let id;
+		let shownComponent;
+		let closed = false;
+		const overlay = options?.overlay ?? false;
+		const close = (result) => {
+			if (closed) return;
+			closed = true;
+			if (id !== undefined) {
+				uiShow(overlay ? { method: "overlay", component: id, action: "hide" } : { method: "customClose", component: id });
+				hosted.delete(id);
+				overlaysShown.delete(id);
+			}
+			resolve(result);
+			try {
+				shownComponent?.dispose?.();
+			} catch {}
+		};
+		const shownUntil = (line, inline) => {
+			askStream("ui", { line }).answer.then(
+				() => {
+					if (inline && !closed) dropHosted(id);
+				},
+				() => {},
+			);
+		};
+		Promise.resolve(factory(hostTui, theme, keybindings, close))
+			.then((component) => {
+				if (closed) return;
+				shownComponent = component;
+				if (!overlay) {
+					const shown = hostComponent(component, "ctx.ui.custom", screen.columns);
+					id = shown.component;
+					shownUntil(uiRequest({ method: "custom", hosted: shown }), true);
+					return;
+				}
+				const given = typeof options?.overlayOptions === "function" ? options.overlayOptions() : options?.overlayOptions;
+				const placed = given ?? (component.width ? { width: component.width } : undefined);
+				const shown = overlayOf(component, placed, "ctx.ui.custom");
+				id = shown.id;
+				shownUntil(shown.line, false);
+				options?.onHandle?.(shown.handle);
+			})
+			.catch((error) => {
+				if (closed) return;
+				reject(error);
+			});
+	});
+}
+
+function chromeOf(slot, member, method, make) {
+	if (chrome[slot] !== undefined) {
+		const old = chrome[slot];
+		chrome[slot] = undefined;
+		dropHosted(old);
+	}
+	if (!make) {
+		uiShow({ method, hosted: null });
+		return;
+	}
+	const shown = hostComponent(make(), member, screen.columns);
+	chrome[slot] = shown.component;
+	uiShow({ method, hosted: shown });
+}
+
 function tuiUI(noOp) {
 	const dialog = (opts, fallback, fields, parse) => uiDialog(opts, fallback, fields, parse, undefined);
 	const read = (method) => askNow("ui", { line: uiRequest({ method }) });
 	const restoreOnly = (member) => (factory) => {
 		if (factory !== undefined) throw unported(member);
 	};
+	const theme = noOp.theme;
+	keybindings ??= KeybindingsManager.create();
+	setKeybindings(keybindings);
+	footerData ??= new FooterDataProvider(state.cwd);
 	return {
 		select: (title, options, opts) =>
 			dialog(opts, undefined, { method: "select", title, options, timeout: opts?.timeout }, uiChosen),
@@ -915,23 +1180,46 @@ function tuiUI(noOp) {
 			dialog(opts, undefined, { method: "input", title, timeout: opts?.timeout }, uiChosen),
 		notify: (message, type) => uiShow({ method: "notify", message, notifyType: type }),
 		onTerminalInput: thrower("ctx.ui.onTerminalInput"),
-		setStatus: (key, text) => uiShow({ method: "setStatus", statusKey: key, statusText: text }),
+		setStatus: (key, text) => {
+			footerData.setExtensionStatus(key, text);
+			uiShow({ method: "setStatus", statusKey: key, statusText: text });
+		},
 		setWorkingMessage: (message) => uiShow({ method: "setWorkingMessage", message }),
 		setWorkingVisible: (visible) => uiShow({ method: "setWorkingVisible", visible }),
 		setWorkingIndicator: (options) => uiShow({ method: "setWorkingIndicator", indicator: options }),
 		setHiddenThinkingLabel: (label) => uiShow({ method: "setHiddenThinkingLabel", label }),
 		setWidget: (key, content, options) => {
-			if (typeof content === "function") throw unported("ctx.ui.setWidget with a component");
-			uiShow({ method: "setWidget", widgetKey: key, widgetLines: content, widgetPlacement: options?.placement });
+			const old = widgetsShown.get(key);
+			widgetsShown.delete(key);
+			if (old !== undefined) dropHosted(old);
+			if (typeof content !== "function") {
+				uiShow({ method: "setWidget", widgetKey: key, widgetLines: content, widgetPlacement: options?.placement });
+				return;
+			}
+			const shown = hostComponent(content(hostTui, theme), "ctx.ui.setWidget", screen.columns);
+			widgetsShown.set(key, shown.component);
+			uiShow({ method: "setWidgetComponent", widgetKey: key, hosted: shown, widgetPlacement: options?.placement });
 		},
-		setFooter: restoreOnly("ctx.ui.setFooter"),
-		setHeader: restoreOnly("ctx.ui.setHeader"),
+		setFooter: (factory) =>
+			chromeOf("footer", "ctx.ui.setFooter", "setFooter", factory && (() => factory(hostTui, theme, footerData))),
+		setHeader: (factory) =>
+			chromeOf(
+				"header",
+				"ctx.ui.setHeader",
+				"setHeader",
+				factory &&
+					(() => {
+						const header = factory(hostTui, theme);
+						if (typeof header.setExpanded === "function") header.setExpanded(screen.expanded);
+						return header;
+					}),
+			),
 		setTitle: (title) => uiShow({ method: "setTitle", title }),
-		custom: rejecter("ctx.ui.custom"),
+		custom: (factory, options) => showCustom(theme, factory, options),
 		pasteToEditor: (text) => uiShow({ method: "paste_to_editor", text }),
 		setEditorText: (text) => uiShow({ method: "set_editor_text", text }),
 		getEditorText: () => read("get_editor_text"),
-		editor: rejecter("ctx.ui.editor"),
+		editor: (title, prefill) => dialog(undefined, undefined, { method: "editor", title, prefill }, uiChosen),
 		addAutocompleteProvider: thrower("ctx.ui.addAutocompleteProvider"),
 		setEditorComponent: restoreOnly("ctx.ui.setEditorComponent"),
 		getEditorComponent: () => undefined,
@@ -1482,6 +1770,10 @@ function receive(line) {
 	}
 	if (request.cancel !== undefined) {
 		inflight.get(request.cancel)?.abort();
+		return;
+	}
+	if (request.ui !== undefined) {
+		fromScreen(request.ui);
 		return;
 	}
 	const controller = new AbortController();

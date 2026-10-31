@@ -1,4 +1,5 @@
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::time::{Duration, Instant};
@@ -10,15 +11,19 @@ use pi_tui::components::loader::LoaderIndicatorOptions;
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
 use pi_tui::terminal::Terminal;
-use pi_tui::tui::{Component, ComponentRef, Container, component, same};
+use pi_tui::tui::{Component, ComponentRef, Container, OverlayId, component, overlay_width, same};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::chat::{Chat, DEFAULT_THINKING_LABEL};
 use super::footer::Footer;
+use super::hosted::{Hosted, HostedWire, OverlayWire, ToHost};
 use super::screen::Screen;
-use super::selectors::extension::{ExtensionDialog, ExtensionInput, ExtensionSelector, Outcome};
+use super::selectors::extension::{
+    ExtensionDialog, ExtensionEditor, ExtensionInput, ExtensionSelector, Outcome,
+};
 use super::theme::fg;
+use crate::extensions::Live;
 
 const MAX_WIDGET_LINES: usize = 10;
 const PUMP_MS: u64 = 16;
@@ -96,6 +101,51 @@ enum Shown {
     PasteToEditor { text: String },
     #[serde(rename = "setToolsExpanded")]
     SetToolsExpanded { expanded: bool },
+    #[serde(rename = "componentLines")]
+    ComponentLines {
+        component: u64,
+        width: usize,
+        lines: Vec<String>,
+    },
+    #[serde(rename = "customClose")]
+    CustomClose { component: u64 },
+    #[serde(rename = "showOverlay")]
+    ShowOverlay {
+        hosted: HostedWire,
+        #[serde(default)]
+        options: Option<OverlayWire>,
+        visible: bool,
+    },
+    #[serde(rename = "overlay")]
+    Overlay {
+        component: u64,
+        #[serde(flatten)]
+        action: OverlayAction,
+    },
+    #[serde(rename = "hideTopOverlay")]
+    HideTopOverlay,
+    #[serde(rename = "setWidgetComponent")]
+    SetWidgetComponent {
+        #[serde(rename = "widgetKey")]
+        key: String,
+        hosted: HostedWire,
+        #[serde(default, rename = "widgetPlacement")]
+        placement: Option<String>,
+    },
+    #[serde(rename = "setFooter")]
+    SetFooter { hosted: Option<HostedWire> },
+    #[serde(rename = "setHeader")]
+    SetHeader { hosted: Option<HostedWire> },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "action", rename_all = "camelCase")]
+enum OverlayAction {
+    Hide,
+    SetHidden { hidden: bool },
+    Focus,
+    Unfocus,
+    Visible { visible: bool },
 }
 
 #[derive(Deserialize)]
@@ -121,10 +171,29 @@ enum Asked {
         #[serde(default)]
         timeout: Option<f64>,
     },
+    #[serde(rename = "editor")]
+    Editor {
+        title: String,
+        #[serde(default)]
+        prefill: Option<String>,
+    },
     #[serde(rename = "get_editor_text")]
     GetEditorText,
     #[serde(rename = "get_tools_expanded")]
     GetToolsExpanded,
+    #[serde(rename = "custom")]
+    Custom { hosted: HostedWire },
+    #[serde(rename = "showOverlay")]
+    ShowOverlay {
+        hosted: HostedWire,
+        #[serde(default)]
+        options: Option<OverlayWire>,
+        visible: bool,
+    },
+    #[serde(rename = "overlayFocused")]
+    OverlayFocused { component: u64 },
+    #[serde(rename = "overlayBounds")]
+    OverlayBounds { component: u64 },
 }
 
 enum Message {
@@ -177,6 +246,7 @@ enum Kind {
     Select,
     Confirm,
     Input,
+    Editor,
 }
 
 impl Kind {
@@ -184,17 +254,48 @@ impl Kind {
         match (self, outcome) {
             (_, Outcome::Cancelled) => json!({ "cancelled": true }),
             (Kind::Confirm, Outcome::Chosen(option)) => json!({ "confirmed": option == "Yes" }),
-            (Kind::Select | Kind::Input, Outcome::Chosen(value)) => json!({ "value": value }),
+            (Kind::Select | Kind::Input | Kind::Editor, Outcome::Chosen(value)) => {
+                json!({ "value": value })
+            }
         }
     }
 }
 
+enum Waiting {
+    Answer {
+        dialog: Rc<RefCell<dyn ExtensionDialog>>,
+        kind: Kind,
+        cancel: CancelToken,
+        answer: Sender<Value>,
+    },
+    Hosted {
+        component: u64,
+        saved: String,
+        answer: Sender<Value>,
+    },
+}
+
+struct Overlay {
+    shown: OverlayId,
+    visible: Rc<Cell<bool>>,
+    answer: Option<Sender<Value>>,
+}
+
+impl Overlay {
+    fn closed(self) {
+        if let Some(answer) = self.answer {
+            let _ = answer.send(closed());
+        }
+    }
+}
+
+fn closed() -> Value {
+    json!({ "closed": true })
+}
+
 struct Open {
-    dialog: Rc<RefCell<dyn ExtensionDialog>>,
     shown: ComponentRef,
-    kind: Kind,
-    cancel: CancelToken,
-    answer: Sender<Value>,
+    waiting: Waiting,
 }
 
 fn open<D: ExtensionDialog + 'static>(
@@ -206,11 +307,27 @@ fn open<D: ExtensionDialog + 'static>(
     let dialog = component(dialog);
     Open {
         shown: dialog.clone(),
-        dialog,
-        kind,
-        cancel,
-        answer,
+        waiting: Waiting::Answer {
+            dialog,
+            kind,
+            cancel,
+            answer,
+        },
     }
+}
+
+struct Widget {
+    key: String,
+    shown: ComponentRef,
+    hosted: Option<u64>,
+}
+
+#[derive(Default)]
+struct Told {
+    size: Option<(usize, usize)>,
+    kitty: Option<bool>,
+    expanded: Option<bool>,
+    providers: Option<usize>,
 }
 
 fn widget(lines: &[String]) -> ComponentRef {
@@ -234,7 +351,11 @@ pub struct Surface {
     pub widgets_above: Rc<RefCell<Container>>,
     pub widgets_below: Rc<RefCell<Container>>,
     pub footer: Rc<RefCell<Footer>>,
+    pub footer_slot: Rc<RefCell<Container>>,
+    pub header_slot: Rc<RefCell<Container>>,
+    pub built_in_header: ComponentRef,
     pub dialog_open: Rc<Cell<bool>>,
+    pub external_editor: Box<dyn Fn() -> String>,
 }
 
 #[derive(Default)]
@@ -247,11 +368,16 @@ pub struct ExtensionUi {
     receiver: Receiver<Message>,
     surface: Surface,
     start: Instant,
-    installed: bool,
+    live: Option<&'static Live>,
     closing: bool,
     dialogs: Vec<Open>,
-    above: Vec<(String, ComponentRef)>,
-    below: Vec<(String, ComponentRef)>,
+    above: Vec<Widget>,
+    below: Vec<Widget>,
+    hosted: HashMap<u64, Rc<RefCell<Hosted>>>,
+    overlays: HashMap<u64, Overlay>,
+    footer: Option<u64>,
+    header: Option<(u64, ComponentRef)>,
+    told: Told,
     effects: Effects,
     pub working_message: Option<String>,
     pub working_visible: bool,
@@ -265,11 +391,16 @@ impl ExtensionUi {
             receiver,
             surface,
             start,
-            installed: false,
+            live: None,
             closing: false,
             dialogs: Vec::new(),
             above: Vec::new(),
             below: Vec::new(),
+            hosted: HashMap::new(),
+            overlays: HashMap::new(),
+            footer: None,
+            header: None,
+            told: Told::default(),
             effects: Effects::default(),
             working_message: None,
             working_visible: true,
@@ -278,9 +409,9 @@ impl ExtensionUi {
         (ui, Requests(sender))
     }
 
-    pub fn install(&mut self, live: &crate::extensions::Live, requests: Requests) {
+    pub fn install(&mut self, live: &'static Live, requests: Requests) {
         live.set_ui(std::sync::Arc::new(requests));
-        self.installed = true;
+        self.live = Some(live);
     }
 
     fn now(&self) -> u64 {
@@ -294,17 +425,59 @@ impl ExtensionUi {
     pub fn due(&self) -> Option<u64> {
         self.dialogs
             .iter()
-            .filter_map(|open| open.dialog.borrow().due())
+            .filter_map(|open| match &open.waiting {
+                Waiting::Answer { dialog, .. } => dialog.borrow().due(),
+                Waiting::Hosted { .. } => None,
+            })
             .min()
     }
 
     pub fn serve(&mut self, tui: &mut Screen, chat: &mut Chat) -> bool {
         let now = self.now();
+        self.tell(tui, chat);
         let mut drew = false;
         while let Ok(message) = self.receiver.try_recv() {
             drew |= self.apply(message, tui, chat, now);
         }
         drew | self.settle(tui, chat, now)
+    }
+
+    fn tell(&mut self, tui: &mut Screen, chat: &Chat) {
+        let Some(live) = self.live else {
+            return;
+        };
+        let terminal = tui.terminal();
+        let size = (terminal.columns(), terminal.rows());
+        if self.told.size != Some(size) {
+            self.told.size = Some(size);
+            live.ui(&ToHost::Size {
+                columns: size.0,
+                rows: size.1,
+            });
+        }
+        let kitty = pi_tui::keys::is_kitty_protocol_active();
+        if self.told.kitty != Some(kitty) {
+            self.told.kitty = Some(kitty);
+            live.ui(&ToHost::Kitty { active: kitty });
+        }
+        if self.told.expanded != Some(chat.expanded) {
+            self.told.expanded = Some(chat.expanded);
+            live.ui(&ToHost::Expanded {
+                expanded: chat.expanded,
+            });
+        }
+        let providers = self.surface.footer.borrow().state.provider_count;
+        if self.told.providers != Some(providers) {
+            self.told.providers = Some(providers);
+            live.ui(&ToHost::Providers { count: providers });
+        }
+    }
+
+    fn host(&mut self, wire: HostedWire) -> Option<Rc<RefCell<Hosted>>> {
+        let id = wire.component;
+        let proxy = component(Hosted::new(self.live?, wire));
+        self.hosted.insert(id, proxy.clone());
+        Some(proxy)
     }
 
     fn apply(&mut self, message: Message, tui: &mut Screen, chat: &mut Chat, now: u64) -> bool {
@@ -330,9 +503,65 @@ impl ExtensionUi {
                         let _ = answer.send(json!(expanded));
                         return false;
                     }
+                    Asked::ShowOverlay {
+                        hosted,
+                        options,
+                        visible,
+                    } => {
+                        if self.closing {
+                            let _ = answer.send(closed());
+                            return false;
+                        }
+                        self.show_overlay(tui, hosted, options, visible, Some(answer));
+                        return false;
+                    }
+                    Asked::OverlayFocused { component } => {
+                        let focused = self
+                            .overlays
+                            .get(&component)
+                            .is_some_and(|overlay| tui.is_overlay_focused(overlay.shown));
+                        let _ = answer.send(json!(focused));
+                        return false;
+                    }
+                    Asked::OverlayBounds { component } => {
+                        let bounds = self
+                            .overlays
+                            .get(&component)
+                            .and_then(|overlay| tui.overlay_bounds(overlay.shown))
+                            .map_or(Value::Null, |bounds| {
+                                json!({
+                                    "row": bounds.row,
+                                    "col": bounds.col,
+                                    "width": bounds.width,
+                                    "height": bounds.height,
+                                })
+                            });
+                        let _ = answer.send(bounds);
+                        return false;
+                    }
+                    Asked::Custom { .. } if self.closing => {
+                        let _ = answer.send(closed());
+                        return false;
+                    }
                     _ if self.closing => {
                         let _ = answer.send(dismissed);
                         return false;
+                    }
+                    Asked::Custom { hosted } => {
+                        let component = hosted.component;
+                        let Some(proxy) = self.host(hosted) else {
+                            let _ = answer.send(closed());
+                            return false;
+                        };
+                        let saved = self.surface.editor.borrow().get_text();
+                        Open {
+                            shown: proxy,
+                            waiting: Waiting::Hosted {
+                                component,
+                                saved,
+                                answer,
+                            },
+                        }
                     }
                     Asked::Select {
                         title,
@@ -362,6 +591,12 @@ impl ExtensionUi {
                     Asked::Input { title, timeout } => open(
                         ExtensionInput::new(&title, timeout, now),
                         Kind::Input,
+                        cancel,
+                        answer,
+                    ),
+                    Asked::Editor { title, prefill } => open(
+                        ExtensionEditor::new(&title, prefill.as_deref()),
+                        Kind::Editor,
                         cancel,
                         answer,
                     ),
@@ -409,16 +644,137 @@ impl ExtensionUi {
                 lines,
                 placement,
             } => {
-                self.above.retain(|(shown, _)| *shown != key);
-                self.below.retain(|(shown, _)| *shown != key);
-                if let Some(lines) = lines {
-                    let placed = match placement.as_deref() {
-                        Some("belowEditor") => &mut self.below,
-                        _ => &mut self.above,
-                    };
-                    placed.push((key, widget(&lines)));
+                let shown = lines.map(|lines| Widget {
+                    key: key.clone(),
+                    shown: widget(&lines),
+                    hosted: None,
+                });
+                self.place_widget(&key, shown, placement.as_deref());
+            }
+            Shown::SetWidgetComponent {
+                key,
+                hosted,
+                placement,
+            } => {
+                let component = hosted.component;
+                let Some(proxy) = self.host(hosted) else {
+                    return false;
+                };
+                let shown = Widget {
+                    key: key.clone(),
+                    shown: proxy,
+                    hosted: Some(component),
+                };
+                self.place_widget(&key, Some(shown), placement.as_deref());
+            }
+            Shown::ComponentLines {
+                component,
+                width,
+                lines,
+            } => {
+                return self
+                    .hosted
+                    .get(&component)
+                    .is_some_and(|proxy| proxy.borrow_mut().draw(width, lines));
+            }
+            Shown::CustomClose { component } => {
+                self.hosted.remove(&component);
+                let index = self.dialogs.iter().position(|open| {
+                    matches!(open.waiting, Waiting::Hosted { component: shown, .. } if shown == component)
+                });
+                let Some(index) = index else {
+                    return false;
+                };
+                if let Waiting::Hosted { saved, answer, .. } = self.dialogs.remove(index).waiting {
+                    self.surface.editor.borrow_mut().set_text(&saved);
+                    let _ = answer.send(closed());
                 }
-                self.render_widgets();
+                self.show_top(tui);
+            }
+            Shown::ShowOverlay {
+                hosted,
+                options,
+                visible,
+            } => self.show_overlay(tui, hosted, options, visible, None),
+            Shown::Overlay { component, action } => {
+                let Some(overlay) = self.overlays.get_mut(&component) else {
+                    return false;
+                };
+                match action {
+                    OverlayAction::Hide => {
+                        tui.hide_overlay_id(overlay.shown);
+                        self.hosted.remove(&component);
+                        if let Some(overlay) = self.overlays.remove(&component) {
+                            overlay.closed();
+                        }
+                    }
+                    OverlayAction::SetHidden { hidden } => {
+                        tui.set_overlay_hidden(overlay.shown, hidden);
+                    }
+                    OverlayAction::Focus => tui.focus_overlay(overlay.shown),
+                    OverlayAction::Unfocus => tui.unfocus_overlay(overlay.shown, None),
+                    OverlayAction::Visible { visible } => {
+                        overlay.visible.set(visible);
+                        tui.request_render(false);
+                    }
+                }
+            }
+            Shown::HideTopOverlay => {
+                tui.hide_overlay();
+                let gone: Vec<u64> = self
+                    .overlays
+                    .iter()
+                    .filter(|(_, overlay)| !tui.is_overlay_shown(overlay.shown))
+                    .map(|(component, _)| *component)
+                    .collect();
+                for component in gone {
+                    self.removed(component);
+                }
+            }
+            Shown::SetFooter { hosted } => {
+                if let Some(old) = self.footer.take() {
+                    self.hosted.remove(&old);
+                }
+                let component = hosted.as_ref().map(|wire| wire.component);
+                let shown: ComponentRef = match hosted.and_then(|wire| self.host(wire)) {
+                    Some(proxy) => {
+                        self.footer = component;
+                        proxy
+                    }
+                    None => self.surface.footer.clone(),
+                };
+                let mut slot = self.surface.footer_slot.borrow_mut();
+                slot.clear();
+                slot.add_child(shown);
+            }
+            Shown::SetHeader { hosted } => {
+                let current = match self.header.take() {
+                    Some((old, proxy)) => {
+                        self.hosted.remove(&old);
+                        proxy
+                    }
+                    None => self.surface.built_in_header.clone(),
+                };
+                let component = hosted.as_ref().map(|wire| wire.component);
+                let next: Option<ComponentRef> =
+                    match (component, hosted.and_then(|wire| self.host(wire))) {
+                        (Some(component), Some(proxy)) => {
+                            let proxy: ComponentRef = proxy;
+                            self.header = Some((component, proxy.clone()));
+                            Some(proxy)
+                        }
+                        _ => None,
+                    };
+                let mut slot = self.surface.header_slot.borrow_mut();
+                let index = slot.children.iter().position(|shown| same(shown, &current));
+                match (index, next) {
+                    (Some(index), Some(next)) => slot.children[index] = next,
+                    (None, Some(next)) => slot.children.insert(0, next),
+                    (Some(index), None) => {
+                        slot.children[index] = self.surface.built_in_header.clone()
+                    }
+                    (None, None) => {}
+                }
             }
             Shown::SetTitle { title } => tui.set_title(&title),
             Shown::SetEditorText { text } => self.surface.editor.borrow_mut().set_text(&text),
@@ -432,17 +788,77 @@ impl ExtensionUi {
         true
     }
 
+    fn removed(&mut self, component: u64) {
+        self.hosted.remove(&component);
+        if let Some(overlay) = self.overlays.remove(&component) {
+            overlay.closed();
+        }
+        if let Some(live) = self.live {
+            live.ui(&ToHost::Removed { component });
+        }
+    }
+
+    fn show_overlay(
+        &mut self,
+        tui: &mut Screen,
+        hosted: HostedWire,
+        options: Option<OverlayWire>,
+        visible: bool,
+        answer: Option<Sender<Value>>,
+    ) {
+        let component = hosted.component;
+        let Some(proxy) = self.host(hosted) else {
+            if let Some(answer) = answer {
+                let _ = answer.send(closed());
+            }
+            return;
+        };
+        let visible = Rc::new(Cell::new(visible));
+        let options = options.unwrap_or_default().options(visible.clone());
+        let terminal = tui.terminal();
+        let width = overlay_width(&options, terminal.columns(), terminal.rows());
+        proxy.borrow_mut().request(width);
+        let shown = tui.show_overlay(proxy, Some(options));
+        self.overlays.insert(
+            component,
+            Overlay {
+                shown,
+                visible,
+                answer,
+            },
+        );
+    }
+
+    fn place_widget(&mut self, key: &str, shown: Option<Widget>, placement: Option<&str>) {
+        for placed in [&mut self.above, &mut self.below] {
+            placed.retain(|widget| {
+                let kept = widget.key != key;
+                if let (false, Some(hosted)) = (kept, widget.hosted) {
+                    self.hosted.remove(&hosted);
+                }
+                kept
+            });
+        }
+        if let Some(shown) = shown {
+            match placement {
+                Some("belowEditor") => self.below.push(shown),
+                _ => self.above.push(shown),
+            }
+        }
+        self.render_widgets();
+    }
+
     fn render_widgets(&self) {
         let mut above = self.surface.widgets_above.borrow_mut();
         above.clear();
         above.add_child(component(Spacer::new(1)));
-        for (_, shown) in &self.above {
-            above.add_child(shown.clone());
+        for widget in &self.above {
+            above.add_child(widget.shown.clone());
         }
         let mut below = self.surface.widgets_below.borrow_mut();
         below.clear();
-        for (_, shown) in &self.below {
-            below.add_child(shown.clone());
+        for widget in &self.below {
+            below.add_child(widget.shown.clone());
         }
     }
 
@@ -451,21 +867,41 @@ impl ExtensionUi {
         let mut drew = false;
         let mut index = 0;
         while index < self.dialogs.len() {
-            let open = &self.dialogs[index];
+            let Waiting::Answer {
+                dialog,
+                kind,
+                cancel,
+                answer,
+            } = &self.dialogs[index].waiting
+            else {
+                index += 1;
+                continue;
+            };
             let outcome = {
-                let mut dialog = open.dialog.borrow_mut();
+                let mut dialog = dialog.borrow_mut();
                 if dialog.take_tools_toggle() {
                     let expanded = self.effects.tools_expanded.unwrap_or(chat.expanded);
                     self.effects.tools_expanded = Some(!expanded);
                 }
                 drew |= dialog.tick(now);
+                if let Some(content) = dialog.take_external() {
+                    let command = (self.surface.external_editor)();
+                    tui.stop(false);
+                    let edited = super::external_editor::edit(&command, &content);
+                    tui.start();
+                    tui.request_render(true);
+                    if let Some(text) = edited {
+                        dialog.edited(&text);
+                    }
+                    drew = true;
+                }
                 dialog.take_outcome()
             };
-            if open.cancel.is_cancelled() || outcome.is_some() {
-                let open = self.dialogs.remove(index);
-                if let Some(outcome) = outcome.filter(|_| !open.cancel.is_cancelled()) {
-                    let _ = open.answer.send(open.kind.response(outcome));
+            if cancel.is_cancelled() || outcome.is_some() {
+                if let Some(outcome) = outcome.filter(|_| !cancel.is_cancelled()) {
+                    let _ = answer.send(kind.response(outcome));
                 }
+                self.dialogs.remove(index);
                 drew = true;
                 continue;
             }
@@ -487,11 +923,25 @@ impl ExtensionUi {
 
     fn close_dialogs(&mut self, tui: &mut Screen) {
         self.closing = true;
+        let shown: Vec<u64> = self.overlays.keys().copied().collect();
+        for component in shown {
+            self.removed(component);
+        }
         if self.dialogs.is_empty() {
             return;
         }
         for open in self.dialogs.drain(..) {
-            let _ = open.answer.send(open.kind.response(Outcome::Cancelled));
+            match open.waiting {
+                Waiting::Answer { kind, answer, .. } => {
+                    let _ = answer.send(kind.response(Outcome::Cancelled));
+                }
+                Waiting::Hosted {
+                    component, answer, ..
+                } => {
+                    self.hosted.remove(&component);
+                    let _ = answer.send(closed());
+                }
+            }
         }
         self.show_top(tui);
     }
@@ -518,7 +968,7 @@ impl ExtensionUi {
         quit: &dyn Fn() -> bool,
         work: impl FnOnce() -> T + Send + 'static,
     ) -> Option<T> {
-        if !self.installed {
+        if self.live.is_none() {
             return Some(work());
         }
         let (done, finished) = channel();

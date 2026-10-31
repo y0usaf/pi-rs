@@ -996,6 +996,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let editor_slot = container(vec![as_ref(&editor)]);
     let widgets_above = container(vec![as_ref(&component(Spacer::new(1)))]);
     let widgets_below = container(Vec::new());
+    let footer_slot = container(vec![as_ref(&footer)]);
     let viewport_parts = ViewportParts {
         document: as_ref(&document),
         pending: as_ref(&pending_area),
@@ -1003,7 +1004,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         widgets_above: as_ref(&widgets_above),
         editor: as_ref(&editor_slot),
         widgets_below: as_ref(&widgets_below),
-        footer: as_ref(&container(vec![as_ref(&footer)])),
+        footer: as_ref(&footer_slot),
     };
     let viewport = chat_viewport(&viewport_parts, settings.borrow().fullscreen_scrollbar());
     let fullscreen = tui_mode.as_deref().unwrap_or(settings.borrow().tui_mode()) == "fullscreen";
@@ -1041,7 +1042,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         if is_key_release(data) {
             return None;
         }
-        if sel_open.get() {
+        if sel_open.get() || !ed.borrow().focused {
             return None;
         }
         let kb = pi_tui::keybindings::get_keybindings();
@@ -1124,15 +1125,18 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     }
     starting.set(false);
 
+    let header_shown = match &built_in_header {
+        Some(built_in) => as_ref(built_in),
+        None => as_ref(&component(Text::new("", 0, 0))),
+    };
     {
         let mut header = header_container.borrow_mut();
-        match &built_in_header {
-            Some(built_in) => {
-                header.add_child(as_ref(&component(Spacer::new(1))));
-                header.add_child(as_ref(built_in));
-                header.add_child(as_ref(&component(Spacer::new(1))));
-            }
-            None => header.add_child(as_ref(&component(Text::new("", 0, 0)))),
+        if built_in_header.is_some() {
+            header.add_child(as_ref(&component(Spacer::new(1))));
+            header.add_child(header_shown.clone());
+            header.add_child(as_ref(&component(Spacer::new(1))));
+        } else {
+            header.add_child(header_shown.clone());
         }
     }
     let resource_sections = if show_details {
@@ -1189,19 +1193,19 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             widgets_above: widgets_above.clone(),
             widgets_below: widgets_below.clone(),
             footer: footer.clone(),
+            footer_slot: footer_slot.clone(),
+            header_slot: header_container.clone(),
+            built_in_header: header_shown.clone(),
             dialog_open: selector_open.clone(),
+            external_editor: {
+                let settings = settings.clone();
+                Box::new(move || settings.borrow().external_editor_command())
+            },
         },
         start,
     );
     let quitting = || super::signals::requested() || wants_quit(&actions);
     let mut shown_title: Option<String> = None;
-    refresh_title(
-        &mut tui,
-        &footer,
-        &mut shown_title,
-        session_info::name(&open.harness, &cancel),
-        &cwd,
-    );
     let mut handed: Option<(String, String)> = None;
     if let Some(live) = live {
         extension_ui.install(live, requests);
@@ -1218,6 +1222,13 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             live.event("session_start", json!({ "reason": "startup" }))
         });
     }
+    refresh_title(
+        &mut tui,
+        &footer,
+        &mut shown_title,
+        session_info::name(&open.harness, &cancel),
+        &cwd,
+    );
     let mut interrupted = false;
     let mut last_clear: Option<Instant> = None;
     let mut quit = false;

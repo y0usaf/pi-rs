@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use pi_tui::components::editor::{Editor, EditorOptions};
 use pi_tui::components::input::Input;
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
@@ -8,7 +9,7 @@ use pi_tui::keybindings::get_keybindings;
 use pi_tui::tui::{Component, ComponentRef, Container, component};
 
 use super::{border, key_hint, raw_key_hint};
-use crate::interactive::theme::{bold, fg};
+use crate::interactive::theme::{self, bold, fg};
 
 struct Rule;
 
@@ -78,6 +79,12 @@ pub trait ExtensionDialog: Component {
     fn tick(&mut self, now: u64) -> bool;
 
     fn due(&self) -> Option<u64>;
+
+    fn take_external(&mut self) -> Option<String> {
+        None
+    }
+
+    fn edited(&mut self, _text: &str) {}
 }
 
 struct Timed {
@@ -296,5 +303,102 @@ impl ExtensionDialog for ExtensionInput {
 
     fn due(&self) -> Option<u64> {
         self.timed.due()
+    }
+}
+
+pub struct ExtensionEditor {
+    editor: Rc<RefCell<Editor>>,
+    layout: Container,
+    submitted: Rc<RefCell<Option<String>>>,
+    outcome: Option<Outcome>,
+    external: bool,
+}
+
+impl ExtensionEditor {
+    pub fn new(title: &str, prefill: Option<&str>) -> Self {
+        let submitted = Rc::new(RefCell::new(None));
+        let mut editor = Editor::new(theme::editor(), EditorOptions::default());
+        if let Some(prefill) = prefill.filter(|prefill| !prefill.is_empty()) {
+            editor.set_text(prefill);
+        }
+        let sink = submitted.clone();
+        editor.on_submit = Some(Box::new(move |text: &str| {
+            *sink.borrow_mut() = Some(text.to_owned());
+        }));
+        let editor = component(editor);
+        let hint = format!(
+            "{}  {}  {}  {}",
+            key_hint("tui.select.confirm", "submit"),
+            key_hint("tui.input.newLine", "newline"),
+            key_hint("tui.select.cancel", "cancel"),
+            key_hint("app.editor.external", "external editor")
+        );
+        let title = component(Text::new(&fg("accent", title), 1, 0));
+        let layout = dialog_layout(title, editor.clone(), &hint);
+        ExtensionEditor {
+            editor,
+            layout,
+            submitted,
+            outcome: None,
+            external: false,
+        }
+    }
+}
+
+impl Component for ExtensionEditor {
+    fn render(&mut self, width: usize) -> Vec<String> {
+        self.layout.render(width)
+    }
+
+    fn invalidate(&mut self) {
+        self.layout.invalidate();
+    }
+
+    fn accepts_input(&self) -> bool {
+        true
+    }
+
+    fn is_focusable(&self) -> bool {
+        true
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        self.editor.borrow_mut().set_focused(focused);
+    }
+
+    fn handle_input(&mut self, data: &str) {
+        let kb = get_keybindings();
+        if kb.matches(data, "tui.select.cancel") {
+            self.outcome = Some(Outcome::Cancelled);
+        } else if kb.matches(data, "app.editor.external") {
+            self.external = true;
+        } else {
+            self.editor.borrow_mut().handle_input(data);
+            if let Some(text) = self.submitted.borrow_mut().take() {
+                self.outcome = Some(Outcome::Chosen(text));
+            }
+        }
+    }
+}
+
+impl ExtensionDialog for ExtensionEditor {
+    fn take_outcome(&mut self) -> Option<Outcome> {
+        self.outcome.take()
+    }
+
+    fn tick(&mut self, _now: u64) -> bool {
+        false
+    }
+
+    fn due(&self) -> Option<u64> {
+        None
+    }
+
+    fn take_external(&mut self) -> Option<String> {
+        std::mem::take(&mut self.external).then(|| self.editor.borrow().get_text())
+    }
+
+    fn edited(&mut self, text: &str) {
+        self.editor.borrow_mut().set_text(text);
     }
 }

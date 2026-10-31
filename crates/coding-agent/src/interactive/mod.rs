@@ -8,6 +8,7 @@ pub mod extension_ui;
 pub mod external_editor;
 pub mod footer;
 pub mod header;
+pub mod hosted;
 pub mod keybindings;
 pub mod messages;
 pub mod open_browser;

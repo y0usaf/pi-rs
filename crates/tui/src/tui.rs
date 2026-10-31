@@ -410,6 +410,10 @@ fn anchor_col(a: OverlayAnchor, w: i64, avail: i64, left: i64) -> i64 {
     }
 }
 
+pub fn overlay_width(opt: &OverlayOptions, tw: usize, th: usize) -> usize {
+    resolve_overlay_layout(opt, 0, tw, th).width as usize
+}
+
 pub(crate) fn resolve_overlay_layout(
     opt: &OverlayOptions,
     overlay_height: i64,
@@ -848,6 +852,10 @@ impl TuiCore {
             self.hide_terminal_cursor();
         }
         self.request_render(false);
+    }
+
+    pub fn is_overlay_shown(&self, id: OverlayId) -> bool {
+        self.entry(id).is_some()
     }
 
     /// Remove the topmost overlay and restore the previous focus.

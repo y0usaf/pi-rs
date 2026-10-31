@@ -238,6 +238,10 @@ impl Host {
         lock(&self.0.failure).clone()
     }
 
+    pub fn ui(&self, message: &impl serde::Serialize) -> Result<(), String> {
+        self.0.write(&json!({ "ui": message }))
+    }
+
     pub fn wait_answered(&self, call: &str) {
         let mut unanswered = lock(&self.0.unanswered);
         while unanswered.contains_key(call) {

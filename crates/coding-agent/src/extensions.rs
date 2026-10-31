@@ -1276,6 +1276,10 @@ impl Live {
         *lock(&self.0.sink.ui) = Some(ui);
     }
 
+    pub fn ui(&self, message: &impl serde::Serialize) {
+        let _ = self.0.host.ui(message);
+    }
+
     pub fn cancels(&self, name: &str, payload: Value) -> bool {
         self.handles(name)
             && self
