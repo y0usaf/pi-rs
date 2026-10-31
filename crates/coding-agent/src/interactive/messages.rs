@@ -119,6 +119,7 @@ impl Component for CustomMessage {
 pub struct AssistantView {
     parts: Vec<Box<dyn Component>>,
     hide_thinking: bool,
+    thinking_label: String,
     output_pad: usize,
     has_tool_calls: bool,
     last: Option<AssistantMessage>,
@@ -133,10 +134,11 @@ fn visible(block: &AssistantBlock) -> bool {
 }
 
 impl AssistantView {
-    pub fn new(hide_thinking: bool, output_pad: usize) -> Self {
+    pub fn new(hide_thinking: bool, thinking_label: &str, output_pad: usize) -> Self {
         AssistantView {
             parts: Vec::new(),
             hide_thinking,
+            thinking_label: thinking_label.to_owned(),
             output_pad,
             has_tool_calls: false,
             last: None,
@@ -146,9 +148,10 @@ impl AssistantView {
     pub fn with_message(
         message: &AssistantMessage,
         hide_thinking: bool,
+        thinking_label: &str,
         output_pad: usize,
     ) -> Self {
-        let mut view = Self::new(hide_thinking, output_pad);
+        let mut view = Self::new(hide_thinking, thinking_label, output_pad);
         view.update(message);
         view
     }
@@ -156,6 +159,13 @@ impl AssistantView {
     /// Show or hide the thinking blocks, redrawing the message that was here.
     pub fn set_hide_thinking(&mut self, hide: bool) {
         self.hide_thinking = hide;
+        if let Some(message) = self.last.clone() {
+            self.update(&message);
+        }
+    }
+
+    pub fn set_thinking_label(&mut self, label: &str) {
+        self.thinking_label = label.to_owned();
         if let Some(message) = self.last.clone() {
             self.update(&message);
         }
@@ -199,7 +209,7 @@ impl AssistantView {
                     let after = content[i..].iter().any(visible);
                     if self.hide_thinking {
                         parts.push(Box::new(Text::new(
-                            &theme::italic(&theme::fg("thinkingText", "Thinking...")),
+                            &theme::italic(&theme::fg("thinkingText", &self.thinking_label)),
                             pad,
                             0,
                         )));

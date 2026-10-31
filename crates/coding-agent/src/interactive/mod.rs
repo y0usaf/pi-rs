@@ -4,6 +4,7 @@
 pub mod bash_mode;
 pub mod chat;
 pub mod clipboard;
+pub mod extension_ui;
 pub mod external_editor;
 pub mod footer;
 pub mod header;

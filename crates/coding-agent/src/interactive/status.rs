@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use pi_tui::components::editor::{Style, TopBorder};
-use pi_tui::components::loader::Loader;
+use pi_tui::components::loader::{Loader, LoaderIndicatorOptions};
 use pi_tui::components::text::StyleFn;
 use pi_tui::tui::Component;
 use pi_tui::utils::{truncate_to_width, visible_width};
@@ -11,13 +11,25 @@ pub const WORKING: &str = "Working";
 
 pub struct StatusIndicator {
     loader: Loader,
+    indicator: Option<LoaderIndicatorOptions>,
 }
 
 impl StatusIndicator {
-    pub fn new(message: &str, color: StyleFn) -> StatusIndicator {
-        let mut loader = Loader::new(color.clone(), color, message, None);
+    pub fn new(
+        message: &str,
+        color: StyleFn,
+        indicator: Option<LoaderIndicatorOptions>,
+    ) -> StatusIndicator {
+        let mut loader = Loader::new(color.clone(), color, message, indicator.clone());
         loader.start();
-        StatusIndicator { loader }
+        StatusIndicator { loader, indicator }
+    }
+
+    pub fn set_indicator(&mut self, indicator: Option<&LoaderIndicatorOptions>) {
+        if self.indicator.as_ref() != indicator {
+            self.indicator = indicator.cloned();
+            self.loader.set_indicator(self.indicator.clone());
+        }
     }
 
     pub fn set_message(&mut self, message: &str) {

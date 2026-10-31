@@ -1,6 +1,8 @@
 //! `components/footer.ts`: the working directory and git branch, then token totals, cost,
 //! context use and the model.
 
+use std::collections::BTreeMap;
+
 use pi_durable::ai::types::{AssistantBlock, Message, UserBlock, UserContent};
 use pi_durable::ai::utils::text::{system_content_text, utf16_len};
 use pi_tui::tui::Component;
@@ -152,6 +154,27 @@ pub struct FooterState {
     pub thinking: String,
     pub provider_count: usize,
     pub auto_compact: bool,
+    pub session_name: Option<String>,
+    pub statuses: BTreeMap<String, String>,
+}
+
+fn sanitize_status(text: &str) -> String {
+    text.replace(['\r', '\n', '\t'], " ")
+        .split(' ')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn status_line(statuses: &BTreeMap<String, String>, width: usize) -> String {
+    let mut sorted: Vec<(&String, &String)> = statuses.iter().collect();
+    sorted.sort_by(|(a, _), (b, _)| a.to_lowercase().cmp(&b.to_lowercase()).then(b.cmp(a)));
+    let line = sorted
+        .into_iter()
+        .map(|(_, text)| sanitize_status(text))
+        .collect::<Vec<_>>()
+        .join(" ");
+    truncate_to_width(&line, width, &fg("dim", "..."), false)
 }
 
 pub struct Footer {
@@ -165,6 +188,9 @@ impl Component for Footer {
         let mut pwd = format_cwd(&s.cwd, home.as_deref());
         if let Some(branch) = &s.branch {
             pwd = format!("{pwd} ({branch})");
+        }
+        if let Some(name) = &s.session_name {
+            pwd = format!("{pwd} • {name}");
         }
         let t = &s.totals;
         let mut parts = Vec::new();
@@ -238,7 +264,11 @@ impl Component for Footer {
             String::new()
         };
         let pwd_line = truncate_to_width(&fg("dim", &pwd), width, &fg("dim", "..."), false);
-        vec![pwd_line, fg("dim", &left) + &fg("dim", &remainder)]
+        let mut lines = vec![pwd_line, fg("dim", &left) + &fg("dim", &remainder)];
+        if !s.statuses.is_empty() {
+            lines.push(status_line(&s.statuses, width));
+        }
+        lines
     }
 }
 

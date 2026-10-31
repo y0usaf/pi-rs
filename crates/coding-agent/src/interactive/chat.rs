@@ -24,6 +24,8 @@ use super::theme;
 use super::theme::fg;
 use super::tool_row::{ShownResult, ToolRow};
 
+pub const DEFAULT_THINKING_LABEL: &str = "Thinking...";
+
 pub struct Chat {
     pub container: Rc<RefCell<Container>>,
     streaming: Option<(Rc<RefCell<AssistantView>>, AssistantMessage)>,
@@ -38,6 +40,7 @@ pub struct Chat {
     pub cwd: String,
     pub expanded: bool,
     pub hide_thinking: bool,
+    thinking_label: String,
     pub output_pad: usize,
     /// A run is going: the working indicator shows and Escape aborts.
     pub working: bool,
@@ -82,6 +85,7 @@ impl Chat {
             cwd: cwd.to_string(),
             expanded: false,
             hide_thinking: false,
+            thinking_label: DEFAULT_THINKING_LABEL.to_owned(),
             output_pad: 1,
             working: false,
             totals: Totals::default(),
@@ -196,6 +200,13 @@ impl Chat {
         }
     }
 
+    pub fn set_thinking_label(&mut self, label: &str) {
+        self.thinking_label = label.to_owned();
+        for view in &self.views {
+            view.borrow_mut().set_thinking_label(label);
+        }
+    }
+
     pub fn set_expanded(&mut self, expanded: bool) {
         self.expanded = expanded;
         for row in &self.all_rows {
@@ -300,6 +311,7 @@ impl Chat {
     fn start_assistant(&mut self, message: &AssistantMessage) {
         let view = Rc::new(RefCell::new(AssistantView::new(
             self.hide_thinking,
+            &self.thinking_label,
             self.output_pad,
         )));
         self.add(view.clone());
@@ -316,6 +328,7 @@ impl Chat {
                 let view = Rc::new(RefCell::new(AssistantView::with_message(
                     message,
                     self.hide_thinking,
+                    &self.thinking_label,
                     self.output_pad,
                 )));
                 self.add(view.clone());

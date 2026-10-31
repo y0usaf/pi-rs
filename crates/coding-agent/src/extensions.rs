@@ -2082,10 +2082,17 @@ impl Live {
 
     /// `agent_settled`, once a run has ended and nothing is left to send.
     pub fn settle(&self, aborted: bool) {
-        let pending = lock(&self.0.state).pending;
-        if pending == 0 && self.0.settled.swap(false, Ordering::SeqCst) {
-            self.event("agent_settled", json!({ "aborted": aborted }));
+        if self.settles() {
+            self.settled(aborted);
         }
+    }
+
+    pub fn settles(&self) -> bool {
+        lock(&self.0.state).pending == 0 && self.0.settled.swap(false, Ordering::SeqCst)
+    }
+
+    pub fn settled(&self, aborted: bool) {
+        self.event("agent_settled", json!({ "aborted": aborted }));
     }
 
     pub fn print_events(&self, printer: Printer) {

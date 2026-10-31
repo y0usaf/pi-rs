@@ -3,6 +3,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static REQUESTED: AtomicBool = AtomicBool::new(false);
 const SIGNALS: [libc::c_int; 2] = [libc::SIGTERM, libc::SIGHUP];
 
+pub fn requested() -> bool {
+    REQUESTED.load(Ordering::SeqCst)
+}
+
 extern "C" fn on_signal(_: libc::c_int) {
     REQUESTED.store(true, Ordering::SeqCst);
 }
@@ -30,7 +34,7 @@ impl Shutdown {
     }
 
     pub fn requested(&self) -> bool {
-        REQUESTED.load(Ordering::SeqCst)
+        requested()
     }
 }
 

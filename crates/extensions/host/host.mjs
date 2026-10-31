@@ -111,7 +111,9 @@ const { normalizeBuildSystemPromptOptions } = await import(new URL("core/system-
 const { estimateProjectedContextTokens } = await import(new URL("core/compaction/compaction.js", dist));
 const { killAll } = await import(new URL("core/exec.js", dist));
 const { executeBashWithOperations } = await import(new URL("core/bash-executor.js", dist));
-const { initTheme } = await import(new URL("modes/interactive/theme/theme.js", dist));
+const { getAvailableThemesWithPaths, getThemeByName, initTheme } = await import(
+	new URL("modes/interactive/theme/theme.js", dist)
+);
 const { flowOf } = await import(new URL("./node_modules/@earendil-works/pi-ai/dist/providers/all.js", import.meta.url));
 const usage = await import(new URL("core/compaction/compaction.js", dist));
 const { getLatestCompactionEntry } = await import(new URL("core/session-manager.js", dist));
@@ -858,80 +860,124 @@ const commandActions = {
 	reload: rejecter("ctx.reload"),
 };
 
-/** The UI pi-rs draws: `notify`; each other member of upstream's UI context is reported and thrown. */
-function uiOf(noOp) {
-	const ui = {};
-	for (const [name, value] of Object.entries(noOp)) {
-		ui[name] = typeof value === "function" ? thrower(`ctx.ui.${name}`) : value;
-	}
-	ui.notify = (message, type) => effect({ call: "notify", text: String(message), level: type ?? "info" });
-	return ui;
+function uiRequest(fields) {
+	return { type: "extension_ui_request", id: crypto.randomUUID(), ...fields };
+}
+
+function uiShow(fields) {
+	effect({ call: "ui", line: uiRequest(fields) });
+}
+
+function uiDialog(opts, fallback, fields, parse, timeout) {
+	if (opts?.signal?.aborted) return Promise.resolve(fallback);
+	const { callId, answer } = askStream("ui", { line: uiRequest(fields) });
+	return new Promise((resolve, reject) => {
+		let timeoutId;
+		const cleanup = () => {
+			if (timeoutId) clearTimeout(timeoutId);
+			opts?.signal?.removeEventListener("abort", onAbort);
+		};
+		const onAbort = () => {
+			cleanup();
+			effect({ call: "cancel", ask: callId });
+			resolve(fallback);
+		};
+		opts?.signal?.addEventListener("abort", onAbort, { once: true });
+		if (timeout) timeoutId = setTimeout(onAbort, timeout);
+		answer.then(
+			(response) => {
+				cleanup();
+				resolve(parse(response));
+			},
+			(error) => {
+				cleanup();
+				reject(error);
+			},
+		);
+	});
+}
+
+const uiChosen = (response) => (response.cancelled ? undefined : "value" in response ? response.value : undefined);
+const uiConfirmed = (response) => (response.cancelled ? false : "confirmed" in response ? response.confirmed : false);
+
+function tuiUI(noOp) {
+	const dialog = (opts, fallback, fields, parse) => uiDialog(opts, fallback, fields, parse, undefined);
+	const read = (method) => askNow("ui", { line: uiRequest({ method }) });
+	const restoreOnly = (member) => (factory) => {
+		if (factory !== undefined) throw unported(member);
+	};
+	return {
+		select: (title, options, opts) =>
+			dialog(opts, undefined, { method: "select", title, options, timeout: opts?.timeout }, uiChosen),
+		confirm: (title, message, opts) =>
+			dialog(opts, false, { method: "confirm", title, message, timeout: opts?.timeout }, uiConfirmed),
+		input: (title, _placeholder, opts) =>
+			dialog(opts, undefined, { method: "input", title, timeout: opts?.timeout }, uiChosen),
+		notify: (message, type) => uiShow({ method: "notify", message, notifyType: type }),
+		onTerminalInput: thrower("ctx.ui.onTerminalInput"),
+		setStatus: (key, text) => uiShow({ method: "setStatus", statusKey: key, statusText: text }),
+		setWorkingMessage: (message) => uiShow({ method: "setWorkingMessage", message }),
+		setWorkingVisible: (visible) => uiShow({ method: "setWorkingVisible", visible }),
+		setWorkingIndicator: (options) => uiShow({ method: "setWorkingIndicator", indicator: options }),
+		setHiddenThinkingLabel: (label) => uiShow({ method: "setHiddenThinkingLabel", label }),
+		setWidget: (key, content, options) => {
+			if (typeof content === "function") throw unported("ctx.ui.setWidget with a component");
+			uiShow({ method: "setWidget", widgetKey: key, widgetLines: content, widgetPlacement: options?.placement });
+		},
+		setFooter: restoreOnly("ctx.ui.setFooter"),
+		setHeader: restoreOnly("ctx.ui.setHeader"),
+		setTitle: (title) => uiShow({ method: "setTitle", title }),
+		custom: rejecter("ctx.ui.custom"),
+		pasteToEditor: (text) => uiShow({ method: "paste_to_editor", text }),
+		setEditorText: (text) => uiShow({ method: "set_editor_text", text }),
+		getEditorText: () => read("get_editor_text"),
+		editor: rejecter("ctx.ui.editor"),
+		addAutocompleteProvider: thrower("ctx.ui.addAutocompleteProvider"),
+		setEditorComponent: restoreOnly("ctx.ui.setEditorComponent"),
+		getEditorComponent: () => undefined,
+		get theme() {
+			return noOp.theme;
+		},
+		getAllThemes: () => getAvailableThemesWithPaths(),
+		getTheme: (name) => getThemeByName(name),
+		setTheme: thrower("ctx.ui.setTheme"),
+		getToolsExpanded: () => read("get_tools_expanded"),
+		setToolsExpanded: (expanded) => uiShow({ method: "setToolsExpanded", expanded }),
+	};
 }
 
 /** RPC mode's UI: upstream's createExtensionUIContext in modes/rpc/rpc-mode.ts, each request a line pi-rs writes and each dialog answered by the client's extension_ui_response. */
 function rpcUI(noOp) {
-	const request = (fields) => ({ type: "extension_ui_request", id: crypto.randomUUID(), ...fields });
-	const show = (fields) => effect({ call: "ui", line: request(fields) });
-	const dialog = (opts, fallback, fields, parse) => {
-		if (opts?.signal?.aborted) return Promise.resolve(fallback);
-		const { callId, answer } = askStream("ui", { line: request(fields) });
-		return new Promise((resolve, reject) => {
-			let timeoutId;
-			const cleanup = () => {
-				if (timeoutId) clearTimeout(timeoutId);
-				opts?.signal?.removeEventListener("abort", onAbort);
-			};
-			const onAbort = () => {
-				cleanup();
-				effect({ call: "cancel", ask: callId });
-				resolve(fallback);
-			};
-			opts?.signal?.addEventListener("abort", onAbort, { once: true });
-			if (opts?.timeout) timeoutId = setTimeout(onAbort, opts.timeout);
-			answer.then(
-				(response) => {
-					cleanup();
-					resolve(parse(response));
-				},
-				(error) => {
-					cleanup();
-					reject(error);
-				},
-			);
-		});
-	};
-	const chosen = (response) => (response.cancelled ? undefined : "value" in response ? response.value : undefined);
+	const dialog = (opts, fallback, fields, parse) => uiDialog(opts, fallback, fields, parse, opts?.timeout);
 	return {
 		select: (title, options, opts) =>
-			dialog(opts, undefined, { method: "select", title, options, timeout: opts?.timeout }, chosen),
+			dialog(opts, undefined, { method: "select", title, options, timeout: opts?.timeout }, uiChosen),
 		confirm: (title, message, opts) =>
-			dialog(opts, false, { method: "confirm", title, message, timeout: opts?.timeout }, (response) =>
-				response.cancelled ? false : "confirmed" in response ? response.confirmed : false,
-			),
+			dialog(opts, false, { method: "confirm", title, message, timeout: opts?.timeout }, uiConfirmed),
 		input: (title, placeholder, opts) =>
-			dialog(opts, undefined, { method: "input", title, placeholder, timeout: opts?.timeout }, chosen),
-		notify: (message, type) => show({ method: "notify", message, notifyType: type }),
+			dialog(opts, undefined, { method: "input", title, placeholder, timeout: opts?.timeout }, uiChosen),
+		notify: (message, type) => uiShow({ method: "notify", message, notifyType: type }),
 		onTerminalInput: () => () => {},
-		setStatus: (key, text) => show({ method: "setStatus", statusKey: key, statusText: text }),
+		setStatus: (key, text) => uiShow({ method: "setStatus", statusKey: key, statusText: text }),
 		setWorkingMessage: () => {},
 		setWorkingVisible: () => {},
 		setWorkingIndicator: () => {},
 		setHiddenThinkingLabel: () => {},
 		setWidget: (key, content, options) => {
 			if (content === undefined || Array.isArray(content)) {
-				show({ method: "setWidget", widgetKey: key, widgetLines: content, widgetPlacement: options?.placement });
+				uiShow({ method: "setWidget", widgetKey: key, widgetLines: content, widgetPlacement: options?.placement });
 			}
 		},
 		setFooter: () => {},
 		setHeader: () => {},
-		setTitle: (title) => show({ method: "setTitle", title }),
+		setTitle: (title) => uiShow({ method: "setTitle", title }),
 		custom: async () => undefined,
 		pasteToEditor(text) {
 			this.setEditorText(text);
 		},
-		setEditorText: (text) => show({ method: "set_editor_text", text }),
+		setEditorText: (text) => uiShow({ method: "set_editor_text", text }),
 		getEditorText: () => "",
-		editor: (title, prefill) => dialog(undefined, undefined, { method: "editor", title, prefill }, chosen),
+		editor: (title, prefill) => dialog(undefined, undefined, { method: "editor", title, prefill }, uiChosen),
 		addAutocompleteProvider: () => {},
 		setEditorComponent: () => {},
 		getEditorComponent: () => undefined,
@@ -1000,7 +1046,7 @@ async function load(request) {
 	runner.setUIContext(undefined, state.mode);
 	if (state.hasUI) {
 		const noOp = runner.getUIContext();
-		runner.setUIContext(state.mode === "rpc" ? rpcUI(noOp) : uiOf(noOp), state.mode);
+		runner.setUIContext(state.mode === "rpc" ? rpcUI(noOp) : tuiUI(noOp), state.mode);
 	}
 	runner.bindCommandContext(commandActions);
 	return {

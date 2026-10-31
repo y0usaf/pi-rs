@@ -12,7 +12,7 @@ pub const DEFAULT_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", 
 pub const DEFAULT_INTERVAL_MS: u64 = 80;
 
 /// Custom indicator: frames (empty hides it) and interval.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct LoaderIndicatorOptions {
     pub frames: Option<Vec<String>>,
     pub interval_ms: Option<u64>,

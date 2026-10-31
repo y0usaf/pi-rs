@@ -3,6 +3,7 @@
 //! `pi_tui`'s select list and settings list.
 
 pub mod confirm;
+pub mod extension;
 pub mod fork;
 pub mod login;
 pub mod model;

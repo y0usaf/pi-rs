@@ -27,6 +27,7 @@ use pi_extensions::Call;
 use pi_tui::autocomplete::CombinedAutocompleteProvider;
 use pi_tui::components::editor::Style;
 use pi_tui::components::editor::{Editor, EditorOptions};
+use pi_tui::components::loader::LoaderIndicatorOptions;
 use pi_tui::components::spacer::Spacer;
 use pi_tui::components::text::Text;
 use pi_tui::keys::is_key_release;
@@ -37,6 +38,7 @@ use serde_json::json;
 
 use super::bash_mode::BashMode;
 use super::chat::Chat;
+use super::extension_ui::{ExtensionUi, Surface};
 use super::external_editor;
 use super::footer::{Footer, FooterState, Totals, git_branch};
 use super::header::{ExpandableText, built_in_header};
@@ -212,6 +214,34 @@ fn terminal_title(name: Option<&str>, cwd: &str) -> String {
     }
 }
 
+fn refresh_title(
+    tui: &mut Screen,
+    footer: &Rc<RefCell<Footer>>,
+    shown: &mut Option<String>,
+    name: Option<String>,
+    cwd: &str,
+) -> bool {
+    let title = terminal_title(name.as_deref(), cwd);
+    if shown.as_ref() != Some(&title) {
+        tui.set_title(&title);
+        *shown = Some(title);
+    }
+    let mut footer = footer.borrow_mut();
+    let renamed = footer.state.session_name != name;
+    footer.state.session_name = name;
+    renamed
+}
+
+fn wants_quit(actions: &RefCell<Vec<Action>>) -> bool {
+    let actions = actions.borrow();
+    actions.contains(&Action::Exit)
+        || actions
+            .iter()
+            .filter(|action| **action == Action::Clear)
+            .count()
+            >= 2
+}
+
 fn usable_usage(message: &Message) -> Option<u64> {
     match message {
         Message::Assistant(assistant)
@@ -283,23 +313,29 @@ fn thinking_border(level: &str) -> Style {
     theme::fg_fn(token)
 }
 
-fn update_working(embedded: &Embedded, message: Option<&str>, color: &Rc<RefCell<Style>>) -> bool {
+fn update_working(
+    embedded: &Embedded,
+    working: Option<(&str, Option<&LoaderIndicatorOptions>)>,
+    color: &Rc<RefCell<Style>>,
+) -> bool {
     let mut slot = embedded.borrow_mut();
-    match (message, slot.as_mut()) {
+    match (working, slot.as_mut()) {
         (None, None) => false,
         (None, Some(_)) => {
             *slot = None;
             true
         }
-        (Some(message), Some(indicator)) => {
-            indicator.set_message(message);
+        (Some((message, indicator)), Some(shown)) => {
+            shown.set_message(message);
+            shown.set_indicator(indicator);
             false
         }
-        (Some(message), None) => {
+        (Some((message, indicator)), None) => {
             let color = color.clone();
             *slot = Some(StatusIndicator::new(
                 message,
                 Rc::new(move |text: &str| (color.borrow())(text)),
+                indicator.cloned(),
             ));
             true
         }
@@ -573,8 +609,6 @@ fn serve_extension_calls(live: &crate::extensions::Live, calls: Calls<'_>) -> bo
             }
         }
     }
-    live.settle(*interrupted);
-    *interrupted = *interrupted && chat.working;
     drew
 }
 
@@ -960,13 +994,15 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     editor.borrow_mut().border_color = border_style.borrow().clone();
     editor.borrow_mut().top_border = Some(embedded_top_border(embedded.clone()));
     let editor_slot = container(vec![as_ref(&editor)]);
+    let widgets_above = container(vec![as_ref(&component(Spacer::new(1)))]);
+    let widgets_below = container(Vec::new());
     let viewport_parts = ViewportParts {
         document: as_ref(&document),
         pending: as_ref(&pending_area),
         status: as_ref(&status_container),
-        widgets_above: as_ref(&container(vec![as_ref(&component(Spacer::new(1)))])),
+        widgets_above: as_ref(&widgets_above),
         editor: as_ref(&editor_slot),
-        widgets_below: as_ref(&container(Vec::new())),
+        widgets_below: as_ref(&widgets_below),
         footer: as_ref(&container(vec![as_ref(&footer)])),
     };
     let viewport = chat_viewport(&viewport_parts, settings.borrow().fullscreen_scrollbar());
@@ -1067,7 +1103,7 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     let shutdown = super::signals::Shutdown::install();
     tui.start();
     let mut signalled = false;
-    let mut title_stale = true;
+    let mut title_stale = false;
     let mut context_stale = true;
     let mut startup_submitted = false;
     let query = theme::query_terminal_colors(&mut tui, now());
@@ -1146,8 +1182,29 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         });
     }
     let live = crate::extensions::live();
+    let (mut extension_ui, requests) = ExtensionUi::new(
+        Surface {
+            editor: editor.clone(),
+            editor_slot: editor_slot.clone(),
+            widgets_above: widgets_above.clone(),
+            widgets_below: widgets_below.clone(),
+            footer: footer.clone(),
+            dialog_open: selector_open.clone(),
+        },
+        start,
+    );
+    let quitting = || super::signals::requested() || wants_quit(&actions);
+    let mut shown_title: Option<String> = None;
+    refresh_title(
+        &mut tui,
+        &footer,
+        &mut shown_title,
+        session_info::name(&open.harness, &cancel),
+        &cwd,
+    );
     let mut handed: Option<(String, String)> = None;
     if let Some(live) = live {
+        extension_ui.install(live, requests);
         live.hand_models(&registry, &model);
         handed = Some((model.provider.clone(), model.id.clone()));
         live.set_session(
@@ -1157,7 +1214,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             &cwd,
             &cancel,
         );
-        live.event("session_start", json!({ "reason": "startup" }));
+        extension_ui.wait(&mut tui, &mut chat, &quitting, move || {
+            live.event("session_start", json!({ "reason": "startup" }))
+        });
     }
     let mut interrupted = false;
     let mut last_clear: Option<Instant> = None;
@@ -1166,9 +1225,14 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
     while !quit {
         if !chat.working && !pending.is_empty() {
             let (content, source) = pending.remove(0);
-            match submit(&open.root, &model, content, source, false, &cancel, live) {
-                Ok(()) => chat.working = true,
-                Err(e) => chat.notice("error", &format!("Error: {e}")),
+            let (root, chosen, stop) = (open.root.clone(), model.clone(), cancel.clone());
+            let submitted = extension_ui.wait(&mut tui, &mut chat, &quitting, move || {
+                submit(&root, &chosen, content, source, false, &stop, live)
+            });
+            match submitted {
+                Some(Ok(())) => chat.working = true,
+                Some(Err(e)) => chat.notice("error", &format!("Error: {e}")),
+                None => {}
             }
             dirty.set(true);
         }
@@ -1216,12 +1280,15 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         while let Ok(message) = incoming.try_recv() {
             match message {
                 Incoming::Events(events) => {
+                    let events = Arc::new(events);
                     let mut queue_changed = false;
                     let mut entries_changed = false;
                     if let Some(live) = live {
-                        live.observe(&events);
+                        let batch = Arc::clone(&events);
+                        extension_ui
+                            .wait(&mut tui, &mut chat, &quitting, move || live.observe(&batch));
                     }
-                    for event in &events {
+                    for event in events.iter() {
                         if matches!(event, AgentEvent::InboxUpdate { .. }) {
                             queue_changed = true;
                         }
@@ -1259,8 +1326,11 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 }
             }
         }
-        if let Some(live) = live
-            && serve_extension_calls(
+        if extension_ui.serve(&mut tui, &mut chat) {
+            dirty.set(true);
+        }
+        if let Some(live) = live {
+            if serve_extension_calls(
                 live,
                 Calls {
                     root: &open.root,
@@ -1271,16 +1341,35 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                     interrupted: &mut interrupted,
                     cancel: &cancel,
                 },
-            )
+            ) {
+                dirty.set(true);
+            }
+            if live.settles() {
+                let aborted = interrupted;
+                extension_ui.wait(&mut tui, &mut chat, &quitting, move || {
+                    live.settled(aborted)
+                });
+            }
+            interrupted = interrupted && chat.working;
+        }
+        let effects = extension_ui.take_effects();
+        if effects.opened {
+            selector = None;
+            login_dialog = None;
+        }
+        if effects
+            .tools_expanded
+            .is_some_and(|expanded| expanded != chat.expanded)
         {
-            dirty.set(true);
+            actions.borrow_mut().push(Action::Expand);
         }
         if let Some(level) = live.and_then(crate::extensions::Live::take_thinking_change) {
             thinking = level;
             footer.borrow_mut().state.thinking = level_name(level);
             dirty.set(true);
         }
-        for action in actions.borrow_mut().drain(..) {
+        let acted: Vec<Action> = actions.borrow_mut().drain(..).collect();
+        for action in acted {
             match action {
                 Action::Interrupt => {
                     if !chat.working && bash.cancel() {
@@ -1317,15 +1406,14 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         editor.borrow_mut().add_to_history(&text);
                         editor.borrow_mut().set_text("");
                         let expanded = crate::prompt_templates::expand(&text, &templates);
-                        if let Err(e) = submit(
-                            &open.root,
-                            &model,
-                            text_input(&expanded, &[]),
-                            "interactive",
-                            false,
-                            &cancel,
-                            live,
-                        ) {
+                        let (root, chosen, stop) =
+                            (open.root.clone(), model.clone(), cancel.clone());
+                        let content = text_input(&expanded, &[]);
+                        let submitted =
+                            extension_ui.wait(&mut tui, &mut chat, &quitting, move || {
+                                submit(&root, &chosen, content, "interactive", false, &stop, live)
+                            });
+                        if let Some(Err(e)) = submitted {
                             chat.notice("error", &format!("Error: {e}"));
                         }
                         refresh_pending(&pending_area, &open.root, &cancel);
@@ -1948,7 +2036,11 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             if trimmed.is_empty() {
                 continue;
             }
-            if live.is_some_and(|live| live.run_command(trimmed)) {
+            if let Some(live) = live
+                && live.command_named(trimmed).is_some()
+            {
+                let typed = trimmed.to_owned();
+                std::thread::spawn(move || live.run_command(&typed));
                 continue;
             }
             if let Some(command) = slash_commands::dispatch(trimmed) {
@@ -1980,8 +2072,11 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                         Some(name) => match session_info::set_name(&open.root, &cancel, &name) {
                             Ok(()) => {
                                 let stored = session_info::name(&open.harness, &cancel);
-                                if let Some(live) = crate::extensions::live() {
-                                    live.renamed(stored.clone(), &cancel);
+                                if let Some(live) = live {
+                                    let (named, stop) = (stored.clone(), cancel.clone());
+                                    extension_ui.wait(&mut tui, &mut chat, &quitting, move || {
+                                        live.renamed(named, &stop)
+                                    });
                                 }
                                 if let Some(stored) = &stored
                                     && stored != &name
@@ -2325,17 +2420,16 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
             }
             editor.borrow_mut().add_to_history(&text);
             let expanded = crate::prompt_templates::expand(&text, &templates);
-            match submit(
-                &open.root,
-                &model,
-                text_input(&expanded, &[]),
-                "interactive",
-                chat.working,
-                &cancel,
-                live,
-            ) {
-                Ok(()) => chat.working = true,
-                Err(e) => chat.notice("error", &format!("Error: {e}")),
+            let busy = chat.working;
+            let (root, chosen, stop) = (open.root.clone(), model.clone(), cancel.clone());
+            let content = text_input(&expanded, &[]);
+            let submitted = extension_ui.wait(&mut tui, &mut chat, &quitting, move || {
+                submit(&root, &chosen, content, "interactive", busy, &stop, live)
+            });
+            match submitted {
+                Some(Ok(())) => chat.working = true,
+                Some(Err(e)) => chat.notice("error", &format!("Error: {e}")),
+                None => {}
             }
             if refresh_pending(&pending_area, &open.root, &cancel) {
                 dirty.set(true);
@@ -2348,8 +2442,14 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
                 dirty.set(true);
             }
         }
-        let working = (chat.working || chat.status.is_some())
-            .then(|| chat.status.as_deref().unwrap_or(WORKING));
+        let working = match chat.status.as_deref() {
+            Some(status) => Some((status, None)),
+            None if chat.working && extension_ui.working_visible => Some((
+                extension_ui.working_message.as_deref().unwrap_or(WORKING),
+                extension_ui.working_indicator.as_ref(),
+            )),
+            None => None,
+        };
         if update_working(&embedded, working, &border_style) {
             dirty.set(true);
         }
@@ -2394,7 +2494,9 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         if title_stale {
             title_stale = false;
             let name = session_info::name(&open.harness, &cancel);
-            tui.set_title(&terminal_title(name.as_deref(), &cwd));
+            if refresh_title(&mut tui, &footer, &mut shown_title, name, &cwd) {
+                dirty.set(true);
+            }
         }
         editor.borrow_mut().terminal_rows = tui.rows();
         if dirty.replace(false) {
@@ -2402,12 +2504,17 @@ pub fn run(session: Session) -> Result<Option<String>, String> {
         }
     }
     if signalled && let Some(live) = live {
-        live.event("session_shutdown", json!({ "reason": "quit" }));
+        let began = Instant::now();
+        let overdue = move || began.elapsed() >= pi_extensions::EVENT_BUDGET;
+        extension_ui.wait(&mut tui, &mut chat, &overdue, move || {
+            live.event("session_shutdown", json!({ "reason": "quit" }))
+        });
     }
     tui.terminal().drain_input(1000, 50);
     let exit_output = settings.borrow().fullscreen_exit_output().to_owned();
     let tui = tui.stop_interactive(&exit_output, &settings.borrow(), &viewport.root, now());
     drop(tui);
+    drop(extension_ui);
     drop(shutdown);
     if chat.working {
         let _ = open.root.abort(false, &cancel);
